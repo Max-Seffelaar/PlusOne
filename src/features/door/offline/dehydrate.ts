@@ -22,6 +22,7 @@
  * (#25). A week's worth of events is bounded; three months of them was not.
  */
 import type { Query } from '@tanstack/react-query';
+import type { PersistedClient } from '@tanstack/react-query-persist-client';
 
 /** Root query keys the door persists — nothing else may reach IndexedDB. */
 const DOOR_QUERY_ROOTS = new Set(['door', 'door-quota']);
@@ -51,6 +52,35 @@ export function shouldDehydrateDoorQuery(query: Query, now: number, maxAge: numb
   if (query.state.data === undefined || query.state.dataUpdatedAt === 0) return false;
   if (query.state.status !== 'success' && query.state.status !== 'error') return false;
   return now - query.state.dataUpdatedAt <= maxAge;
+}
+
+/**
+ * `client` with every persisted query's error object dropped (§6 review).
+ *
+ * Since N7 a query that failed its refetch but still holds data is persisted, and
+ * `dehydrate` copies `query.state` as is — so `state.error` would be written to
+ * IndexedDB by structured clone. Today those errors carry no token or guest
+ * field, but a future `queryFn` that throws with a response body would persist
+ * it silently, and a WebKit that cannot clone `Error` (< 15.4) would fail the
+ * WHOLE snapshot write on it. Booting the door needs only `data` +
+ * `dataUpdatedAt`, so such a query is stored as the success it last had: the
+ * 30 s `staleTime` still refetches it on mount.
+ */
+export function withoutQueryErrors(client: PersistedClient): PersistedClient {
+  const queries = client.clientState.queries.map((q) =>
+    q.state.error == null && q.state.fetchFailureReason == null
+      ? q
+      : {
+          ...q,
+          state: {
+            ...q.state,
+            error: null,
+            fetchFailureReason: null,
+            status: q.state.data === undefined ? q.state.status : ('success' as const),
+          },
+        },
+  );
+  return { ...client, clientState: { ...client.clientState, queries } };
 }
 
 /**

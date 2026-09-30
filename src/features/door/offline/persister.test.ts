@@ -17,7 +17,11 @@ import { createIdbPersister } from './persister';
 const THROTTLE = 2000;
 
 function client(tag: string): PersistedClient {
-  return { buster: 'b', timestamp: 0, clientState: { tag } } as unknown as PersistedClient;
+  return {
+    buster: 'b',
+    timestamp: 0,
+    clientState: { tag, queries: [], mutations: [] },
+  } as unknown as PersistedClient;
 }
 
 describe('createIdbPersister — throttle (P-IDB2)', () => {
@@ -72,5 +76,48 @@ describe('createIdbPersister — throttle (P-IDB2)', () => {
     vi.mocked(idbEpoch).mockReturnValue(1); // idbClearAll() bumped it (sign-out)
     vi.advanceTimersByTime(THROTTLE);
     expect(idbSet).not.toHaveBeenCalled();
+  });
+});
+
+describe('createIdbPersister — no error objects on disk (§6 review)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(idbSet).mockClear();
+    vi.mocked(idbEpoch).mockReturnValue(0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('writes a failed-refetch snapshot with its data but without the error', () => {
+    const p = createIdbPersister('k', THROTTLE);
+    p.persistClient({
+      buster: 'b',
+      timestamp: 0,
+      clientState: {
+        mutations: [],
+        queries: [
+          {
+            queryKey: ['door', 'ev1'],
+            queryHash: '["door","ev1"]',
+            state: {
+              status: 'error',
+              data: { guests: [{ id: 'g1' }] },
+              dataUpdatedAt: 5,
+              error: new Error('Failed to fetch'),
+              fetchFailureReason: new Error('Failed to fetch'),
+            },
+          },
+        ],
+      },
+    } as unknown as PersistedClient);
+    vi.advanceTimersByTime(THROTTLE);
+    const written = vi.mocked(idbSet).mock.calls[0][1] as PersistedClient;
+    const state = written.clientState.queries[0].state;
+    expect(state.error).toBeNull();
+    expect(state.fetchFailureReason).toBeNull();
+    expect(state.status).toBe('success');
+    expect(state.data).toEqual({ guests: [{ id: 'g1' }] });
+    expect(state.dataUpdatedAt).toBe(5);
   });
 });

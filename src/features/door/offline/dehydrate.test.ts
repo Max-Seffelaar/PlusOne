@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Query } from '@tanstack/react-query';
-import { isDoorQueryKey, isStaleDoorQuery, shouldDehydrateDoorQuery } from './dehydrate';
+import type { PersistedClient } from '@tanstack/react-query-persist-client';
+import { isDoorQueryKey, isStaleDoorQuery, shouldDehydrateDoorQuery, withoutQueryErrors } from './dehydrate';
 
 const WEEK = 1000 * 60 * 60 * 24 * 7;
 const NOW = 1_760_000_000_000;
@@ -81,5 +82,33 @@ describe('isStaleDoorQuery (boot sweep)', () => {
   it('never sweeps a fresh query, and never a non-door query', () => {
     expect(isStaleDoorQuery(q({ updatedAt: NOW }), NOW, WEEK)).toBe(false);
     expect(isStaleDoorQuery(q({ key: ['guests', 'ev1'], updatedAt: NOW - WEEK * 12 }), NOW, WEEK)).toBe(false);
+  });
+});
+
+describe('withoutQueryErrors (§6 review)', () => {
+  const persisted = (state: Record<string, unknown>): PersistedClient =>
+    ({
+      buster: 'b',
+      timestamp: 1,
+      clientState: { mutations: [], queries: [{ queryKey: ['door', 'ev1'], queryHash: 'h', state }] },
+    }) as unknown as PersistedClient;
+
+  it('drops the error of a query that kept its data, and stores it as the success it had', () => {
+    const error = new Error('Failed to fetch');
+    const out = withoutQueryErrors(
+      persisted({ status: 'error', data: { guests: [] }, dataUpdatedAt: 7, error, fetchFailureReason: error }),
+    );
+    expect(out.clientState.queries[0].state).toMatchObject({
+      status: 'success',
+      data: { guests: [] },
+      dataUpdatedAt: 7,
+      error: null,
+      fetchFailureReason: null,
+    });
+  });
+
+  it('leaves an error-free query untouched (same object)', () => {
+    const client = persisted({ status: 'success', data: { guests: [] }, dataUpdatedAt: 7, error: null });
+    expect(withoutQueryErrors(client).clientState.queries[0]).toBe(client.clientState.queries[0]);
   });
 });

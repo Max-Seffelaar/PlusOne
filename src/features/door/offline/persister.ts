@@ -15,6 +15,7 @@
  * worst case is a refetch on next boot.
  */
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client';
+import { withoutQueryErrors } from './dehydrate';
 import { IDB_OPEN_BLOCKED_RESTORE_GRACE_MS, idbDel, idbEpoch, idbGet, idbSet } from './idb';
 
 const CACHE_KEY = 'door-query-cache';
@@ -35,7 +36,8 @@ export function createIdbPersister(key = CACHE_KEY, throttleMs = PERSIST_THROTTL
     // we armed the timer). Otherwise this trailing write re-creates the
     // just-deleted `plusone-door` DB and re-persists the previous doorhost's
     // guest snapshot for the next person on a shared tablet (86ey9et07).
-    if (client && pendingEpoch === idbEpoch()) void idbSet(key, client);
+    // Error objects never reach disk (§6 review): see `withoutQueryErrors`.
+    if (client && pendingEpoch === idbEpoch()) void idbSet(key, withoutQueryErrors(client));
   };
 
   return {
