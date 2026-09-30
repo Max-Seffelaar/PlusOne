@@ -1095,6 +1095,32 @@ export function MiniChip({
   return <span className={cls}>{children}</span>;
 }
 
+// ── OfflineChip ──────────────────────────────────────────────────────────────
+/**
+ * The quiet "Offline" pill the shell shows at the top of the content column
+ * after a few seconds without a connection (N7 follow-up, `offline-indicator.tsx`
+ * owns when). Tapping it opens the explanation. 30px visible + 1px border, so
+ * an 8px ring above and below makes the tap area 44; the row it sits in pads
+ * 8px on top for that ring.
+ */
+export function OfflineChip({ onClick }: { onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={t.shared.offline.chipAria}
+      className={cn(
+        'po-anim-offline inline-flex h-[30px] items-center gap-[7px] rounded-full border border-line bg-elev2 px-[12px] font-body text-[12px] font-bold text-dim',
+        "relative before:absolute before:-inset-y-[8px] before:-inset-x-[2px] before:content-['']",
+        press,
+      )}
+    >
+      <SyncDot status="stale" />
+      {t.shared.offline.chip}
+    </button>
+  );
+}
+
 // ── ActionItem ───────────────────────────────────────────────────────────────
 /**
  * One choice in a "…" action sheet: icon badge + verb-first label + an optional

@@ -108,6 +108,16 @@ html {
     opacity: 1;
   }
 }
+/* Offline chip + hint (offline-indicator.tsx): translateY only, opacity stays 1
+   (design-system.md); the global prefers-reduced-motion rule disables it. */
+.po-anim-offline {
+  animation: po-offlinein 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes po-offlinein {
+  from {
+    transform: translateY(-8px);
+  }
+}
 .po-anim-sheet {
   animation: po-sheetin 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }

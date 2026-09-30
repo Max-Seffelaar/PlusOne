@@ -8,6 +8,32 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-30 — N7 follow-up: "Continue without internet" + quiet offline chip
+
+Branch `claude/n7-offline-ux-followup`, milestone Now. From Max's Android device test
+(2026-09-30): a cold offline start landed on Home ("couldn't load") instead of the door, and
+the app had no clear offline indication.
+
+- **`native/www/offline.html`:** new primary "Continue without internet" →
+  `ORIGIN + '/app/door'` (the SW serves the cached `/app` shell, `fallbackFor` + `ignoreSearch`).
+  It is NOT a reconnect attempt: it never touches the retry counter, so it can't push the page
+  into "Server trouble" while simply offline. Offered in the "Server trouble" state too. "Try
+  again" and the auto-reconnect are unchanged. Lead copy now says the device is offline.
+- **Quiet offline indicator** (`src/components/po/offline-indicator.tsx`, kit `OfflineChip`):
+  `navigator.onLine` + `online`/`offline` only. Offline under 3 s: nothing, not even a render.
+  From 3 s: "Offline" chip at the top of the content column, tap → Sheet with the explanation.
+  At 4 s, once per episode: a hint card with "Got it" / "Don't show again"
+  (`po:offline-hint-off`, try/catch). Back online resets everything. On the Deur tab the chip
+  is left out (the SyncBar already says "Offline · {age}" + "{n} queued"); the hint there
+  explains the queue (outbox variant only; the online-only cockpit gets the general copy).
+- Mounted in `app-chrome.tsx` as a sibling before the screen slot, outside the door/not-door
+  switch (a tab change keeps the episode). `door-render-isolation.test.tsx` gained an
+  online↔offline case (chrome + `PoDoorTab` counters stay put; verified red with the hook
+  lifted into the chrome). Note: the door resolver already re-renders on online/offline by
+  design (N7's `useBrowserOffline`), which `DoorTree`'s memo keeps off the list.
+- Checks: type-check, lint, `CI=1 pnpm test` (224 files / 2508 tests) green. Gotcha: bare
+  `pnpm test` is `vitest` in watch mode outside CI and never exits.
+
 ## 2026-09-28 — Fase 17 N7: door cold-offline in the shell + Android offline page (decision 15)
 
 Branch `claude/n7-door-cold-offline`. Kills Max's three device bugs: an offline refresh
