@@ -104,7 +104,13 @@ export const config = {
   // `workbox-` is gone with the artifact it served (public/workbox-*.js); the
   // only requester left would be a stale SW re-importing it, and that request
   // is meant to fail.
+  //
+  // `.well-known/` MUST stay excluded (Fase 17 S4): Apple's and Google's
+  // verifiers fetch the app-link association files with no session and treat a
+  // redirect as "no association" — a 307 to /login would silently disable
+  // universal links / App Links. Matcher-level for the same reason as
+  // `monitoring`: no session refresh for a crawler request.
   matcher: [
-    '/((?!_next/static|_next/image|monitoring(?:/|$)|favicon.ico|manifest.json|sw.js|service-worker.js|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
+    '/((?!_next/static|\\.well-known/|_next/image|monitoring(?:/|$)|favicon.ico|manifest.json|sw.js|service-worker.js|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
   ],
 };
