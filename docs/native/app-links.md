@@ -61,7 +61,10 @@ does not trust that: `appLinkTarget()` accepts only `https:`, host exactly
 to one of the two paths (percent-encoded paths are not decoded into a match). It returns a
 same-origin relative `path?query` (fragment dropped) and loads it as a full document
 navigation, so the route handler runs, sets the cookies, and applies its own `next=`
-open-redirect guard (`safeNextPath`). A cold-start link (Capacitor `getLaunchUrl()`, and on
-iOS also a retained `appUrlOpen` event) is followed once per webview session: the handled
-URL is remembered in `sessionStorage`, so the single-use token is never replayed by the
-reload the navigation itself causes.
+open-redirect guard (`safeNextPath`). A given link is navigated at most once per app process,
+from either source (`appUrlOpen` or `getLaunchUrl()`): committed links are remembered as short
+hashes (never the URL) in `sessionStorage`. That set matters on Android, where
+`getLaunchUrl()` keeps returning the cold-start link for the whole process. A link only counts
+as used once its navigation commits (`pagehide`); a known-offline tap waits for the `online`
+event, and a navigation that never leaves the page is released after 10 s, so a first tap
+without network never strands a valid link.

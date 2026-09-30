@@ -19,8 +19,10 @@
  *   prefix with a trailing slash on `server.url`: on Android that breaks the
  *   WebMessageListener origin rule and silently falls back to a global
  *   JavascriptInterface.
- * - The one permitted hard-coded app origin (CLAUDE.md "never hard-code an app
- *   origin"): a native shell needs it before any code runs.
+ * - A permitted hard-coded app origin (CLAUDE.md "never hard-code an app
+ *   origin" lists both exceptions): a native shell needs it before any code
+ *   runs. The other is `APP_LINK_HOST` in src/lib/native/app-links.ts;
+ *   tests/unit/app-links.test.ts pins the two to each other.
  *
  * Debug override (read at `npx cap sync` / `npx cap run` time, never at runtime):
  *   CAP_SERVER_URL=https://<preview>.vercel.app npx cap sync android

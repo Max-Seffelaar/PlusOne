@@ -39,6 +39,15 @@ browser. Claim = exactly `https://app.plus-one.io/auth/confirm` + `/auth/callbac
   constants) + `src/components/native-app-links.test.tsx`.
 - **Waits for Max**: `ANDROID_APP_LINK_SHA256` in Vercel Production after Play App Signing;
   Associated Domains capability on the App ID before the first S1b signing; device checks.
+- **§6 review fix round (2026-09-30):** the replay guard was a single "last handled" slot,
+  which Android's sticky `getLaunchUrl()` (`Bridge.java` reads the intent once per process)
+  defeats on every second link, and it claimed the link before the navigation left, so an
+  offline first tap stranded a valid token. Now: a per-process set of link hashes (no raw
+  token in storage), recorded on `pagehide` (+ a `pending` marker promoted on the next
+  mount), offline taps deferred to `online`, uncommitted navigations released after 10 s.
+  Also: `useCapacitorApp` shared with `NativeBackButton`, lint/tsc now cover
+  `src/app/.well-known`, one shared middleware-matcher test helper, and CLAUDE.md records
+  `APP_LINK_HOST` as the second permitted hard-coded origin.
 
 ## 2026-09-28 — QA-1: automated layout/visual suite
 
