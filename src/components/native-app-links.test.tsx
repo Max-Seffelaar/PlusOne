@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
  * NativeAppLinks (Fase 17 S4): registers `appUrlOpen` only in the native shell,
- * navigates only for the two claimed auth paths, and never replays a
- * single-use link (retained iOS event + launch URL, or a remount after the
- * reload its own navigation causes).
+ * navigates only for the two claimed auth paths, navigates a given link at most
+ * once per app process (retained iOS event + launch URL, Android's sticky
+ * launch URL across later links and reloads), and never strands a link whose
+ * navigation did not commit (offline first tap).
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, cleanup, waitFor } from '@testing-library/react';
@@ -21,6 +22,16 @@ vi.mock('@capacitor/app', () => ({
 
 const assign = vi.fn();
 const LINK = 'https://app.plus-one.io/auth/confirm?token_hash=t1&type=invite';
+const LINK2 = 'https://app.plus-one.io/auth/confirm?token_hash=t2&type=email_change&next=%2Fapp%2Fprofile';
+
+/** The navigation commits: the old document unloads. */
+const commit = (): void => {
+  window.dispatchEvent(new Event('pagehide'));
+};
+
+function setOnline(on: boolean): void {
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => on });
+}
 
 async function load(): Promise<typeof import('./native-app-links')> {
   vi.resetModules(); // fresh module state = a fresh document
@@ -50,6 +61,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  setOnline(true);
   vi.clearAllMocks();
   vi.restoreAllMocks();
   setNative(false);
@@ -133,6 +146,128 @@ describe('NativeAppLinks', () => {
     // A live event is still honoured.
     cap.listener!({ url: LINK });
     expect(assign).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android: the sticky launch URL is not replayed after a later link and its reload', async () => {
+    setNative(true);
+    // Capacitor Android keeps reporting the cold-start link for the whole process.
+    cap.getLaunchUrl.mockResolvedValue({ url: LINK });
+    let mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    commit();
+    cleanup();
+
+    // Reload after the cold-start link: same launch URL → nothing.
+    mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(cap.getLaunchUrl).toHaveBeenCalledTimes(2));
+    await flush();
+    expect(assign).toHaveBeenCalledTimes(1);
+
+    // Later, app running: the user taps a second link.
+    cap.listener!({ url: LINK2 });
+    expect(assign).toHaveBeenCalledTimes(2);
+    expect(assign).toHaveBeenLastCalledWith(
+      '/auth/confirm?token_hash=t2&type=email_change&next=%2Fapp%2Fprofile',
+    );
+    commit();
+    cleanup();
+
+    // Its redirect loads a new document; getLaunchUrl() STILL reports the first link.
+    mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(cap.getLaunchUrl).toHaveBeenCalledTimes(3));
+    await flush();
+    expect(assign).toHaveBeenCalledTimes(2);
+
+    // …and again after an app resume that re-reads the launch URL.
+    cleanup();
+    mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(cap.getLaunchUrl).toHaveBeenCalledTimes(4));
+    await flush();
+    expect(assign).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not navigate a link again in the same process once it committed', async () => {
+    setNative(true);
+    const mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(cap.listener).not.toBeNull());
+    cap.listener!({ url: LINK });
+    commit();
+    cleanup();
+    const next = await load();
+    render(<next.NativeAppLinks />);
+    await waitFor(() => expect(cap.addListener).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(cap.getLaunchUrl).toHaveBeenCalledTimes(2));
+    cap.listener!({ url: LINK }); // the same mail link tapped again
+    expect(assign).toHaveBeenCalledTimes(1);
+  });
+
+  it('offline first tap is not consumed and runs once the device is back online', async () => {
+    setNative(true);
+    setOnline(false);
+    const { NativeAppLinks } = await load();
+    render(<NativeAppLinks />);
+    await waitFor(() => expect(cap.getLaunchUrl).toHaveBeenCalled());
+    cap.listener!({ url: LINK });
+    expect(assign).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('po.appLinks.consumed')).toBeNull();
+
+    setOnline(true);
+    window.dispatchEvent(new Event('online'));
+    expect(assign).toHaveBeenCalledTimes(1);
+    expect(assign).toHaveBeenCalledWith('/auth/confirm?token_hash=t1&type=invite');
+  });
+
+  it('offline cold start: the launch URL stays usable for the next document once online', async () => {
+    setNative(true);
+    setOnline(false);
+    cap.getLaunchUrl.mockResolvedValue({ url: LINK });
+    let mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(cap.getLaunchUrl).toHaveBeenCalledTimes(1));
+    await flush();
+    expect(assign).not.toHaveBeenCalled();
+    cleanup();
+    setOnline(true);
+    mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+  });
+
+  it('a navigation that never commits leaves the link retryable (and other links unblocked)', async () => {
+    setNative(true);
+    const mod = await load();
+    render(<mod.NativeAppLinks />);
+    await waitFor(() => expect(cap.getLaunchUrl).toHaveBeenCalled());
+    await flush();
+    vi.useFakeTimers();
+    cap.listener!({ url: LINK }); // onLine lied: the request fails, the page stays
+    expect(assign).toHaveBeenCalledTimes(1);
+    cap.listener!({ url: LINK2 }); // same document, navigation still in flight
+    expect(assign).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(mod.COMMIT_TIMEOUT_MS);
+    expect(window.sessionStorage.getItem('po.appLinks.consumed')).toBeNull();
+    cap.listener!({ url: LINK }); // the user taps the same link again
+    expect(assign).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the raw link (token_hash) out of sessionStorage', async () => {
+    setNative(true);
+    cap.getLaunchUrl.mockResolvedValue({ url: LINK });
+    const { NativeAppLinks } = await load();
+    render(<NativeAppLinks />);
+    await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    commit();
+    const stored = Object.keys(window.sessionStorage)
+      .map((k) => window.sessionStorage.getItem(k) ?? '')
+      .join('|');
+    expect(stored).not.toBe('');
+    expect(stored).not.toContain('t1');
+    expect(stored).not.toContain('auth/confirm');
   });
 
   it('removes the listener on unmount', async () => {
