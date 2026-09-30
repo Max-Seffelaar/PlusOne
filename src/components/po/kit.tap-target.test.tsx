@@ -108,6 +108,12 @@ describe('kit hit rings reach 44 on the controls that use them', () => {
     ['Import tier pill', 'h-[36.8px] border', kitExports.hitRingY5, 44.8],
     ['template / cockpit tier chip, Copy link', 'h-[34.8px] border', kitExports.hitRingY6, 44.8],
     ['inline text button (MFA, links jump)', 'h-[18.8px]', kitExports.hitRingY13, 44.8],
+    ['aanvragen Declined toggle (QA-1)', 'h-[30px]', kitExports.hitRingY7, 44],
+    ['events Upcoming/Past segment (QA-1)', 'h-[38px] border', kitExports.hitRingY4, 44],
+    ['guests/door-checkin tier & scope chip (QA-1)', 'h-[35px] border', kitExports.hitRingY6, 45],
+    ['home Alle/Vandaag/Aankomend segment (QA-1)', 'h-[40px]', kitExports.hitRingY2, 44],
+    ['MiniChip (QA-1)', 'h-[26px] border', kitExports.hitRingY10, 44],
+    ['home board card Count, desktop text (QA-1)', 'h-[36.6px]', kitExports.hitRingY4, 44.6],
   ];
   it.each(cases)('%s', (_name, box, ring, expected) => {
     const hit = hitBox(`w-[100px] ${box} ${ring}`);
@@ -117,6 +123,10 @@ describe('kit hit rings reach 44 on the controls that use them', () => {
 
   it('the Roles stepper ring grows both axes to 44', () => {
     expect(hitBox(`h-[42px] w-[42px] border ${kitExports.hitRing2}`)).toEqual({ w: 44, h: 44 });
+  });
+
+  it('the crew quota stepper ring grows both axes to 44 (QA-1)', () => {
+    expect(hitBox(`h-[32px] w-[32px] border ${kitExports.hitRing7}`)).toEqual({ w: 44, h: 44 });
   });
 
   it('Btn sm carries the ring; the full-size Btn needs none', () => {
