@@ -10,7 +10,7 @@ import { loadLastDoorEvent, offlineDoorPin, saveLastDoorEvent, type LastDoorEven
 
 vi.mock('@/lib/observability/sentry-client', () => ({ captureMessage: vi.fn() }));
 
-const PIN: LastDoorEvent = { venueId: 'v1', eventId: 'ev-1', name: 'Friday' };
+const PIN: LastDoorEvent = { userId: 'u1', venueId: 'v1', eventId: 'ev-1', name: 'Friday' };
 
 describe('last door event — storage', () => {
   beforeEach(async () => {
@@ -41,10 +41,13 @@ describe('last door event — storage', () => {
     expect(await loadLastDoorEvent()).toBeNull();
     await idbSet('door-last-event', 'ev-1');
     expect(await loadLastDoorEvent()).toBeNull();
+    // A pin without its owner (written before the user-id stamp) is no pin.
+    await idbSet('door-last-event', { venueId: 'v1', eventId: 'ev-1', name: 'Friday' });
+    expect(await loadLastDoorEvent()).toBeNull();
   });
 
   it('refuses to store an incomplete pin', async () => {
-    expect(await saveLastDoorEvent({ venueId: '', eventId: 'ev-1', name: 'x' })).toBe(false);
+    expect(await saveLastDoorEvent({ userId: 'u1', venueId: '', eventId: 'ev-1', name: 'x' })).toBe(false);
     expect(await loadLastDoorEvent()).toBeNull();
   });
 });
@@ -52,6 +55,7 @@ describe('last door event — storage', () => {
 describe('offlineDoorPin — the pin never overrides a loaded list', () => {
   const base = {
     pin: PIN,
+    userId: 'u1',
     venueId: 'v1',
     requestedEventId: null,
     candidatesLoaded: false,
@@ -74,6 +78,11 @@ describe('offlineDoorPin — the pin never overrides a loaded list', () => {
   it('only for the active venue', () => {
     expect(offlineDoorPin({ ...base, venueId: 'v2' })).toBeNull();
     expect(offlineDoorPin({ ...base, venueId: null })).toBeNull();
+  });
+
+  it('only for the user who worked the door (a session that ended without sign-out)', () => {
+    expect(offlineDoorPin({ ...base, userId: 'u2' })).toBeNull();
+    expect(offlineDoorPin({ ...base, userId: null })).toBeNull();
   });
 
   it('never against an explicit ?event= for another event', () => {

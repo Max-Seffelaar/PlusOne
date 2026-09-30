@@ -10,7 +10,7 @@
  *
  * LIFETIME. Same database as the snapshot and the outbox (`plusone-door`), so
  * `idbClearAll()` on sign-out deletes it with them — no new wipe path, and a
- * signed-out device has no pin to boot from. It holds ids plus the event name
+ * signed-out device has no pin to boot from. It holds ids (user, venue, event) plus the event name
  * (never guest data), and writes carry the wipe epoch like every other door
  * writer, so a write scheduled before a sign-out cannot resurrect it.
  */
@@ -20,7 +20,13 @@ import { idbEpoch, idbGet, idbSet } from './idb';
 
 const LAST_DOOR_KEY = 'door-last-event';
 
+// `userId` (§6 review): the pin belongs to the user who worked the door. A
+// session that ends WITHOUT `signOutDevice` (expiry, remote revoke, app closed)
+// keeps the door IDB; the next user of the same venue on this tablet must not
+// cold-start into the previous user's door from it. A pin written before this
+// field existed fails the parse and reads as no pin.
 const lastDoorSchema = z.object({
+  userId: z.string().min(1),
   venueId: z.string().min(1),
   eventId: z.string().min(1),
   name: z.string(),
@@ -51,19 +57,24 @@ export async function saveLastDoorEvent(value: LastDoorEvent, epochAtSchedule = 
  * The rule the whole feature hangs on: the pin is a fallback for a candidate
  * list we COULD NOT LOAD, never a second opinion on one we did. So it applies
  * only while the list has not loaded and is paused (offline) or errored; only
- * for the active venue; and never against an explicit `?event=` for another
- * event.
+ * for the user who wrote it and the active venue; and never against an
+ * explicit `?event=` for another event.
+ *
+ * `candidatesLoaded` means the query HOLDS a list, not that its last fetch
+ * succeeded: a failed refetch keeps the loaded list, and that list still wins.
  */
 export function offlineDoorPin(input: {
   pin: LastDoorEvent | null;
+  userId: string | null;
   venueId: string | null;
   requestedEventId: string | null;
   candidatesLoaded: boolean;
   candidatesUnreachable: boolean;
 }): LastDoorEvent | null {
-  const { pin, venueId, requestedEventId, candidatesLoaded, candidatesUnreachable } = input;
-  if (!pin || !venueId) return null;
+  const { pin, userId, venueId, requestedEventId, candidatesLoaded, candidatesUnreachable } = input;
+  if (!pin || !venueId || !userId) return null;
   if (candidatesLoaded || !candidatesUnreachable) return null;
+  if (pin.userId !== userId) return null;
   if (pin.venueId !== venueId) return null;
   if (requestedEventId !== null && requestedEventId !== pin.eventId) return null;
   return pin;

@@ -150,7 +150,7 @@ const DoorTree = memo(function DoorTree({
 function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState; doorNav: DoorNav }): JSX.Element {
   const doorCandidatesQuery = usePoDoorCandidates();
   const doorCandidates = doorCandidatesQuery.data;
-  const { venueId } = usePoIdentity();
+  const { venueId, userId } = usePoIdentity();
 
   // Offline cold start (N7, decision 15). The candidate list is a network read;
   // offline it never loads, and the tab used to stop at "no event" with the
@@ -160,9 +160,15 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
   // `undefined` = not read yet. Read lazily, only once the list turns out to be
   // unreachable, so an online door pays no extra render for it (the render
   // isolation guard counts them).
+  //
+  // "Loaded" means the query HOLDS a list (§6 review), not `isSuccess`: one
+  // failed refetch on a warm door flips React Query v5 to `status: 'error'`
+  // while keeping the data, and the pin must never replace a list the doorhost
+  // is looking at (a picker with no pick, or an empty "no event" list).
   const browserOffline = useBrowserOffline();
+  const candidatesLoaded = doorCandidatesQuery.isSuccess || doorCandidatesQuery.hasData === true;
   const candidatesUnreachable =
-    !doorCandidatesQuery.isSuccess &&
+    !candidatesLoaded &&
     (browserOffline || doorCandidatesQuery.fetchStatus === 'paused' || doorCandidatesQuery.isError);
   const [lastDoor, setLastDoor] = useState<LastDoorEvent | null | undefined>(undefined);
   useEffect(() => {
@@ -178,8 +184,9 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
   const offlinePin = offlineDoorPin({
     pin: lastDoor ?? null,
     venueId,
+    userId,
     requestedEventId: doorState.eventId,
-    candidatesLoaded: doorCandidatesQuery.isSuccess,
+    candidatesLoaded,
     candidatesUnreachable,
   });
 
@@ -208,19 +215,19 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
   // bare URL id, never from the pin itself. Also re-seed the build chunks now
   // that the lazy door chunk is loaded, so an offline cold start has it.
   const confirmedDoor =
-    doorCandidatesQuery.isSuccess && venueId && listedDoorId
+    doorCandidatesQuery.isSuccess && venueId && userId && listedDoorId
       ? doorCandidates.find((e) => e.id === listedDoorId)
       : undefined;
   // A ref, not state: remembering must not re-render the door.
   const savedDoorRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!confirmedDoor || !venueId) return;
-    const key = `${venueId}|${confirmedDoor.id}|${confirmedDoor.name}`;
+    if (!confirmedDoor || !venueId || !userId) return;
+    const key = `${userId}|${venueId}|${confirmedDoor.id}|${confirmedDoor.name}`;
     if (savedDoorRef.current === key) return;
     savedDoorRef.current = key;
-    void saveLastDoorEvent({ venueId, eventId: confirmedDoor.id, name: confirmedDoor.name });
+    void saveLastDoorEvent({ userId, venueId, eventId: confirmedDoor.id, name: confirmedDoor.name });
     void seedLoadedAssets();
-  }, [confirmedDoor, venueId]);
+  }, [confirmedDoor, venueId, userId]);
 
   // If a requested id isn't in the loaded candidate list, the list itself
   // might just be stale rather than the id being genuinely foreign — e.g.

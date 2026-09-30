@@ -18,6 +18,7 @@ const H = vi.hoisted(() => ({
     isSuccess: false,
     isError: false,
     fetchStatus: 'paused' as 'paused' | 'idle' | 'fetching',
+    hasData: false,
   },
   refetch: vi.fn(() => Promise.resolve()),
   pin: null as LastDoorEvent | null,
@@ -68,7 +69,7 @@ vi.mock('@/features/po/eventday/EventDaySkeleton', () => ({ EventDaySkeleton: ()
 const { PoDoorBranch } = await import('./door-branch');
 const { t } = await import('@/lib/i18n');
 
-const PIN: LastDoorEvent = { venueId: 'v1', eventId: 'ev-pinned', name: 'Friday' };
+const PIN: LastDoorEvent = { userId: 'u-door', venueId: 'v1', eventId: 'ev-pinned', name: 'Friday' };
 
 function renderDoor(eventId: string | null = null) {
   const pinEvent = vi.fn();
@@ -100,7 +101,15 @@ const settle = () => act(async () => {});
 
 describe('MobileDoorBranch — offline pin (N7)', () => {
   beforeEach(() => {
-    H.query = { data: [], isLoading: false, isFetching: false, isSuccess: false, isError: false, fetchStatus: 'paused' };
+    H.query = {
+      data: [],
+      isLoading: false,
+      isFetching: false,
+      isSuccess: false,
+      isError: false,
+      fetchStatus: 'paused',
+      hasData: false,
+    };
     H.pin = PIN;
   });
   afterEach(() => {
@@ -154,7 +163,7 @@ describe('MobileDoorBranch — offline pin (N7)', () => {
   });
 
   it('never mounts the pin over a LOADED list — the list wins', async () => {
-    H.query = { ...H.query, isSuccess: true, fetchStatus: 'idle', data: [{ id: 'ev-live', name: 'Saturday' }] };
+    H.query = { ...H.query, isSuccess: true, hasData: true, fetchStatus: 'idle', data: [{ id: 'ev-live', name: 'Saturday' }] };
     renderDoor();
     await settle();
     expect(mountedEvent()).toBe('ev-live');
@@ -162,11 +171,64 @@ describe('MobileDoorBranch — offline pin (N7)', () => {
   });
 
   it('never mounts the pin over a loaded EMPTY list (event closed since) — "no event" instead', async () => {
-    H.query = { ...H.query, isSuccess: true, fetchStatus: 'idle', data: [] };
+    H.query = { ...H.query, isSuccess: true, hasData: true, fetchStatus: 'idle', data: [] };
     renderDoor();
     await settle();
     expect(mountedEvent()).toBeNull();
     expect(screen.getByText(t.door.noEvent)).toBeTruthy();
+  });
+
+  // §6 review (blocking): a refetch that fails on a list that DID load flips
+  // React Query v5 to `status: 'error'` while keeping the data. That list is
+  // still loaded; the pin must not replace it.
+  it('never mounts the pin over a RETAINED list after a failed refetch — the picker stays', async () => {
+    H.query = {
+      ...H.query,
+      isSuccess: false,
+      isError: true,
+      hasData: true,
+      fetchStatus: 'idle',
+      data: [
+        { id: 'ev-a', name: 'A' },
+        { id: 'ev-b', name: 'B' },
+      ],
+    };
+    const { pinEvent } = renderDoor();
+    await settle();
+    expect(mountedEvent()).toBeNull();
+    expect(pinEvent).not.toHaveBeenCalledWith('ev-pinned');
+    expect(screen.getByTestId('door-picker')).toBeTruthy();
+    expect(H.load).not.toHaveBeenCalled();
+  });
+
+  it('never mounts the pin over a RETAINED empty list after a failed refetch — "no event" stays', async () => {
+    H.query = { ...H.query, isSuccess: false, isError: true, hasData: true, fetchStatus: 'idle', data: [] };
+    const { pinEvent } = renderDoor();
+    await settle();
+    expect(mountedEvent()).toBeNull();
+    expect(pinEvent).not.toHaveBeenCalledWith('ev-pinned');
+    expect(screen.getByText(t.door.noEvent)).toBeTruthy();
+  });
+
+  it('never mounts the pin over a retained list even while the browser says offline', async () => {
+    H.query = { ...H.query, hasData: true, fetchStatus: 'paused', data: [{ id: 'ev-live', name: 'Saturday' }] };
+    const onLine = vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(false);
+    try {
+      renderDoor();
+      await settle();
+      expect(mountedEvent()).toBe('ev-live');
+      expect(H.load).not.toHaveBeenCalled();
+    } finally {
+      onLine.mockRestore();
+    }
+  });
+
+  it('never mounts a pin written by another user (session ended without sign-out)', async () => {
+    H.pin = { ...PIN, userId: 'u-previous' };
+    renderDoor();
+    await settle();
+    expect(mountedEvent()).toBeNull();
+    expect(screen.getByText(t.door.noEventOffline)).toBeTruthy();
   });
 
   it('never mounts a pin from another venue', async () => {
@@ -192,11 +254,11 @@ describe('MobileDoorBranch — offline pin (N7)', () => {
   });
 
   it('remembers the event once the loaded list confirms it, and re-seeds the build chunks', async () => {
-    H.query = { ...H.query, isSuccess: true, fetchStatus: 'idle', data: [{ id: 'ev-live', name: 'Saturday' }] };
+    H.query = { ...H.query, isSuccess: true, hasData: true, fetchStatus: 'idle', data: [{ id: 'ev-live', name: 'Saturday' }] };
     renderDoor();
     await settle();
     expect(H.save).toHaveBeenCalledTimes(1);
-    expect(H.save).toHaveBeenCalledWith({ venueId: 'v1', eventId: 'ev-live', name: 'Saturday' });
+    expect(H.save).toHaveBeenCalledWith({ userId: 'u-door', venueId: 'v1', eventId: 'ev-live', name: 'Saturday' });
     expect(H.seed).toHaveBeenCalledTimes(1);
   });
 

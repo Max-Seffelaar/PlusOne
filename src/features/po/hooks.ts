@@ -343,7 +343,12 @@ export function usePoDoorCandidates() {
       return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());
     },
   });
-  return { ...query, data: query.data ?? EMPTY_DOOR_CANDIDATES };
+  // `hasData` (N7 §6 review): whether a list has EVER loaded into this query,
+  // which the `?? EMPTY_DOOR_CANDIDATES` default hides. Not `isSuccess`: a
+  // refetch that fails on a warm list flips `status` to 'error' and KEEPS the
+  // data, and the Deur tab must treat that list as loaded (never mount the
+  // offline pin over it). Tracked through 'data' in notifyOnChangeProps.
+  return { ...query, data: query.data ?? EMPTY_DOOR_CANDIDATES, hasData: query.data !== undefined };
 }
 
 /** A single event by id, read from the venue's events list (no extra round-trip). */
