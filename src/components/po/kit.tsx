@@ -427,6 +427,7 @@ export function Field({
   className,
   ariaLabel,
   onKeyDown,
+  onBlur,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -440,6 +441,7 @@ export function Field({
   /** Accessible name for an input with no visible label (e.g. an inline search). */
   ariaLabel?: string;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onBlur?: () => void;
 }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
@@ -459,6 +461,7 @@ export function Field({
           maxLength={maxLength}
           aria-label={ariaLabel}
           onKeyDown={onKeyDown}
+          onBlur={onBlur}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
         />
       ) : (
