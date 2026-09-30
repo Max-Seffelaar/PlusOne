@@ -607,8 +607,11 @@ export const hitRingY2 = "relative before:absolute before:-inset-y-[2px] before:
 export const hitRingY4 = "relative before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']";
 export const hitRingY5 = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
 export const hitRingY6 = "relative before:absolute before:-inset-y-[6px] before:inset-x-0 before:content-['']";
+export const hitRingY7 = "relative before:absolute before:-inset-y-[7px] before:inset-x-0 before:content-['']";
+export const hitRingY10 = "relative before:absolute before:-inset-y-[10px] before:inset-x-0 before:content-['']";
 export const hitRingY13 = "relative before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']";
 export const hitRing2 = "relative before:absolute before:-inset-[2px] before:content-['']";
+export const hitRing7 = "relative before:absolute before:-inset-[7px] before:content-['']";
 
 /** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
 export function BackBtn({ onClick }: { onClick?: () => void }): JSX.Element {
@@ -1087,7 +1090,20 @@ export function MiniChip({
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} disabled={disabled} className={cn(cls, 'cursor-pointer', press, 'disabled:pointer-events-none disabled:opacity-[0.45]')}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          cls,
+          'cursor-pointer',
+          press,
+          // 26px chip + an invisible 10px ring (kit `hitRingY10`) = a 44px tap
+          // area on touch, without changing the look (T1, touch).
+          hitRingY10,
+          'disabled:pointer-events-none disabled:opacity-[0.45]',
+        )}
+      >
         {children}
       </button>
     );
