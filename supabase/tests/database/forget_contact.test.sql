@@ -1,7 +1,7 @@
 -- pgTAP — on-request erasure forget_contact() (AVG art. 17, #16/#29).
 -- Run: supabase test db. Proves:
---   * authorization is the DB boundary — only an admin of the venue WITH AAL2
---     may erase; staff/finance/no-MFA are refused and write nothing;
+--   * authorization is the DB boundary — only an admin of the venue may erase
+--     (role-only, no AAL2); staff/finance are refused and write nothing;
 --   * the person-cascade is exact — the contact + all its linked guests (across
 --     events) + their refusals are scrubbed, the retention window is IGNORED,
 --     and unrelated rows are untouched;
@@ -101,7 +101,7 @@ select plan(25);
 
 -- ---------------------------------------------------------------------------
 -- A. Authorization — only an admin may erase; staff/finance are refused and write
---    nothing. MFA is NOT required (admin is already an MFA-mandatory role) — B
+--    nothing. MFA is NOT required (optional for every role) — B
 --    proves this by erasing at AAL1.
 -- ---------------------------------------------------------------------------
 

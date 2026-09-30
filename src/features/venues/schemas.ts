@@ -130,7 +130,7 @@ export const createVenueSchema = z.object({
 });
 export type CreateVenueInput = z.input<typeof createVenueSchema>;
 
-// Change a member's roles (AAL2 — role grant is sensitive). Deduped into
+// Change a member's roles (role grant is sensitive; role-only, no AAL2). Deduped into
 // canonical order so the stored array is stable and the escalation guard sees a
 // clean set.
 export const memberRolesSchema = z.object({

@@ -86,6 +86,13 @@ export const en = {
       quota_request_decided: 'Your quota request was decided. Open Requests to see it.',
     },
   },
+  /** Server-side outcomes of deciding a quota request (src/features/quotas/actions.ts).
+   *  The approve RPC raises SQLSTATE 45003 with a Dutch message; the action maps
+   *  it by code to this copy and never shows the raw DB text. */
+  quotaRequests: {
+    alreadyHandled: 'This request has already been handled.',
+    notDecidable: 'This request has already been handled or cannot be decided by you.',
+  },
 } as const;
 
 export type Messages = typeof en;

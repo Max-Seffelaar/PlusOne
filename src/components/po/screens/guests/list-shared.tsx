@@ -393,7 +393,10 @@ export function GuestTable({
     overscan: 12,
     getItemKey: (i) => rows[i]?.id ?? i,
   });
-  const cols = 'grid-cols-[44px_1fr_120px_120px_170px]';
+  // minmax(0,1fr), not 1fr: a bare `1fr` track's minimum is `auto`, so the
+  // guest cell's 280px nowrap source line forced the grid past the column at
+  // 768px (iPad portrait) and 1024px (sidebar) and the card clipped "Added".
+  const cols = 'grid-cols-[44px_minmax(0,1fr)_120px_120px_170px]';
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto md:block" style={{ padding: '0 16px 24px' }}>

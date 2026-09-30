@@ -20,7 +20,7 @@ import {
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, copyStateLabel, press, cardPress, useCopyText } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, copyStateLabel, hitRingY6, press, cardPress, useCopyText } from '../../kit';
 import { Sheet } from '../../shell';
 
 function ErrLine({ msg }: { msg: string }): JSX.Element {
@@ -54,7 +54,7 @@ export function PromotionRoster(): JSX.Element {
       ) : list.length === 0 ? (
         <Empty text={t.links.influencersEmpty} />
       ) : (
-        <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px] lg:items-start">
+        <div className="flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px] md:items-start">
           {list.map((inf) => (
             <button
               key={inf.id}
@@ -154,7 +154,10 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
                 onClick={() => void copy()}
                 aria-label={t.links.copyAria}
                 className={cn(
+                  // 34.8px bordered button + an invisible 6px ring (kit
+                  // `hitRingY6`) = a 44.8px tap area (T1, touch).
                   'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+                  hitRingY6,
                   copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
                 )}
               >
