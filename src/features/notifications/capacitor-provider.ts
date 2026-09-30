@@ -32,20 +32,35 @@ interface PushConfigPlugin {
   isConfigured(): Promise<{ configured: boolean }>;
 }
 
-export interface CapacitorPushDeps {
-  platform(): string;
-  loadPush(): Promise<PushNotificationsPlugin>;
-  loadConfig(): Promise<PushConfigPlugin>;
+// THE THENABLE TRAP — do not "simplify" these wrappers away. A Capacitor plugin
+// is a Proxy whose `get` hands out a native-method wrapper for every property
+// (only `$$typeof`, `toJSON`, `addListener`, `removeListener` are special),
+// `then` included. So the moment a plugin becomes a promise's resolution value
+// (returned from an async function or a `.then` callback, or `await`ed
+// directly) the promise machinery calls `plugin.then(resolve, reject)`: a
+// native call to a method that does not exist, whose failure never reaches
+// resolve/reject — the promise never settles. That hung `ready()` on device
+// (86ey6bfkb). A plugin only ever crosses a promise boundary inside a plain
+// `{ plugin }` / `{ push }` object; only the results of its methods are awaited.
+export interface Loaded<T> {
+  plugin: T;
 }
 
-const defaultDeps: CapacitorPushDeps = {
+export interface CapacitorPushDeps {
+  platform(): string;
+  loadPush(): Promise<Loaded<PushNotificationsPlugin>>;
+  loadConfig(): Promise<Loaded<PushConfigPlugin>>;
+}
+
+export const defaultDeps: CapacitorPushDeps = {
   platform: () => {
     if (typeof window === 'undefined') return 'web';
     const cap = (window as { Capacitor?: { getPlatform?: () => string } }).Capacitor;
     return cap?.getPlatform?.() ?? 'web';
   },
-  loadPush: async () => (await import('@capacitor/push-notifications')).PushNotifications,
-  loadConfig: async () => (await import('@capacitor/core')).registerPlugin<PushConfigPlugin>('PlusOnePushConfig'),
+  // Wrapped, never returned bare — see the thenable trap above.
+  loadPush: async () => ({ plugin: (await import('@capacitor/push-notifications')).PushNotifications }),
+  loadConfig: async () => ({ plugin: (await import('@capacitor/core')).registerPlugin<PushConfigPlugin>('PlusOnePushConfig') }),
 };
 
 function toPermission(status: PermissionStatus): PushPermission {
@@ -60,7 +75,7 @@ function toMessage(raw: unknown): PushMessage {
 }
 
 export class CapacitorPushProvider implements NotificationProvider {
-  private readyP: Promise<PushNotificationsPlugin | null> | null = null;
+  private readyP: Promise<{ push: PushNotificationsPlugin } | null> | null = null;
 
   constructor(private readonly deps: CapacitorPushDeps = defaultDeps) {}
 
@@ -79,16 +94,17 @@ export class CapacitorPushProvider implements NotificationProvider {
   /** Set when the last `ready()` failed on an error (not on a clean "no"). */
   private readyFailed = false;
 
-  /** The push plugin, or null when this build must not touch Firebase. A clean
+  /** The push plugin (wrapped — thenable trap), or null when this build must not touch Firebase. A clean
    *  answer (supported or not, configured or not) is memoized for the run; a
    *  failure (e.g. a lazy chunk that did not load) is not, so the next call tries
    *  again — the shell must never depend on the service worker having cached it. */
-  private ready(): Promise<PushNotificationsPlugin | null> {
+  private ready(): Promise<{ push: PushNotificationsPlugin } | null> {
     this.readyP ??= (async () => {
       if (!this.isSupported()) return null;
-      const { configured } = await (await this.deps.loadConfig()).isConfigured();
+      const { plugin: config } = await this.deps.loadConfig();
+      const { configured } = await config.isConfigured();
       if (!configured) return null;
-      const push = await this.deps.loadPush();
+      const { plugin: push } = await this.deps.loadPush();
       // The channel the manifest names as FCM's default. Creating an existing
       // channel is a no-op on Android, so this is safe on every start.
       await push
@@ -99,11 +115,11 @@ export class CapacitorPushProvider implements NotificationProvider {
           importance: 4,
         })
         .catch(() => undefined);
-      return push;
+      return { push };
     })().then(
-      (push) => {
+      (loaded) => {
         this.readyFailed = false;
-        return push;
+        return loaded;
       },
       () => {
         this.readyFailed = true;
@@ -115,7 +131,7 @@ export class CapacitorPushProvider implements NotificationProvider {
   }
 
   async checkPermission(): Promise<PushPermission> {
-    const push = await this.ready();
+    const push = (await this.ready())?.push;
     if (!push) return 'unsupported';
     try {
       return toPermission(await push.checkPermissions());
@@ -125,7 +141,7 @@ export class CapacitorPushProvider implements NotificationProvider {
   }
 
   async requestPermission(): Promise<PushPermission> {
-    const push = await this.ready();
+    const push = (await this.ready())?.push;
     if (!push) return 'unsupported';
     try {
       return toPermission(await push.requestPermissions());
@@ -135,7 +151,7 @@ export class CapacitorPushProvider implements NotificationProvider {
   }
 
   async register(): Promise<PushRegistration | null> {
-    const push = await this.ready();
+    const push = (await this.ready())?.push;
     if (!push) return null;
     if ((await this.checkPermission()) !== 'granted') return null;
     return new Promise<PushRegistration | null>((resolve) => {
@@ -158,7 +174,7 @@ export class CapacitorPushProvider implements NotificationProvider {
   }
 
   async unregister(): Promise<void> {
-    const push = await this.ready();
+    const push = (await this.ready())?.push;
     if (!push) return;
     await push.unregister().catch(() => undefined);
   }
@@ -169,15 +185,15 @@ export class CapacitorPushProvider implements NotificationProvider {
     let retry: ReturnType<typeof setTimeout> | undefined;
     const attach = (attemptsLeft: number): void => {
       void this.ready()
-        .then((push) => {
+        .then((loaded) => {
           if (cancelled) return null;
-          if (!push) {
+          if (!loaded) {
             // A failed plugin load retries, so a retained cold-start tap is not
             // lost to one bad chunk fetch; a clean "no Firebase" does not.
             if (this.readyFailed && attemptsLeft > 0) retry = setTimeout(() => attach(attemptsLeft - 1), LISTEN_RETRY_MS);
             return null;
           }
-          return push.addListener(event as 'registration', cb as (raw: { value: string }) => void);
+          return loaded.push.addListener(event as 'registration', cb as (raw: { value: string }) => void);
         })
         .then((h) => {
           if (!h) return;
