@@ -116,6 +116,25 @@ describe('Android offline page (server.errorPath)', () => {
     }
   });
 
+  it('offers "Continue without internet" into the Deur tab as the primary action (N7 follow-up)', () => {
+    // Primary = first button in the markup; Try again stays as the secondary.
+    const buttons = [...html.matchAll(/<button id="(\w+)"/g)].map((m) => m[1]);
+    expect(buttons).toEqual(['continue', 'retry']);
+    expect(html).toMatch(/>Continue without internet</);
+    expect(html).toContain("var DOOR_TARGET = ORIGIN + '/app/door';");
+    expect(html).toContain("getElementById('continue').addEventListener('click', continueOffline)");
+    expect(html).toMatch(/Your device is offline\. PlusOne will load again once you have internet\./);
+  });
+
+  it('never counts a Continue tap as a reconnect attempt, so offline never reads as "Server trouble"', () => {
+    const body = /function continueOffline\(\) \{([\s\S]*?)\n {8}\}/.exec(html)?.[1];
+    expect(body, 'continueOffline() not found').toBeTruthy();
+    expect(body).toContain('window.location.replace(DOOR_TARGET)');
+    expect(body).not.toMatch(/writeAttempts|attempts|sessionStorage|go\(\)/);
+    // The only writer of the counter stays the reconnect path.
+    expect(html.match(/writeAttempts\(/g)).toHaveLength(2); // definition + go()
+  });
+
   it('tells "server trouble" apart from "no connection" once the probe gets through', () => {
     expect(html).toMatch(/SERVER_TROUBLE_AFTER/);
     expect(html).toMatch(/Server trouble/);
