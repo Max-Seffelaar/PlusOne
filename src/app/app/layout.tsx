@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { AppShellDataProvider } from '@/components/po/app-shell-data';
 import { PlusOneAppClient } from '@/components/po/app-client';
+import { RegisterServiceWorker } from '@/components/register-sw';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
@@ -203,6 +204,10 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
           `tests/unit/app-shell-no-ssr-suspense.test.ts`.
         */}
         <PlusOneAppClient />
+        {/* Offline shell (N7, decision 15): the native shell cold-starts at `/app`,
+            so the worker must register here too, not only on `/door`. Renders
+            null and reads no query — a sibling of the shell, never its parent. */}
+        <RegisterServiceWorker />
         {/* Always null today (`page.tsx` renders nothing) — kept so the route
             slot stays honest and a future nested /app page still has a home. */}
         {children}

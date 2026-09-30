@@ -65,6 +65,95 @@ describe('iOS navigation boundary (App-Bound Domains)', () => {
   });
 });
 
+// N7 (decision 15): the Android offline page. Capacitor loads `server.errorPath`
+// for every failed MAIN-FRAME load (network or HTTP error, first launch or
+// mid-session) — without it the WebView sat on a dead error page until the app
+// was killed. It runs from https://localhost with no bridge and no network.
+describe('Android offline page (server.errorPath)', () => {
+  const html = read('native/www/offline.html');
+
+  it('is configured as the Android error page and shipped in webDir', () => {
+    expect(config.server?.errorPath).toBe('offline.html');
+    expect(config.webDir).toBe('native/www');
+    expect(existsSync(resolve(root, 'native/www/offline.html'))).toBe(true);
+  });
+
+  it('is self-contained: no external script, stylesheet, font, image or frame', () => {
+    expect(html).not.toMatch(/<script[^>]+src=/i);
+    expect(html).not.toMatch(/<link\b/i);
+    expect(html).not.toMatch(/<(img|iframe|object|embed)\b/i);
+    expect(html).not.toMatch(/@import|url\(/i);
+  });
+
+  it('holds no data: no storage of anything but its own retry counter, no credentials', () => {
+    expect(html).not.toMatch(/localStorage|indexedDB|document\.cookie/);
+    expect(html).toMatch(/credentials: 'omit'/);
+  });
+
+  it('commits the production origin and reloads into /app, with a Try again action', () => {
+    expect(html).toContain('<meta name="plusone-app-origin" content="https://app.plus-one.io" />');
+    expect(html).toContain("ORIGIN + '/app'");
+    expect(html).toMatch(/>Try again</);
+    expect(html).toMatch(/addEventListener\('online'/);
+  });
+
+  it('accepts only an http(s) origin from the stamped meta — IPv6 debug hosts included (§6 review)', () => {
+    const src = /raw && (\/\^https\?.*?\$\/)\.test\(raw\)/.exec(html)?.[1];
+    expect(src).toBeTruthy();
+    const originRe = new Function(`return ${src};`)() as RegExp;
+    for (const ok of ['https://app.plus-one.io', 'http://10.0.2.2:7000', 'http://[::1]:7000', 'http://[fe80::1]']) {
+      expect(originRe.test(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      'https://app.plus-one.io/app',
+      'javascript:alert(1)',
+      'https://evil.test?x',
+      'https://a"b.test',
+      'http://[::1]"><script>',
+      '',
+    ]) {
+      expect(originRe.test(bad), bad).toBe(false);
+    }
+  });
+
+  it('tells "server trouble" apart from "no connection" once the probe gets through', () => {
+    expect(html).toMatch(/SERVER_TROUBLE_AFTER/);
+    expect(html).toMatch(/Server trouble/);
+    expect(html).toMatch(/if \(up\) showServerTrouble\(\)/);
+  });
+
+  it('asks for ACCESS_NETWORK_STATE, or WebView never fires online/offline', () => {
+    expect(read('android/app/src/main/AndroidManifest.xml')).toContain(
+      'android.permission.ACCESS_NETWORK_STATE',
+    );
+  });
+
+  it('is stamped with the synced server origin by the capacitor:copy:after hook', async () => {
+    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['capacitor:copy:after']).toBe('node scripts/native/offline-origin.mjs');
+
+    const { appOriginFromConfig, withAppOrigin, copiedOfflinePage } = await import(
+      '../../scripts/native/offline-origin.mjs'
+    );
+    expect(appOriginFromConfig(JSON.stringify({ server: { url: 'https://app.plus-one.io' } }))).toBe(
+      'https://app.plus-one.io',
+    );
+    expect(appOriginFromConfig(JSON.stringify({ server: { url: 'http://192.168.1.20:7000/x?y' } }))).toBe(
+      'http://192.168.1.20:7000',
+    );
+    expect(appOriginFromConfig(JSON.stringify({ server: { url: 'javascript:alert(1)' } }))).toBeNull();
+    expect(appOriginFromConfig('not json')).toBeNull();
+    expect(appOriginFromConfig(JSON.stringify({}))).toBeNull();
+
+    const stamped = withAppOrigin(html, 'https://preview.example.app');
+    expect(stamped).toContain('<meta name="plusone-app-origin" content="https://preview.example.app" />');
+    expect(() => withAppOrigin('<html></html>', 'https://x.test')).toThrow();
+
+    expect(copiedOfflinePage('/r', 'android')).toBe('/r/android/app/src/main/assets/public/offline.html');
+    expect(copiedOfflinePage('/r', 'web')).toBeNull();
+  });
+});
+
 describe('push (Fase 17 N5)', () => {
   const manifest = () => read('android/app/src/main/AndroidManifest.xml');
 

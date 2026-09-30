@@ -4,6 +4,12 @@ Fase 17 wave 3, plan row N4 (`capacitor-plan-claude-code.md` §4; ClickUp 86ey6b
 document, no production code. Written 2026-09-25 against `main` at `fcc6f1e` and the N3 scaffold
 branch `claude/86ey6bfdm-capacitor-scaffold` (PR #340, draft).
 
+> **Status 2026-09-28 — N7 shipped the web-side follow-up (§8 items 1–3).** Round B below is
+> updated for what N7 actually built: the SW sends an offline `/` straight to `/app/door`, the
+> Deur tab mounts the last pinned event from IndexedDB, and Android shows the bundled
+> `offline.html` (which recovers by itself) on any failed main-frame load. Item 4 (launch at
+> `/app`) turned out unnecessary: the SW's offline `/` → `/app/door` redirect covers it.
+
 ## 0. Decision in one screen
 
 | | Android v1 | iOS v1 |
@@ -303,10 +309,12 @@ proves finding 3), **Round B once the follow-up in §8 is deployed** (expect all
    0, no error state)? Are both visible on the other device?
 6. Warm-resume baseline passed? (Steps 1–5 all yes = the offline door works when the process
    survives. This is unchanged by the shell model.)
-7. **Cold start offline, main test.** Online, open the Deur tab once more so the shell is fresh.
-   Airplane mode on. Force-stop the app (Settings → Apps → PlusOne → Force stop, or swipe-kill).
-   Reopen it. What do you see? (Round A expected: a blank/error webview *or* the landing page and
-   then "no event" on the Deur tab. Round B expected: the Deur tab with the guest list.)
+7. **Cold start offline, main test.** Online, open the Deur tab once more so the shell is fresh
+   (wait ~5 s on the list so the snapshot is written). Airplane mode on. Force-stop the app
+   (Settings → Apps → PlusOne → Force stop, or swipe-kill). Reopen it. What do you see? (Round A
+   expected: a blank/error webview *or* the landing page and then "no event" on the Deur tab.
+   Round B expected: the app opens straight on the Deur tab (no landing page, no tap) with the
+   guest list and any queued check-ins still shown as queued.)
 8. Round B only: check a guest in offline, then airplane mode off. Does it drain and show on the
    other device?
 9. Round B only, bridge check after an SW-served boot: from the Deur tab, open the profile /
@@ -314,15 +322,23 @@ proves finding 3), **Round B once the follow-up in §8 is deployed** (expect all
    with a close button (bridge present) rather than inside the webview (bridge absent)? Also: does
    the Android back button behave as in N3's checks (Home → minimize)?
 10. Round B only, first-ever-launch offline: uninstall, reinstall, airplane mode on, open. Do you
-    get the bundled "No connection" page (if S1a shipped `errorPath`) or the system error? Either is
-    acceptable; what must **not** happen is a frozen splash.
+    get the bundled PlusOne "No connection" page (near-black, lavender "Try again")? Airplane mode
+    off: does it reload into the app **by itself** within ~30 s, without tapping anything? Must
+    **not** happen: a frozen splash or Chromium's grey error page.
 11. Sign-out wipe: online, sign out from the profile. Airplane mode on, force-stop, reopen. Do you
     land on login (no cached app HTML served), with no guest data anywhere?
 12. Storage sanity (chrome://inspect from a laptop, Application tab on the webview): after Round B
-    step 7, list Cache Storage. Is `/app` in `plusone-session-*`, `/` in `plusone-shell-*`, and is
-    there **no** Supabase response body in any cache?
+    step 7, list Cache Storage. Is `/app` in `plusone-session-*`, `/` + `/_next/static/…` chunks in
+    `plusone-shell-*`, and is there **no** Supabase response body and no `/app` HTML in
+    `plusone-shell-*`? IndexedDB `plusone-door` → `kv`: is there a `door-last-event` entry?
+13. Round B only, **mid-session loss + recovery (Max's bug 2, 2026-09-28).** Online on the Deur
+    tab. Airplane mode on (wifi off too). Pull to refresh / navigate so the webview has to load a
+    page (e.g. More → Home → Deur). If a page cannot be served you should see the PlusOne "No
+    connection" page, never the grey Chromium error page. Airplane mode off. Does the app come
+    back **by itself** (≤ ~30 s, or at once when the network returns) — or with one tap on "Try
+    again" — **without killing the app**? Does the queued check-in then drain?
 
-Answer as "1 ✅, 2 ❌ — …" per step.
+Answer as "1 ✅, 2 ❌ — …" per step. Round B expects 13/13.
 
 ## 10. Reconciliation with N3
 

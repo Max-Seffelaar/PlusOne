@@ -8,6 +8,83 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-28 — Fase 17 N7: door cold-offline in the shell + Android offline page (decision 15)
+
+Branch `claude/n7-door-cold-offline`. Kills Max's three device bugs: an offline refresh
+of the door lost the page and the queue (Android + web), and after a network error the
+WebView sat on Chromium's dead error page until the app was killed.
+
+- **SW under `/app`.** `RegisterServiceWorker` moved to `src/components/register-sw.tsx`
+  and is mounted by `src/app/app/layout.tsx` as well as `/door`. Two new SW messages fill
+  what in-app navigation never shows the worker: `seed-session` (only the bare `/app`,
+  credentialed, into `plusone-session-*` with the wipe epoch) and `seed-assets` (already
+  loaded same-origin `/_next/static/` chunks, fetched with `credentials: 'omit'`, into
+  `plusone-shell-*`; at most the 200-entry shell cap per message). The Deur tab re-seeds once its lazy chunk has
+  loaded. Shell cap 60 → 200 so one build's `/app` chunk set fits. Offline `/` answers
+  with a redirect to `/app/door` **only** when the session bucket holds `/app` (so a
+  signed-out device keeps getting the landing). Localhost stays inert unless the script
+  URL carries `?dev-cache=1`, which only the e2e spec asks for (`po:sw-dev-cache`).
+- **Last pinned door event.** `src/features/door/offline/last-door.ts` keeps
+  `{venueId, eventId, name}` under `door-last-event` in the door IDB (wiped by
+  `idbClearAll`, epoch-guarded, zod-validated on read). `MobileDoorBranch` saves it once
+  the LOADED candidate list confirms the event, and mounts `DoorTree` from it only while
+  that list cannot load (`fetchStatus` paused, `isError`, or `navigator.onLine === false`
+  — React Query v5 assumes online at page start, so offline the read hangs in `fetching`
+  otherwise): same venue, never against a different `?event=`, never over a loaded list
+  (an empty loaded list still says "no event"). The stale-id rejection is skipped while
+  the list is unreachable, so the offline door is never unpinned. `usePoDoorCandidates`
+  now also notifies on `fetchStatus`/`isError`; it stays where it is (render isolation
+  guard green, the pin is read lazily so an online door pays no extra render).
+- **Bug found on the way (the "page disappears" on Android).** `shouldDehydrateDoorQuery`
+  persisted only `status === 'success'`. With `navigator.onLine` stuck on `true` (dead
+  venue wifi, or Android WebView without `ACCESS_NETWORK_STATE`) the door keeps syncing,
+  the snapshot refetch fails, the query flips to `error` *with its data*, and the next
+  persist tick wrote a blob without it — the following offline reload booted an empty
+  door. Now: persisted while it holds data (success or error), same recency gate.
+  The e2e spec fails on the old rule and passes on the new one.
+- **Android offline page.** `server.errorPath: 'offline.html'` → `native/www/offline.html`
+  (self-contained, PII-free, brand colours, "Try again"). Capacitor's
+  `BridgeWebViewClient` loads it on EVERY failed main-frame load (`onReceivedError` and
+  `onReceivedHttpError`, first launch and mid-session), so no extra native hook was
+  needed. It reloads `<origin>/app` on the `online` event, on becoming visible, and on a
+  backed-off probe (3 s → 30 s, a no-cors `manifest.json` fetch). The origin is stamped
+  at `npx cap sync` by the `capacitor:copy:after` hook (`scripts/native/offline-origin.mjs`)
+  from the synced `server.url`, so `CAP_SERVER_URL` debug builds recover to their own
+  server. `ACCESS_NETWORK_STATE` added to the manifest (without it WebView never fires
+  `online`/`offline`).
+- **Tests.** `tests/e2e/door-offline-reload.spec.ts` (in `e2e:smoke`, ~50 s): open the
+  door online → dead wifi → offline check-in → forced failed sync → offline reload
+  (served by the SW, asserted) → offline cold start at `/` → reconnect → exactly one
+  `check_ins` row, `offline_synced`, actor pinned; a second reload replays nothing. It
+  goes offline with `context.route` aborts on top of `setOffline`, because Chromium does
+  not apply `setOffline` to the worker's own fetches. Verified red with the pin disabled
+  and with the old dehydrate rule. Unit: `last-door.test.ts`,
+  `door-branch.offline-pin.test.tsx`, `register-sw.test.tsx`, dehydrate cases, 13 new SW
+  cache-scope cases, the Android offline page + hook in `capacitor-native-shell.test.ts`.
+- **Docs.** Plan N7 row done, §1 "Deur offline" = warm + cold (Android, after one online
+  visit), iOS stays S1b; spike round-B script updated (13 steps, incl. bug 2's
+  airplane-mode sequence).
+- **Known limits.** The first offline reload needs the snapshot to have been written
+  (2 s throttle after the list loads). The cached `/app` carries the active venue of the
+  last full `/app` load; a venue switch without a reload keeps the old one offline, and the pin
+  then does not match (the tab says it is offline rather than opening the wrong venue).
+  iOS cold start is unverified until S1b.
+- **§6 review round (2026-09-30).** Blocking fix: the pin mounted over a list that DID
+  load once a refetch failed (React Query v5 keeps the data but flips to `error`); now
+  "loaded" = the query holds a list (`usePoDoorCandidates().hasData`), with the reviewer's
+  retained-list cases as regressions. Also: pin stamped with the user id, persisted door
+  queries lose their error object, seed batch clamped to the shell cap, the Android page
+  says "Server trouble" when the probe gets through but `/app` keeps failing (and accepts
+  an IPv6 debug origin), and the e2e spec's three fixed sleeps are polls on the real
+  condition (failed candidate read + retry, empty outbox on disk).
+- **CI: layout-suite red on phone-390 home.door (2026-09-30).** The snapshot was the `+1`
+  boot screen (0 measured targets, no errors). The run's first load hits a cold dev server, and the
+  QA-1 gate `waitForSelector('aside, button')` passed on Next's dev-tools indicator, a `<button>` in an
+  open shadow root that Playwright pierces. So the suite measured the page before the `ssr:false` shell
+  chunk had mounted. It was not the door pin: every screen gets a fresh context, and Home doesn't mount
+  the door branch. Fix: the boot screen carries `data-po-boot`, and `openScreen` waits for
+  `shellMounted` (`tests/e2e/layout/shell-ready.ts`, light DOM only, boot screen gone, 120 s).
+  Regression: `tests/unit/layout-shell-ready.test.ts`.
 ## 2026-09-28 — Fase 17 S4: universal links / App Links for `/auth/*`
 
 Invite / magic-link / e-mail-change mails can now open the native app instead of the
@@ -48,6 +125,7 @@ browser. Claim = exactly `https://app.plus-one.io/auth/confirm` + `/auth/callbac
   Also: `useCapacitorApp` shared with `NativeBackButton`, lint/tsc now cover
   `src/app/.well-known`, one shared middleware-matcher test helper, and CLAUDE.md records
   `APP_LINK_HOST` as the second permitted hard-coded origin.
+
 
 ## 2026-09-28 — QA-1: automated layout/visual suite
 
@@ -99,6 +177,7 @@ only a human or a real device can judge.
     ≥1024 gets the outbox door, so the cockpit is never measured on touch.
 
 ## 2026-09-28 — Fase 17 S2: store-listing domain URLs re-fixed to www (86ey6bft8)
+
 
 `main` moved CLAUDE.md's domain decision back to `www.plus-one.io` canonical (apex
 redirects to it, decided 2026-09-25 — the same-day 2026-09-18 apex-canonical text this

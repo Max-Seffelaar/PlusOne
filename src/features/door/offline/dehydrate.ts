@@ -22,6 +22,7 @@
  * (#25). A week's worth of events is bounded; three months of them was not.
  */
 import type { Query } from '@tanstack/react-query';
+import type { PersistedClient } from '@tanstack/react-query-persist-client';
 
 /** Root query keys the door persists — nothing else may reach IndexedDB. */
 const DOOR_QUERY_ROOTS = new Set(['door', 'door-quota']);
@@ -33,14 +34,46 @@ export function isDoorQueryKey(queryKey: readonly unknown[]): boolean {
 }
 
 /**
- * Persist a query iff it is a door query, holds a successful result, and was
- * last updated within `maxAge`. `now` is injected so the predicate is pure and
- * unit-testable (callers pass `Date.now()`).
+ * Persist a query iff it is a door query, holds data from a successful fetch,
+ * and that data was last updated within `maxAge`. `now` is injected so the
+ * predicate is pure and unit-testable (callers pass `Date.now()`).
+ *
+ * "Holds data", not "status is success" (N7). Offline, the snapshot's refetch
+ * fails and flips the query to `status: 'error'` while KEEPING its data — which
+ * the door keeps rendering. Gating on `status === 'success'` dropped exactly that
+ * query from the next persist tick, so the snapshot in IndexedDB was overwritten
+ * without it and the SECOND offline reload booted a door with no guest list
+ * (Max's device test, 2026-09-28: "the whole page disappears"). `dataUpdatedAt`
+ * only moves on a successful fetch, so the recency gate still measures the age
+ * of real data.
  */
 export function shouldDehydrateDoorQuery(query: Query, now: number, maxAge: number): boolean {
   if (!isDoorQueryKey(query.queryKey)) return false;
-  if (query.state.status !== 'success') return false;
+  if (query.state.data === undefined || query.state.dataUpdatedAt === 0) return false;
+  if (query.state.status !== 'success' && query.state.status !== 'error') return false;
   return now - query.state.dataUpdatedAt <= maxAge;
+}
+
+/**
+ * `client` with every persisted query's error object dropped (§6 review).
+ *
+ * Since N7 a query that failed its refetch but still holds data is persisted, and
+ * `dehydrate` copies `query.state` as is — so `state.error` would be written to
+ * IndexedDB by structured clone. Today those errors carry no token or guest
+ * field, but a future `queryFn` that throws with a response body would persist
+ * it silently, and a WebKit that cannot clone `Error` (< 15.4) would fail the
+ * WHOLE snapshot write on it. Booting the door needs only `data` +
+ * `dataUpdatedAt`; nothing in the door reads the error. `status` is kept, so
+ * hydration behaves exactly as before (an 'error' query refetches on mount) and
+ * the e2e spec can still see that the failed refetch reached IndexedDB.
+ */
+export function withoutQueryErrors(client: PersistedClient): PersistedClient {
+  const queries = client.clientState.queries.map((q) =>
+    q.state.error == null && q.state.fetchFailureReason == null
+      ? q
+      : { ...q, state: { ...q.state, error: null, fetchFailureReason: null } },
+  );
+  return { ...client, clientState: { ...client.clientState, queries } };
 }
 
 /**

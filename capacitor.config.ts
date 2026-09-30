@@ -65,6 +65,12 @@ const config: CapacitorConfig = {
     url: server.url,
     androidScheme: 'https',
     cleartext: server.cleartext,
+    // Android only (N7): the bundled page Capacitor loads when a MAIN-FRAME load
+    // fails — network error or HTTP error status, first launch or mid-session —
+    // instead of Chromium's dead error page. It reloads `<origin>/app` when the
+    // connection is back; the origin is stamped at sync by the
+    // `capacitor:copy:after` hook (scripts/native/offline-origin.mjs).
+    errorPath: 'offline.html',
   },
   android: {
     allowMixedContent: false,

@@ -23,10 +23,12 @@
 import type { JSX } from 'react';
 import dynamic from 'next/dynamic';
 
-/** Honest boot state: brand mark on the app background, no fake-zero data. */
-function AppBootScreen(): JSX.Element {
+/** Honest boot state: brand mark on the app background, no fake-zero data.
+ *  `data-po-boot` marks it so a harness can tell "shell not mounted yet" apart
+ *  from a rendered screen (QA-1 `shellMounted`, tests/e2e/layout/shell-ready.ts). */
+export function AppBootScreen(): JSX.Element {
   return (
-    <div className="flex h-[100dvh] items-center justify-center bg-bg">
+    <div data-po-boot="" className="flex h-[100dvh] items-center justify-center bg-bg">
       <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-acc font-display text-[16px] font-extrabold text-on-acc motion-safe:animate-pulse">
         +1
       </div>
