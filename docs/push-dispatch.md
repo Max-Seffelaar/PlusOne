@@ -163,9 +163,24 @@ Decision #51 in `gastenlijst-app-spec.md`.
   still reports a first "Don't allow" as askable). Profile → Security →
   "Push notifications" turns it on/off for this device (or explains the OS
   setting when Android blocks the prompt).
+- **Account choice (remembered across logins).** The device state below is
+  wiped on sign-out, so the person's explicit yes/no also lives on their
+  account: Supabase Auth `user_metadata.push_opt_in`, written with their own
+  session (`auth.updateUser`). "Turn on" (card or Profile) → `true`; Profile
+  off → `false`; "Not now" and a denial stay device-level. When the device has
+  decided nothing yet (a fresh login), `resumePush` reads it (`getUser()`,
+  falling back to the session's copy offline): opted in + OS granted → records
+  `on` and registers silently, no card; opted in + OS `default` (a new device) →
+  the chrome shows the OS prompt directly, once, after the same ~8 s delay and
+  never on the Deur tab; opted out → records `off` (no card, Profile off);
+  undecided → the card. A failed write is retried on the next start (the
+  device's decisive state differs from `po:push-account`, the value it last
+  confirmed). `user_metadata` is user-writable, so it is never a privilege
+  gate: nothing server-side reads it.
 - **Device state.** `po:push` (`on` / `declined` / `off` / `off-pending`),
-  `po:push-ask-snooze` and `po:push-row` (the stored row's uuid) in
-  localStorage — all PII-free, all wiped on sign-out.
+  `po:push-ask-snooze`, `po:push-row` (the stored row's uuid) and
+  `po:push-account` (`on` / `off`: the account choice this device last
+  confirmed) in localStorage — all PII-free, all wiped on sign-out.
 - **Register.** Plain upsert into `push_tokens` on `(transport, token)` with the
   user's own session: body = `transport`, `token`, `device_label` (the platform,
   `android`). Never `user_id`/`session_id`/`last_seen_at` — the defaults and the

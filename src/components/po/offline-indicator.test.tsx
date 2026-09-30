@@ -2,6 +2,8 @@
 /**
  * Quiet offline indicator (N7 follow-up): blip → nothing; ≥3 s → chip; ~4 s →
  * the once-per-episode hint; back online → gone and the episode resets.
+ * Android WebView can fire `online` while still offline, so the chip trusts
+ * `navigator.onLine`, not the event alone (Max's device test, 2026-09-30).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -9,8 +11,10 @@ import { renderToString } from 'react-dom/server';
 import { t } from '@/lib/i18n';
 import {
   OFFLINE_CHIP_AFTER_MS,
+  OFFLINE_END_CONFIRM_MS,
   OFFLINE_HINT_AFTER_MS,
   OFFLINE_HINT_OFF_KEY,
+  OFFLINE_RECHECK_MS,
   OfflineIndicator,
 } from './offline-indicator';
 
@@ -28,6 +32,12 @@ function goOnline(): void {
     window.dispatchEvent(new Event('online'));
   });
 }
+/** The WebView reports `online` but the flag still reads offline. */
+function spuriousOnline(): void {
+  act(() => {
+    window.dispatchEvent(new Event('online'));
+  });
+}
 function advance(ms: number): void {
   act(() => {
     vi.advanceTimersByTime(ms);
@@ -36,6 +46,7 @@ function advance(ms: number): void {
 
 const chip = () => screen.queryByRole('button', { name: t.shared.offline.chipAria });
 const hint = () => screen.queryByRole('button', { name: t.shared.offline.dontShowAgain });
+const gotIt = () => screen.getByRole('button', { name: t.shared.offline.gotIt });
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -98,6 +109,7 @@ describe('OfflineIndicator', () => {
 
     // A new episode brings it back.
     goOnline();
+    advance(OFFLINE_END_CONFIRM_MS);
     goOffline();
     advance(OFFLINE_HINT_AFTER_MS);
     expect(hint()).not.toBeNull();
@@ -110,6 +122,11 @@ describe('OfflineIndicator', () => {
     fireEvent.click(hint()!);
     expect(hint()).toBeNull();
     expect(window.localStorage.getItem(OFFLINE_HINT_OFF_KEY)).toBe('1');
+    // The chip stays for the rest of the episode, and still explains.
+    advance(60_000);
+    expect(chip()).not.toBeNull();
+    fireEvent.click(chip()!);
+    expect(screen.getByText(t.shared.offline.body)).toBeTruthy();
     goOnline();
     first.unmount();
 
@@ -146,6 +163,7 @@ describe('OfflineIndicator', () => {
     fireEvent.click(chip()!);
     expect(hint()).not.toBeNull();
     goOnline();
+    advance(OFFLINE_END_CONFIRM_MS);
     expect(view.container.innerHTML).toBe('');
     expect(screen.queryByText(t.shared.offline.body)).toBeNull();
 
@@ -155,6 +173,69 @@ describe('OfflineIndicator', () => {
     expect(chip()).toBeNull();
     advance(1);
     expect(chip()).not.toBeNull();
+  });
+
+  it('(c) a spurious `online` while still offline keeps the chip and the hint', () => {
+    render(<OfflineIndicator surface="app" />);
+    goOffline();
+    advance(OFFLINE_HINT_AFTER_MS);
+    spuriousOnline();
+    advance(10_000);
+    expect(chip()).not.toBeNull();
+    expect(hint()).not.toBeNull();
+  });
+
+  it('(c) "Got it" then a spurious `online` (the device bug): the chip stays', () => {
+    render(<OfflineIndicator surface="app" />);
+    goOffline();
+    advance(OFFLINE_HINT_AFTER_MS);
+    fireEvent.click(gotIt());
+    spuriousOnline();
+    advance(60_000);
+    expect(chip()).not.toBeNull();
+    expect(hint()).toBeNull();
+    fireEvent.click(chip()!);
+    expect(screen.getByText(t.shared.offline.body)).toBeTruthy();
+  });
+
+  it('(c) a flag that flickers online and back without an `offline` event keeps the chip', () => {
+    render(<OfflineIndicator surface="app" />);
+    goOffline();
+    advance(OFFLINE_HINT_AFTER_MS);
+    fireEvent.click(gotIt());
+    goOnline(); // flag reads true for a moment…
+    advance(OFFLINE_END_CONFIRM_MS - 100);
+    online = false; // …and back, with no `offline` event
+    advance(10_000);
+    expect(chip()).not.toBeNull();
+    // Still the same episode: the dismissed hint does not come back.
+    expect(hint()).toBeNull();
+  });
+
+  it('a missed `offline` event is caught by the re-check', () => {
+    render(<OfflineIndicator surface="app" />);
+    online = false; // no event at all
+    advance(OFFLINE_RECHECK_MS + OFFLINE_CHIP_AFTER_MS);
+    expect(chip()).not.toBeNull();
+  });
+
+  it('coming back to the foreground re-reads the flag', () => {
+    render(<OfflineIndicator surface="app" />);
+    online = false;
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    advance(OFFLINE_CHIP_AFTER_MS);
+    expect(chip()).not.toBeNull();
+  });
+
+  it('a missed `online` event still clears the chip once the flag reads online', () => {
+    const view = render(<OfflineIndicator surface="app" />);
+    goOffline();
+    advance(OFFLINE_HINT_AFTER_MS);
+    online = true; // no event
+    advance(OFFLINE_RECHECK_MS + OFFLINE_END_CONFIRM_MS);
+    expect(view.container.innerHTML).toBe('');
   });
 
   it('on the Deur tab: no chip beside the sync bar, the hint explains the queue', () => {

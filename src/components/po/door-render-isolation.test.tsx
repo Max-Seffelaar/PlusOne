@@ -41,7 +41,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShellDataProvider } from './app-shell-data';
-import { OFFLINE_HINT_AFTER_MS } from './offline-indicator';
+import { OFFLINE_END_CONFIRM_MS, OFFLINE_HINT_AFTER_MS } from './offline-indicator';
 import { t } from '@/lib/i18n';
 
 const EVENT_A = 'ev-a';
@@ -287,6 +287,10 @@ describe('door render isolation (86eykm76k)', () => {
       online = true;
       await act(async () => {
         window.dispatchEvent(new Event('online'));
+      });
+      // A visible chip/hint goes once the flag has confirmed "online".
+      await act(async () => {
+        vi.advanceTimersByTime(OFFLINE_END_CONFIRM_MS);
       });
       expect(view.queryByText(t.shared.offline.bodyDoor), 'back online left the hint up').toBeNull();
 

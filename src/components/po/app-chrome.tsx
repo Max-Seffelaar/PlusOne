@@ -237,6 +237,7 @@ export function AppShellChrome({
   // (decisions, i.e. staff); nobody else is asked.
   const push = usePushClient({
     canReceive: canReceivePush(roles, canManageTemplates),
+    onDoor: isDoorTab,
     activeVenueId,
     switchToVenue,
     onToast: showTransientToast,

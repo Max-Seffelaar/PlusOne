@@ -3,8 +3,9 @@
 /**
  * Quiet offline indicator (Fase 17 N7 follow-up, Max's Android test 2026-09-30).
  *
- * Driven ONLY by `navigator.onLine` and the window `online`/`offline` events —
- * no React Query read, no Supabase call — and mounted by `AppShellChrome` as a
+ * Driven ONLY by `navigator.onLine`, the window `online`/`offline` events and a
+ * cheap re-read of that flag (focus, visibility, a slow tick) — no React Query
+ * read, no Supabase call, no network request — and mounted by `AppShellChrome` as a
  * sibling of the screen slot, never above it. Its state is its own, so going
  * offline re-renders this component and nothing else; above all not the door
  * (86eykm76k, guarded by `door-render-isolation.test.tsx`).
@@ -16,7 +17,8 @@
  *  - at OFFLINE_HINT_AFTER_MS, once per episode: a hint card with the same
  *    explanation, "Got it" and "Don't show again" (a per-device, PII-free
  *    localStorage flag; the chip stays either way);
- *  - back online: everything goes and the episode resets.
+ *  - back online (the flag confirms it, not just an `online` event): everything
+ *    goes and the episode resets.
  *
  * On the Deur tab the door's own SyncBar already reads "Offline · {age}" and
  * "{n} queued", so a second "Offline" pill beside it would only repeat it: the
@@ -31,6 +33,10 @@ import { readDoorVariant } from './use-door-variant';
 
 export const OFFLINE_CHIP_AFTER_MS = 3000;
 export const OFFLINE_HINT_AFTER_MS = 4000;
+/** A visible chip goes only once `navigator.onLine` has read true this long. */
+export const OFFLINE_END_CONFIRM_MS = 1000;
+/** Slow re-read of `navigator.onLine`, for a missed or spurious event. */
+export const OFFLINE_RECHECK_MS = 2000;
 /** Per-device preference, no personal data. */
 export const OFFLINE_HINT_OFF_KEY = 'po:offline-hint-off';
 
@@ -72,8 +78,12 @@ export function useOfflineEpisode(): OfflineEpisode {
     let chipShown = false;
     let chipTimer: ReturnType<typeof setTimeout> | undefined;
     let hintTimer: ReturnType<typeof setTimeout> | undefined;
+    let endTimer: ReturnType<typeof setTimeout> | undefined;
 
     const start = (): void => {
+      // Still offline after all: a pending "back online" was a flicker.
+      clearTimeout(endTimer);
+      endTimer = undefined;
       if (inEpisode) return;
       inEpisode = true;
       chipTimer = setTimeout(() => {
@@ -85,6 +95,7 @@ export function useOfflineEpisode(): OfflineEpisode {
       }, OFFLINE_HINT_AFTER_MS);
     };
     const end = (): void => {
+      endTimer = undefined;
       if (!inEpisode) return;
       inEpisode = false;
       clearTimeout(chipTimer);
@@ -96,15 +107,50 @@ export function useOfflineEpisode(): OfflineEpisode {
         setHint(false);
       }
     };
+    // Android WebView can fire `online` while the device is still offline (a
+    // radio tearing down reports a transient connection), and the matching
+    // `offline` never follows. Ending on the event alone hid the chip for the
+    // rest of the episode (Max's device test, 2026-09-30). So `online` only
+    // ends an episode when `navigator.onLine` agrees, and a visible chip only
+    // after it still agrees OFFLINE_END_CONFIRM_MS later.
+    const maybeEnd = (): void => {
+      if (isOfflineNow()) {
+        start();
+        return;
+      }
+      if (!inEpisode) return;
+      if (!chipShown) {
+        end();
+        return;
+      }
+      if (endTimer !== undefined) return;
+      endTimer = setTimeout(() => {
+        if (isOfflineNow()) start();
+        else end();
+      }, OFFLINE_END_CONFIRM_MS);
+    };
+    // Events can be missed or spurious, so also re-read the flag on the way
+    // back to the foreground and on a slow tick. Reading a boolean only: no
+    // request, no query, and no render unless the state actually flips.
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') maybeEnd();
+    };
 
     window.addEventListener('offline', start);
-    window.addEventListener('online', end);
+    window.addEventListener('online', maybeEnd);
+    window.addEventListener('focus', maybeEnd);
+    document.addEventListener('visibilitychange', onVisible);
+    const recheck = setInterval(maybeEnd, OFFLINE_RECHECK_MS);
     if (isOfflineNow()) start();
     return () => {
       window.removeEventListener('offline', start);
-      window.removeEventListener('online', end);
+      window.removeEventListener('online', maybeEnd);
+      window.removeEventListener('focus', maybeEnd);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(recheck);
       clearTimeout(chipTimer);
       clearTimeout(hintTimer);
+      clearTimeout(endTimer);
     };
   }, []);
 
