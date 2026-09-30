@@ -100,8 +100,8 @@
   <body>
     <main>
       <div class="brand">Plus<span>One</span></div>
-      <h1>No connection</h1>
-      <p>PlusOne can't reach the server right now. Check-ins you already queued stay on this device.</p>
+      <h1 id="title">No connection</h1>
+      <p id="lead">PlusOne can't reach the server right now. Check-ins you already queued stay on this device.</p>
       <p id="status" role="status" aria-live="polite">We'll reconnect as soon as there's signal.</p>
       <button id="retry" type="button">Try again</button>
     </main>
@@ -110,8 +110,11 @@
         var FALLBACK_ORIGIN = 'https://app.plus-one.io';
         var meta = document.querySelector('meta[name="plusone-app-origin"]');
         var raw = meta && meta.getAttribute('content');
-        // Only ever an http(s) origin — never a path, query or other scheme.
-        var ORIGIN = raw && /^https?:\/\/[A-Za-z0-9.-]+(:\d+)?$/.test(raw) ? raw : FALLBACK_ORIGIN;
+        // Only ever an http(s) origin — never a path, query or other scheme. A
+        // bracketed IPv6 host (`http://[::1]:7000`, a debug build) is an origin
+        // too; without it that build would silently reload into production.
+        var ORIGIN =
+          raw && /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$/.test(raw) ? raw : FALLBACK_ORIGIN;
         var TARGET = ORIGIN + '/app';
         var PROBE = ORIGIN + '/manifest.json';
         var KEY = 'plusone-offline-retry';
@@ -135,6 +138,20 @@
           } catch (e) {}
         }
         var attempts = readAttempts();
+
+        // The probe cannot tell "no connection" from "the server answers with an
+        // error" (Capacitor also lands here on an HTTP error status). If we are
+        // back here after reconnecting at least twice and the probe still gets
+        // through, the network is fine and the server is not: say that, so the
+        // doorhost does not go looking for signal.
+        var SERVER_TROUBLE_AFTER = 2;
+        function showServerTrouble() {
+          document.title = 'PlusOne · Server trouble';
+          document.getElementById('title').textContent = 'Server trouble';
+          document.getElementById('lead').textContent =
+            "Your connection works, but PlusOne's server isn't responding right now. Check-ins you already queued stay on this device.";
+          status.textContent = "We'll keep trying automatically.";
+        }
 
         function go() {
           if (leaving) return;
@@ -167,6 +184,12 @@
               else schedule();
             });
           }, delay);
+        }
+
+        if (attempts >= SERVER_TROUBLE_AFTER) {
+          probe().then(function (up) {
+            if (up) showServerTrouble();
+          });
         }
 
         document.getElementById('retry').addEventListener('click', go);

@@ -554,7 +554,11 @@ describe('N7 — /app seeding + offline start (decision 15)', () => {
     await sw.message({ type: 'seed-assets', urls });
 
     expect(sw.fetched.length).toBeLessThan(urls.length);
+    // One batch never exceeds the shell cap, or trimShell would evict the
+    // batch's own first chunks right after fetching them (§6 review).
+    expect(sw.fetched.length).toBeLessThanOrEqual(SHELL_MAX);
     expect(sw.cacheStorage.countIn(SHELL)).toBeLessThanOrEqual(SHELL_MAX);
+    expect(sw.cacheStorage.countIn(SHELL)).toBe(sw.fetched.length);
   });
 
   it('holds a whole /app chunk set: the shell cap is not the old 60', () => {

@@ -97,6 +97,31 @@ describe('Android offline page (server.errorPath)', () => {
     expect(html).toMatch(/addEventListener\('online'/);
   });
 
+  it('accepts only an http(s) origin from the stamped meta — IPv6 debug hosts included (§6 review)', () => {
+    const src = /raw && (\/\^https\?.*?\$\/)\.test\(raw\)/.exec(html)?.[1];
+    expect(src).toBeTruthy();
+    const originRe = new Function(`return ${src};`)() as RegExp;
+    for (const ok of ['https://app.plus-one.io', 'http://10.0.2.2:7000', 'http://[::1]:7000', 'http://[fe80::1]']) {
+      expect(originRe.test(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      'https://app.plus-one.io/app',
+      'javascript:alert(1)',
+      'https://evil.test?x',
+      'https://a"b.test',
+      'http://[::1]"><script>',
+      '',
+    ]) {
+      expect(originRe.test(bad), bad).toBe(false);
+    }
+  });
+
+  it('tells "server trouble" apart from "no connection" once the probe gets through', () => {
+    expect(html).toMatch(/SERVER_TROUBLE_AFTER/);
+    expect(html).toMatch(/Server trouble/);
+    expect(html).toMatch(/if \(up\) showServerTrouble\(\)/);
+  });
+
   it('asks for ACCESS_NETWORK_STATE, or WebView never fires online/offline', () => {
     expect(read('android/app/src/main/AndroidManifest.xml')).toContain(
       'android.permission.ACCESS_NETWORK_STATE',

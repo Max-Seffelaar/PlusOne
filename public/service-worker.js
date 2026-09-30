@@ -103,8 +103,10 @@ const SHELL_MAX_ENTRIES = 200;
 
 // Upper bound on the asset URLs one `seed-assets` message may ask for. The list
 // is untrusted client input; this keeps a hostile or buggy page from turning the
-// worker into a fetch loop.
-const SEED_ASSETS_MAX = 250;
+// worker into a fetch loop. Never above SHELL_MAX_ENTRIES (§6 review): `trimShell`
+// runs after the whole batch and evicts in insertion order, so a larger batch
+// would evict its own first chunks right after fetching them.
+const SEED_ASSETS_MAX = SHELL_MAX_ENTRIES;
 
 // Wipe epoch for SESSION_CACHE, mirroring `idbEpoch()` in
 // src/features/door/offline/idb.ts. A navigation captures it before its fetch and
