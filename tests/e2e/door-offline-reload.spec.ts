@@ -139,15 +139,76 @@ async function goOnline(context: BrowserContext): Promise<void> {
   await context.setOffline(false);
 }
 
-/** The door is up with the check-in still queued — and STAYS up past the
- *  candidate query's retry window (a door mounted only while that query is
- *  "loading" would pass a single look and vanish a few seconds later). */
-async function expectDoorHoldsQueue(page: Page): Promise<void> {
-  await expect(page.getByPlaceholder('Search a name…')).toBeVisible({ timeout: 60_000 });
+/** The door candidate read: `fetchEvents` (src/features/po/queries.ts) is the
+ *  only `/rest/v1/events` read ordered by `starts_at` while the Deur tab is up
+ *  (the door snapshot reads one event by id; `usePoEvents` lives in
+ *  `AppScreens`, which is not mounted on the door tab). */
+const CANDIDATE_READ = /\/rest\/v1\/events\?.*order=starts_at\.desc/;
+
+/** A running count of FAILED candidate reads on this page, across navigations. */
+function trackFailedCandidateReads(page: Page): () => number {
+  let failed = 0;
+  page.on('requestfailed', (req) => {
+    if (CANDIDATE_READ.test(req.url())) failed += 1;
+  });
+  return () => failed;
+}
+
+/** The door is up with the check-in still queued — and STAYS up once the
+ *  candidate query has settled (a door mounted only while that query is
+ *  "loading" would pass a single look and vanish right after).
+ *
+ *  No fixed sleep: a sentinel in the page records if the search field EVER
+ *  leaves the DOM, and we wait for the real settling condition — the candidate
+ *  read's first attempt AND its one retry (`retry: 1`, PoLiveProvider) have
+ *  both failed since `failedBefore`, so the query is in `error` for good. */
+async function expectDoorHoldsQueue(page: Page, failedReads: () => number, failedBefore: number): Promise<void> {
+  const search = page.getByPlaceholder('Search a name…');
+  await expect(search).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText(/1 queued/)).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(8_000);
-  await expect(page.getByPlaceholder('Search a name…')).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as unknown as { __doorLost?: boolean };
+    w.__doorLost = false;
+    const present = () => document.querySelector('input[placeholder="Search a name…"]') !== null;
+    new MutationObserver(() => {
+      if (!present()) w.__doorLost = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await expect
+    .poll(() => failedReads() - failedBefore, {
+      message: 'the candidate read (first attempt + its one retry) should have failed offline',
+      timeout: 30_000,
+      intervals: [250],
+    })
+    .toBeGreaterThanOrEqual(2);
+  expect(
+    await page.evaluate(() => (window as unknown as { __doorLost?: boolean }).__doorLost),
+    'the door must never leave the page once the candidate read has failed',
+  ).toBe(false);
+  await expect(search).toBeVisible();
   await expect(page.getByText(/1 queued/)).toBeVisible();
+}
+
+/** Outbox entries on disk that a drain would still (re)send: anything not yet
+ *  settled as synced/duplicate. Read-only, like the probes above. */
+async function unsettledOutboxEntries(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase | null>((resolve) => {
+      const req = indexedDB.open('plusone-door');
+      req.onupgradeneeded = () => req.transaction?.abort(); // never create it
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+    if (!db || !db.objectStoreNames.contains('kv')) return -1;
+    const stored = await new Promise<unknown>((resolve) => {
+      const r = db.transaction('kv').objectStore('kv').get('door-outbox');
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => resolve(undefined);
+    });
+    db.close();
+    const entries = (stored as { entries?: { status: string }[] } | undefined)?.entries ?? [];
+    return entries.filter((e) => e.status !== 'synced' && e.status !== 'duplicate').length;
+  });
 }
 
 test.describe('door: offline reload keeps the door and its queue (N7)', () => {
@@ -162,6 +223,7 @@ test.describe('door: offline reload keeps the door and its queue (N7)', () => {
     test.setTimeout(180_000);
     const guestName = `Reload Guest ${Date.now()}`;
     const guestId = await seedGuest(guestName);
+    const failedCandidateReads = trackFailedCandidateReads(page);
 
     // Opt this page into the (normally production-only) worker before any script runs.
     await page.addInitScript(() => {
@@ -206,17 +268,19 @@ test.describe('door: offline reload keeps the door and its queue (N7)', () => {
     await context.setOffline(true);
 
     // ── Offline RELOAD: the page must come back, with the item still queued. ─
+    const failedBeforeReload = failedCandidateReads();
     const reloaded = await page.reload({ waitUntil: 'domcontentloaded' });
     expect(reloaded?.fromServiceWorker(), 'the offline reload must be served by the worker').toBe(true);
-    await expectDoorHoldsQueue(page);
+    await expectDoorHoldsQueue(page, failedCandidateReads, failedBeforeReload);
 
     // ── Offline COLD START at `/`, the way the native shell launches: no
     //    `?event=` to lean on — the worker sends a signed-in device to the Deur
     //    tab and the tab mounts the pinned event from IndexedDB. ─────────────
+    const failedBeforeStart = failedCandidateReads();
     const started = await page.goto('/', { waitUntil: 'domcontentloaded' });
     expect(started?.fromServiceWorker(), 'the offline start must be served by the worker').toBe(true);
     await page.waitForURL('**/app/door**', { timeout: 30_000, waitUntil: 'commit' });
-    await expectDoorHoldsQueue(page);
+    await expectDoorHoldsQueue(page, failedCandidateReads, failedBeforeStart);
     expect(await checkInRows(guestId)).toHaveLength(0);
 
     // ── Reconnect: the outbox drains exactly once (idempotent upsert). ─────
@@ -228,10 +292,15 @@ test.describe('door: offline reload keeps the door and its queue (N7)', () => {
     expect(row.event_id).toBe(EVENT_ID);
     await expect(page.getByText(/queued/)).toHaveCount(0, { timeout: 30_000 });
 
-    // A second online reload replays nothing: still exactly one row.
+    // The drained entry is settled ON DISK, so a reload has nothing to replay.
+    await expect.poll(() => unsettledOutboxEntries(page), { timeout: 30_000, intervals: [500] }).toBe(0);
+
+    // A second online reload replays nothing: the outbox the reloaded page
+    // restores still holds nothing to send, and there is still exactly one row.
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByPlaceholder('Search a name…')).toBeVisible({ timeout: 60_000 });
-    await page.waitForTimeout(3_000);
+    await expect.poll(() => unsettledOutboxEntries(page), { timeout: 30_000, intervals: [500] }).toBe(0);
+    await expect(page.getByText(/queued/)).toHaveCount(0);
     expect(await checkInRows(guestId)).toHaveLength(1);
   });
 });

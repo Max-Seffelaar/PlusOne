@@ -19,7 +19,7 @@ WebView sat on Chromium's dead error page until the app was killed.
   what in-app navigation never shows the worker: `seed-session` (only the bare `/app`,
   credentialed, into `plusone-session-*` with the wipe epoch) and `seed-assets` (already
   loaded same-origin `/_next/static/` chunks, fetched with `credentials: 'omit'`, into
-  `plusone-shell-*`; max 250 per message). The Deur tab re-seeds once its lazy chunk has
+  `plusone-shell-*`; at most the 200-entry shell cap per message). The Deur tab re-seeds once its lazy chunk has
   loaded. Shell cap 60 → 200 so one build's `/app` chunk set fits. Offline `/` answers
   with a redirect to `/app/door` **only** when the session bucket holds `/app` (so a
   signed-out device keeps getting the landing). Localhost stays inert unless the script
@@ -69,6 +69,14 @@ WebView sat on Chromium's dead error page until the app was killed.
   last full `/app` load; a venue switch without a reload keeps the old one offline, and the pin
   then does not match (the tab says it is offline rather than opening the wrong venue).
   iOS cold start is unverified until S1b.
+- **§6 review round (2026-09-30).** Blocking fix: the pin mounted over a list that DID
+  load once a refetch failed (React Query v5 keeps the data but flips to `error`); now
+  "loaded" = the query holds a list (`usePoDoorCandidates().hasData`), with the reviewer's
+  retained-list cases as regressions. Also: pin stamped with the user id, persisted door
+  queries lose their error object, seed batch clamped to the shell cap, the Android page
+  says "Server trouble" when the probe gets through but `/app` keeps failing (and accepts
+  an IPv6 debug origin), and the e2e spec's three fixed sleeps are polls on the real
+  condition (failed candidate read + retry, empty outbox on disk).
 
 ## 2026-09-28 — QA-1: automated layout/visual suite
 
