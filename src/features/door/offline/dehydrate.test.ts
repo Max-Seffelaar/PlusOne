@@ -93,13 +93,13 @@ describe('withoutQueryErrors (§6 review)', () => {
       clientState: { mutations: [], queries: [{ queryKey: ['door', 'ev1'], queryHash: 'h', state }] },
     }) as unknown as PersistedClient;
 
-  it('drops the error of a query that kept its data, and stores it as the success it had', () => {
+  it('drops the error of a query that kept its data — data, timestamp and status stay', () => {
     const error = new Error('Failed to fetch');
     const out = withoutQueryErrors(
       persisted({ status: 'error', data: { guests: [] }, dataUpdatedAt: 7, error, fetchFailureReason: error }),
     );
     expect(out.clientState.queries[0].state).toMatchObject({
-      status: 'success',
+      status: 'error',
       data: { guests: [] },
       dataUpdatedAt: 7,
       error: null,

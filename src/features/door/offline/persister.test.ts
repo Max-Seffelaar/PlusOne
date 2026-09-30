@@ -116,7 +116,7 @@ describe('createIdbPersister — no error objects on disk (§6 review)', () => {
     const state = written.clientState.queries[0].state;
     expect(state.error).toBeNull();
     expect(state.fetchFailureReason).toBeNull();
-    expect(state.status).toBe('success');
+    expect(state.status).toBe('error'); // unchanged: hydration still refetches it
     expect(state.data).toEqual({ guests: [{ id: 'g1' }] });
     expect(state.dataUpdatedAt).toBe(5);
   });

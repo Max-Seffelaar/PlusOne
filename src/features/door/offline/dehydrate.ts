@@ -63,22 +63,15 @@ export function shouldDehydrateDoorQuery(query: Query, now: number, maxAge: numb
  * field, but a future `queryFn` that throws with a response body would persist
  * it silently, and a WebKit that cannot clone `Error` (< 15.4) would fail the
  * WHOLE snapshot write on it. Booting the door needs only `data` +
- * `dataUpdatedAt`, so such a query is stored as the success it last had: the
- * 30 s `staleTime` still refetches it on mount.
+ * `dataUpdatedAt`; nothing in the door reads the error. `status` is kept, so
+ * hydration behaves exactly as before (an 'error' query refetches on mount) and
+ * the e2e spec can still see that the failed refetch reached IndexedDB.
  */
 export function withoutQueryErrors(client: PersistedClient): PersistedClient {
   const queries = client.clientState.queries.map((q) =>
     q.state.error == null && q.state.fetchFailureReason == null
       ? q
-      : {
-          ...q,
-          state: {
-            ...q.state,
-            error: null,
-            fetchFailureReason: null,
-            status: q.state.data === undefined ? q.state.status : ('success' as const),
-          },
-        },
+      : { ...q, state: { ...q.state, error: null, fetchFailureReason: null } },
   );
   return { ...client, clientState: { ...client.clientState, queries } };
 }
