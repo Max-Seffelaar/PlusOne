@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-01 — S5 Store submission, Android half: Play submission pack (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-play-submission`, milestone Now (Play listing for venue #5). Docs only, no app code.
+
+- `docs/store/play-store-listing.md`: the data-safety section is now the Play Console question flow (question → answer → policy §). Corrections to the S2 table: service providers (Sentry, FCM) are **not** "shared" under Play's definition; the session IP/user agent (§3) and the door device id are now declared under *Device or other IDs*; crash reports tick Play's *Analytics* purpose (app performance), which is distinct from the policy's "no analytics". Account-deletion recommendation: `https://www.plus-one.io/legal#delete-account` + the privacy mailbox (**decision Max**).
+- `docs/store/play-review-notes.md` (new): App access text (review-login flow, code only as a placeholder), ads, advertising ID, IARC content rating (alcohol "reference only": the UI names bottle/champagne), target audience 18+, news/government/financial/health, permissions (none need a declaration).
+- `docs/store/play-rollout.md` (new): internal → optional closed → 10% → 50% → 100%, go/no-go per step (Play vitals, Sentry, push-dispatch `done` logs, door-outbox warnings), how to halt. Remote-URL fact: a web deploy reaches 100% whatever the rollout %; the staged rollout only gates the shell.
+- `docs/store/play-console-checklist.md` (new): 42 click-by-click steps for Max; ⛔ marks the L1-blocked steps.
+- The 9 "valid only once N5" markers are gone (push verified on Max's Android device, 2026-09-30). §6 of `capacitor-plan-claude-code.md` has Android sub-state per item; only repo-proven sub-items are ticked (Firebase/`google-services.json`, versionCode rule, export compliance n/a on Play).
+- **Blocker found (needs an app-code task):** the native app can't reach `/auth/review-login`: no link on `/login`, no App Link for it. A Play reviewer can't sign in inside the app today.
+- Not run here: db:test, e2e (no Supabase stack/Docker in the container). Ran `CI=1 pnpm test`, `pnpm lint`, `pnpm type-check` once before the push.
+
 ## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
 
 Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test

@@ -131,23 +131,38 @@ Web-push-adapter · scheduled/reminder-pushes · notification-preferences-matrix
 ## 6. Release-checklist (draft — afvinken in S5)
 
 - [ ] Apple + Play **org**-accounts actief
+  - [ ] Android: Play-**org**-account (M2) volgens `docs/native/android-release.md` §9 — niet uit de repo te bewijzen, Max vinkt af.
 - [ ] `app.plus-one.io` live op het Vercel-project `plus-one`, `NEXT_PUBLIC_APP_URL` + Supabase Site/Redirect URLs erop (M5)
+  - [ ] Android: harde precondition vóór elke rollout (`android-release.md` bovenaan) — live-check door Max, niet uit de repo te bewijzen.
 - [ ] Firebase-project + APNs-key geüpload
+  - [x] Android: Firebase-project bestaat, `android/app/google-services.json` staat in de repo (N5). APNs-helft volgt in S1b. Let op: `codemagic.yaml` heeft nog `REQUIRE_GOOGLE_SERVICES: "false"` — zie PR 86ey6bfyj (buiten scope gemeld).
 - [ ] Push end-to-end geverifieerd op TestFlight + Play internal (alle drie use-cases)
+  - [ ] Android: push werkt end-to-end op Max' toestel (2026-09-30, orchestrator) — device-test, dus Max vinkt af; TestFlight-helft in S1b.
 - [ ] Remote logout killt push-tokens (handmatige test)
+  - [ ] Android: DB-kant gedekt door pgTAP `push_tokens.test.sql` (token hangt aan de sessie); de handmatige toesteltest staat nog open.
 - [ ] Android-backbutton: retraces de nav-stack, exit alleen op stack-root
+  - [ ] Android: gebouwd + unit-getest (`src/components/po/native-back-button.test.tsx`); toesteltest door Max staat nog open.
 - [ ] Safe-area correct op notch-device (statusbar + home-indicator)
 - [ ] Externe links (voorwaarden/privacy) openen in de systeembrowser, niet in de webview
+  - [ ] Android: `openExternal()` via `@capacitor/browser`, getest in `kit.webview.test.tsx` + `ConsentScreen.test.tsx`; toesteltest open.
 - [ ] iPad portrait + landscape: elk scherm bruikbaar (T1); iPad-screenshots in de listing
 - [ ] Deur-cold-start-besluit (N4 → beslissing 15) geïmplementeerd: N7 gemerged, spike-script ronde B 13/13 op Android, bridge + SW op iPhone/iPad (S1b)
 - [ ] `REVIEW_LOGIN_CODE` gezet + demo-venue geseed; creds in de review-notes
+  - [ ] Android: ⛔ blocker — de native app heeft geen weg naar `/auth/review-login` (geen link op `/login`, geen App Link). Eigen app-code-taak; review-notes-tekst staat klaar in `docs/store/play-review-notes.md` §1.
 - [ ] `/privacy` + `/terms` live (L1); privacy nutrition labels + Play data-safety ↔ die pagina's consistent
+  - [ ] Android: Play data-safety herschreven als console-flow in `docs/store/play-store-listing.md`, getoetst tegen policy v0.2 (afwijkingen in de PR van 86ey6bfyj); blijft geblokt op L1.
 - [ ] Account-deletion-toelichting (invite-only, support-adres) in de review-notes
+  - [ ] Android: tekst staat in `docs/store/play-review-notes.md` §1 + aanbeveling in `play-store-listing.md`; wacht op Max (mailbox, delete-account-URL, evt. in-app-pad = eigen taak).
 - [ ] Export compliance beantwoord (HTTPS-only → exempt)
+  - [x] Android: n.v.t. — Play Console stelt deze vraag niet (alleen Apple); vastgelegd in `docs/store/play-store-listing.md`.
 - [ ] Geen billing-UI bereikbaar in de app (`isNativeShell()`-seam gecontroleerd op elke purchase-affordance)
+  - [ ] Android: seam zit in `settings/billing.tsx` + `features/billing/actions.ts`; geen test die *elke* affordance afdekt → handmatige walk-through in de native app nodig.
 - [ ] NL-listings compleet (beschrijving, screenshots, keywords)
+  - [ ] Android: NL/EN-teksten compleet in `docs/store/play-store-listing.md`; screenshots (telefoon + 7"/10" tablet) nog niet gemaakt.
 - [ ] Versioning vast: buildnummer = CI-runnummer
+  - [x] Android: versionCode = max(Play internal + 1, `BUILD_NUMBER`), afgedwongen door `tests/unit/codemagic-android-release.test.ts` (bewust niet puur het CI-runnummer, zie `android-release.md`).
 - [ ] Offline-banner-gedrag bij mid-session-netwerkverlies gecheckt in de webview
+  - [ ] Android: `ACCESS_NETWORK_STATE` staat in het manifest (N7); de check zelf is een toesteltest.
 - [ ] CLAUDE.md + spec #37 bijgewerkt; ClickUp-taken dicht
 
 ## 7. Kritieke bestanden

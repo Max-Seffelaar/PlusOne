@@ -17,6 +17,7 @@ Do not screenshot: Settings, Platform tab (internal/admin-only, not a customer-f
 - **iPhone 6.7"** (e.g. iPhone 15 Pro Max simulator/device): portrait only, matches the phone bottom-tab layout.
 - **iPad 13"** (e.g. iPad Pro 13" simulator/device): capture at least one screen in landscape (Door or Guest list) to show the tablet-specific layout isn't just a stretched phone view — T1 explicitly targets portrait + landscape.
 - **Android phone**: same five screens as iPhone, Play Console wants a minimum of 2 and recommends 4–8 per device class.
+- **Android 7" and 10" tablet** (Play listing rows, S5): at least 2 each, same screens. 7": 1080×1920 / 1920×1080; 10": 2560×1600 / 1600×2560, at least one landscape. Exact rules: `play-console-checklist.md` steps 20–22.
 
 ## Status
 
