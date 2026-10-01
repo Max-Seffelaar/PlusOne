@@ -11,3 +11,12 @@ capacitor-cordova-ios-plugins
 # Generated Config files
 App/App/capacitor.config.json
 App/App/config.xml
+
+# Signing secrets never live in the repo (S1b, docs/native/ios-release.md):
+# they sit in the password manager + Codemagic only.
+*.p8
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.certSigningRequest
