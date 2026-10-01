@@ -9,6 +9,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoVenueSettings } from '@/features/po/hooks';
 import { usePoUpdateVenueSettings } from '@/features/po/mutations';
 import { COUNTRIES } from '@/lib/countries';
+import { normalizeWebsite } from '@/features/venues/website';
 import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, ExternalLink, Field, IconBtn, Label, MiniChip, Note, RefusedAction, Scroll, ToggleRow, Top, press } from '../../kit';
@@ -127,7 +128,18 @@ function WebsiteField({ value, saved, onChange }: { value: string; saved: string
   }
   return (
     <div className="mb-[18px]">
-      <Field icon="link" type="url" value={value} onChange={onChange} placeholder={t.settings.venue.websitePlaceholder} />
+      <Field
+        icon="link"
+        type="url"
+        value={value}
+        onChange={onChange}
+        // Show what will be saved: 'nu.nl' becomes 'https://nu.nl' (same helper as the schema).
+        onBlur={() => {
+          const normalized = normalizeWebsite(value);
+          if (normalized !== value) onChange(normalized);
+        }}
+        placeholder={t.settings.venue.websitePlaceholder}
+      />
       {link && (
         <ExternalLink
           href={link}
@@ -381,7 +393,11 @@ export function VenueSettings(): JSX.Element {
             icon="check"
             disabled={!canSave}
             className={canSave ? '' : 'opacity-[0.45]'}
-            onClick={() => save.mutate(form)}
+            onClick={() => {
+              const next = { ...form, website: normalizeWebsite(form.website) };
+              setForm(next);
+              save.mutate(next);
+            }}
           >
             {save.isPending ? t.settings.venue.saving : t.settings.venue.save}
           </Btn>

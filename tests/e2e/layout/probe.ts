@@ -2,6 +2,7 @@ import type { Browser, BrowserContext, Page, TestInfo } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SEED, USERS, type LayoutScreen, type LayoutUser } from './screens';
+import { shellMounted } from './shell-ready';
 
 /**
  * Load-once-measure-once plumbing for the layout suite: one browser context per
@@ -152,8 +153,12 @@ export async function openScreen(page: Page, user: LayoutUser, path: string): Pr
     if (attempt >= 4) throw new Error(`dev-login as ${USERS[user].email} kept landing on ${page.url()}`);
     await page.waitForTimeout(500 + Math.floor(Math.random() * 1500));
   }
-  // The shell is client-only (`ssr:false`): wait for its chrome to exist at all.
-  await page.waitForSelector('aside, button', { timeout: 90_000 });
+  // The shell is client-only (`ssr:false`): wait until it has replaced the boot
+  // screen in the light DOM, never on Next's shadow-DOM dev indicator
+  // (`shell-ready.ts`). A shell that never mounts fails here, loudly, instead
+  // of being measured as the screen. The first load of a run pays the cold
+  // compile of the lazy shell chunk, hence the long timeout.
+  await page.waitForFunction(shellMounted, undefined, { timeout: 120_000 });
   await settle(page);
 }
 

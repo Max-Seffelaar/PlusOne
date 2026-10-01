@@ -68,10 +68,52 @@ export function TabBar({
   );
 }
 
-export function Toast({ children }: { children: ReactNode }): JSX.Element {
+const TOAST_FRAME =
+  'po-anim-toast absolute inset-x-4 bottom-[26px] z-20 rounded-[16px] bg-acc font-display text-[15px] font-bold text-on-acc shadow-[0_16px_40px_rgba(0,0,0,0.4)]';
+
+/** Accent toast. Plain by default; with `action` the message itself and a labelled
+ *  button both run it, and `onDismiss` adds a × — every target ≥44px. */
+export function Toast({
+  children,
+  action,
+  onDismiss,
+}: {
+  children: ReactNode;
+  action?: { label: string; onClick: () => void };
+  onDismiss?: () => void;
+}): JSX.Element {
+  if (!action && !onDismiss) {
+    return <div className={cn(TOAST_FRAME, 'p-[15px] text-center')}>{children}</div>;
+  }
   return (
-    <div className="po-anim-toast absolute inset-x-4 bottom-[26px] z-20 rounded-[16px] bg-acc p-[15px] text-center font-display text-[15px] font-bold text-on-acc shadow-[0_16px_40px_rgba(0,0,0,0.4)]">
-      {children}
+    <div role="status" className={cn(TOAST_FRAME, 'mx-auto flex max-w-[560px] items-center gap-1 py-1 pl-1 pr-1')}>
+      {action ? (
+        <button type="button" onClick={action.onClick} className="min-h-[44px] min-w-0 flex-1 cursor-pointer rounded-[12px] px-[11px] py-[8px] text-left">
+          {children}
+        </button>
+      ) : (
+        <div className="min-w-0 flex-1 px-[11px] py-[8px] text-left">{children}</div>
+      )}
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="min-h-[44px] shrink-0 cursor-pointer rounded-[12px] bg-black/[0.12] px-[14px] underline-offset-2 hover:underline"
+        >
+          {action.label}
+        </button>
+      )}
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t.shared.kit.dismiss}
+          title={t.shared.kit.dismiss}
+          className="flex h-[44px] w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-[12px]"
+        >
+          <Icon name="close" size={18} />
+        </button>
+      )}
     </div>
   );
 }

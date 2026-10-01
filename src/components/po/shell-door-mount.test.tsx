@@ -72,6 +72,10 @@ vi.mock('@/features/po/hooks', () => ({
   }),
 }));
 vi.mock('@/features/po/door-event', () => ({ autoOpenDoorEvent: () => null }));
+// The Deur tab reads the active venue for its offline pin (N7).
+vi.mock('@/features/po/PoLiveProvider', () => ({
+  usePoIdentity: () => ({ userId: 'u-door', venueId: 'v1', venueName: 'Venue', roles: ['doorhost'] }),
+}));
 vi.mock('@/features/po/eventday/EventDaySkeleton', () => ({ EventDaySkeleton: () => null }));
 vi.mock('@/features/door/DoorQueryProvider', () => ({
   DoorQueryProvider: ({ children }: { children?: ReactNode }) => <>{children}</>,

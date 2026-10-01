@@ -9,7 +9,10 @@
 -- new user takes over the previous owner's row for that exact token, dead or
 -- live session, and nothing else of theirs; and that
 -- revoke_own_session / admin_revoke_session delete exactly the revoked
--- session's tokens with their authorization checks unchanged.
+-- session's tokens with their authorization checks unchanged; and (N5 review,
+-- 20260925160000) that last_seen_at is server-stamped on INSERT and UPDATE —
+-- a client-sent past or future value never sticks — while owner/fixture
+-- writes still pass through as given.
 --
 -- Seed: venue1 aa..01 — Max 11.. admin (also admin of venue2 aa..02), Noor
 -- 22.. user_manager, Tom 55.. staff, Lisa 66.. doorhost+staff. Rolls back.
@@ -46,7 +49,7 @@ begin
 end;
 $fn$;
 
-select plan(40);
+select plan(52);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner): live sessions for Tom (x2) and Lisa, two Lisa tokens on
@@ -281,6 +284,72 @@ select is(
 select is(
   (select count(*)::int from auth.sessions where id = '5e550000-0000-4000-8000-000000000006'),
   0, 'E9 …and the auth session itself, as before');
+
+-- ---------------------------------------------------------------------------
+-- F. last_seen_at is the server's clock, never the client's (20260925160000)
+-- ---------------------------------------------------------------------------
+-- now() is the transaction start, so "stamped" is an exact equality here.
+-- Fixture (as owner): a Tom row on his live session …02 last seen 100 days ago.
+insert into public.push_tokens (id, user_id, session_id, transport, token, last_seen_at, created_at) values
+  ('70000000-0000-4000-8000-0000000000f1', '55555555-5555-4555-8555-555555555555',
+   '5e550000-0000-4000-8000-000000000002', 'fcm', 'tom-old-stamp',
+   now() - interval '100 days', now() - interval '100 days');
+
+select is(
+  (select last_seen_at from public.push_tokens where id = '70000000-0000-4000-8000-0000000000f1'),
+  now() - interval '100 days',
+  'F1 an owner/fixture write keeps the last_seen_at it was given (TTL tests rely on it)');
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555', '5e550000-0000-4000-8000-000000000002');
+
+select lives_ok($$
+  insert into public.push_tokens (id, transport, token, last_seen_at)
+  values ('70000000-0000-4000-8000-0000000000f2', 'fcm', 'tom-past-insert', now() - interval '200 days')
+$$, 'F2 a client INSERT naming a past last_seen_at is accepted…');
+select is(
+  (select last_seen_at from public.push_tokens where id = '70000000-0000-4000-8000-0000000000f2'),
+  now(), 'F3 …but stamped now(): the past value is overwritten');
+
+select lives_ok($$
+  insert into public.push_tokens (id, transport, token, last_seen_at)
+  values ('70000000-0000-4000-8000-0000000000f3', 'fcm', 'tom-future-insert', now() + interval '10 years')
+$$, 'F4 a client INSERT naming a future last_seen_at is accepted…');
+select is(
+  (select last_seen_at from public.push_tokens where id = '70000000-0000-4000-8000-0000000000f3'),
+  now(), 'F5 …but stamped now(): a device cannot pin itself out of the TTL sweep');
+
+select is(
+  pg_temp.rowcount($$update public.push_tokens set last_seen_at = now() - interval '300 days'
+                     where id = '70000000-0000-4000-8000-0000000000f2'$$),
+  1, 'F6 a client UPDATE setting a past last_seen_at goes through as a write…');
+select is(
+  (select last_seen_at from public.push_tokens where id = '70000000-0000-4000-8000-0000000000f2'),
+  now(), 'F7 …but the column reads now(): a client cannot age its row into the sweep either');
+
+select lives_ok($$
+  update public.push_tokens set last_seen_at = now() + interval '10 years'
+   where id = '70000000-0000-4000-8000-0000000000f3'
+$$, 'F8 a client UPDATE setting a future last_seen_at is accepted…');
+select is(
+  (select last_seen_at from public.push_tokens where id = '70000000-0000-4000-8000-0000000000f3'),
+  now(), 'F9 …and overwritten with now()');
+
+-- The re-registration the N5 client sends: an upsert WITHOUT last_seen_at.
+-- The conflict path is an UPDATE; that alone must refresh the stamp.
+select lives_ok($$
+  insert into public.push_tokens (transport, token, device_label) values ('fcm', 'tom-old-stamp', 'android')
+  on conflict (transport, token) do update set device_label = excluded.device_label
+$$, 'F10 a re-registration upsert that does not mention last_seen_at works…');
+select is(
+  (select last_seen_at::text || '|' || created_at::text || '|' || id::text
+   from public.push_tokens where token = 'tom-old-stamp'),
+  now()::text || '|' || (now() - interval '100 days')::text || '|70000000-0000-4000-8000-0000000000f1',
+  'F11 …and refreshes last_seen_at to now() while id and created_at stay pinned');
+
+select ok(
+  (select p.prosecdef and p.proconfig = array['search_path=""']
+   from pg_proc p where p.oid = 'public.push_tokens_stamp()'::regprocedure),
+  'F12 push_tokens_stamp is still SECURITY DEFINER with search_path pinned to empty');
 
 select * from finish();
 rollback;

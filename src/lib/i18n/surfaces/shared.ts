@@ -10,6 +10,21 @@
  * `t.shared.<key>` and fill {placeholders} with `fmt`.
  */
 export const shared = {
+  // ── Quiet offline indicator (offline-indicator.tsx, N7 follow-up) ───────
+  // Driven by navigator.onLine only. The door's own SyncBar already says
+  // "Offline · {age}" and "{n} queued", so the door copy explains what that
+  // means instead of repeating it.
+  offline: {
+    chip: 'Offline',
+    chipAria: "You're offline. Show what that means",
+    title: "You're offline",
+    // Read after `title`, so together they say "You're offline. This will…".
+    body: 'This will load again once you have internet.',
+    bodyDoor: "Check-ins are saved on this device and sync when you're back online.",
+    gotIt: 'Got it',
+    dontShowAgain: "Don't show again",
+  },
+
   // ── Design-system kit (kit.tsx) ──────────────────────────────────────────
   kit: {
     statusInside: 'Inside',
@@ -21,6 +36,8 @@ export const shared = {
     back: 'Back',
     loadingAria: 'Loading',
     loading: 'Loading…',
+    /** Toast × (accessible name). */
+    dismiss: 'Dismiss',
     /** Copy-button label when the clipboard refused (copyText → false). */
     copyFailed: "Couldn't copy",
     /** Generic copy-button idle/success labels for `CopyableField` (kit.tsx). */

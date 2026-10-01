@@ -78,15 +78,39 @@ describe('venueSettingsSchema', () => {
     expect(venueSettingsSchema.safeParse({ ...baseVenue, website: 'http://clubvesper.nl' }).success).toBe(true);
   });
 
+  it('gives a bare domain an https:// prefix (normalized, not rejected)', () => {
+    for (const [input, saved] of [
+      ['clubvesper.nl', 'https://clubvesper.nl'],
+      ['www.clubvesper.nl', 'https://www.clubvesper.nl'],
+      ['clubvesper.nl/agenda', 'https://clubvesper.nl/agenda'],
+      [' nu.nl ', 'https://nu.nl'],
+      ['HTTPS://clubvesper.nl', 'HTTPS://clubvesper.nl'],
+    ]) {
+      const r = venueSettingsSchema.safeParse({ ...baseVenue, website: input });
+      expect(r.success, input).toBe(true);
+      if (r.success) expect(r.data.website).toBe(saved);
+    }
+    // Exactly at the cap after normalization still saves.
+    const atCap = `${'a'.repeat(189)}.nl`;
+    expect(`https://${atCap}`).toHaveLength(200);
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, website: atCap }).success).toBe(true);
+  });
+
   it('accepts only an absolute http(s) website of at most 200 chars', () => {
     for (const bad of [
-      'clubvesper.nl',
-      'www.clubvesper.nl',
       'javascript:alert(1)',
+      'javascript://alert(1)',
       'ftp://clubvesper.nl',
+      'mailto:x@y.nl',
+      'data:text/html,hi',
       'https://',
       'https://localhost',
+      'localhost',
+      'club vesper.nl',
+      'clubvesper.nl/de agenda',
       `https://${'a'.repeat(190)}.nl`,
+      // Over the cap only once https:// is prepended (193 + 8 > 200).
+      `${'a'.repeat(190)}.nl`,
     ]) {
       const r = venueSettingsSchema.safeParse({ ...baseVenue, website: bad });
       expect(r.success, bad).toBe(false);

@@ -8,6 +8,132 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
+
+Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test
+(2026-09-30): after sign-out → sign-in the "Know when a request comes in" card asked again
+every time, because `po:push` = `on` was the only record of the choice and `signOutDevice`
+wipes every `po:push*` key (which must stay: shared door tablet).
+
+- The explicit choice now also lives on the account: Supabase Auth
+  `user_metadata.push_opt_in` via `auth.updateUser` (no migration, no RLS/grant change;
+  never an authorization input). "Turn on" → true, Profile off → false; "Not now" and a
+  denial stay device-level.
+- `resumePush` returns `{ perm, ask }`: on an empty device the account decides (opted in +
+  granted → silent register; opted in + `default` → `ask: 'os-prompt'`; opted out → device
+  `off`; undecided → `ask: 'card'`). `usePushClient` takes `onDoor` and fires the direct OS
+  prompt once, after `ASK_DELAY_MS`, off the Deur tab, role-gated like the card.
+- `po:push-account` mirrors the last confirmed account value; a decisive device state that
+  differs from it is an owed write, retried on every start (offline turn-on/off, and a
+  one-time backfill for installs that chose before this existed). Writes are serialised.
+- Web-only change: no native rebuild.
+
+---
+
+## 2026-09-30 — N7 follow-up: "Continue without internet" + quiet offline chip
+
+Branch `claude/n7-offline-ux-followup`, milestone Now. From Max's Android device test
+(2026-09-30): a cold offline start landed on Home ("couldn't load") instead of the door, and
+the app had no clear offline indication.
+
+- **`native/www/offline.html`:** new primary "Continue without internet" →
+  `ORIGIN + '/app/door'` (the SW serves the cached `/app` shell, `fallbackFor` + `ignoreSearch`).
+  It is NOT a reconnect attempt: it never touches the retry counter, so it can't push the page
+  into "Server trouble" while simply offline. Offered in the "Server trouble" state too. "Try
+  again" and the auto-reconnect are unchanged. Lead copy now says the device is offline.
+- **Quiet offline indicator** (`src/components/po/offline-indicator.tsx`, kit `OfflineChip`):
+  `navigator.onLine` + `online`/`offline` only. Offline under 3 s: nothing, not even a render.
+  From 3 s: "Offline" chip at the top of the content column, tap → Sheet with the explanation.
+  At 4 s, once per episode: a hint card with "Got it" / "Don't show again"
+  (`po:offline-hint-off`, try/catch). Back online resets everything. On the Deur tab the chip
+  is left out (the SyncBar already says "Offline · {age}" + "{n} queued"); the hint there
+  explains the queue (outbox variant only; the online-only cockpit gets the general copy).
+- Mounted in `app-chrome.tsx` as a sibling before the screen slot, outside the door/not-door
+  switch (a tab change keeps the episode). `door-render-isolation.test.tsx` gained an
+  online↔offline case (chrome + `PoDoorTab` counters stay put; verified red with the hook
+  lifted into the chrome). Note: the door resolver already re-renders on online/offline by
+  design (N7's `useBrowserOffline`), which `DoorTree`'s memo keeps off the list.
+- Checks: type-check, lint, `CI=1 pnpm test` (224 files / 2508 tests) green. Gotcha: bare
+  `pnpm test` is `vitest` in watch mode outside CI and never exits.
+
+## 2026-09-28 — Fase 17 N7: door cold-offline in the shell + Android offline page (decision 15)
+
+Branch `claude/n7-door-cold-offline`. Kills Max's three device bugs: an offline refresh
+of the door lost the page and the queue (Android + web), and after a network error the
+WebView sat on Chromium's dead error page until the app was killed.
+
+- **SW under `/app`.** `RegisterServiceWorker` moved to `src/components/register-sw.tsx`
+  and is mounted by `src/app/app/layout.tsx` as well as `/door`. Two new SW messages fill
+  what in-app navigation never shows the worker: `seed-session` (only the bare `/app`,
+  credentialed, into `plusone-session-*` with the wipe epoch) and `seed-assets` (already
+  loaded same-origin `/_next/static/` chunks, fetched with `credentials: 'omit'`, into
+  `plusone-shell-*`; at most the 200-entry shell cap per message). The Deur tab re-seeds once its lazy chunk has
+  loaded. Shell cap 60 → 200 so one build's `/app` chunk set fits. Offline `/` answers
+  with a redirect to `/app/door` **only** when the session bucket holds `/app` (so a
+  signed-out device keeps getting the landing). Localhost stays inert unless the script
+  URL carries `?dev-cache=1`, which only the e2e spec asks for (`po:sw-dev-cache`).
+- **Last pinned door event.** `src/features/door/offline/last-door.ts` keeps
+  `{venueId, eventId, name}` under `door-last-event` in the door IDB (wiped by
+  `idbClearAll`, epoch-guarded, zod-validated on read). `MobileDoorBranch` saves it once
+  the LOADED candidate list confirms the event, and mounts `DoorTree` from it only while
+  that list cannot load (`fetchStatus` paused, `isError`, or `navigator.onLine === false`
+  — React Query v5 assumes online at page start, so offline the read hangs in `fetching`
+  otherwise): same venue, never against a different `?event=`, never over a loaded list
+  (an empty loaded list still says "no event"). The stale-id rejection is skipped while
+  the list is unreachable, so the offline door is never unpinned. `usePoDoorCandidates`
+  now also notifies on `fetchStatus`/`isError`; it stays where it is (render isolation
+  guard green, the pin is read lazily so an online door pays no extra render).
+- **Bug found on the way (the "page disappears" on Android).** `shouldDehydrateDoorQuery`
+  persisted only `status === 'success'`. With `navigator.onLine` stuck on `true` (dead
+  venue wifi, or Android WebView without `ACCESS_NETWORK_STATE`) the door keeps syncing,
+  the snapshot refetch fails, the query flips to `error` *with its data*, and the next
+  persist tick wrote a blob without it — the following offline reload booted an empty
+  door. Now: persisted while it holds data (success or error), same recency gate.
+  The e2e spec fails on the old rule and passes on the new one.
+- **Android offline page.** `server.errorPath: 'offline.html'` → `native/www/offline.html`
+  (self-contained, PII-free, brand colours, "Try again"). Capacitor's
+  `BridgeWebViewClient` loads it on EVERY failed main-frame load (`onReceivedError` and
+  `onReceivedHttpError`, first launch and mid-session), so no extra native hook was
+  needed. It reloads `<origin>/app` on the `online` event, on becoming visible, and on a
+  backed-off probe (3 s → 30 s, a no-cors `manifest.json` fetch). The origin is stamped
+  at `npx cap sync` by the `capacitor:copy:after` hook (`scripts/native/offline-origin.mjs`)
+  from the synced `server.url`, so `CAP_SERVER_URL` debug builds recover to their own
+  server. `ACCESS_NETWORK_STATE` added to the manifest (without it WebView never fires
+  `online`/`offline`).
+- **Tests.** `tests/e2e/door-offline-reload.spec.ts` (in `e2e:smoke`, ~50 s): open the
+  door online → dead wifi → offline check-in → forced failed sync → offline reload
+  (served by the SW, asserted) → offline cold start at `/` → reconnect → exactly one
+  `check_ins` row, `offline_synced`, actor pinned; a second reload replays nothing. It
+  goes offline with `context.route` aborts on top of `setOffline`, because Chromium does
+  not apply `setOffline` to the worker's own fetches. Verified red with the pin disabled
+  and with the old dehydrate rule. Unit: `last-door.test.ts`,
+  `door-branch.offline-pin.test.tsx`, `register-sw.test.tsx`, dehydrate cases, 13 new SW
+  cache-scope cases, the Android offline page + hook in `capacitor-native-shell.test.ts`.
+- **Docs.** Plan N7 row done, §1 "Deur offline" = warm + cold (Android, after one online
+  visit), iOS stays S1b; spike round-B script updated (13 steps, incl. bug 2's
+  airplane-mode sequence).
+- **Known limits.** The first offline reload needs the snapshot to have been written
+  (2 s throttle after the list loads). The cached `/app` carries the active venue of the
+  last full `/app` load; a venue switch without a reload keeps the old one offline, and the pin
+  then does not match (the tab says it is offline rather than opening the wrong venue).
+  iOS cold start is unverified until S1b.
+- **§6 review round (2026-09-30).** Blocking fix: the pin mounted over a list that DID
+  load once a refetch failed (React Query v5 keeps the data but flips to `error`); now
+  "loaded" = the query holds a list (`usePoDoorCandidates().hasData`), with the reviewer's
+  retained-list cases as regressions. Also: pin stamped with the user id, persisted door
+  queries lose their error object, seed batch clamped to the shell cap, the Android page
+  says "Server trouble" when the probe gets through but `/app` keeps failing (and accepts
+  an IPv6 debug origin), and the e2e spec's three fixed sleeps are polls on the real
+  condition (failed candidate read + retry, empty outbox on disk).
+- **CI: layout-suite red on phone-390 home.door (2026-09-30).** The snapshot was the `+1`
+  boot screen (0 measured targets, no errors). The run's first load hits a cold dev server, and the
+  QA-1 gate `waitForSelector('aside, button')` passed on Next's dev-tools indicator, a `<button>` in an
+  open shadow root that Playwright pierces. So the suite measured the page before the `ssr:false` shell
+  chunk had mounted. It was not the door pin: every screen gets a fresh context, and Home doesn't mount
+  the door branch. Fix: the boot screen carries `data-po-boot`, and `openScreen` waits for
+  `shellMounted` (`tests/e2e/layout/shell-ready.ts`, light DOM only, boot screen gone, 120 s).
+  Regression: `tests/unit/layout-shell-ready.test.ts`.
+
 ## 2026-09-30 — QA-1: known-issue tap targets to 44px
 
 Fixed every `tap-targets` known-issue entry in `tests/e2e/layout/known-issues.ts` and
@@ -79,6 +205,7 @@ browser. Claim = exactly `https://app.plus-one.io/auth/confirm` + `/auth/callbac
   `src/app/.well-known`, one shared middleware-matcher test helper, and CLAUDE.md records
   `APP_LINK_HOST` as the second permitted hard-coded origin.
 
+
 ## 2026-09-28 — QA-1: automated layout/visual suite
 
 Milestone: Now. No migration. Draft PR `test(e2e): QA-1 automated layout/visual suite`.
@@ -129,6 +256,7 @@ only a human or a real device can judge.
     ≥1024 gets the outbox door, so the cockpit is never measured on touch.
 
 ## 2026-09-28 — Fase 17 S2: store-listing domain URLs re-fixed to www (86ey6bft8)
+
 
 `main` moved CLAUDE.md's domain decision back to `www.plus-one.io` canonical (apex
 redirects to it, decided 2026-09-25 — the same-day 2026-09-18 apex-canonical text this
@@ -201,6 +329,93 @@ residuals; all four are fixed here.
 - **Nit:** `demoAccountRefusal` runs its seven reads in one `Promise.all` and then
   evaluates them in the old order; `route.test.ts` pins the precedence (fault chains:
   the first failing check still wins) and that the reads are issued in parallel.
+
+## 2026-09-25 — Fase 17 N5: push client + Capacitor push provider (86ey6bfkb)
+
+Branch `claude/86ey6bfkb-push-client`. Client half of the approvals-loop push (N2 is
+the backend). One migration (review round, below); decision #51 in the spec; runbook
+`docs/push-dispatch.md` ("Go-live order" + "The client").
+
+**Review round (independent review 5319103122 — 2 🔴, 2 🟠, 3 🟡, all fixed here):**
+- 🔴 First denial on Android 13+ comes back as `prompt-with-rationale` (= `default`), so
+  the card returned every launch. `enablePush` now records any non-grant (`po:push =
+  declined`) and the card also snoozes; the card shows only while nothing was decided.
+- 🔴 Profile "off" swallowed every failure. Now `off-pending` → delete results checked
+  (PostgREST returns `{ error }`, never throws) → `off` only on success; otherwise it
+  throws and the row shows `profileOffPending`. `resumePush` retries a pending off on
+  every start until it lands. `savePushToken` refuses unless `po:push = on`, so a late
+  `registration` event after "off" cannot recreate the row.
+- 🟠 Sign-out race: the 3 s cap didn't cancel the chain. Now an `AbortController` per
+  sign-out step (request aborted at the cap; `signOutDevice` awaits the step, so it is
+  over before any re-registration; no bookkeeping after), and the FCM `unregister()` moved to after the session is confirmed gone —
+  the `sign-out-incomplete` path never touches the transport token. Residual: a DELETE
+  that already reached PostgREST executes there; it precedes the re-registration.
+- 🟠 FCM token in the DELETE query string (API logs). Deletes are now by `session_id`
+  and by the row `id` the upsert returns (`po:push-row`, a uuid, wiped on sign-out).
+- 🟡 Cross-venue tap on a refused switch navigated anyway → the tap now uses the chrome's
+  own `switchToVenue(venueId, landing)`: stays put + `switchFailed`/`switchError` toast.
+- 🟡 Two identical upserts per registration → one in-flight/done save per token per run.
+- 🟡 Android ≤12 registered at first launch (OS grants from install) → registration now
+  requires `po:push = on`, written only by "Turn on"; the card shows for `granted` too.
+  Transport/label come from `src/features/notifications/transport.ts` (pinned to the
+  N2 check constraint by a unit test) and the provider's platform, no bare strings.
+- **Migration `20260925160000_push_tokens_last_seen_server_stamp.sql`** (the reviewer's
+  suggested follow-up, done now by orchestrator decision): `push_tokens_stamp` sets
+  `last_seen_at := now()` on INSERT and UPDATE for end-user writes; everything else
+  verbatim (SECURITY DEFINER, `search_path ''`, owner pass-through). Grants unchanged.
+  The client stopped sending `last_seen_at`. pgTAP `push_tokens.test.sql` 40 → 52
+  (F1–F12). **Needs the prod-push flow after merge** (go-live step 0).
+
+**Re-review (5319828005, approve + 9 🟡 nits, all fixed here):** `enablePush` returns
+`{ perm, registered }` and a granted-but-not-stored turn-on says so (`t.push.onPending`,
+toast + Profile line; `on` stays, every start retries); `disablePush` clears the per-run
+save dedupe so a same-run "turn on" re-upserts; an upsert landing after "off" hands its
+row to `off-pending`; the provider no longer memoizes a failed plugin load (listeners
+retry 3× at 2 s, so a retained cold-start tap survives one bad chunk fetch — a clean
+"no Firebase" is not retried); the dead `resumePush` abort + module controller are gone
+(the timer is the guarantee; docs corrected); `switchToVenue`'s `landing` goes through
+`appGateNextPath` (only ever `/app…`); the Profile row uses the ask card's role gate
+(`canReceivePush`); a non-uuid `po:push-row` is dropped instead of sent; the provider
+reports the shell's platform instead of a constant `android`. Kept two DELETEs rather
+than one `.or()` (no localStorage value inside a PostgREST filter string).
+
+- **Dependency:** `@capacitor/push-notifications` 8.1.2 (exact pin, Capacitor 8 like the
+  rest), `npx cap sync` output committed (Android gradle + iOS `Package.swift`). FCM only.
+- **Crash found and guarded:** the plugin's Android `register()`/`unregister()` call
+  `FirebaseMessaging.getInstance()` unguarded; with no `google-services.json` that throws
+  on the plugin thread and Capacitor rethrows it — the app dies. New local plugin
+  `PushConfigPlugin` (`isConfigured()` = the `google_app_id` resource exists), registered
+  in `MainActivity`; the provider never reaches Firebase paths when it says no (or is
+  missing in an older shell). Until the file lands, push is simply "unsupported".
+- **Provider seam:** `getNotificationProvider()` selects `CapacitorPushProvider` in the
+  native shell, the no-op elsewhere (no web-push adapter, decision 2). Android only: iOS
+  reports unsupported until S1b (APNs token ≠ FCM token).
+- **Lifecycle:** token upsert on `(transport, token)` via the user-scoped client, body
+  `transport`/`token`/`device_label` only (N2 defaults + stamp trigger own `user_id`,
+  `session_id` and — since the review round — `last_seen_at`).
+- **Sign-out:** `signOutDevice` deletes this device's rows (by `session_id` from the JWT
+  and by the remembered row id) after the outbox gate and before `auth.signOut()`, capped
+  and aborted at 3 s; the FCM token is invalidated once the session is confirmed gone;
+  on `sign-out-incomplete` push is re-registered. Push prefs are wiped with IDB/caches.
+- **UX:** explain-first ask card from the chrome (never at launch, ~8 s, off the Deur tab,
+  admins/organizers/staff only, "Not now" = 14 days, denial recorded), Profile →
+  Security toggle, foreground push = in-app toast, tap → Requests of that event (venue
+  switch first when needed), cold + warm (the plugin retains the tap event).
+- **Android:** `POST_NOTIFICATIONS`, channel `approvals` as FCM default,
+  `@drawable/ic_stat_plusone` placeholder icon (S2 replaces artwork, keeps the name).
+- **Tests:** provider selection + crash-guard gates, permission mapping, register /
+  timeout / error, upsert shape (no ids, no last_seen_at), denial and snooze, first-denial
+  record, Android ≤12 consent, offline off → online self-heal, dedupe, sign-out ordering
+  (log-based: push delete → signOut → FCM unregister → wipe; refused sign-out touches
+  nothing; web no-op; incomplete sign-out re-registers and never unregisters FCM), the
+  abandoned-delete race, cross-venue tap on a refused switch, kind→route map + payload validation, native-shell
+  guards (permission, channel id sync, no Analytics/Crashlytics, conditional
+  google-services). `door-render-isolation` green; `app.tsx` untouched.
+- **Ran:** `pnpm lint` (2 pre-existing warnings), `pnpm type-check`, `CI=1 pnpm test`
+  (199 files / 2162 tests), `pnpm build`. **Not run here:** Gradle/Android build, a device,
+  real FCM delivery, pgTAP/e2e (no Supabase stack or Docker in this container).
+
+---
 
 ## 2026-09-25 — Fase 17 N3 follow-ups: standalone door back + iOS backup exclusion (86ey6bfdm)
 
@@ -1043,6 +1258,66 @@ Because Next merges `viewport` per key, `cover` also reaches `/e`, `/r`, `/i`.
 Those pages don't pad for safe areas; the impact is landscape iPhone only.
 
 ---
+## 2026-09-24 — Legal v0.2: privacy policy + subprocessor list rewritten against `main` (z8uq9m0w3t)
+
+Branch `claude/z8uq9m0w3t-privacy-policy-v02`. Docs-only, Fase 17 wave 1 (L1 is a hard
+S5 dependency: both stores need a live privacy URL). Milestone: **Now**. Not published;
+Max's Dutch lawyer reads it first. Sibling session `z8uq9m0w3u` revises the DPA/ToS in
+parallel and owns those files; this session owns `docs/legal/README.md`.
+
+**What changed vs v0.1 (9 July).** Every factual claim re-verified against the code on
+`main` (four parallel research passes: retention/audit/data model, auth/mail/Sentry/
+Stripe/hosting, door/offline/public pages, subprocessor inventory incl. the Capacitor
+plan) instead of against the v0.1 text. Structure moved from "Part A controller / Part B
+processor" to Attendium-style **per audience** (venue team · guests/requesters/promoters ·
+website visitors), with Paylogic's explicit security + breach section (§11.1–11.5) and
+the transactional-vs-marketing split (§7). Domains are `plus-one.io/legal#privacy` and
+`#subprocessors`; `plusone.app` is gone. Corrections that were wrong or missing in v0.1:
+
+- **Resend is live, not planned** — Supabase Auth custom SMTP via Amazon SES
+  `eu-west-1`, sending domain still `theoperators.nl` (`docs/mail-deliverability.md`).
+- **Cloudflare Turnstile is an active guest-data subprocessor** (`/e/*` sends the
+  requester's raw IP + browser signals to Cloudflare; `src/features/requests/turnstile.ts`).
+- Public request form: **name, e-mail and phone all required** since `20260819110000`
+  (#9 refined); a submission auto-creates a venue address-book contact; status link
+  `/r/[token]` (sha256 only, no expiry, revoked at anonymization) documented.
+- Door cache: **e-mail never copied to the device**, full phone is (last four shown),
+  7-day `maxAge`, wiped by `signOutDevice`; a random `plusone-device-id` survives sign-out.
+- Sessions screen exposes colleagues' **IP + user agent** to venue admins — disclosed.
+- Cookies/storage table from code (`sb-…-auth-token` 30 d, `po_active_venue` 365 d, IDB).
+- Platform admins (#49) disclosed: cross-venue support access, writes audited, reads not.
+- Native app section (§12): push token + optional device label bound to the session,
+  90-day TTL / sign-out / admin-revoke deletion per plan §3, FCM+APNs, **no advertising
+  IDs or analytics SDK** (a commitment the plan does not yet state — README lists it as
+  an N3/N5/M4 follow-up), stores as independent controllers, Codemagic as build-only.
+- Subprocessor list regrouped: A guest-data (Supabase, Vercel, Sentry, Cloudflare) ·
+  B controller-side (Resend/SES, Stripe, Google Workspace) · C planned (FCM/APNs,
+  Attio, guest mail `86ey6bn05`, GA on the site, PostHog, Slack) · D not subprocessors
+  (Better Stack, App Store/Play, Codemagic, GitHub) · E notice rule + version history.
+
+**Code gaps the text exposes** (README "Code follow-ups", none fixed here — scope fence):
+`run_privacy_retention` leaves `guest_requests.dedupe_key` (plain lowercased e-mail /
+phone digits), `birthdate` and `marketing_opt_in` in place; `forget_contact` skips
+landing requests; no retention for `audit_log`, `invites`, `influencers`,
+`venue_memberships.job_title`, `platform_invites`; no inactive-account cleanup; no
+data export at all (DPA §11.2 promises one); `retention_months` changes unaudited;
+`/e/[slug]` links no policy and never names the venue as controller; marketing opt-in
+is stored but invisible to the venue. Plus an operations question: Claude sessions have
+read prod state through the Supabase/Resend/Sentry MCPs → Anthropic as subprocessor or
+forbid it.
+
+**Also noticed, not touched:** `docs/ARCHITECTURE.md` says `eu-central-1`; `docs/runbook.md`
+says default Supabase SMTP; `docs/auth-setup.md` + `docs/privacy.md` say MFA mandatory;
+`docs/uptime-setup.md` says the probe hits `venues` (it hits `request_links`).
+
+Weeztix pages (EN + NL privacy policy and subprocessor list) fetched fine through the
+proxy and used as the completeness floor (Art. 13/14 items, subprocessor table shape).
+
+**Review round (orchestrator, PR comment):** push wording aligned with N2 (PR #336 —
+outbox payload is ids + kind only, visible text generic, only "event name in the text?"
+left as a placeholder); the Resend guest-mail row demoted to "under consideration, not
+scheduled" (CLAUDE.md rule 10 / spec #40(d)); brand casing (PlusOne vs PLUSONE across
+the four docs) added to the README as a question for Max.
 
 ## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
 

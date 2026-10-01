@@ -2,7 +2,8 @@
 const { withSentryConfig } = require('@sentry/nextjs');
 
 // NO next-pwa — do not wire it in. Fase 9 shipped a hand-written service worker
-// instead (public/service-worker.js, registered from /door only). Its generated
+// instead (public/service-worker.js, registered from /door and — since N7 — from
+// the /app layout, see src/components/register-sw.tsx). Its generated
 // Workbox SW cached cross-origin GETs — Supabase REST bodies with guest PII — in
 // an origin-scoped cache that outlived sign-out on shared door tablets, and its
 // leftover output at public/sw.js kept running on real browsers for months

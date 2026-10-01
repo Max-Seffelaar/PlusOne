@@ -427,6 +427,7 @@ export function Field({
   className,
   ariaLabel,
   onKeyDown,
+  onBlur,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -440,6 +441,7 @@ export function Field({
   /** Accessible name for an input with no visible label (e.g. an inline search). */
   ariaLabel?: string;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onBlur?: () => void;
 }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
@@ -459,6 +461,7 @@ export function Field({
           maxLength={maxLength}
           aria-label={ariaLabel}
           onKeyDown={onKeyDown}
+          onBlur={onBlur}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
         />
       ) : (
@@ -1111,6 +1114,32 @@ export function MiniChip({
     );
   }
   return <span className={cls}>{children}</span>;
+}
+
+// ── OfflineChip ──────────────────────────────────────────────────────────────
+/**
+ * The quiet "Offline" pill the shell shows at the top of the content column
+ * after a few seconds without a connection (N7 follow-up, `offline-indicator.tsx`
+ * owns when). Tapping it opens the explanation. 30px visible + 1px border, so
+ * an 8px ring above and below makes the tap area 44; the row it sits in pads
+ * 8px on top for that ring.
+ */
+export function OfflineChip({ onClick }: { onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={t.shared.offline.chipAria}
+      className={cn(
+        'po-anim-offline inline-flex h-[30px] items-center gap-[7px] rounded-full border border-line bg-elev2 px-[12px] font-body text-[12px] font-bold text-dim',
+        "relative before:absolute before:-inset-y-[8px] before:-inset-x-[2px] before:content-['']",
+        press,
+      )}
+    >
+      <SyncDot status="stale" />
+      {t.shared.offline.chip}
+    </button>
+  );
 }
 
 // ── ActionItem ───────────────────────────────────────────────────────────────

@@ -34,11 +34,15 @@
  *  1. a venue-wide query creeping back into the shell root  → `candidateReads` moves;
  *  2. `DoorTree` losing its `React.memo`                    → `doorTabRenders` moves;
  *  3. the control — a door frozen by an over-eager memo would satisfy 1 and 2.
+ *  4. the offline indicator (N7 follow-up) keeping its online/offline state
+ *     anywhere above the door → `chromeRenders`/`doorTabRenders` move.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShellDataProvider } from './app-shell-data';
+import { OFFLINE_END_CONFIRM_MS, OFFLINE_HINT_AFTER_MS } from './offline-indicator';
+import { t } from '@/lib/i18n';
 
 const EVENT_A = 'ev-a';
 
@@ -260,5 +264,47 @@ describe('door render isolation (86eykm76k)', () => {
     expect(H.lastDoorTab, 'the new segment never reached PoDoorTab').toBe('taken');
     expect(window.location.search, 'the segment switch never reached the URL').toContain('seg=taken');
     view.unmount();
+  });
+
+  it('an online/offline toggle shows the offline hint without re-rendering the chrome or the door', async () => {
+    vi.useFakeTimers();
+    let online = true;
+    const onLine = vi.spyOn(window.navigator, 'onLine', 'get').mockImplementation(() => online);
+    try {
+      const view = render(tree());
+      const base = { ...H.counts };
+
+      online = false;
+      await act(async () => {
+        window.dispatchEvent(new Event('offline'));
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(OFFLINE_HINT_AFTER_MS);
+      });
+      // The stimulus landed: the door-tab hint is on screen.
+      expect(view.queryByText(t.shared.offline.bodyDoor), 'the offline hint never appeared').not.toBeNull();
+
+      online = true;
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+      // A visible chip/hint goes once the flag has confirmed "online".
+      await act(async () => {
+        vi.advanceTimersByTime(OFFLINE_END_CONFIRM_MS);
+      });
+      expect(view.queryByText(t.shared.offline.bodyDoor), 'back online left the hint up').toBeNull();
+
+      // Neither the offline episode nor its end reached the chrome or the
+      // check-in list. (`candidateReads` may move: the door resolver reads
+      // `useBrowserOffline` itself for the N7 cold-start pin — that is its own
+      // subscription, not the indicator's, and `DoorTree`'s memo keeps it off
+      // the list, which is what the second assertion proves.)
+      expect(H.counts.chromeRenders, 'the offline indicator re-rendered the chrome').toBe(base.chromeRenders);
+      expect(H.counts.doorTabRenders, 'going offline/online re-rendered PoDoorTab').toBe(base.doorTabRenders);
+      view.unmount();
+    } finally {
+      onLine.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

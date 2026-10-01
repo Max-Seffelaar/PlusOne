@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar notification icon (Fase 17 N5). Monochrome white on transparent, as
+     Android requires; the system tints it. Placeholder glyph (a plus) until S2
+     ships the real artwork. Named apart from the launcher/splash resources that
+     `@capacitor/assets` regenerates, so S2 never overwrites it by accident. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.5,4h3v6.5H20v3h-6.5V20h-3v-6.5H4v-3h6.5z" />
+</vector>

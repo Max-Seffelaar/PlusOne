@@ -17,7 +17,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "e2e": "playwright test",
-    "e2e:smoke": "playwright test tests/e2e/core-flow.spec.ts tests/e2e/app-home-events-visible.spec.ts tests/e2e/app-shell-no-remount.spec.ts tests/e2e/api-health.spec.ts",
+    "e2e:smoke": "playwright test tests/e2e/core-flow.spec.ts tests/e2e/app-home-events-visible.spec.ts tests/e2e/app-shell-no-remount.spec.ts tests/e2e/api-health.spec.ts tests/e2e/door-offline-reload.spec.ts",
     "e2e:layout": "playwright test -c playwright.layout.config.ts",
     "e2e:ui": "playwright test --ui",
     "db:reset": "supabase db reset",
@@ -30,7 +30,8 @@
     "supabase:stop": "supabase stop",
     "supabase:gen": "supabase gen types --local --lang=typescript --schema public > src/lib/database.types.ts",
     "supabase:gen:offline": "node scripts/gen-types.mjs",
-    "dev:mfa": "node scripts/dev-mfa.mjs"
+    "dev:mfa": "node scripts/dev-mfa.mjs",
+    "capacitor:copy:after": "node scripts/native/offline-origin.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.2",
@@ -38,6 +39,7 @@
     "@capacitor/browser": "8.0.4",
     "@capacitor/core": "8.5.2",
     "@capacitor/ios": "8.5.2",
+    "@capacitor/push-notifications": "8.1.2",
     "@capacitor/splash-screen": "8.0.2",
     "@capacitor/status-bar": "8.0.3",
     "@sentry/nextjs": "^10.70.0",
