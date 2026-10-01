@@ -34,13 +34,6 @@ const FIELD_SCREENS = [
 
 export const KNOWN_ISSUES: readonly KnownIssue[] = [
   ...FIELD_SCREENS.map((screen) => ({ screen, check: 'field-targets' as const, reason: FIELD })),
-
-  // ── Controls: per screen, each a design call (chips/segments/steppers) ──
-  {
-    screen: 'venuecreate',
-    check: 'tap-targets',
-    reason: 'inline Terms/Privacy links are 17px tall — design-system.md documents no inline-link exemption; needs a decision',
-  },
 ];
 
 export function knownIssue(screen: string, check: LayoutCheck, project: string): string | null {

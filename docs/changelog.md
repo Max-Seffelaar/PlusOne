@@ -155,6 +155,13 @@ kit's invisible hit-ring idiom (#343, T1) — the visible control size never cha
   `event-row.tsx`'s `Count` tile, which loses its mobile padding at `md:` and becomes a
   bare ~37px text link on a touch tablet (`hitRingY4`, shared by `home.admin`/
   `home.door`).
+- **`venuecreate` Terms/Privacy links (option b, Max 2026-10-01)**: the inline links were
+  17px tall. Max chose a real 44px target, not an exemption. A ring can't fix a link inside
+  a sentence, so the links now sit on their own row below the consent sentence. The new kit
+  `ConsentCheck` renders that row with `tapLink44`, a 44×44 box on touch that shrinks only
+  behind `lg:[@media(pointer:fine)]:`. The first-login `ConsentScreen` and the `/onboarding`
+  `VenueStep` had the same 17px links and now use the same component. The known-issue
+  entry is deleted.
 - Added matching cases to `src/components/po/kit.tap-target.test.tsx`'s ring-coverage
   table and a "crew quota stepper" both-axes case, so every new ring size has a pinned
   regression the same way the pre-existing ones do.

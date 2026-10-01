@@ -192,6 +192,37 @@ describe('kit header chips are at least 44x44', () => {
   });
 });
 
+describe('consent Terms/Privacy links reach 44 on touch (QA-1, option b)', () => {
+  // A min-size token counts as the touch box only when it is unprefixed.
+  const minPx = (cls: string, axis: 'h' | 'w'): number | null => {
+    const m = token(String.raw`min-${axis}-\[(\d+(?:\.\d+)?)px\]`).exec(cls);
+    return m ? Number(m[1]) : null;
+  };
+
+  it('tapLink44 is a 44x44 box on touch and only shrinks behind a fine pointer', () => {
+    expect(minPx(kitExports.tapLink44, 'h')).toBe(MIN);
+    expect(minPx(kitExports.tapLink44, 'w')).toBe(MIN);
+    expect(kitExports.tapLink44).toMatch(/(?:^|\s)inline-flex(?:\s|$)/);
+    for (const c of kitExports.tapLink44.split(/\s+/).filter((x) => x.includes(':'))) {
+      expect(c.startsWith('lg:[@media(pointer:fine)]:'), c).toBe(true);
+    }
+  });
+
+  it('ConsentCheck renders both links with the 44px box, outside the checkbox label', () => {
+    render(
+      <kitExports.ConsentCheck checked={false} onChange={() => {}} copy={t.onboarding.venueCreate} />,
+    );
+    for (const name of [t.onboarding.venueCreate.consentTerms, t.onboarding.venueCreate.consentPrivacy]) {
+      const a = screen.getByRole('link', { name });
+      expect(minPx(a.className, 'h')).toBe(MIN);
+      expect(minPx(a.className, 'w')).toBe(MIN);
+      // A link inside the <label> would also toggle the checkbox on a near miss.
+      expect(a.closest('label')).toBeNull();
+    }
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+  });
+});
+
 // ── source ratchet ───────────────────────────────────────────────────────────
 /**
  * Sub-44 buttons that predate this guard (file -> count). The 22 row/card
