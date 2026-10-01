@@ -46,7 +46,9 @@ prod config (the build **fails** if `CAP_SERVER_URL` is set, and re-checks that 
 `capacitor.config.json` has `server.url` exactly `https://app.plus-one.io`), resolves the
 Swift packages (Capacitor + Firebase Messaging), applies the App Store certificate +
 profile Codemagic holds, archives, and verifies the IPA (bundle id, version, build,
-iPhone + iPad, `aps-environment = production`, associated domains). Codemagic then
+iPhone + iPad, `aps-environment = production`, associated domains, `WKAppBoundDomains` =
+exactly `app.plus-one.io`, and — once committed — that `GoogleService-Info.plist` really is
+in the bundle). Codemagic then
 **uploads** it to App Store Connect. It never submits anything for review: internal
 testers get the build through TestFlight automatically (step 8); an App Store release is
 always a human action in App Store Connect.
@@ -61,7 +63,13 @@ always a human action in App Store Connect.
   the same PR.
 - `GoogleService-Info.plist` missing ⇒ the build **warns** (no push) and continues. Once
   the file is committed (step 5), set `REQUIRE_GOOGLE_SERVICE_INFO: "true"` in
-  `codemagic.yaml` so a build without push fails.
+  `codemagic.yaml` so a build without push fails. Independently of that flag, a file that
+  is committed but **missing from the IPA** always fails *Verify the IPA* (the copy build
+  phase didn't run; `ENABLE_USER_SCRIPT_SANDBOXING = NO` on the App target keeps it able to
+  read the file).
+- Firebase Messaging does **not** auto-initialise (`FirebaseMessagingAutoInitEnabled =
+  false` in `Info.plist`): no installation ID / FCM token is created before the user opts in
+  to notifications.
 
 ---
 
@@ -88,7 +96,10 @@ Associated Domains context in `docs/native/app-links.md`.
 1. <https://appstoreconnect.apple.com> → **Apps** → **+** → **New App**.
 2. Platforms **iOS** · Name `PlusOne` (must be unique on the whole App Store — if taken,
    use e.g. `PlusOne Guestlist`; the home-screen name stays "PlusOne" from `Info.plist`) ·
-   Primary language **Dutch** · Bundle ID **app.plusone.guestlist** · SKU
+   Primary language **English** (the UI is English-only, decision 2026-08-19, and
+   `CFBundleDevelopmentRegion` is `en`; the primary language is the metadata fallback for
+   every locale and is hard to change later — add **Dutch** afterwards as a localization
+   for the listing under *App Information → Localizable Information*) · Bundle ID **app.plusone.guestlist** · SKU
    `plusone-guestlist` · User access **Full Access** → **Create**.
 
 Check: the app opens on its *App Store* tab; **App Information → Apple ID** shows a number.
@@ -122,7 +133,7 @@ Codemagic is already set up from S1a (`docs/native/android-release.md` step 4).
    refers to it), Issuer ID, Key ID, upload the `.p8` → **Save**.
 2. **Distribution certificate:** Team settings → **codemagic.yaml settings** → **Code
    signing identities** → **iOS certificates** → **Generate certificate** → type **Apple
-   Distribution** → key `PlusOne ASC` → reference name `plusone_distribution`. Codemagic
+   Distribution** → key `PlusOne ASC` → reference name e.g. `plusone_distribution`. Codemagic
    shows a password and offers a download: store both in the password manager (it's the
    only other copy), then delete the download.
 3. **Provisioning profile** (only after step 1 of this runbook, so it carries Push +
@@ -132,6 +143,12 @@ Codemagic is already set up from S1a (`docs/native/android-release.md` step 4).
    **Generate**. Then in Codemagic: Code signing identities → **iOS provisioning
    profiles** → **Fetch profiles** → tick `PlusOne App Store` → reference name
    `plusone_app_store` → **Download selected**.
+
+   The reference names in 4.2/4.3 don't matter: the workflow uses `ios_signing:
+   distribution_type + bundle_identifier`, so Codemagic matches the certificate and profile
+   automatically (reference names are only used by the per-file `certificates:` /
+   `provisioning_profiles:` form). A typo there is harmless. What **does** matter is that the
+   certificate is **generated in Codemagic** (4.2), so Codemagic holds its private key.
 4. Do **not** add `CAP_SERVER_URL` anywhere in Codemagic — the build refuses it.
 
 Check: the profile row in Codemagic shows bundle id `app.plusone.guestlist`, type *App
@@ -197,6 +214,10 @@ Typical first-run failures: *No matching profiles found* → step 4.3 (profile m
 made before the capabilities were ticked); *no App Store Connect app record* → step 2;
 *could not list App Store Connect apps* → step 4.1 name/key.
 
+After the first green run: download the `Package.resolved` artifact from the build page and
+commit it as `ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`
+(small PR), so Firebase's transitive Swift packages are pinned for every later build.
+
 ## 8. TestFlight internal testers
 
 1. App Store Connect → the app → **TestFlight** → **+** next to **Internal Testing** →
@@ -236,6 +257,13 @@ permission, by design. The native side in this build is ready for it.
   (same as `android-v*`), restricted to admins.
 
 ## If something is compromised
+
+- **What the main-only guard does and doesn't stop:** it stops accidents (a tag on an
+  unmerged branch, a manual start of a feature branch), not someone with Codemagic access:
+  Codemagic reads `codemagic.yaml` from the commit it builds, so a branch whose own YAML
+  lacks the guard is not stopped by anything in this repo. The trust boundary is the
+  Codemagic account (and the App Store Connect API key + certificate it holds) — protect
+  that account (2FA, minimal team members) like the key itself.
 
 - **App Store Connect API key leaked:** App Store Connect → Users and Access →
   Integrations → App Store Connect API → the key → **Revoke** (instant), then generate a

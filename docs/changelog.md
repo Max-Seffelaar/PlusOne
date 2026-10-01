@@ -33,9 +33,24 @@ Max rebuilds via Codemagic; nothing on the web side changes.
 - Runbook `docs/native/ios-release.md` (App ID capabilities, ASC record, API key, Codemagic
   cert/profile, Firebase iOS app + plist location, APNs key, first build, TestFlight
   internal group, compromise playbook). Guard `tests/unit/codemagic-ios-release.test.ts`.
+- Review round (8 findings, all fixed in this PR): *Verify the IPA* now fails when
+  `GoogleService-Info.plist` is committed but missing from the IPA, and asserts
+  `WKAppBoundDomains` = exactly `app.plus-one.io`; `ENABLE_USER_SCRIPT_SANDBOXING = NO` on
+  the App target (Debug + Release) so the copy phase can stat the plist under a future
+  Xcode default; `FirebaseMessagingAutoInitEnabled = false` (consent-first: no installation
+  ID / FCM token before opt-in; the explicit `Messaging.messaging().token` call stays);
+  `Package.resolved` uploaded as an artifact (commit it after the first green run); guard
+  also pins `submit_to_testflight: false`; runbook: App Store primary language English
+  (Dutch as listing localization), reference names in 4.2/4.3 don't matter, and the
+  main-only guard stops accidents, not someone with Codemagic access.
 - **Open:** iOS push stays off until the web provider stops answering "unsupported" on iOS
-  (`src/features/notifications/capacitor-provider.ts`, out of this task's scope). Not run
-  here: any iOS build (no Xcode in the container) — the first Codemagic run is the real test.
+  (`src/features/notifications/capacitor-provider.ts`, out of this task's scope). That
+  follow-up must either re-register on every launch for opted-in accounts or add
+  `messaging(_:didReceiveRegistrationToken:)` (no `MessagingDelegate` yet → an FCM token
+  rotation otherwise only reaches the web side on the next `register()`). **Android has the
+  same auto-init gap** (no `firebase_messaging_auto_init_enabled` meta-data in the manifest)
+  — own follow-up, not touched here. Not run here: any iOS build (no Xcode in the
+  container) — the first Codemagic run is the real test.
 
 ## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
 

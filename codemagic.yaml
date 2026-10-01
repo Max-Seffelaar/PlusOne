@@ -349,10 +349,19 @@ workflows:
           check aps-environment "$($PB -c 'Print :aps-environment' "$WORK/entitlements.plist")" "production"
           check get-task-allow "$($PB -c 'Print :get-task-allow' "$WORK/entitlements.plist" 2>/dev/null || echo false)" "false"
           check associated-domains "$($PB -c 'Print :com.apple.developer.associated-domains:0' "$WORK/entitlements.plist")" "applinks:app.plus-one.io"
+          check WKAppBoundDomains "$($PB -c 'Print :WKAppBoundDomains' "$APP/Info.plist" | tr -d ' \n')" "Array{app.plus-one.io}"
+          # Committed but not bundled = the copy build phase silently did nothing
+          # (script sandboxing / path drift): a push-less build must never upload green.
+          if [ -f ios/App/App/GoogleService-Info.plist ] && [ ! -f "$APP/GoogleService-Info.plist" ]; then
+            echo "ERROR: ios/App/App/GoogleService-Info.plist is committed but missing from the IPA — the 'Copy GoogleService-Info.plist' build phase did not run (script sandboxing / path drift)." >&2
+            exit 1
+          fi
           if [ -f "$APP/GoogleService-Info.plist" ]; then echo "GoogleService-Info.plist bundled."; else echo "WARNING: no GoogleService-Info.plist in the IPA (no push in this build)."; fi
     artifacts:
       - build/ios/ipa/*.ipa
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+      # Pins Firebase's transitive SPM packages — commit it after the first green run.
+      - ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
     publishing:
       app_store_connect:
         auth: integration

@@ -13,7 +13,8 @@
  *      and the marketing version moves in lockstep with Android's;
  *   6. iPhone + iPad stay in v1 (TARGETED_DEVICE_FAMILY "1,2", plan decision 10);
  *   7. push is wired for APNs-via-FCM, and a missing GoogleService-Info.plist warns
- *      until REQUIRE_GOOGLE_SERVICE_INFO makes it fatal;
+ *      until REQUIRE_GOOGLE_SERVICE_INFO makes it fatal; a committed plist missing
+ *      from the IPA is always fatal; Messaging never auto-inits (consent-first);
  *   8. no signing secret (.p8/.p12/.mobileprovision/…) is ever tracked.
  * Checks run on the ios-release block only, so the Android workflow can never
  * satisfy them.
@@ -91,6 +92,8 @@ describe('codemagic.yaml ios-release', () => {
     expect(pub, 'publishing missing').not.toBeNull();
     expect(pub![1]).toMatch(/app_store_connect:\s*\n\s+auth:\s*integration/);
     expect(pub![1]).toMatch(/submit_to_app_store:\s*false\s*$/m);
+    expect(pub![1]).toMatch(/submit_to_testflight:\s*false\s*$/m);
+    expect(pub![1]).not.toMatch(/submit_to_testflight:\s*true/);
     expect(pub![1]).not.toMatch(/submit_to_app_store:\s*true/);
     expect(pub![1]).not.toMatch(/release_type|phased_release|cancel_previous_submissions/);
     expect(pub![1]).not.toMatch(/google_play|track:/);
@@ -114,6 +117,26 @@ describe('codemagic.yaml ios-release', () => {
     expect(ios).toMatch(/REQUIRE_GOOGLE_SERVICE_INFO:\s*"(true|false)"/);
     expect(ios).toContain('elif [ "$REQUIRE_GOOGLE_SERVICE_INFO" = "true" ]; then');
     expect(ios).toContain("PlistBuddy -c 'Print :BUNDLE_ID'");
+  });
+
+  it('fails the build when the plist is committed but missing from the IPA', () => {
+    expect(ios).toContain(
+      'if [ -f ios/App/App/GoogleService-Info.plist ] && [ ! -f "$APP/GoogleService-Info.plist" ]; then',
+    );
+    const block = ios.slice(ios.indexOf('[ ! -f "$APP/GoogleService-Info.plist" ]; then'));
+    expect(block).toMatch(/^[^\n]*\n\s+echo "ERROR:[^\n]*\n\s+exit 1\n/);
+  });
+
+  it('asserts WKAppBoundDomains in the built Info.plist is exactly app.plus-one.io', () => {
+    expect(ios).toContain(
+      `check WKAppBoundDomains "$($PB -c 'Print :WKAppBoundDomains' "$APP/Info.plist" | tr -d ' \\n')" "Array{app.plus-one.io}"`,
+    );
+  });
+
+  it('uploads Package.resolved as an artifact (to pin Firebase transitive packages)', () => {
+    const artifacts = ios.match(/artifacts:\s*\n((?:\s+-\s+\S+\s*\n)+)/);
+    expect(artifacts, 'artifacts missing').not.toBeNull();
+    expect(artifacts![1]).toContain('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved');
   });
 });
 
@@ -145,6 +168,19 @@ describe('iOS native project (S1b)', () => {
     expect(plugin).toContain('public let jsName = "PlusOnePushConfig"');
     expect(read('ios/App/App/SceneDelegate.swift')).toContain('PlusOneBridgeViewController()');
     expect(pbx).toContain('PushConfigPlugin.swift in Sources');
+  });
+
+  it('keeps user script sandboxing off on the App target (the plist copy phase needs it)', () => {
+    const settings = [...pbx.matchAll(/buildSettings = \{([\s\S]*?)\n\t\t\t\};\n\t\t\tname = (Debug|Release);/g)]
+      .filter((m) => m[1].includes('CODE_SIGN_ENTITLEMENTS = App/App.entitlements;'))
+      .map((m) => [m[2], m[1].match(/ENABLE_USER_SCRIPT_SANDBOXING = (\w+);/)?.[1]]);
+    expect(Object.fromEntries(settings)).toEqual({ Debug: 'NO', Release: 'NO' });
+    expect(pbx).not.toMatch(/ENABLE_USER_SCRIPT_SANDBOXING = YES;/);
+  });
+
+  it('Firebase Messaging does not auto-init (consent-first), token requested explicitly', () => {
+    expect(read('ios/App/App/Info.plist')).toMatch(/<key>FirebaseMessagingAutoInitEnabled<\/key>\s*<false\/>/);
+    expect(read('ios/App/App/AppDelegate.swift')).toContain('Messaging.messaging().token {');
   });
 
   it('declares exempt encryption (HTTPS only) so uploads skip the compliance prompt', () => {
