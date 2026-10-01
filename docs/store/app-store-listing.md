@@ -117,6 +117,6 @@ None used for tracking (no cross-app/cross-site tracking, no ad networks, no dat
 ## Review notes (draft — finalize in S5 alongside the 4.2 defense)
 
 - App is invite-only; no public sign-up. Reviewer needs a demo login — provided by S3's env-gated review-login route + demo-tenant seed, not by this task.
-- Guideline 4.2 (webview wrapper) defense: native push (FCM/APNs) + an offline-capable door check-in flow that queues and syncs, both genuinely native-dependent behavior beyond a bare web wrapper. Until N5 ships, lead with the offline door check-in flow alone.
+- Guideline 4.2 (webview wrapper) defense: native push (FCM/APNs) + an offline-capable door check-in flow that queues and syncs, both genuinely native-dependent behavior beyond a bare web wrapper. N5 (push) is merged and verified end to end on Android (2026-09-30); iOS push is verified in S1b.
 - No in-app account creation → Apple's in-app account-deletion requirement (5.1.1v) doesn't apply; support contact for data-deletion requests goes here once decided.
 - iPad is supported in v1 (`TARGETED_DEVICE_FAMILY` 1,2) — reviewer may test on iPad; T1 (tablet layouts) must ship first.
