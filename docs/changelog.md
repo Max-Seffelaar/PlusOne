@@ -133,6 +133,44 @@ WebView sat on Chromium's dead error page until the app was killed.
   the door branch. Fix: the boot screen carries `data-po-boot`, and `openScreen` waits for
   `shellMounted` (`tests/e2e/layout/shell-ready.ts`, light DOM only, boot screen gone, 120 s).
   Regression: `tests/unit/layout-shell-ready.test.ts`.
+
+## 2026-09-30 — QA-1: known-issue tap targets to 44px
+
+Fixed every `tap-targets` known-issue entry in `tests/e2e/layout/known-issues.ts` and
+removed the entries, so the layout suite guards them from now on. All fixes use the
+kit's invisible hit-ring idiom (#343, T1) — the visible control size never changed.
+
+- **Shared kit fixes** (`src/components/po/kit.tsx`): `MiniChip`'s button variant now
+  carries a new `hitRingY10` (26px chip → 44px), fixing every screen that renders it as
+  a button — crew "Remove", team "Resend"/"Revoke", profile/admin-sessions "Log out",
+  quota "Save". Added `hitRingY7` (Y-only) and `hitRing7` (both axes) to the kit's ring
+  set for controls those didn't already cover.
+- **Per-screen fixes**: `approvals.tsx` "Declined · N" toggle (30px, `hitRingY7`);
+  `CheckInList.tsx` tier filter chips (34–35px, `hitRingY6` — the door segment pills
+  next to them already carried `hitRingY4` from an earlier PR); `crew.tsx` quota
+  stepper (32×32, new `hitRing7`); `events.tsx` Upcoming/Past segment (38px,
+  `hitRingY4` — shared by `events.admin`/`events.door`); `list-shared.tsx`'s
+  `ScopeChip` event filter chips (35px, `hitRingY6` — shared by `guests.admin`/
+  `guests.door`); `home.tsx`'s Alle/Vandaag/Aankomend segment (40px, `hitRingY2`) and
+  `event-row.tsx`'s `Count` tile, which loses its mobile padding at `md:` and becomes a
+  bare ~37px text link on a touch tablet (`hitRingY4`, shared by `home.admin`/
+  `home.door`).
+- **`venuecreate` Terms/Privacy links (option b, Max 2026-10-01)**: the inline links were
+  17px tall. Max chose a real 44px target, not an exemption. A ring can't fix a link inside
+  a sentence, so the links now sit on their own row below the consent sentence. The new kit
+  `ConsentCheck` renders that row with `tapLink44`, a 44×44 box on touch that shrinks only
+  behind `lg:[@media(pointer:fine)]:`. The first-login `ConsentScreen` and the `/onboarding`
+  `VenueStep` had the same 17px links and now use the same component. The known-issue
+  entry is deleted.
+- Added matching cases to `src/components/po/kit.tap-target.test.tsx`'s ring-coverage
+  table and a "crew quota stepper" both-axes case, so every new ring size has a pinned
+  regression the same way the pre-existing ones do.
+- Verified: `pnpm lint`, `pnpm type-check`, `npx vitest run` (2318 tests) all green.
+  Docker/supabase unreachable in this session, so `pnpm e2e:layout` could not run here —
+  CI's `layout-suite` is the judge with the known-issue entries removed.
+
+---
+
 ## 2026-09-28 — Fase 17 S4: universal links / App Links for `/auth/*`
 
 Invite / magic-link / e-mail-change mails can now open the native app instead of the

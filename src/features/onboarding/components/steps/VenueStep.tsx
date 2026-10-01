@@ -8,10 +8,9 @@ import { type JSX, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
-import { ExternalLink, Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
+import { ConsentCheck, Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
 import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
-import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { WizardShell, WizardPanel } from '../WizardShell';
 
 const TYPE_LABEL: Record<VenueType, string> = {
@@ -157,25 +156,7 @@ export function VenueStep({
         “Guest #X” (#29). You can shorten this later in Venue settings.
       </div>
 
-      <label className="mt-[18px] flex cursor-pointer items-start gap-[11px] rounded-[16px] border border-line bg-elev p-4">
-        <input
-          type="checkbox"
-          checked={agreed}
-          onChange={(e) => setAgreed(e.target.checked)}
-          className="mt-[2px] h-[19px] w-[19px] shrink-0 accent-acc"
-        />
-        <span className="text-[13px] leading-[1.5] text-text">
-          I agree to the{' '}
-          <ExternalLink href={TERMS_URL} className="font-semibold text-acc underline">
-            Terms
-          </ExternalLink>{' '}
-          and{' '}
-          <ExternalLink href={PRIVACY_URL} className="font-semibold text-acc underline">
-            Privacy Policy
-          </ExternalLink>
-          .
-        </span>
-      </label>
+      <ConsentCheck checked={agreed} onChange={setAgreed} copy={t.onboarding.venueCreate} className="mt-[18px]" />
     </WizardShell>
   );
 }

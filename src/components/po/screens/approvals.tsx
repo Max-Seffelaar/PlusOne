@@ -37,7 +37,7 @@ import { buildApproveInput, type ApprovalDecision } from '@/features/requests/ap
 import type { PoLinkOption } from '@/features/po/queries';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, press } from '../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
 import { AssignSheet, DenySheet, ErrLine, EventPickerSheet, LinkPickerSheet, type DenyTarget } from './approvals-sheets';
 import { CreateLinkFlow } from './promotion/create-link-flow';
 import { soonestUpcoming } from './promotion/shared';
@@ -449,7 +449,12 @@ export function Aanvragen({
                 <button
                   type="button"
                   onClick={() => setShowDenied((s) => !s)}
-                  className="mb-[10px] flex w-full items-center justify-between rounded-[12px] px-1 py-1.5 text-left"
+                  className={cn(
+                    // 30px row + an invisible 7px ring (kit `hitRingY7`) = a
+                    // 44px tap area on touch, without changing the look (T1, touch).
+                    'mb-[10px] flex w-full items-center justify-between rounded-[12px] px-1 py-1.5 text-left',
+                    hitRingY7,
+                  )}
                 >
                   <Label>{fmt(t.requests.deniedHeading, { n: deniedG.length })}</Label>
                   <Icon name="chevD" size={16} className={cn('text-ghost transition-transform', showDenied && 'rotate-180')} />
