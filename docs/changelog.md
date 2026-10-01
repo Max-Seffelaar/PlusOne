@@ -8,6 +8,50 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-01 — S1b: iOS release workflow → TestFlight (z8uq9m0gvn)
+
+Branch `claude/z8uq9m0gvn-codemagic-ios`, milestone Now (Fase 17 wave 5). Native change →
+Max rebuilds via Codemagic; nothing on the web side changes.
+
+- `codemagic.yaml` `ios-release`: manual or `ios-v*` tag only, main-only ancestry guard,
+  `pnpm install --frozen-lockfile`, `npx cap sync ios` with `CAP_SERVER_URL` refused and the
+  synced `server.url` + `limitsNavigationsToAppBoundDomains` asserted, SPM resolve,
+  Codemagic-managed App Store signing through the App Store Connect API key integration
+  (`PlusOne ASC`), build number = max(TestFlight latest + 1, `BUILD_NUMBER`), IPA verified
+  (bundle id, version, build, device family 1+2, `aps-environment=production`, associated
+  domains, encryption key). Publishing uploads only: no Beta App Review, never an App
+  Store submission. `APP_VERSION_NAME` is pinned equal to Android's by the guard test.
+- Native APNs-via-FCM: Firebase Core/Messaging via SPM (exact 12.19.2) on the App target;
+  `AppDelegate` configures Firebase only when `GoogleService-Info.plist` is bundled (a build
+  phase copies it when present, so a missing file warns instead of breaking), forwards the
+  APNs token to FCM and hands the FCM token to `@capacitor/push-notifications`. iOS
+  `PlusOnePushConfig` plugin (same JS name as Android), registered by a
+  `PlusOneBridgeViewController` subclass. `aps-environment` via the `APS_ENVIRONMENT` build
+  setting (Debug development, Release production). No Background Modes: our pushes are
+  alert pushes (`notification` block), not silent ones.
+- `ITSAppUsesNonExemptEncryption = NO` (HTTPS only → exempt).
+- Runbook `docs/native/ios-release.md` (App ID capabilities, ASC record, API key, Codemagic
+  cert/profile, Firebase iOS app + plist location, APNs key, first build, TestFlight
+  internal group, compromise playbook). Guard `tests/unit/codemagic-ios-release.test.ts`.
+- Review round (8 findings, all fixed in this PR): *Verify the IPA* now fails when
+  `GoogleService-Info.plist` is committed but missing from the IPA, and asserts
+  `WKAppBoundDomains` = exactly `app.plus-one.io`; `ENABLE_USER_SCRIPT_SANDBOXING = NO` on
+  the App target (Debug + Release) so the copy phase can stat the plist under a future
+  Xcode default; `FirebaseMessagingAutoInitEnabled = false` (consent-first: no installation
+  ID / FCM token before opt-in; the explicit `Messaging.messaging().token` call stays);
+  `Package.resolved` uploaded as an artifact (commit it after the first green run); guard
+  also pins `submit_to_testflight: false`; runbook: App Store primary language English
+  (Dutch as listing localization), reference names in 4.2/4.3 don't matter, and the
+  main-only guard stops accidents, not someone with Codemagic access.
+- **Open:** iOS push stays off until the web provider stops answering "unsupported" on iOS
+  (`src/features/notifications/capacitor-provider.ts`, out of this task's scope). That
+  follow-up must either re-register on every launch for opted-in accounts or add
+  `messaging(_:didReceiveRegistrationToken:)` (no `MessagingDelegate` yet → an FCM token
+  rotation otherwise only reaches the web side on the next `register()`). **Android has the
+  same auto-init gap** (no `firebase_messaging_auto_init_enabled` meta-data in the manifest)
+  — own follow-up, not touched here. Not run here: any iOS build (no Xcode in the
+  container) — the first Codemagic run is the real test.
+
 ## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
 
 Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test
