@@ -11,7 +11,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(8);
+select plan(16);
 
 -- Aged + unlinked → eligible. Its INSERT trips audit_contacts, leaving a PII diff.
 insert into public.contacts (id, venue_id, full_name, email, source, created_at, updated_at)
@@ -69,6 +69,118 @@ select is(
    where entity_type = 'contacts' and entity_id = 'c0000000-0000-7000-8000-0000000000a1'
      and action = 'anonymize'),
   1, 'D1 re-running the job is a no-op for already-anonymized contacts');
+
+-- ---------------------------------------------------------------------------
+-- E. (c) z8uq9m2hm3 — forget_contact takes the person's landing requests along,
+--    in every event of the contact's venue, and NEVER another venue's
+-- ---------------------------------------------------------------------------
+-- Admin 1111 is admin at BOTH seed venues, so the venue boundary below is the
+-- function's own scoping (derived from the contact), not the caller's rights.
+
+create function pg_temp.login(p_user uuid)
+returns void language plpgsql as $fn$
+begin
+  perform set_config('request.jwt.claims', json_build_object(
+    'sub', p_user::text, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+end;
+$fn$;
+
+insert into public.contacts (id, venue_id, full_name, email, phone, source)
+values ('c0000000-0000-7000-8000-0000000000e1', 'aa000000-0000-7000-8000-000000000001',
+        'Wis Mij', 'wis.mij@real.test', '+31 6 1111 2222', 'manual');
+
+insert into public.events (id, venue_id, name, starts_at, ends_at) values
+  ('ee000000-0000-7000-8000-0000000000e1', 'aa000000-0000-7000-8000-000000000001',
+   'Forget Requests V1', now() + interval '20 days', now() + interval '20 days' + interval '6 hours'),
+  ('ee000000-0000-7000-8000-0000000000e2', 'aa000000-0000-7000-8000-000000000002',
+   'Forget Requests V2', now() + interval '20 days', now() + interval '20 days' + interval '6 hours');
+
+insert into public.guest_requests
+  (id, event_id, full_name, email, phone, motivation, dedupe_key, birthdate, status_token_hash) values
+  -- e1: venue 1, seed event, e-mail match (case-insensitive)
+  ('ba000000-0000-7000-8000-0000000000e1', 'ee000000-0000-7000-8000-000000000001',
+   'Wis Mij', 'Wis.Mij@Real.test', null, 'ken de DJ', 'wis.mij@real.test', '1995-03-03', 'tok-c-e1'),
+  -- e2: venue 1, OTHER event, phone-digits match only
+  ('ba000000-0000-7000-8000-0000000000e2', 'ee000000-0000-7000-8000-0000000000e1',
+   'W. Mij', null, '+31611112222', null, '31611112222', null, 'tok-c-e2'),
+  -- e3: venue 2, SAME e-mail — another controller's record
+  ('ba000000-0000-7000-8000-0000000000e3', 'ee000000-0000-7000-8000-0000000000e2',
+   'Wis Mij', 'wis.mij@real.test', '+31611112222', 'andere zaal', 'wis.mij@real.test', '1995-03-03', 'tok-c-e3'),
+  -- e4: venue 1, a stranger on the same event as e1
+  ('ba000000-0000-7000-8000-0000000000e4', 'ee000000-0000-7000-8000-000000000001',
+   'Ander Persoon', 'ander@real.test', null, null, 'ander@real.test', null, 'tok-c-e4'),
+  -- e5: venue 1, SAME phone (shared number) but ANOTHER e-mail — phone is a
+  --     fallback key only (decision Max, 2026-10-05), so this must stay
+  ('ba000000-0000-7000-8000-0000000000e5', 'ee000000-0000-7000-8000-0000000000e1',
+   'Huisgenoot', 'huisgenoot@real.test', '+31 6 1111 2222', null, 'huisgenoot@real.test', null, 'tok-c-e5');
+
+-- A status-token mirror (a deduped caller's name) hanging off e1.
+insert into public.guest_request_status_mirrors (request_id, token_hash, full_name, plus_ones)
+values ('ba000000-0000-7000-8000-0000000000e1', 'tok-c-e1-mirror', 'Dubbele Wis Mij', 1);
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+create temp table forget_req as
+  select public.forget_contact('c0000000-0000-7000-8000-0000000000e1') as r;
+reset role;
+
+select is((select (r ->> 'requests_anonymized')::int from forget_req), 2,
+  'E1 forget_contact anonymized the person''s two requests in this venue (same e-mail; phone with no e-mail)');
+
+select is(
+  (select string_agg(
+            (full_name like 'Aanvraag #%')::text || ':' || coalesce(email, '-') || ':'
+            || coalesce(phone, '-') || ':' || coalesce(motivation, '-') || ':'
+            || coalesce(dedupe_key, '-') || ':' || coalesce(birthdate::text, '-') || ':'
+            || coalesce(status_token_hash, '-') || ':' || (anonymized_at is not null)::text,
+            ',' order by id)
+     from public.guest_requests
+    where id in ('ba000000-0000-7000-8000-0000000000e1', 'ba000000-0000-7000-8000-0000000000e2')),
+  'true:-:-:-:-:-:-:true,true:-:-:-:-:-:-:true',
+  'E2 both (e-mail match on one event, phone-digit match on another) carry the full retention scrub');
+
+select is(
+  (select full_name || '|' || email || '|' || dedupe_key || '|' || birthdate::text || '|'
+          || status_token_hash || '|' || (anonymized_at is null)::text
+     from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000e3'),
+  'Wis Mij|wis.mij@real.test|wis.mij@real.test|1995-03-03|tok-c-e3|true',
+  'E3 the SAME e-mail at ANOTHER venue is untouched — even though the caller is admin there too');
+
+select is(
+  (select full_name || '|' || email || '|' || (anonymized_at is null)::text
+     from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000e4'),
+  'Ander Persoon|ander@real.test|true',
+  'E4 a stranger''s request on the same event is untouched');
+
+select is(
+  (select count(*)::int from public.guest_request_status_mirrors
+    where request_id = 'ba000000-0000-7000-8000-0000000000e1'),
+  0, 'E5 the status-token mirror on the forgotten request is deleted');
+
+select is(
+  (select string_agg(entity_id::text || '=' || n::text, ',' order by entity_id)
+     from (select entity_id, count(*) as n from public.audit_log
+            where entity_type = 'guest_requests' and action = 'anonymize'
+              and entity_id in ('ba000000-0000-7000-8000-0000000000e1',
+                                'ba000000-0000-7000-8000-0000000000e2',
+                                'ba000000-0000-7000-8000-0000000000e3')
+            group by entity_id) t),
+  'ba000000-0000-7000-8000-0000000000e1=1,ba000000-0000-7000-8000-0000000000e2=1',
+  'E6 exactly one anonymize audit row per forgotten request, none for the other venue''s');
+
+select is(
+  (select count(*)::int from public.audit_log
+    where entity_type = 'guest_requests' and action = 'anonymize'
+      and entity_id in ('ba000000-0000-7000-8000-0000000000e1', 'ba000000-0000-7000-8000-0000000000e2')
+      and actor_id = '11111111-1111-4111-8111-111111111111'),
+  2, 'E7 the forget-path anonymize rows name the admin who erased them (the nightly job writes null)');
+
+select is(
+  (select full_name || '|' || email || '|' || phone || '|' || coalesce(status_token_hash, '-') || '|'
+          || (anonymized_at is null)::text
+     from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000e5'),
+  'Huisgenoot|huisgenoot@real.test|+31 6 1111 2222|tok-c-e5|true',
+  'E8 a request sharing only the PHONE but carrying another e-mail is untouched (phone = fallback key)');
 
 select * from finish();
 rollback;

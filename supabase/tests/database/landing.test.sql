@@ -671,11 +671,13 @@ select lives_ok($$ select * from public.run_privacy_retention() $$,
 select is(
   (select gr.status::text || '|' || (gr.anonymized_at is not null)::text || '|' || coalesce(gr.dedupe_key, '(null)')
      from public.guest_requests gr where gr.event_id = 'ee000000-0000-7000-8000-00000000f201'),
-  'pending|true|g-old@x.test',
-  'G7 ...and leaves it PENDING with its dedupe_key — which is why later submissions still dedup against it');
+  'pending|true|(null)',
+  'G7 ...and leaves it PENDING but drops its dedupe_key (z8uq9m2hm3), so it no longer dedups later submissions');
 
--- The late probe: before the fix this wrote a mirror carrying this caller's real
--- name against a request no later sweep would ever look at again.
+-- The late probe. Before z8uq9m0h2v it wrote a mirror carrying this caller's
+-- real name against a request no later sweep would ever look at again; before
+-- z8uq9m2hm3 it was still swallowed on the dedup branch. Now the anonymized
+-- request holds no fingerprint, so the caller simply files a request of their own.
 select pg_temp.login_anon();
 select is(
   public.submit_guest_request('g-old-link', 'G Late Caller', 'g-old@x.test',
@@ -683,8 +685,8 @@ select is(
   'ok', 'G8 a late submission on the same e-mail still reports a plain ok');
 select is(
   public.get_request_status('tok-g-late', 'ip-g-r') ->> 'found',
-  'false',
-  'G9 ...its token does not resolve — unchanged by the fix, an anonymized request is refused either way');
+  'true',
+  'G9 ...and its token resolves to that caller''s OWN fresh request — not deduped against the anonymized one');
 reset role;
 
 select is(
@@ -703,6 +705,7 @@ select is(
 insert into public.guest_request_status_mirrors (request_id, token_hash, full_name, plus_ones)
 select gr.id, 'tok-g-orphan', 'G Orphan Name', 2
   from public.guest_requests gr where gr.event_id = 'ee000000-0000-7000-8000-00000000f201'
+   and gr.anonymized_at is not null
 on conflict (request_id) do update
   set token_hash = excluded.token_hash, full_name = excluded.full_name, plus_ones = excluded.plus_ones;
 select is(

@@ -41,6 +41,8 @@ export const platform = {
   invitedBy: 'by {name}',
   lastSent: 'Last email {date}',
   revokedOn: 'Stopped {date}',
+  anonymizedTitle: 'Anonymized invite',
+  anonymizedHelp: 'Email address and note were removed after 24 months without contact.',
   venues: '{count} company',
   venuesPlural: '{count} companies',
   events: '{count} event',

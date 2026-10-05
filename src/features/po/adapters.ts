@@ -1119,7 +1119,11 @@ function toPlatformStage(raw: string): PlatformInviteStage {
 /** The ONE canonical shape the Platform screen renders. */
 export interface PlatformInvite {
   id: string;
-  email: string;
+  /** Null for an anonymized invite (see `anonymized`). */
+  email: string | null;
+  /** The retention job removed address + note after 24 months without contact
+   *  (z8uq9m2hm3). The row is frozen in the DB: no resend, no revoke. */
+  anonymized: boolean;
   /** Operator note. Plain text — never rendered as HTML (PR #325, F9). */
   note: string | null;
   stage: PlatformInviteStage;
@@ -1142,7 +1146,8 @@ export function toPlatformInvite(row: PlatformInviteRow): PlatformInvite {
   const idx = PLATFORM_INVITE_STAGES.indexOf(stage as (typeof PLATFORM_INVITE_STAGES)[number]);
   return {
     id: row.id,
-    email: row.email,
+    email: row.email ?? null,
+    anonymized: row.email == null,
     note: row.note ?? null,
     stage,
     stageIndex: stage === 'revoked' ? null : idx,

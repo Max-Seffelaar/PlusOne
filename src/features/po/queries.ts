@@ -2296,7 +2296,9 @@ export async function fetchVenueLabelFunnel(
  */
 export interface PlatformInviteRow {
   id: string;
-  email: string;
+  /** Null once run_privacy_retention() anonymized the invite (24 months idle,
+   *  z8uq9m2hm3) — the only case: the table's CHECK pins it otherwise. */
+  email: string | null;
   note: string | null;
   created_at: string;
   last_sent_at: string;
