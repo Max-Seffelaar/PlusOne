@@ -87,6 +87,8 @@ export const auth = {
   consentError: 'Something went wrong.',
 
   // ── App review sign-in (/auth/review-login, store reviewers only) ────────
+  // Also the text of the /login link to the route above (shown only while the
+  // review window is open): the review notes say "tap *App review sign-in*".
   reviewTitle: 'App review sign-in',
   reviewHelp: 'Enter the review code from the App Review notes to open the PlusOne demo venue.',
   reviewCodeLabel: 'Review code',

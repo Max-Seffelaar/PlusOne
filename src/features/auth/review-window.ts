@@ -81,6 +81,17 @@ export function configuredReviewCode(env: Env = process.env, now: number = Date.
   return strength >= MIN_CODE_CHARS ? code : null;
 }
 
+/**
+ * True exactly when /auth/review-login is on: THE single definition of
+ * "review login enabled", used by the route's GET gate, demoSessionMustEnd and
+ * /login (which renders the "App review sign-in" link from it). A boolean, so
+ * those callers never hold the code; only the route's POST reads
+ * configuredReviewCode() itself, because it compares against the value.
+ */
+export function reviewLoginEnabled(env: Env = process.env, now: number = Date.now()): boolean {
+  return configuredReviewCode(env, now) !== null;
+}
+
 type MaybeUser = { id?: string | null; email?: string | null } | null | undefined;
 
 /**
@@ -109,5 +120,5 @@ export function isExactDemoAccount(user: MaybeUser): boolean {
  * session until the next review login or `seed-demo-venue.mjs --end-review`.
  */
 export function demoSessionMustEnd(user: MaybeUser, env: Env = process.env, now: number = Date.now()): boolean {
-  return isDemoReviewUser(user) && configuredReviewCode(env, now) === null;
+  return isDemoReviewUser(user) && !reviewLoginEnabled(env, now);
 }

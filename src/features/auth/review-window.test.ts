@@ -6,6 +6,7 @@ import {
   demoSessionMustEnd,
   isDemoReviewUser,
   isExactDemoAccount,
+  reviewLoginEnabled,
   reviewWindowOpen,
 } from './review-window';
 
@@ -102,5 +103,24 @@ describe('demoSessionMustEnd — only the demo account, only when the window is 
       expect(demoSessionMustEnd(user, {}, NOW)).toBe(false);
       expect(demoSessionMustEnd(user, open, NOW)).toBe(false);
     }
+  });
+});
+
+describe('reviewLoginEnabled', () => {
+  const cases: Array<[Record<string, string | undefined>, boolean]> = [
+    [{}, false],
+    [{ REVIEW_LOGIN_CODE: '', REVIEW_LOGIN_EXPIRES_AT: '' }, false],
+    [{ REVIEW_LOGIN_CODE: CODE }, false],
+    [{ REVIEW_LOGIN_EXPIRES_AT: FUTURE }, false],
+    [{ REVIEW_LOGIN_CODE: 'abcd-efgh', REVIEW_LOGIN_EXPIRES_AT: FUTURE }, false],
+    [{ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW - DAY).toISOString() }, false],
+    [{ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW + (MAX_WINDOW_DAYS + 1) * DAY).toISOString() }, false],
+    [{ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: FUTURE }, true],
+  ];
+
+  it.each(cases)('%j → %s', (env, expected) => {
+    expect(reviewLoginEnabled(env, NOW)).toBe(expected);
+    // Still the route's predicate: configuredReviewCode() is non-null exactly when enabled.
+    expect(configuredReviewCode(env, NOW) !== null).toBe(expected);
   });
 });

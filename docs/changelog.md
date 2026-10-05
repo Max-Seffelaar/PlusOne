@@ -97,6 +97,57 @@ deletion is by request (Max, 2026-10-05).
 - Store docs (PR #363) still need: Data safety "Delete account URL" =
   `https://www.plus-one.io/delete-account`; in-app path = Profile → Delete account.
 
+## 2026-10-05 — M4: automated store screenshots + Play feature graphic (86ey6bf8k)
+
+Branch `claude/86ey6bf8k-store-screenshots`, milestone Now (Fase 17 store submission). The store listing images are now produced by a repeatable run, so nobody has to make them by hand.
+
+- `pnpm store:screenshots` runs two steps:
+  - `scripts/store-screenshot-seed.mjs`: PII-free demo data on the local stack. It hard-refuses a non-localhost Supabase URL and is idempotent. It never edits `seed.sql`.
+  - `playwright.store.config.ts` with `tests/e2e/store/`: six sets at the exact store pixel sizes (Play phone, 7", 10"; iPhone 6.9"; iPad 13" portrait and landscape) plus the 1024×500 feature graphic. Output goes to `store-screenshots/` (gitignored).
+- Names are human readable and hyphen-only: set folders `play-phone`, `play-tablet-7-inch`, `play-tablet-10-inch`, `apple-iphone-6-9-inch`, `apple-ipad-13-inch`, `apple-ipad-13-inch-landscape`; files `01-home.png`, `02-guest-list.png`, `03-door-check-in.png`, `04-requests.png`, `05-stats.png`, `play-feature-graphic.png`. A unit test enforces `/^[a-z0-9]+(-[a-z0-9]+)*(\.png)?$/`.
+- Reuses the QA-1 layout suite's `newProjectContext`, `shellMounted` gate, chrome breakpoint and the shared consent helper. The specs assert the exact PNG size, no alpha, the expected chrome, touch emulation, and that the Deur shot is the outbox door.
+- The shots log in as a dedicated plain venue admin (`store-demo@plusone.test`), not `admin@`. `pnpm dev:mfa` makes `admin@` a platform admin, and the internal Platform nav item must never appear in a listing.
+- Alcohol-free and English, on this stack only. The seed tier "VIP + fles op tafel" (aliases fles/champagne) becomes "Artist", and the visible Dutch seed strings become English.
+- The Play tablet sizes are 1188×2112 (9:16) and 2560×1440 (16:9), not the 10:16 sizes in the brief. Play's preview-asset help now asks for 9:16/16:9. Sources and access dates are in `docs/store/screenshots.md`.
+- New workflow `.github/workflows/store-screenshots.yml` runs on `workflow_dispatch` only and uploads the `store-screenshots` artifact (30 days). It uses the same stack setup as `layout-suite`, minus `dev:mfa`.
+- The base `playwright.config.ts` now also ignores `tests/e2e/store/` (as it already did `layout/`), so `pnpm e2e` never runs the store specs under the single-project config.
+- Not run in the building session (no Docker there). The first real run is the workflow after merge.
+
+---
+
+## 2026-10-05 — S3 follow-up: "App review sign-in" link on /login (86ey6bfug)
+
+Branch `claude/86ey6bfug-review-signin-link`, milestone Now (store submission). Found in the
+S5 prep (PR #363): a store reviewer in the native shell (remote-URL webview, no address bar)
+could not reach `/auth/review-login` — `/login` had no link to it, App Links only claim
+`/auth/confirm` + `/auth/callback`, and the demo address has no mailbox, so OTP is no way in.
+Max decided option (a) on 2026-10-05.
+
+- `/login` renders a small secondary link "App review sign-in" → `/auth/review-login`
+  **only while the review window is open**. Decided server-side in `src/app/login/page.tsx`
+  with `reviewLoginEnabled()` — new in `src/features/auth/review-window.ts`, exactly
+  `configuredReviewCode() !== null` (the route's own predicate) reduced to a boolean. No
+  code, expiry or reason reaches the page or the client form; nothing in the request can
+  turn it on; the href is a fixed constant.
+- Plain same-origin `<a>` (not `next/link` — the target is a route handler; not
+  `openExternal`/`_blank` — it must stay in the webview). ≥44px tap target. Copy:
+  reuses `t.auth.reviewTitle`, so link text and the page heading cannot drift.
+- `/login` now declares `dynamic = 'force-dynamic'` so a build taken during an open window
+  can never bake the link into static HTML. The service worker already never caches
+  `/login` (network-only bucket) — no SW change.
+- Tests: `src/app/login/page.test.tsx` (open → one link; closed / expired / too far out /
+  missing / empty-string / weak code → none; request params can't force it; no env value
+  in HTML or client props) + a `reviewLoginEnabled` ≡ route-predicate test.
+- Web-only change: no native rebuild. Docs: "Reaching it from the native app" in
+  `docs/review-login.md`.
+- Review round (review 5414857452): merged main; the route's GET gate and
+  `demoSessionMustEnd` now call `reviewLoginEnabled()` too (one predicate; POST still reads
+  `configuredReviewCode()` because it compares the value); `reviewLoginEnabled` test is
+  `[env, expected]` pairs; docs: link-first review notes in "Per submissie" step 4, a
+  "Hoe het werkt" pointer, and the one-page-load expiry race (link → 404, deliberately
+  kept). Pre-existing fix: `/login?error=` uses an own-key check (`hasOwnProperty.call`; the tsconfig lib predates `Object.hasOwn`), so `?error=constructor`
+  / `hasOwnProperty` no longer crash the form (tested).
+
 ---
 
 ## 2026-10-01 — S5 Store submission, Android half: Play submission pack (86ey6bfyj)
