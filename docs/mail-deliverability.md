@@ -37,15 +37,21 @@ The domain `plus-one.io` is verified in Resend with SPF/DKIM/DMARC in place. Gma
 | Record | Value | Purpose |
 |---|---|---|
 | DKIM `resend._domainkey.plus-one.io` | TXT, key supplied by Resend | signs the mail |
-| Return-path `send.plus-one.io` | MX → `feedback-smtp.eu-west-1.amazonses.com` + SPF TXT (`include:amazonses.com`) | bounce handling (the "mailed-by" side) |
+| Return-path `rsend.plus-one.io` (Gmail "mailed-by") | CNAME → `rsend-euw1.forge.rmta.net` (Resend-managed); resolves to MX `10 feedback-smtp.eu-west-1.amazonses.com` + TXT `v=spf1 include:amazonses.com ~all` | bounce handling / SPF alignment for the envelope sender |
+| `send.plus-one.io` | CNAME → `send.forge.rmta.net` (Resend-managed); resolves to MX `10 feedback.forge.rmta.net` + SPF with Resend ip4 ranges | Resend's second bounce/return-path host |
 | DMARC `_dmarc.plus-one.io` | `v=DMARC1; p=none;` | monitor-only, no `rua=` |
 | Apex SPF `plus-one.io` | `v=spf1 include:_spf.google.com ~all` | Google Workspace mailboxes |
 
+The `rsend.` and `send.` records are **CNAMEs to Resend-managed hosts** (verified via
+dns.google, 2026-10-05): Resend owns the values behind them, so never hand-edit them. The
+DKIM record is a plain TXT; re-copy it from the Resend dashboard if it has to be recreated.
+
 **Exactly one SPF record on the apex.** Two `v=spf1` TXT records make SPF invalid
-(permerror) for the whole domain. A stray duplicate `v=spf1 ~all` was found on the apex
-and removed (2026-10-05); if mail ever starts failing SPF, count the apex `v=spf1`
-records first. The Resend SPF lives on `send.plus-one.io`, not the apex — don't merge it
-into the apex record.
+(permerror) for the whole domain. **Open item:** a stray duplicate `v=spf1 ~all` was found
+on the apex on 2026-10-05 and **must be deleted at TransIP** (still live at time of
+writing; Max confirms removal). If mail ever fails SPF, count the apex `v=spf1` records
+first. Resend's SPF lives on the `rsend.`/`send.` hosts, not the apex — don't merge it into
+the apex record.
 
 DKIM and the return-path domain both align (relaxed) to the From domain, so auth mail
 passes DMARC. `p=none` does not hurt delivery; it just means no enforcement and no
@@ -84,7 +90,7 @@ leaks, rotate it in Resend and paste the new one into Supabase.
 - **Supabase:** Logs → Auth → scan for SMTP errors (there should be none).
 - **Gmail:** open a received mail → Show original → SPF/DKIM/DMARC all `PASS`.
 - **DNS:** query a **public** resolver (not the local ISP one, which hijacks lookups):
-  `resend._domainkey.plus-one.io`, `send.plus-one.io` TXT+MX, `_dmarc.plus-one.io`, and the
+  `resend._domainkey.plus-one.io`, `rsend.plus-one.io` and `send.plus-one.io` (CNAME/TXT/MX), `_dmarc.plus-one.io`, and the
   apex TXT (one `v=spf1`).
 
 ## Open / scale-time (NOT blocking launch)

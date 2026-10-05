@@ -14,8 +14,7 @@ Branch `claude/86ey6b3hv-mail-sender-plus-one`, milestone Now. Docs only.
 `docs/mail-deliverability.md` rewritten to the live state: Supabase custom SMTP
 (`smtp.resend.com:465`) sends `PlusOne <noreply@plus-one.io>` from the apex domain
 (decision: stays apex); `info@theoperators.nl` retired. Documents the TransIP DNS table
-(DKIM, `send.` return-path, DMARC, exactly one apex SPF — a duplicate `v=spf1 ~all` was
-being removed), the Site URL rule (`https://app.plus-one.io`, no trailing slash — it
+(DKIM, `rsend.`/`send.` return-path CNAMEs to Resend-managed hosts, DMARC, exactly one apex SPF — a duplicate `v=spf1 ~all` is an open item, still to be deleted at TransIP), the Site URL rule (`https://app.plus-one.io`, no trailing slash — it
 produced `//auth/confirm`), the `550 The plus-one.io domain is not verified` → OTP 500
 diagnosis (Supabase → Logs → Auth, filter `/otp` 500), and that the SMTP API key lives only
 in Supabase + the password manager. No other runbook referenced the old sender.
