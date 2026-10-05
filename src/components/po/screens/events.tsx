@@ -25,6 +25,7 @@ import { Icon } from '../icon';
 import { Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, hitRingY4, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
+import { ExportEventRow } from './settings/export';
 
 export { EventEdit } from './events/edit';
 export { Tiers } from './events/tiers';
@@ -380,6 +381,8 @@ export function EventView({ id }: { id?: string }): JSX.Element {
                 <Icon name="chev" size={18} className="text-ghost" />
               </button>
             )}
+            {/* Per-event data export (legal v0.3 E1) — admin only, renders null otherwise. */}
+            <ExportEventRow eventId={ev.id} />
           </div>
           {hasSecondary && (
             <div className="mt-4 md:mt-0">
