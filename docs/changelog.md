@@ -8,6 +8,19 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`
+workflow died in the seed with `permission denied for table refusals`: the script UPDATEd the
+seed.sql refusal's reason, but `refusals` and `check_ins` are append-only (UPDATE revoked
+from service_role in the full-schema migration). The touch-up is gone (that refusal sits on
+the seed event, which no shot shows); the live demo night now inserts its own refusal
+(guest #22, reason "Dress code") with the reason set at INSERT. The check-ins upsert had the
+same latent fault: a merge upsert is `ON CONFLICT DO UPDATE`, which needs UPDATE, so both
+writes are now insert-only (`ignoreDuplicates`). A re-run keeps the first run's check-in
+times. No migration, grant or RLS change. Not run here (no docker/supabase CLI): the seed
+end to end; reasoned against the migrations, plus lint/type-check/unit suite.
+
 ## 2026-10-05 — Auth mail sender is noreply@plus-one.io via Resend (86ey6b3hv)
 
 Branch `claude/86ey6b3hv-mail-sender-plus-one`, milestone Now. Docs only.
