@@ -14,16 +14,45 @@
 //   install    inventory + `pnpm install --frozen-lockfile`.
 //   check      run the pure-node CI suites (CORE_SUITES), then report honestly
 //              which CI suites did NOT run here.
+//   stack      opt-in, idempotent: bring the local Supabase stack up so the
+//              STACK_SUITES can run here (docker daemon → pinned supabase CLI →
+//              `supabase start` → .env.local; dev-mfa only with --dev-mfa,
+//              because it breaks pgTAP). Never run by the
+//              SessionStart hook — it costs gigabytes and minutes, and a
+//              docs-only session does not need it. In a cloud container it may
+//              start dockerd and install the CLI; on a laptop it only reports
+//              what is missing. Decisions live in scripts/lib/stack-plan.mjs.
 //
 // THE RULE (printed into every web session's context via the SessionStart
 // hook): do not make the app weaker to make the setup easier. If a guard test,
 // the frozen lockfile, or a build guard refuses, the refusal is the signal —
 // fix the environment or flag the conflict. A setup that goes green by
 // disabling a guard tests something other than what runs in prod.
-import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
+import { spawn, spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  SUPABASE_CLI,
+  classifyEnvLocal,
+  cliAsset,
+  parseStatusEnv,
+  parseSupabaseVersion,
+  planStack,
+  seedStateNote,
+} from './lib/stack-plan.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -162,8 +191,8 @@ function inventory(manifest) {
   out.push(
     `stack-dependent CI suites (${STACK_SUITES.join(', ')}): ` +
       (stackReady
-        ? 'stack tooling present — start it with `pnpm supabase:start` first'
-        : 'not runnable until a supabase CLI + docker daemon are present (true right now)')
+        ? 'stack tooling present — bring it up with `node scripts/session-setup.mjs stack` (pnpm stack)'
+        : 'not runnable yet — run `node scripts/session-setup.mjs stack` (pnpm stack) to bring the stack up')
   );
 
   console.log('[session-setup] PlusOne Guestlist — environment inventory');
@@ -242,6 +271,184 @@ function check(manifest) {
   );
 }
 
+// ---------------------------------------------------------------- stack mode
+
+// Suites/scripts the stack makes runnable — validated against package.json
+// like every other list here, so the closing summary never names a phantom.
+const STACK_ENABLES = ['db:test', 'db:fresh', 'e2e:smoke', 'e2e:layout'];
+const ADMIN_SEED_ID = '11111111-1111-4111-8111-111111111111'; // admin@plusone.test (supabase/seed.sql)
+
+function readOrNull(path) {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function dockerUp() {
+  return spawnSync('docker', ['info'], { stdio: 'ignore', timeout: 10_000 }).status === 0;
+}
+
+function onPath(bin) {
+  return spawnSync('sh', ['-c', `command -v ${bin}`], { stdio: 'ignore' }).status === 0;
+}
+
+/** `supabase status -o env` as { KEY: value }, or null when no stack is running. */
+function stackStatus() {
+  const out = capture('supabase', ['status', '-o', 'env'], 30_000);
+  if (out === null) return null;
+  const env = parseStatusEnv(out);
+  return env.API_URL ? env : null;
+}
+
+function gatherStackFacts(argv) {
+  return {
+    remote: process.env.CLAUDE_CODE_REMOTE === 'true',
+    startDocker: argv.includes('--start-docker'),
+    isRoot: typeof process.getuid === 'function' && process.getuid() === 0,
+    platform: process.platform,
+    arch: process.arch,
+    dockerUp: dockerUp(),
+    dockerdPresent: onPath('dockerd'),
+    cliVersion: parseSupabaseVersion(capture('supabase', ['--version'], 10_000)),
+    stackRunning: false, // filled below, only once docker + CLI are known good
+    envLocal: classifyEnvLocal(readOrNull(resolve(root, '.env.local'))),
+    devMfa: argv.includes('--dev-mfa'),
+  };
+}
+
+/** Does admin@ carry the platform flag (dev-mfa ran since the last reset)? null = unknown. */
+function adminFlagged() {
+  const projectId = readOrNull(resolve(root, 'supabase/config.toml'))?.match(/^project_id\s*=\s*"([^"]+)"/m)?.[1];
+  if (!projectId) return null;
+  const out = capture('docker', [
+    'exec', `supabase_db_${projectId}`, 'psql', '-U', 'postgres', '-d', 'postgres', '-XtAc',
+    `select coalesce((select is_platform_admin from public.user_profiles where id = '${ADMIN_SEED_ID}'), false)`,
+  ]);
+  return out === 't' ? true : out === 'f' ? false : null;
+}
+
+function fail(msg) {
+  console.error(`[session-setup] stack: ${msg}`);
+  process.exit(1);
+}
+
+function startDockerd() {
+  const logPath = join(tmpdir(), 'dockerd.log');
+  const log = openSync(logPath, 'a');
+  const child = spawn('dockerd', [], { detached: true, stdio: ['ignore', log, log] });
+  child.unref();
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (dockerUp()) {
+      console.log(`[session-setup] stack: dockerd up (pid ${child.pid}, log ${logPath})`);
+      return;
+    }
+    spawnSync('sleep', ['1']);
+  }
+  fail(`dockerd did not come up within 60s — see ${logPath}`);
+}
+
+function installCli() {
+  const asset = cliAsset(process.platform, process.arch);
+  const dir = mkdtempSync(join(tmpdir(), 'supabase-cli-'));
+  try {
+    const tarball = join(dir, asset.file);
+    console.log(`[session-setup] stack: downloading ${asset.url}`);
+    // curl, not fetch: Node 22's fetch ignores HTTPS_PROXY, curl honours it.
+    if (run('curl', ['-fsSL', '--retry', '3', '-o', tarball, asset.url]) !== 0) fail('download failed');
+    const got = createHash('sha256').update(readFileSync(tarball)).digest('hex');
+    if (got !== asset.sha256) fail(`sha256 mismatch for ${asset.file}: got ${got}, pinned ${asset.sha256}`);
+    if (run('tar', ['-xzf', tarball, '--no-same-owner', '-C', dir, 'supabase']) !== 0) fail('could not extract the tarball');
+    copyFileSync(join(dir, 'supabase'), SUPABASE_CLI.installPath);
+    chmodSync(SUPABASE_CLI.installPath, 0o755);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const v = parseSupabaseVersion(capture('supabase', ['--version'], 10_000));
+  if (v !== SUPABASE_CLI.version) {
+    fail(`installed ${SUPABASE_CLI.installPath} but \`supabase --version\` reports ${v ?? 'nothing'} — is another supabase earlier on PATH?`);
+  }
+  console.log(`[session-setup] stack: supabase CLI ${v} installed (sha256 verified)`);
+}
+
+function stack(manifest, argv) {
+  const missing = missingFromManifest(manifest, [...STACK_SUITES, ...STACK_ENABLES, 'dev:mfa']);
+  if (missing.length > 0) {
+    fail(`suite list drifted from package.json — missing: ${missing.join(', ')}. Fix the lists in this script.`);
+  }
+
+  const facts = gatherStackFacts(argv);
+  // Only ask `supabase status` when it can answer: without a daemon it hangs
+  // on the docker socket, without the CLI it does not exist.
+  facts.stackRunning = facts.dockerUp && facts.cliVersion !== null && stackStatus() !== null;
+  const plan = planStack(facts);
+
+  console.log(`[session-setup] stack — ${facts.remote ? 'cloud container' : 'local machine'}`);
+  for (const a of plan.actions) console.log(`  ${a.run ? 'RUN ' : 'skip'} ${a.step.padEnd(7)} ${a.why}`);
+  for (const w of plan.warnings) console.log(`  WARNING: ${w}`);
+  if (plan.blockers.length > 0) {
+    console.log('\n[session-setup] stack: cannot bring the stack up here:');
+    for (const b of plan.blockers) console.log(`  - ${b}`);
+    process.exit(1);
+  }
+
+  const todo = new Set(plan.actions.filter((a) => a.run).map((a) => a.step));
+  if (todo.has('dockerd')) startDockerd();
+  if (todo.has('cli')) {
+    installCli();
+    // The plan could not ask `supabase status` without a CLI — ask now, so a
+    // stack that was already up is not reported as started.
+    if (stackStatus() !== null) todo.delete('start');
+  }
+  if (todo.has('start')) {
+    console.log('[session-setup] stack: supabase start');
+    if (run('supabase', ['start']) !== 0) fail('`supabase start` failed — see its output above.');
+  }
+
+  const status = stackStatus();
+  if (status === null) fail('`supabase status` reports no running stack after start.');
+
+  if (todo.has('env')) {
+    if (run('node', ['scripts/dev-env.mjs']) !== 0) fail('scripts/dev-env.mjs failed.');
+  }
+
+  if (todo.has('mfa')) {
+    // dev-mfa reads creds from process.env before .env.local, so handing it the
+    // stack's own URL + service key means it can only ever reach the local
+    // stack — even in a checkout whose .env.local points at prod.
+    const r = spawnSync('node', ['scripts/dev-mfa.mjs'], {
+      cwd: root,
+      stdio: ['ignore', 'pipe', 'inherit'],
+      encoding: 'utf8',
+      env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: status.API_URL, SUPABASE_SERVICE_ROLE_KEY: status.SERVICE_ROLE_KEY },
+    });
+    if (r.status !== 0) {
+      process.stdout.write(r.stdout ?? '');
+      fail('scripts/dev-mfa.mjs failed.');
+    }
+    console.log('[session-setup] stack: dev-mfa done (seed TOTP + platform flag stamped)');
+  }
+
+  const started = [...todo].filter((s) => ['dockerd', 'cli', 'start', 'env'].includes(s));
+  console.log(
+    '\n[session-setup] stack is UP' +
+      (started.length === 0 ? ' — nothing (re)started, already in place.' : ` — did: ${started.join(', ')}.`) +
+      `\n  supabase CLI ${parseSupabaseVersion(capture('supabase', ['--version'], 10_000))}` +
+      `\n  API      ${status.API_URL}` +
+      `\n  DB       ${status.DB_URL}` +
+      `\n  Studio   ${status.STUDIO_URL ?? '-'}` +
+      `\n  Mailpit  ${status.MAILPIT_URL ?? status.INBUCKET_URL ?? '-'}` +
+      `\n  .env.local ${classifyEnvLocal(readOrNull(resolve(root, '.env.local')))}` +
+      `\n  now runnable: ${STACK_ENABLES.map((s) => `pnpm ${s}`).join(', ')}` +
+      `\n  seed     ${seedStateNote(adminFlagged())}` +
+      '\n  e2e      also needs a Playwright browser matching @playwright/test — CI installs it\n' +
+      '           separately (`pnpm exec playwright install --with-deps chromium`); this step does not.' +
+      '\n  ONE DB owner: db:fresh resets the shared stack — only one session at a time.'
+  );
+}
+
 const mode = process.argv[2] ?? 'inventory';
 const manifest = readManifest();
 switch (mode) {
@@ -254,7 +461,10 @@ switch (mode) {
   case 'check':
     check(manifest);
     break;
+  case 'stack':
+    stack(manifest, process.argv.slice(3));
+    break;
   default:
-    console.error('usage: node scripts/session-setup.mjs [inventory|install|check]');
+    console.error('usage: node scripts/session-setup.mjs [inventory|install|check|stack [--start-docker] [--dev-mfa]]');
     process.exit(2);
 }
