@@ -5,6 +5,8 @@ If auth mail lands in spam or bounces, **login is down**. This doc records what 
 prod mail today, how the sending domain is authenticated, and the evidence that it
 actually delivers. Verified 2026-07-09.
 
+> **Update 2026-10-05 (Legal v0.3, D13):** the decided sender is the apex `plus-one.io` (no subdomain). This record describes the 2026-07-09 state; Max to confirm the live SMTP sender is already `@plus-one.io`.
+
 ## Verdict: 🟢 green, proven in production
 
 Prod auth mail is sent through **Resend** (SMTP) from **`theoperators.nl`**, an
