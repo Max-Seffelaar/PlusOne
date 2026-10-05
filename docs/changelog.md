@@ -8,6 +8,15 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — iOS GoogleService-Info.plist committed, required in build (z8uq9m0gvn)
+
+Branch `claude/z8uq9m0gvn-google-service-info`, milestone Now. Max registered the iOS app
+in Firebase; `ios/App/App/GoogleService-Info.plist` (bundle `app.plusone.guestlist`, project
+`plus-one-9c51e`, same as Android's `google-services.json`) is committed — client
+identifiers, not a secret (plan decision 13). `codemagic.yaml` ios-release now sets
+`REQUIRE_GOOGLE_SERVICE_INFO: "true"`; `tests/unit/codemagic-ios-release.test.ts` pins the
+flag and the tracked plist's bundle id / project id.
+
 ## 2026-10-01 — Play build requires google-services.json (86ey6bfpy)
 
 Branch `claude/86ey6bfpy-require-google-services`, milestone Now. N5 (push) is merged and
