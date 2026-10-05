@@ -61,7 +61,7 @@ export const templates = {
   priceLabel: 'Door price (optional)',
   pricePlaceholder: 'Free, e.g. 25',
   aliasesLabel: 'Aliases · feed the quick-add',
-  aliasesPlaceholder: 'vip, bottle, table…',
+  aliasesPlaceholder: 'vip, table, backstage…',
   loadingTiers: 'Loading tiers…',
   emptyTiers: 'No guest tiers yet. Add one like "VIP" or "Regular".',
   errCreateTier: "Couldn't add the tier.",
