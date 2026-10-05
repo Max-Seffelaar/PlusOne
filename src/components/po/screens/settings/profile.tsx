@@ -10,13 +10,14 @@ import { groupPoSessions } from '@/features/po/adapters';
 import { PoMfaSheet } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, hitRingY13, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, hitRingY13, openExternal, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { useIsDemoAccount } from '../../app-shell-data';
 import { PushSettingsRow } from '../../push-settings-card';
 import { canReceivePush } from '../../push-client';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { DELETE_ACCOUNT_URL } from '@/lib/legal';
 import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './_shared';
 
 // MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
@@ -374,6 +375,31 @@ export function Profile(): JSX.Element {
             {t.settings.profile.signOutFailed}
           </p>
         )}
+
+        {/* Delete account (86ey6bfyj, Google Play): accounts are invite-only, so
+            deletion is by request — the row only opens the request page on the
+            marketing site. Every role, web and native (not billing). Calm row,
+            no red: nothing is deleted from here. */}
+        <Label className="mb-[10px] mt-[18px]">{t.settings.profile.deleteAccountLabel}</Label>
+        <button
+          type="button"
+          onClick={() => openExternal(DELETE_ACCOUNT_URL)}
+          className={cn(
+            'flex min-h-[44px] w-full items-center gap-[12px] rounded-[18px] border border-line bg-elev px-4 py-[14px] text-left',
+            press,
+          )}
+        >
+          <span className="text-faint">
+            <Icon name="user" size={19} />
+          </span>
+          <span className="flex-1">
+            <span className="block text-[14.5px] font-semibold text-text">{t.settings.profile.deleteAccountTitle}</span>
+            <span className="mt-0.5 block text-[12px] text-faint">{t.settings.profile.deleteAccountSub}</span>
+          </span>
+          <span className="text-faint">
+            <Icon name="share" size={16} />
+          </span>
+        </button>
       </Scroll>
       <BottomBar>
         <Btn
