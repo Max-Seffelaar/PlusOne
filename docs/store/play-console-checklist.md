@@ -129,29 +129,30 @@ line there opens one form. All of them also live under **Policy and programs →
       don't upload it pre-rounded.
 
 19. [ ] **Feature graphic (1024 × 500)**
-    - Do: upload **1024 × 500 px, JPEG or 24-bit PNG (no transparency)**, max 15 MB. Max designs
-      it: near-black `#0B0B0D`, the lavender `#B5A6FF` accent, logo + one line, nothing
-      important in the outer edges.
+    - Do: upload **`store-screenshots/play-feature-graphic/play-feature-graphic.png`**
+      (generator output, **1024 × 500 px**, 24-bit PNG, no alpha; Play allows max 15 MB).
+      Get the folder from the **Store screenshots** workflow artifact (or
+      `pnpm store:screenshots`), see `docs/store/screenshots.md`.
     - Check: the preview shows it and Play gives no size error.
 
 20. [ ] **Phone screenshots**
-    - Do: upload **4–8** screenshots (Play minimum 2), **JPEG or 24-bit PNG, 1080 × 1920 px
-      portrait (9:16)**. Each side must be between 320 and 3840 px, the long side at most 2× the short
-      side. Use the five screens from `docs/store/screenshots.md`, in that order.
-    - Check: all show in the phone row in the right order. No real guest names visible (demo
-      venue / seed data only).
+    - Do: upload all five PNGs from **`store-screenshots/play-phone/`** (`01-home.png` …
+      `05-stats.png`, in that order). Generator size: **1080 × 1920 px** portrait (9:16),
+      24-bit PNG, no alpha. Play wants 2–8, JPEG or 24-bit PNG, 9:16 or 16:9, each side 320–3840 px.
+    - Check: all show in the phone row in the right order. No real guest names visible (the
+      generator uses demo data only).
 
 21. [ ] **7-inch tablet screenshots**
-    - Do: upload **at least 2 and up to 8**, **1080 × 1920 portrait or 1920 × 1080 landscape**
-      (16:9 or 9:16; every side 1080–7680 px). Same screens, captured at a 7" tablet size
-      (e.g. Android Studio emulator "Nexus 7"/"Medium Tablet").
-    - Check: they show in the "7-inch tablet" row. The layout must be the T1 tablet layout,
+    - Do: upload all five PNGs from **`store-screenshots/play-tablet-7-inch/`**
+      (`01-home.png` … `05-stats.png`). Generator size: **1188 × 2112 px** portrait (exactly
+      9:16, bottom-tab T1 tablet layout). Play wants 2–8, 16:9 or 9:16, each side 1080–7680 px.
+    - Check: they show in the "7-inch tablet" row and the layout is the T1 tablet layout,
       not a stretched phone.
 
 22. [ ] **10-inch tablet screenshots**
-    - Do: upload **at least 2 and up to 8**, **2560 × 1600 landscape or 1600 × 2560 portrait**
-      (16:10 is accepted; every side 1080–7680 px). Include at least one landscape screen
-      (Check-in or Guest list).
+    - Do: upload all five PNGs from **`store-screenshots/play-tablet-10-inch/`**
+      (`01-home.png` … `05-stats.png`). Generator size: **2560 × 1440 px** landscape (exactly
+      16:9, sidebar layout). Play wants 2–8, 16:9 or 9:16, each side 1080–7680 px.
     - Check: they show in the "10-inch tablet" row.
 
 23. [ ] **Save the NL listing**
@@ -179,10 +180,11 @@ line there opens one form. All of them also live under **Policy and programs →
     - Do: answer Q1–Q3 exactly as in `play-store-listing.md` → "Step 1".
     - Check: the "account creation" question shows **Username and other authentication**.
 
-28. [ ] 🟧 **Delete account URL**
-    - Do: paste the URL Max chose (recommended `https://www.plus-one.io/legal#delete-account`,
-      see "Account deletion" in `play-store-listing.md`). That page **must already exist**.
-    - Check: open the URL in a private window and see the deletion steps.
+28. [ ] **Delete account URL**
+    - Do: paste **`https://www.plus-one.io/delete-account`** (live). The in-app path is
+      **Profile → Delete account** (live; it opens the same URL).
+    - Check: open the URL in a private window and see the deletion steps; in the app, Profile
+      shows the Delete account row.
 
 29. [ ] **Data types**
     - Do: tick exactly the ✅ rows of the "Step 2" table, nothing else.

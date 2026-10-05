@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-checklist-screenshot-sizes`, milestone Now. Docs only.
+`play-console-checklist.md` steps 19–22 now point at the generator output folders
+(`store-screenshots/play-phone/`, `play-tablet-7-inch/`, `play-tablet-10-inch/`,
+`play-feature-graphic/`) and state the sizes it produces (1080×1920, 1188×2112, 2560×1440,
+1024×500). The old 2560×1600 for 10" was 16:10, which Play's 16:9/9:16 rule rejects; the
+generator's sizes comply (Play Help "Add preview assets", accessed 2026-10-05). Step 28 =
+`https://www.plus-one.io/delete-account`, in-app Profile → Delete account; 🟧 removed.
+`play-store-listing.md` row 4 updated to match.
+
 ## 2026-10-05 — iOS GoogleService-Info.plist committed, required in build (z8uq9m0gvn)
 
 Branch `claude/z8uq9m0gvn-google-service-info`, milestone Now. Max registered the iOS app

@@ -102,7 +102,7 @@ Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content mat
 | 1 | Does your app collect or share any of the required user data types? | **Yes** | Accounts, guest lists, push token, crash reports (§3, §4, §12). |
 | 2 | Is all of the user data collected by your app encrypted in transit? | **Yes** | HTTPS/TLS only, to Supabase, Vercel, Sentry and FCM (§11.2). The webview only loads `https://app.plus-one.io`. |
 | 3 | Which methods of account creation does your app support? | **Username and other authentication** (e-mail address + 6-digit one-time code). *Not* "password", *not* OAuth. | Passwordless e-mail OTP, invite-only (§3; CLAUDE.md "Auth"). Accounts are created **inside the app** when a venue admin invites someone. That's why we don't pick "My app does not allow users to create an account". |
-| 4 | Delete account URL | **`https://www.plus-one.io/legal#delete-account`** *(recommended, see "Account deletion" below; **needs Max's decision**)* | §13: account holders e-mail the privacy address; we delete once the account isn't needed for a venue (§10). |
+| 4 | Delete account URL | **`https://www.plus-one.io/delete-account`** *(live; in-app path Profile → Delete account, see "Account deletion" below)* | §13: account holders e-mail the privacy address; we delete once the account isn't needed for a venue (§10). |
 | 5 | Do you provide a way for users to request that some or all of their data is deleted, without deleting their account? | **No** *(optional question)* | Partial deletion for account holders runs through the same support request. Guests go to the venue (§13). The venue admin's "forget contact" (§10) is a feature for the venue, not a self-service path for the user. Answer **Yes** only if Max wants the same URL to cover it. |
 
 ### Step 2 — Data types (tick exactly these)
@@ -159,7 +159,9 @@ Columns: **Collected/Shared** · **Processed ephemerally?** · **Required or opt
 | Committed to the Play Families Policy | **No**. Not a children's app (see `play-review-notes.md` → Target audience). |
 | Independent security review (MASA) | **No**. Optional badge, not done. |
 
-### Account deletion — recommendation (**DECISION NEEDED: Max**)
+### Account deletion — decided: `https://www.plus-one.io/delete-account` (live), in-app Profile → Delete account (live)
+
+*The text below is the original recommendation, kept for the reasoning; the anchor and the "app-code change" it mentions were superseded by what shipped.*
 
 Play requires a delete-account web link for every app where accounts can be created in the app. PlusOne accounts are invite-only, but the invite happens **in the app** (a venue admin invites by e-mail), so we treat the requirement as applying. The capacitor plan (§1 "Account-verwijdering") calls us exempt; that was written with Apple's rule in mind (in-app *sign-up*). Play's form asks for the URL regardless.
 
