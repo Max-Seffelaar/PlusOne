@@ -6,7 +6,7 @@ Support URL: `https://www.plus-one.io`
 Privacy policy URL: `https://www.plus-one.io/legal#privacy`
 Age rating: 17+ recommended (nightclub/alcohol-venue context — set from the standard questionnaire in App Store Connect, not decided here).
 
-Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. <!-- valid only once N5 (#349) is merged and verified on device --> No ticketing, no outbound invites (CLAUDE.md decision #36), no in-app billing/checkout (Apple IAP restriction, `src/lib/platform.ts` `isNativeShell()`) — never claim any of these.
+Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. No ticketing, no outbound invites (CLAUDE.md decision #36), no in-app billing/checkout (Apple IAP restriction, `src/lib/platform.ts` `isNativeShell()`) — never claim any of these.
 
 ---
 
@@ -33,7 +33,7 @@ Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, 
 > Elke host krijgt een toegewezen aantal gasten per event. PlusOne rekent +N automatisch mee en blokkeert wie over zijn quotum gaat.
 >
 > Aanvragen, geregeld met één tik
-> Gasten sturen een aanvraag, hosts vragen extra quotum — beide landen in de 'Requests'-tab, met een pushmelding zodra er iets wacht. <!-- valid only once N5 (#349) is merged and verified on device -->
+> Gasten sturen een aanvraag, hosts vragen extra quotum — beide landen in de 'Requests'-tab, met een pushmelding zodra er iets wacht.
 >
 > De deur werkt altijd
 > Check-in blijft werken zonder internet: elke actie gaat in de wachtrij en synct zodra de verbinding terug is.
@@ -75,7 +75,7 @@ Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, 
 > Every host gets an assigned number of guests per event. PlusOne counts +N automatically and stops anyone going over their quota.
 >
 > Approvals in one tap
-> Guests send requests, hosts ask for more quota — both land in the Requests tab, with a push notification the moment something's waiting. <!-- valid only once N5 (#349) is merged and verified on device -->
+> Guests send requests, hosts ask for more quota — both land in the Requests tab, with a push notification the moment something's waiting.
 >
 > The door always works
 > Check-in keeps working without a connection: every action queues and syncs the moment you're back online.
@@ -108,7 +108,7 @@ Mirror `/privacy` from L1 once live. Cross-checked against `docs/legal/privacy-p
 |---|---|---|---|---|---|
 | Account name, e-mail address, phone number | Contact Info | Yes | Yes — tied to your account | No | App Functionality |
 | Guest name, phone number, e-mail address (Contact Info); staff-entered notes (Other User Content) | Contact Info + Other User Content | Yes | No — tied to the venue's guest record; processed as data processor on the venue's behalf (see `docs/legal/data-processing-agreement.md`), never used for PlusOne's own purposes | No | App Functionality |
-| Device push token <!-- valid only once N5 (#349) is merged and verified on device --> | Identifiers | Yes, once notifications are enabled (opt-in, off by default) | Yes — tied to your login session | No | App Functionality |
+| Device push token | Identifiers | Yes, once notifications are enabled (opt-in, off by default) | Yes — tied to your login session | No | App Functionality |
 | Crash data, performance data | Diagnostics | Yes | Yes — tied to a random internal user ID only, never your name/e-mail/phone | No | App Functionality |
 | IP address | — | Not collected/stored by PlusOne's Sentry integration (`sendDefaultPii: false`, request data stripped in `beforeSend`); Vercel's hosting logs process it only transiently, not as app-collected data for this questionnaire | n/a | No | n/a |
 
@@ -117,6 +117,6 @@ None used for tracking (no cross-app/cross-site tracking, no ad networks, no dat
 ## Review notes (draft — finalize in S5 alongside the 4.2 defense)
 
 - App is invite-only; no public sign-up. Reviewer needs a demo login — provided by S3's env-gated review-login route + demo-tenant seed, not by this task.
-- Guideline 4.2 (webview wrapper) defense: native push (FCM/APNs) <!-- valid only once N5 (#349) is merged and verified on device --> + an offline-capable door check-in flow that queues and syncs, both genuinely native-dependent behavior beyond a bare web wrapper. Until N5 ships, lead with the offline door check-in flow alone.
+- Guideline 4.2 (webview wrapper) defense: native push (FCM/APNs) + an offline-capable door check-in flow that queues and syncs, both genuinely native-dependent behavior beyond a bare web wrapper. N5 (push) is merged and verified end to end on Android (2026-09-30); iOS push still has to be verified in S1b.
 - No in-app account creation → Apple's in-app account-deletion requirement (5.1.1v) doesn't apply; support contact for data-deletion requests goes here once decided.
 - iPad is supported in v1 (`TARGETED_DEVICE_FAMILY` 1,2) — reviewer may test on iPad; T1 (tablet layouts) must ship first.
