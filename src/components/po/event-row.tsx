@@ -257,7 +257,7 @@ export function EventRow({
   onLock?: () => void;
 }): JSX.Element {
   const counts = (
-    <div className="ev-counts flex shrink-0 flex-wrap gap-2 md:items-center md:gap-[26px]">
+    <div data-ev-part="counts" className="ev-counts flex shrink-0 flex-wrap gap-2 max-md:w-full md:items-center md:gap-[26px]">
       <Count value={guestCountsVisible ? kfmt(e.onList) : '—'} label={t.home.cOnList} />
       <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} onClick={onReq && (() => onReq('landing'))} />
       <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} onClick={onReq && (() => onReq('quota'))} />
@@ -265,7 +265,7 @@ export function EventRow({
     </div>
   );
   const actions = (
-    <div className="flex shrink-0 items-center gap-2 max-md:w-full">
+    <div data-ev-part="actions" className="flex shrink-0 items-center gap-2 max-md:w-full">
       <Btn sm kind="primary" icon="arrowR" onClick={onOpen} className="max-md:flex-1" style={{ flexDirection: 'row-reverse' }}>
         {t.home.aOpen}
       </Btn>
@@ -283,7 +283,7 @@ export function EventRow({
     </div>
   );
   const meta = (
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-dim">
+    <div data-ev-part="meta" className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-dim">
       <span className="inline-flex items-center gap-[5px]">
         <Icon name="pin" size={13} className="text-faint" />
         {e.venue}
@@ -300,11 +300,21 @@ export function EventRow({
       </span>
     </div>
   );
+  // Layout keys on the CARD's width (a container query), not the viewport: the
+  // same 700px card is a 792px tablet in bottom tabs or a 1032px iPad beside
+  // the 252px sidebar, and a viewport `md:` single row squeezed the name/meta
+  // column to ~100px there (86ey6bfyj — names wrapped per word, the stats sat
+  // on top of the venue/date line). Three shapes, none positioned absolutely:
+  //   < 860px card  info (name + chip, meta) on top; stats + actions below,
+  //                 side by side from `md:` and wrapping to their own rows
+  //                 when they don't fit (phone: each its own full-width row);
+  //   ≥ 860px card  one row — info | stats | actions (1280+ desktop).
+  // Guarded by the layout suite's event-card overlap check (tests/e2e/layout).
   return (
     <div
       onClick={onOpen}
       className={cn(
-        'evcard cursor-pointer rounded-[20px] border p-4 transition-[border-color] active:scale-[0.995] md:flex md:items-center md:gap-[22px] md:p-[18px_22px]',
+        'evcard cursor-pointer rounded-[20px] border p-4 transition-[border-color] [container-type:inline-size] active:scale-[0.995] md:p-[18px_22px]',
         e.live ? 'border-[rgba(181,166,255,0.28)]' : 'border-line bg-elev hover:border-ghost'
       )}
       style={
@@ -313,19 +323,26 @@ export function EventRow({
           : undefined
       }
     >
-      <div className="min-w-0 flex-1 max-md:mb-[14px]">
-        <div className="flex items-start gap-2.5 md:items-center">
-          <span className="min-w-0 font-display text-[19px] font-extrabold leading-[1.1] tracking-[-0.02em] text-text md:text-[21px]">
-            {e.name}
-          </span>
-          <span className="ml-auto md:ml-2">
-            <StatusChip e={e} />
-          </span>
+      <div className="flex flex-col gap-[14px] [@container(min-width:860px)]:flex-row [@container(min-width:860px)]:items-center [@container(min-width:860px)]:gap-[22px]">
+        <div data-ev-part="info" className="min-w-0 [@container(min-width:860px)]:flex-1">
+          <div className="flex items-start gap-2.5 md:items-center">
+            <span
+              data-ev-part="name"
+              className="min-w-0 break-words font-display text-[19px] font-extrabold leading-[1.1] tracking-[-0.02em] text-text md:text-[21px]"
+            >
+              {e.name}
+            </span>
+            <span data-ev-part="chip" className="ml-auto shrink-0 md:ml-2">
+              <StatusChip e={e} />
+            </span>
+          </div>
+          {meta}
         </div>
-        {meta}
+        <div className="flex flex-wrap items-center justify-between gap-x-[22px] gap-y-[14px] [@container(min-width:860px)]:shrink-0 [@container(min-width:860px)]:flex-nowrap">
+          {counts}
+          {actions}
+        </div>
       </div>
-      <div className="max-md:mb-[14px]">{counts}</div>
-      {actions}
     </div>
   );
 }

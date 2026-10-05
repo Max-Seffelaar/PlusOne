@@ -182,6 +182,12 @@ function PlatformNav(): JSX.Element {
         sub={t.platform.auditNavSub}
         onClick={() => nav.push('platformaudit', {})}
       />
+      <ActionItem
+        icon="lock"
+        label={t.platform.accessLogNavTitle}
+        sub={t.platform.accessLogNavSub}
+        onClick={() => nav.push('platformaccess', {})}
+      />
     </div>
   );
 }
