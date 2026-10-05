@@ -12,11 +12,10 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { createVenueAction, switchActiveVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
-import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { useIsDemoAccount } from '../app-shell-data';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Btn, ExternalLink, Field, Label, Note, Scroll, Top, press } from '../kit';
+import { Btn, ConsentCheck, Field, Label, Note, Scroll, Top, press } from '../kit';
 import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -166,16 +165,7 @@ export function VenueCreate(): JSX.Element {
         <Field icon="card" placeholder={vc.vatPlaceholder} value={vat} onChange={setVat} className="mb-1.5" />
         <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">{vc.paymentNote}</div>
 
-        <label className="mt-[18px] flex cursor-pointer items-start gap-[11px] rounded-[16px] border border-line bg-elev p-4">
-          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-[2px] h-[19px] w-[19px] shrink-0 accent-acc" />
-          <span className="text-[13px] leading-[1.5] text-text">
-            {vc.consentPre}
-            <ExternalLink href={TERMS_URL} className="font-semibold text-acc underline">{vc.consentTerms}</ExternalLink>
-            {vc.consentMid}
-            <ExternalLink href={PRIVACY_URL} className="font-semibold text-acc underline">{vc.consentPrivacy}</ExternalLink>
-            {vc.consentPost}
-          </span>
-        </label>
+        <ConsentCheck checked={agreed} onChange={setAgreed} copy={vc} className="mt-[18px]" />
       </Scroll>
       <BottomBar>
         {error && <div className="mb-2.5 text-[13.5px] leading-[1.45] text-[#ff9b9b]">{error}</div>}

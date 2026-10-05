@@ -22,7 +22,7 @@ import { canManageGuests, canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, press } from '../kit';
+import { Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, hitRingY4, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
 
@@ -114,7 +114,10 @@ export function Events(): JSX.Element {
             type="button"
             onClick={() => setWhen(k)}
             className={cn(
+              // 38px bordered pill + an invisible 4px ring (kit `hitRingY4`) = a
+              // 44px tap area on touch, without changing the look (T1, touch).
               'cursor-pointer rounded-full border px-4 py-2 font-display text-[13.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+              hitRingY4,
               when === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
             )}
           >

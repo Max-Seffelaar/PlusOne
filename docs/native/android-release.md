@@ -39,9 +39,8 @@ uploads the AAB to the Play **internal** track as a **draft**. You press "Roll o
   there in a PR before a release that users should see as a new version.
 - Local Android Studio builds get versionCode `1` / versionName `0.0.0-dev` and are
   unsigned for release — they are never uploaded.
-- `google-services.json` missing ⇒ the build **warns** (no push) and continues. Once N5 is
-  merged and the file is committed, set `REQUIRE_GOOGLE_SERVICES: "true"` in
-  `codemagic.yaml` so a build without push fails.
+- `google-services.json` missing ⇒ the build **fails** (`REQUIRE_GOOGLE_SERVICES: "true"` in
+  `codemagic.yaml`; the file is committed since N5). It holds client identifiers, not secrets.
 
 ---
 

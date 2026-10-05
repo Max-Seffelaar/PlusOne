@@ -34,25 +34,6 @@ const FIELD_SCREENS = [
 
 export const KNOWN_ISSUES: readonly KnownIssue[] = [
   ...FIELD_SCREENS.map((screen) => ({ screen, check: 'field-targets' as const, reason: FIELD })),
-
-  // ── Controls: per screen, each a design call (chips/segments/steppers) ──
-  { screen: 'aanvragen', check: 'tap-targets', reason: '"Declined · N" section toggle is 30px tall (approvals.tsx)' },
-  { screen: 'checkin.door', check: 'tap-targets', reason: 'door segment pills 39.5px, tier filter chips 34–35px' },
-  { screen: 'tasks.door', check: 'tap-targets', reason: 'door segment pills 39.5px, tier filter chips 34–35px' },
-  { screen: 'crew', check: 'tap-targets', reason: 'crew quota stepper is 32×32 and "Remove" is 26px tall' },
-  { screen: 'events.admin', check: 'tap-targets', reason: 'Upcoming/Past segment is 38px tall' },
-  { screen: 'events.door', check: 'tap-targets', reason: 'Upcoming/Past segment is 38px tall' },
-  { screen: 'gebruikers', check: 'tap-targets', reason: 'pending-invite "Resend" action is 26px tall' },
-  { screen: 'guests.admin', check: 'tap-targets', reason: 'event filter chips are 35px tall' },
-  { screen: 'guests.door', check: 'tap-targets', reason: 'event filter chips are 35px tall' },
-  { screen: 'home.admin', check: 'tap-targets', reason: 'Home segment and requests/quota counter tiles are 40px tall' },
-  { screen: 'home.door', check: 'tap-targets', reason: 'Home segment and requests/quota counter tiles are 40px tall' },
-  { screen: 'profile', check: 'tap-targets', reason: 'session "Log out" chip (kit MiniChip) is 26px tall' },
-  {
-    screen: 'venuecreate',
-    check: 'tap-targets',
-    reason: 'inline Terms/Privacy links are 17px tall — design-system.md documents no inline-link exemption; needs a decision',
-  },
 ];
 
 export function knownIssue(screen: string, check: LayoutCheck, project: string): string | null {

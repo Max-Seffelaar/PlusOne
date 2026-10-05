@@ -251,6 +251,11 @@ export const settings = {
     securityLabel: 'Security',
     loginMethodTitle: 'Login method',
     loginMethodSub: 'Passwordless · email code (OTP)',
+    /** Profile → Delete account (86ey6bfyj): opens the deletion request page on
+     *  plus-one.io. Calm, not alarming: the tap only opens info. */
+    deleteAccountLabel: 'Account',
+    deleteAccountTitle: 'Delete account',
+    deleteAccountSub: 'Request deletion of your PlusOne account',
     sessionsLabel: 'Your devices',
     sessionsEmpty: 'No active sessions.',
     thisDevice: 'This device',

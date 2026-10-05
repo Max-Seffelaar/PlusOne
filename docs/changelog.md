@@ -8,6 +8,97 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — iOS GoogleService-Info.plist committed, required in build (z8uq9m0gvn)
+
+Branch `claude/z8uq9m0gvn-google-service-info`, milestone Now. Max registered the iOS app
+in Firebase; `ios/App/App/GoogleService-Info.plist` (bundle `app.plusone.guestlist`, project
+`plus-one-9c51e`, same as Android's `google-services.json`) is committed — client
+identifiers, not a secret (plan decision 13). `codemagic.yaml` ios-release now sets
+`REQUIRE_GOOGLE_SERVICE_INFO: "true"`; `tests/unit/codemagic-ios-release.test.ts` pins the
+flag and the tracked plist's bundle id / project id.
+
+## 2026-10-01 — Play build requires google-services.json (86ey6bfpy)
+
+Branch `claude/86ey6bfpy-require-google-services`, milestone Now. N5 (push) is merged and
+`android/app/google-services.json` (package `app.plusone.guestlist`) is committed, so
+`codemagic.yaml` now sets `REQUIRE_GOOGLE_SERVICES: "true"`: a Play build without it fails
+instead of warning. `tests/unit/codemagic-android-release.test.ts` pins the flag and the
+tracked file's package name; `docs/native/android-release.md` updated.
+
+## 2026-10-01 — S1b: iOS release workflow → TestFlight (z8uq9m0gvn)
+
+Branch `claude/z8uq9m0gvn-codemagic-ios`, milestone Now (Fase 17 wave 5). Native change →
+Max rebuilds via Codemagic; nothing on the web side changes.
+
+- `codemagic.yaml` `ios-release`: manual or `ios-v*` tag only, main-only ancestry guard,
+  `pnpm install --frozen-lockfile`, `npx cap sync ios` with `CAP_SERVER_URL` refused and the
+  synced `server.url` + `limitsNavigationsToAppBoundDomains` asserted, SPM resolve,
+  Codemagic-managed App Store signing through the App Store Connect API key integration
+  (`PlusOne ASC`), build number = max(TestFlight latest + 1, `BUILD_NUMBER`), IPA verified
+  (bundle id, version, build, device family 1+2, `aps-environment=production`, associated
+  domains, encryption key). Publishing uploads only: no Beta App Review, never an App
+  Store submission. `APP_VERSION_NAME` is pinned equal to Android's by the guard test.
+- Native APNs-via-FCM: Firebase Core/Messaging via SPM (exact 12.19.2) on the App target;
+  `AppDelegate` configures Firebase only when `GoogleService-Info.plist` is bundled (a build
+  phase copies it when present, so a missing file warns instead of breaking), forwards the
+  APNs token to FCM and hands the FCM token to `@capacitor/push-notifications`. iOS
+  `PlusOnePushConfig` plugin (same JS name as Android), registered by a
+  `PlusOneBridgeViewController` subclass. `aps-environment` via the `APS_ENVIRONMENT` build
+  setting (Debug development, Release production). No Background Modes: our pushes are
+  alert pushes (`notification` block), not silent ones.
+- `ITSAppUsesNonExemptEncryption = NO` (HTTPS only → exempt).
+- Runbook `docs/native/ios-release.md` (App ID capabilities, ASC record, API key, Codemagic
+  cert/profile, Firebase iOS app + plist location, APNs key, first build, TestFlight
+  internal group, compromise playbook). Guard `tests/unit/codemagic-ios-release.test.ts`.
+- Review round (8 findings, all fixed in this PR): *Verify the IPA* now fails when
+  `GoogleService-Info.plist` is committed but missing from the IPA, and asserts
+  `WKAppBoundDomains` = exactly `app.plus-one.io`; `ENABLE_USER_SCRIPT_SANDBOXING = NO` on
+  the App target (Debug + Release) so the copy phase can stat the plist under a future
+  Xcode default; `FirebaseMessagingAutoInitEnabled = false` (consent-first: no installation
+  ID / FCM token before opt-in; the explicit `Messaging.messaging().token` call stays);
+  `Package.resolved` uploaded as an artifact (commit it after the first green run); guard
+  also pins `submit_to_testflight: false`; runbook: App Store primary language English
+  (Dutch as listing localization), reference names in 4.2/4.3 don't matter, and the
+  main-only guard stops accidents, not someone with Codemagic access.
+- **Open:** iOS push stays off until the web provider stops answering "unsupported" on iOS
+  (`src/features/notifications/capacitor-provider.ts`, out of this task's scope). That
+  follow-up must either re-register on every launch for opted-in accounts or add
+  `messaging(_:didReceiveRegistrationToken:)` (no `MessagingDelegate` yet → an FCM token
+  rotation otherwise only reaches the web side on the next `register()`). **Android has the
+  same auto-init gap** (no `firebase_messaging_auto_init_enabled` meta-data in the manifest)
+  — own follow-up, not touched here. Not run here: any iOS build (no Xcode in the
+  container) — the first Codemagic run is the real test.
+
+## 2026-10-05 — Neutral tier-alias examples in UI copy (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-neutral-alias-examples`, milestone Now (store submission). The IARC
+questionnaire asks whether the app's own content references alcohol; the shipped alias examples
+("bottle", "champagne") made the honest answer "yes". Replaced with "table"/"backstage" in
+`templates.ts`, `guests.ts` and `events.ts` (i18n surfaces). Parser logic, fixtures, seed and
+code comments untouched; a repo-wide `src/**` scan found no other user-visible alcohol words.
+
+## 2026-10-05 — S5 follow-up: Delete account row in Profile (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-delete-account-row`, milestone Now (store submission). Google
+Play requires apps with accounts to offer a web URL to request account deletion AND a
+path to start it in-app. Accounts are invite-only, so there is no self-service delete;
+deletion is by request (Max, 2026-10-05).
+
+- `src/lib/legal.ts`: `DELETE_ACCOUNT_URL` (`NEXT_PUBLIC_DELETE_ACCOUNT_URL`, default
+  `https://www.plus-one.io/delete-account`, the page built in the marketing-site repo;
+  requests go to `privacy@plus-one.io`). Other legal constants untouched.
+- Profile: an "Account" section at the bottom with a calm "Delete account" row
+  ("Request deletion of your PlusOne account"); the tap goes through the kit's
+  `openExternal` (system browser / Custom Tabs / SFSafariViewController in the native
+  shell). Every role, web and native: it is not billing, so no `isNativeShell` gate. No
+  confirmation, nothing is deleted from the app.
+- Tests: `settings/profile.delete-account.test.tsx` (renders per role, tap →
+  `openExternal(DELETE_ACCOUNT_URL)`, no `_blank`/`window.open`).
+- Store docs (PR #363) still need: Data safety "Delete account URL" =
+  `https://www.plus-one.io/delete-account`; in-app path = Profile → Delete account.
+
+---
+
 ## 2026-10-01 — S5 Store submission, Android half: Play submission pack (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-play-submission`, milestone Now (Play listing for venue #5). Docs only, no app code.
@@ -145,6 +236,44 @@ WebView sat on Chromium's dead error page until the app was killed.
   the door branch. Fix: the boot screen carries `data-po-boot`, and `openScreen` waits for
   `shellMounted` (`tests/e2e/layout/shell-ready.ts`, light DOM only, boot screen gone, 120 s).
   Regression: `tests/unit/layout-shell-ready.test.ts`.
+
+## 2026-09-30 — QA-1: known-issue tap targets to 44px
+
+Fixed every `tap-targets` known-issue entry in `tests/e2e/layout/known-issues.ts` and
+removed the entries, so the layout suite guards them from now on. All fixes use the
+kit's invisible hit-ring idiom (#343, T1) — the visible control size never changed.
+
+- **Shared kit fixes** (`src/components/po/kit.tsx`): `MiniChip`'s button variant now
+  carries a new `hitRingY10` (26px chip → 44px), fixing every screen that renders it as
+  a button — crew "Remove", team "Resend"/"Revoke", profile/admin-sessions "Log out",
+  quota "Save". Added `hitRingY7` (Y-only) and `hitRing7` (both axes) to the kit's ring
+  set for controls those didn't already cover.
+- **Per-screen fixes**: `approvals.tsx` "Declined · N" toggle (30px, `hitRingY7`);
+  `CheckInList.tsx` tier filter chips (34–35px, `hitRingY6` — the door segment pills
+  next to them already carried `hitRingY4` from an earlier PR); `crew.tsx` quota
+  stepper (32×32, new `hitRing7`); `events.tsx` Upcoming/Past segment (38px,
+  `hitRingY4` — shared by `events.admin`/`events.door`); `list-shared.tsx`'s
+  `ScopeChip` event filter chips (35px, `hitRingY6` — shared by `guests.admin`/
+  `guests.door`); `home.tsx`'s Alle/Vandaag/Aankomend segment (40px, `hitRingY2`) and
+  `event-row.tsx`'s `Count` tile, which loses its mobile padding at `md:` and becomes a
+  bare ~37px text link on a touch tablet (`hitRingY4`, shared by `home.admin`/
+  `home.door`).
+- **`venuecreate` Terms/Privacy links (option b, Max 2026-10-01)**: the inline links were
+  17px tall. Max chose a real 44px target, not an exemption. A ring can't fix a link inside
+  a sentence, so the links now sit on their own row below the consent sentence. The new kit
+  `ConsentCheck` renders that row with `tapLink44`, a 44×44 box on touch that shrinks only
+  behind `lg:[@media(pointer:fine)]:`. The first-login `ConsentScreen` and the `/onboarding`
+  `VenueStep` had the same 17px links and now use the same component. The known-issue
+  entry is deleted.
+- Added matching cases to `src/components/po/kit.tap-target.test.tsx`'s ring-coverage
+  table and a "crew quota stepper" both-axes case, so every new ring size has a pinned
+  regression the same way the pre-existing ones do.
+- Verified: `pnpm lint`, `pnpm type-check`, `npx vitest run` (2318 tests) all green.
+  Docker/supabase unreachable in this session, so `pnpm e2e:layout` could not run here —
+  CI's `layout-suite` is the judge with the known-issue entries removed.
+
+---
+
 ## 2026-09-28 — Fase 17 S4: universal links / App Links for `/auth/*`
 
 Invite / magic-link / e-mail-change mails can now open the native app instead of the

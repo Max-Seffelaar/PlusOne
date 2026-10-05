@@ -9,9 +9,8 @@ import { type JSX, useState, useTransition } from 'react';
 import { t, fmt } from '@/lib/i18n';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
-import { Btn, ExternalLink, Field, Label } from '@/components/po/kit';
+import { Btn, ConsentCheck, Field, Label } from '@/components/po/kit';
 import { CountrySelect, PhoneInput, type CountryCode } from '@/components/po/phone-lazy';
-import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { acceptTermsAction } from '@/features/auth/consent-actions';
 
 export function ConsentScreen({
@@ -124,25 +123,7 @@ export function ConsentScreen({
           </div>
         )}
 
-        <label className="mt-7 flex cursor-pointer items-start gap-[12px] rounded-[16px] border border-line bg-elev p-4">
-          <input
-            type="checkbox"
-            checked={agreed}
-            onChange={(e) => setAgreed(e.target.checked)}
-            className="mt-[3px] h-[20px] w-[20px] shrink-0 accent-acc"
-          />
-          <span className="text-[13.5px] leading-[1.5] text-text">
-            {t.auth.consentPre}
-            <ExternalLink href={TERMS_URL} className="font-semibold text-acc underline">
-              {t.auth.consentTerms}
-            </ExternalLink>
-            {t.auth.consentMid}
-            <ExternalLink href={PRIVACY_URL} className="font-semibold text-acc underline">
-              {t.auth.consentPrivacy}
-            </ExternalLink>
-            {t.auth.consentPost}
-          </span>
-        </label>
+        <ConsentCheck checked={agreed} onChange={setAgreed} copy={t.auth} className="mt-7" />
 
         {error && <div className="mt-3 text-[13.5px] leading-[1.45] text-[#ff9b9b]">{error}</div>}
 

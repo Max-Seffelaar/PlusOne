@@ -37,7 +37,7 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { BackBtn, Btn, Empty, Note, Scroll, press } from '../kit';
+import { BackBtn, Btn, Empty, Note, Scroll, hitRingY2, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 import { HomeHeaderActions } from './home-header-actions';
@@ -116,7 +116,10 @@ function SearchFilter({
               type="button"
               onClick={() => setFilter(k)}
               className={cn(
+                // 40px pill + an invisible 2px ring (kit `hitRingY2`) = a 44px
+                // tap area on touch, without changing the look (T1, touch).
                 'inline-flex min-h-[40px] items-center gap-[7px] whitespace-nowrap rounded-[9px] px-[14px] font-display text-[13.5px] font-bold',
+                hitRingY2,
                 press,
                 on ? 'bg-acc text-on-acc' : 'text-dim'
               )}

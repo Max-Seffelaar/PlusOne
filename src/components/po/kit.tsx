@@ -10,6 +10,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { isNativeShell } from '@/lib/platform';
+import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
@@ -610,8 +611,12 @@ export const hitRingY2 = "relative before:absolute before:-inset-y-[2px] before:
 export const hitRingY4 = "relative before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']";
 export const hitRingY5 = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
 export const hitRingY6 = "relative before:absolute before:-inset-y-[6px] before:inset-x-0 before:content-['']";
+export const hitRingY7 = "relative before:absolute before:-inset-y-[7px] before:inset-x-0 before:content-['']";
+export const hitRingY11 = "relative before:absolute before:-inset-y-[11px] before:inset-x-0 before:content-['']";
 export const hitRingY13 = "relative before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']";
 export const hitRing2 = "relative before:absolute before:-inset-[2px] before:content-['']";
+export const hitRing4 = "relative before:absolute before:-inset-[4px] before:content-['']";
+export const hitRing7 = "relative before:absolute before:-inset-[7px] before:content-['']";
 
 /** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
 export function BackBtn({ onClick }: { onClick?: () => void }): JSX.Element {
@@ -1090,7 +1095,21 @@ export function MiniChip({
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} disabled={disabled} className={cn(cls, 'cursor-pointer', press, 'disabled:pointer-events-none disabled:opacity-[0.45]')}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          cls,
+          'cursor-pointer',
+          press,
+          // 25.8px bordered chip (measured in Chromium) + an invisible 11px ring
+          // (kit `hitRingY11`, 10px past the 1px border) = a 45.8px tap area on
+          // touch, without changing the look (T1, touch).
+          hitRingY11,
+          'disabled:pointer-events-none disabled:opacity-[0.45]',
+        )}
+      >
         {children}
       </button>
     );
@@ -1313,12 +1332,23 @@ export function openExternal(url: string): void {
  * reads as a link (a11y, hover preview, long-press menu); the click itself is
  * taken over so the native shell can route it to the in-app browser.
  */
-export function ExternalLink({ href, className, children }: { href: string; className?: string; children: ReactNode }): JSX.Element {
+export function ExternalLink({
+  href,
+  className,
+  tap,
+  children,
+}: {
+  href: string;
+  className?: string;
+  /** Standalone link (not inside a sentence): give it the 44px touch box, `tapLink44`. */
+  tap?: boolean;
+  children: ReactNode;
+}): JSX.Element {
   return (
     <a
       href={href}
       rel="noopener noreferrer"
-      className={className}
+      className={tap ? cn(tapLink44, className) : className}
       onClick={(e) => {
         // Modified clicks (cmd/ctrl/shift/middle) keep the browser's own behaviour.
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -1328,5 +1358,73 @@ export function ExternalLink({ href, className, children }: { href: string; clas
     >
       {children}
     </a>
+  );
+}
+
+/**
+ * A text link standing on its own: a 44×44 touch box with the text centred in
+ * it (QA-1). A ring can't do this for a link inside a sentence: an inline box
+ * has no padding box to anchor a `::before` against, and growing it would
+ * swallow taps meant for the words on the lines around it. So a link that must
+ * meet the floor leaves the sentence. Fine pointer at desktop width shrinks back
+ * to the text (T1: sub-44 only behind `lg:[@media(pointer:fine)]:`).
+ */
+export const tapLink44 =
+  'inline-flex min-h-[44px] min-w-[44px] items-center justify-center lg:[@media(pointer:fine)]:min-h-0 lg:[@media(pointer:fine)]:min-w-0';
+
+/** The split consent sentence both copy surfaces carry (#40). */
+export interface ConsentCopy {
+  consentPre: string;
+  consentTerms: string;
+  consentMid: string;
+  consentPrivacy: string;
+  consentPost: string;
+}
+
+/**
+ * The legal consent card (#20/#40) — first-login consent and venue creation.
+ * The sentence names the Terms and Privacy Policy; the links to them sit on
+ * their own row below it with a 44px touch box each (QA-1, option b, Max
+ * 2026-10-01). Inline in the sentence they were 17px tall, and the row keeps a
+ * link tap from toggling the checkbox.
+ */
+export function ConsentCheck({
+  checked,
+  onChange,
+  copy,
+  className,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  copy: ConsentCopy;
+  className?: string;
+}): JSX.Element {
+  const link = 'text-[13px] font-semibold text-acc underline';
+  return (
+    <div className={cn('rounded-[16px] border border-line bg-elev', className)}>
+      <label className="flex cursor-pointer items-start gap-[11px] p-4 pb-1.5 lg:[@media(pointer:fine)]:pb-2">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-[2px] h-[19px] w-[19px] shrink-0 accent-acc"
+        />
+        <span className="text-[13px] leading-[1.5] text-text">
+          {copy.consentPre}
+          <b className="font-semibold">{copy.consentTerms}</b>
+          {copy.consentMid}
+          <b className="font-semibold">{copy.consentPrivacy}</b>
+          {copy.consentPost}
+        </span>
+      </label>
+      <div className="flex flex-wrap gap-x-3 pb-1 pl-[46px] pr-4 lg:[@media(pointer:fine)]:pb-4">
+        <ExternalLink tap href={TERMS_URL} className={link}>
+          {copy.consentTerms}
+        </ExternalLink>
+        <ExternalLink tap href={PRIVACY_URL} className={link}>
+          {copy.consentPrivacy}
+        </ExternalLink>
+      </div>
+    </div>
   );
 }

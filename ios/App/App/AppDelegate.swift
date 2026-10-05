@@ -1,5 +1,7 @@
 import UIKit
 import Capacitor
+import FirebaseCore
+import FirebaseMessaging
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -9,7 +11,48 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
         AppDelegate.excludeWebDataFromBackup()
+        AppDelegate.configureFirebaseIfPresent()
         return true
+    }
+
+    /// Push (Fase 17 S1b): FCM on iOS needs a default FirebaseApp, configured from
+    /// `GoogleService-Info.plist` (copied into the bundle by the "Copy
+    /// GoogleService-Info.plist (if present)" build phase). Without the file
+    /// `FirebaseApp.configure()` would abort the app, so a build without it simply
+    /// has no Firebase: `PlusOnePushConfig.isConfigured` answers false and the web
+    /// app never asks for push.
+    static func configureFirebaseIfPresent() {
+        guard FirebaseApp.app() == nil else { return }
+        guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
+            NSLog("PlusOne: GoogleService-Info.plist missing - push disabled in this build")
+            return
+        }
+        FirebaseApp.configure()
+    }
+
+    /// APNs handed us a device token. push-dispatch only speaks FCM (plan decision 1),
+    /// so it goes to Firebase Messaging, and the FCM registration token (not the raw
+    /// APNs token) is what reaches @capacitor/push-notifications' `registration`
+    /// event, as the plugin documents for FCM on iOS.
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        guard FirebaseApp.app() != nil else {
+            NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications,
+                                            object: NSError(domain: "PlusOnePush", code: 1,
+                                                            userInfo: [NSLocalizedDescriptionKey: "Firebase is not configured in this build"]))
+            return
+        }
+        Messaging.messaging().apnsToken = deviceToken
+        Messaging.messaging().token { token, error in
+            if let error = error {
+                NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+            } else if let token = token {
+                NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: token)
+            }
+        }
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
     }
 
     /// Keeps the webview's session cookies and the door's IndexedDB snapshot

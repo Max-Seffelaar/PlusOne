@@ -108,6 +108,14 @@ describe('kit hit rings reach 44 on the controls that use them', () => {
     ['Import tier pill', 'h-[36.8px] border', kitExports.hitRingY5, 44.8],
     ['template / cockpit tier chip, Copy link', 'h-[34.8px] border', kitExports.hitRingY6, 44.8],
     ['inline text button (MFA, links jump)', 'h-[18.8px]', kitExports.hitRingY13, 44.8],
+    ['aanvragen Declined toggle (QA-1)', 'h-[30px]', kitExports.hitRingY7, 44],
+    ['events Upcoming/Past segment (QA-1)', 'h-[38px] border', kitExports.hitRingY4, 44],
+    ['guests/door-checkin tier & scope chip (QA-1)', 'h-[35px] border', kitExports.hitRingY6, 45],
+    ['home Alle/Vandaag/Aankomend segment (QA-1)', 'h-[40px]', kitExports.hitRingY2, 44],
+    // QA-1 CI: MiniChip is 25.8px (not 26) and hit 43.8 with a 10px ring.
+    ['MiniChip (QA-1)', 'h-[25.8px] border', kitExports.hitRingY11, 45.8],
+    ['guests Regulars / show-all scope chips (QA-1)', 'h-[34.8px] border', kitExports.hitRingY6, 44.8],
+    ['home board card Count, desktop text (QA-1)', 'h-[39.8px]', kitExports.hitRing4, 47.8],
   ];
   it.each(cases)('%s', (_name, box, ring, expected) => {
     const hit = hitBox(`w-[100px] ${box} ${ring}`);
@@ -117,6 +125,16 @@ describe('kit hit rings reach 44 on the controls that use them', () => {
 
   it('the Roles stepper ring grows both axes to 44', () => {
     expect(hitBox(`h-[42px] w-[42px] border ${kitExports.hitRing2}`)).toEqual({ w: 44, h: 44 });
+  });
+
+  it('the home board card Count grows both axes: one-digit "Quota" is 40.6px wide at md+ (QA-1)', () => {
+    const hit = hitBox(`h-[39.8px] w-[40.6px] ${kitExports.hitRing4}`);
+    expect(hit?.w).toBeCloseTo(48.6, 5);
+    expect(hit?.h).toBeCloseTo(47.8, 5);
+  });
+
+  it('the crew quota stepper ring grows both axes to 44 (QA-1)', () => {
+    expect(hitBox(`h-[32px] w-[32px] border ${kitExports.hitRing7}`)).toEqual({ w: 44, h: 44 });
   });
 
   it('Btn sm carries the ring; the full-size Btn needs none', () => {
@@ -171,6 +189,37 @@ describe('kit header chips are at least 44x44', () => {
     const cls = screen.getByRole('button', { name: 'Zoeken' }).className;
     expect(visible(cls, 'w')).toBe(40);
     expect(visible(cls, 'h')).toBe(40);
+  });
+});
+
+describe('consent Terms/Privacy links reach 44 on touch (QA-1, option b)', () => {
+  // A min-size token counts as the touch box only when it is unprefixed.
+  const minPx = (cls: string, axis: 'h' | 'w'): number | null => {
+    const m = token(String.raw`min-${axis}-\[(\d+(?:\.\d+)?)px\]`).exec(cls);
+    return m ? Number(m[1]) : null;
+  };
+
+  it('tapLink44 is a 44x44 box on touch and only shrinks behind a fine pointer', () => {
+    expect(minPx(kitExports.tapLink44, 'h')).toBe(MIN);
+    expect(minPx(kitExports.tapLink44, 'w')).toBe(MIN);
+    expect(kitExports.tapLink44).toMatch(/(?:^|\s)inline-flex(?:\s|$)/);
+    for (const c of kitExports.tapLink44.split(/\s+/).filter((x) => x.includes(':'))) {
+      expect(c.startsWith('lg:[@media(pointer:fine)]:'), c).toBe(true);
+    }
+  });
+
+  it('ConsentCheck renders both links with the 44px box, outside the checkbox label', () => {
+    render(
+      <kitExports.ConsentCheck checked={false} onChange={() => {}} copy={t.onboarding.venueCreate} />,
+    );
+    for (const name of [t.onboarding.venueCreate.consentTerms, t.onboarding.venueCreate.consentPrivacy]) {
+      const a = screen.getByRole('link', { name });
+      expect(minPx(a.className, 'h')).toBe(MIN);
+      expect(minPx(a.className, 'w')).toBe(MIN);
+      // A link inside the <label> would also toggle the checkbox on a near miss.
+      expect(a.closest('label')).toBeNull();
+    }
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
   });
 });
 
