@@ -8,7 +8,8 @@ English-language legal drafts for the paid product, grounded in the actual dataf
 | `subprocessors.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, guest mail, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
 | `data-processing-agreement.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
 | `terms-of-service.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
-| `guest-terms.md` | **v0.3** (2026-10-05) — the text lands with A2 (`z8uq9m2hm2`); the file still reads v0.2 until then | Short consumer terms for guests and requesters on the public request/status pages; Dutch version `guest-terms.nl.md` comes with A2 | `https://plus-one.io/legal#guest-terms` + Drive |
+| `guest-terms.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
+| `guest-terms.nl.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Dutch version of the Guest Terms, same numbering; the Dutch version prevails (D9, lawyer confirms wording) | `https://plus-one.io/legal#guest-terms` (Dutch tab) + Drive |
 
 Publication (Legal v0.3 golf D, `z8uq9m2hm7`) happens after the lawyer's OK and turns every document into "Version 1.0, [publication date]"; until then the repo holds drafts v0.3.
 
