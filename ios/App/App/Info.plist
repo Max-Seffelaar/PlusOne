@@ -22,6 +22,16 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- Export compliance (S1b): the app only uses the OS's own HTTPS/TLS, which is
+	     exempt, so TestFlight/App Store never ask the encryption question per build. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Consent-first push: with GoogleService-Info.plist bundled, Firebase Messaging
+	     would otherwise create an installation ID + FCM token on every cold start,
+	     before the user opted in. AppDelegate requests the token explicitly once the
+	     APNs registration (= opt-in) succeeds, which works with auto-init off. -->
+	<key>FirebaseMessagingAutoInitEnabled</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
