@@ -43,6 +43,11 @@ S1b build: Apple Developer → Certificates, Identifiers & Profiles → Identifi
 then fetches/creates a profile that includes it. Re-generate an existing profile after
 ticking the box.
 
+The full step-by-step (tick **Associated Domains** and **Push Notifications** together,
+then create the App Store profile and fetch it into Codemagic) is
+`docs/native/ios-release.md` steps 1 and 4. The release workflow checks the signed IPA:
+its *Verify the IPA* step fails unless the entitlement reads `applinks:app.plus-one.io`.
+
 Apple fetches the AASA through its CDN, not from the device: after a deploy, check
 `https://app-site-association.cdn-apple.com/a/v1/app.plus-one.io` (may lag up to ~24h).
 
