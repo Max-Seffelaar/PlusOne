@@ -22,6 +22,7 @@ incl. Guest Terms row, questions 3/4/6/7/8 ticked, follow-ups mapped to B1/B2/B3
 checklist items. One line at N5 in `capacitor-plan-claude-code.md` (D12); dated note in
 `docs/mail-deliverability.md` (sender domain). Reviewer wording for ToS 7.8/16.2 was not in the
 repo: written from plan decisions 12 and 14. `guest-terms.md` untouched (A2).
+
 ## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`
@@ -963,6 +964,7 @@ the outbox (`src/features/door`) and the cockpit are unchanged.
   (no Supabase/Docker) — CI.
 
 ---
+
 ## 2026-09-25 — Fase 17 S2: Icons, splash, store listing drafts (86ey6bft8)
 
 Golf 3 of Fase 17, depends on N3 (merged). Draft PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)`. No migration.
@@ -1494,6 +1496,7 @@ Because Next merges `viewport` per key, `cover` also reaches `/e`, `/r`, `/i`.
 Those pages don't pad for safe areas; the impact is landscape iPhone only.
 
 ---
+
 ## 2026-09-24 — Legal v0.2: privacy policy + subprocessor list rewritten against `main` (z8uq9m0w3t)
 
 Branch `claude/z8uq9m0w3t-privacy-policy-v02`. Docs-only, Fase 17 wave 1 (L1 is a hard
@@ -2386,6 +2389,7 @@ magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destina
 stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
 https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
 ---
+
 ## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
 
 Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
@@ -3072,6 +3076,7 @@ The control that actually stopped #291 was blocking CI plus branch protection.
 
 **Not done here:** #291/#292 were left untouched — they share `package.json` and
 `pnpm-lock.yaml` with this branch and want a rebase after it lands.
+
 ## 2026-09-18 — `main` back to green: the core-flow e2e race the ADE round exposed (z8uq9m0g0j)
 
 Branch `fix/z8uq9m0g0j-core-flow-e2e`. Milestone: **Now** — `main` was red, which blocks
@@ -3440,6 +3445,7 @@ E2/E4/E5 fail `have: false, want: true` while E1/E3/E6–E9 stay green.
 merge; the schema deploy happens centrally once the app deploy is unblocked.
 
 ---
+
 ## 2026-09-17 — ADE UX round planned: 15 items from Joeri's feedback, verified in code, plus a docker-free screenshot harness
 
 Branch `claude/wonderful-hopper-ji35cw` (plan-only PR, no app code). Source: Fathom call
@@ -3644,6 +3650,7 @@ reader hits the explanation exactly where they'd look, without a schema change f
 **Verification:** `pnpm lint` clean (pre-existing warnings only, unrelated file), `pnpm
 type-check` clean, `pnpm vitest run` — 115 files / 1188 tests green. No RLS/pgTAP change, so no
 `supabase db reset` was needed for this PR.
+
 ## 2026-08-19 — PR #276 visual-QA response: phone accepted a non-number, approve screen hid the e-mail (86eyke279)
 
 Branch `feat/86eyke279-landing-contact-required`, same PR/task as the two entries below —
@@ -3914,6 +3921,7 @@ in de policy, óf de directe insert-grant voor `authenticated` helemaal weg.
 verse sessie (SECURITY DEFINER op een publiek anoniem schrijfpad = high-risk). Niet zelf
 gemerged. Typegeneratie (`src/lib/database.types.ts`) is **niet** nodig: de signatuur van de
 RPC is ongewijzigd, alleen de body.
+
 ## 2026-08-19 — Stripe webhook: a malformed `client_reference_id` no longer retries forever (86ey9e9re)
 
 Branch `fix/86ey9e9re-stripe-webhook-uuid-guard`. Milestone: Now (a stuck webhook queue hides
@@ -4259,6 +4267,7 @@ and this round adds no migration and touches no RLS/auth/`service_role`/PII surf
 **Not changed, deliberately:** `src/components/po/app.tsx` (two sister branches are editing it),
 the wake-lock decision (still not built, reasoning above), and the stated resume-only limit — a
 continuously-visible wall display still produces no hidden→visible edge and is still not covered.
+
 ## 2026-08-19 (later) — Code-review round on the `onblocked` fix: the wipe guard now covers the open path too (86ey9e9wc)
 
 Branch `fix/86ey9e9wc-idb-open-onblocked`, PR #283. A fresh-session `/code-review` left four
@@ -4384,6 +4393,7 @@ time, confirming a true hang rather than a slow settle. The fourth (a busy tab t
 inside the grace period still gets its connection, no false alarm) passes both ways by design.
 
 **Review posture:** door surface = high-risk, so this does not self-merge.
+
 ## 2026-08-19 — Lazy-Sentry import guard: the rule now matches its own documented contract
 
 Branch `fix/sentry-lazy-import-guard-regex`. Milestone: Now (a CI guard that is wrong about what
@@ -4838,6 +4848,7 @@ this was found).
 Related: `86eykdzf1` closed as investigated-but-unprovable — Vercel retains 7 days and
 Sentry held nothing, so the five-week question can no longer be answered from telemetry.
 A live probe did confirm `/e/[slug]` is healthy now.
+
 ## 2026-08-19 — Stats dead-code follow-up: EventPicker/StatCard removed (86eykhqty)
 
 Branch `chore/86eykhqty-stats-dead-code`. Milestone: Now (codebase hygiene, no behavior
@@ -4870,6 +4881,7 @@ untouched to avoid scope creep.
   test files / 1188 tests passed (note: `pnpm test` is watch-mode `vitest`, not `vitest run`
   — ran the latter directly to get a terminating result). `pnpm build` — compiles and
   generates all 15 static/dynamic routes cleanly.
+
 ## 2026-08-19 — `contactEventCounts` no longer 414s at 210+ contacts: wrong Kong URI-length comment fixed (86eykknf8)
 
 Branch `fix/86eykknf8-chunkids-uri-limit`. Flagged during a fresh-session `/code-review`
@@ -4930,6 +4942,7 @@ this task's scope was `contactEventCounts` specifically — flagging for a separ
 task rather than fixing here.
 
 Not touched: `src/components/po/app.tsx` (other sessions working on it), no migrations.
+
 ## 2026-08-19 — Door: the implicit single-event choice is pinned, so a second live event no longer unmounts the door mid-shift (86eykm7qp)
 
 Branch `fix/86eykm7qp-door-candidate-pin`. Milestone: Now. No migration, no schema change,
@@ -5116,6 +5129,7 @@ unrelated `datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run`
 (no Docker → no local Supabase stack, and Playwright needs a dev server). Door offline
 invariant #25 is untouched — the release, like the pin, goes through `replaceDoorState` on raw
 history, never `router.replace`.
+
 ## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
 
 Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
@@ -5289,6 +5303,7 @@ ok 7 - no membership row at the crew venue: selecting it grants no roles
 
 The last one is the security half: writing the cookie for a crew venue grants no roles, so no
 role-gated action opens up and RLS still decides every read.
+
 ## 2026-08-19 — pgTAP: a plan/run mismatch is now a red build (86eykjgrb)
 
 Branch `fix/86eykjgrb-pgtap-plan-mismatch`. Two test files had been printing
@@ -5761,6 +5776,7 @@ the PostgREST layer (unknown column → every door insert rejected) rather than 
 fix is `supabase migration repair --status reverted <version> --local` followed by `migration up`.
 Both occurrences coincided with another session resetting the shared local stack — the concrete cost
 of the one-DB-owner rule being broken mid-test.
+
 ## 2026-08-12 — Landing rate-limit hardening: throttle cleanup + Turnstile (86ey2czr6)
 
 Branch `claude/clickup-task-fix-6dec47`. Rate-limit hardening sweep, milestone: before the
@@ -9615,6 +9631,7 @@ traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
   the plan's `plusone-guestlist`); the `next.config.js` fallback was corrected to
   match. Env from the Vercel integration wins on prod either way; the fallback
   only matters tokenless.
+
 ## 2026-07-09 — Prod-ready 9/7 task 05: Supabase Pro + restore drill + runbook
 
 Backups moved from "hope" to "tested plan" (ClickUp `86ey7q72b`). Max upgraded the
