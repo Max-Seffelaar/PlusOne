@@ -8,6 +8,21 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Legal v0.3 A1: docs text v0.3 (z8uq9m2hm1)
+
+Branch `claude/z8uq9m2hm1-legal-v03-docs`, milestone Now. Text only; no code, no migration.
+`docs/legal/` DPA, ToS, privacy policy, subprocessor list and README → v0.3 (2026-10-05) per
+`legal-v03-plan-claude-code.md` §3 A1: audit role split (processor for guest data, controller for
+accounts/platform), Platform Administrator access logging, Anthropic as subprocessor (entity,
+safeguard, certifications still `[verify]`), Attio/Slack moved to B, Cloudflare Turnstile and
+Resend/SES in DPA Annex 2, self-service export and 7-day backups, audit-record retention, entity
+(The Operators, eenmanszaak, KvK 99992841), court, cap floor EUR 5,000, PlusOne termination for
+convenience, partner/pilot terms, push text never shows the event name. README: version table
+incl. Guest Terms row, questions 3/4/6/7/8 ticked, follow-ups mapped to B1/B2/B3/E1, new Max
+checklist items. One line at N5 in `capacitor-plan-claude-code.md` (D12); dated note in
+`docs/mail-deliverability.md` (sender domain). Reviewer wording for ToS 7.8/16.2 was not in the
+repo: written from plan decisions 12 and 14. `guest-terms.md` untouched (A2).
+
 ## 2026-10-05 — Home event card: layout keys on card width, not viewport (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-home-event-card-tablet`, milestone Now (blocks the Play store
@@ -47,6 +62,32 @@ same latent fault: a merge upsert is `ON CONFLICT DO UPDATE`, which needs UPDATE
 writes are now insert-only (`ignoreDuplicates`). A re-run keeps the first run's check-in
 times. No migration, grant or RLS change. Not run here (no docker/supabase CLI): the seed
 end to end; reasoned against the migrations, plus lint/type-check/unit suite.
+
+## 2026-10-05 — iOS push on via FCM + no Firebase token before opt-in on Android (86exxuvye)
+
+Branch `claude/86exxuvye-ios-push-autoinit`, milestone Now. **Needs fresh native builds:
+iOS and Android.**
+- **Web (`capacitor-provider.ts`):** `isSupported()` is true on both native shells; on iOS
+  `ready()` additionally requires `isConfigured` → `tokenTransport: 'fcm'` (new in the iOS
+  `PushConfigPlugin`), so a pre-86exxuvye iOS build stays `unsupported` and never stores a
+  raw APNs token push-dispatch can't use. Belt and braces: an iOS token shaped like an APNs
+  token (64 hex) is dropped. `unregister()` on iOS also calls the new
+  `PlusOnePushConfig.invalidateToken` (auto-init off + `deleteToken`, capped at 3 s) — the
+  iOS push plugin's own `unregister()` only drops APNs; Android's plugin already deletes
+  the token. Sign-out (`invalidatePushTransportForSignOut`) and Profile "off" therefore
+  kill the FCM token on both platforms.
+- **iOS native:** `AppDelegate` sets `isAutoInitEnabled = true` only in
+  `didRegisterForRemoteNotificationsWithDeviceToken` (reached only via the web opt-in),
+  and a `MessagingDelegate` (`FcmTokenForwarder`) forwards rotated FCM tokens as the
+  plugin's `registration` event → push-client's persistent `onRegistration` →
+  `savePushToken` (gated on push 'on' here).
+- **Android native:** manifest `firebase_messaging_auto_init_enabled=false`; the plugin's
+  `register()` already calls `setAutoInitEnabled(true)` (Firebase docs: persists across
+  restarts). No analytics flag — Firebase Analytics isn't on the classpath. Rotation was
+  already handled (plugin `onNewToken` → `registration`).
+- Tests: `capacitor-provider.test.ts` — iOS gates (no FCM flag / no plist / web →
+  unsupported), nothing before opt-in, rotation, APNs-token rejection, invalidate on
+  unregister (+ failure / hang bounds), Android never calls invalidate.
 
 ## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
 
