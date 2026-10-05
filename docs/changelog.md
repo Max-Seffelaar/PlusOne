@@ -8,6 +8,29 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Legal v0.3 E1: self-service venue data export + marketing opt-in visible (z8uq9m2hm6)
+
+Branch `claude/z8uq9m2hm6-venue-export`, milestone Now (DPA 11.3, ToS 9.5/16.5), high-risk
+(SECURITY DEFINER RPC + grants). Migration `20261006140000_export_audit.sql`:
+`log_venue_export(venue, event, guests, contacts, requests, door)` writes one `audit_log`
+row (`export`, entity `venues`, diff `{scope, rows}`) — **SECURITY DEFINER, not INVOKER as the
+plan said**: `authenticated` has no INSERT on `audit_log` and must not get one (forged rows);
+actor = `auth.uid()`, admin only (`has_venue_role`), event must belong to the venue, counts
+0..50 000. Plus `contact_marketing_opt_ins(venue)` (INVOKER): a contact is opted in when the
+LATEST request with the same normalised e-mail/phone has `marketing_opt_in` — shared by the
+export and the contacts screen. pgTAP `export_audit.test.sql` (26). Server action
+`exportVenueData` (`src/features/export/`): Zod, `getUser()`, user-scoped client, four CSVs
+(RFC 4180, BOM, formula guard `= + - @ TAB CR` → `'`) in one ZIP (own writer, `node:zlib`,
+no dependency), paged 1 000 on `venue_id`, >50 000 rows in a table → "export per event";
+audit is fail-closed (no row, no file). UI: Venue settings → "Export data" card
+(`settings/export.tsx`, admin only, native shell → "export from the web app"), per-event
+row on the event screen and the formerly dead "Export" button on the past-event recap;
+"Keep me posted ✓" badge (kit `KeepMePostedBadge`) on request cards, contacts list and
+contact detail, plus an "Opted in to venue updates" filter. Audit feed names the export.
+Not run here (no Supabase stack in the container): `pnpm db:test`, `db reset`, e2e/layout
+suites — CI is the proof. Not done: the plan's e2e smoke (admin downloads, file has the seed
+guest) — Vitest covers the content against a fake client instead.
+
 ## 2026-10-05 — Legal v0.3 B3: platform_access_log + prod-data rule (z8uq9m2hm5)
 
 Branch `claude/z8uq9m2hm5-platform-access-log`, milestone Now, high-risk (grant matrix).

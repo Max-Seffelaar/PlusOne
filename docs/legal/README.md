@@ -87,7 +87,7 @@ These documents state facts about the system. If any of the following change, up
 - e-mail: Resend as Supabase custom SMTP; any new outbound mail (guest confirmations `86ey6bn05`) → policy §7 + subprocessors C→B
 - push: `push_tokens` schema and retention (`capacitor-plan-claude-code.md` §3, built in PR #336: 90-day TTL, revoke-on-logout, `device_label` ≤120 chars), outbox payload = ids + kind only
 - analytics: still none in code; GA (site) / PostHog (app) are consent-gated plans
-- export (E1): the self-service export function, its roles (admin only), files and the `export` audit action — DPA 11.3, ToS 9.5/16.5, Privacy §10
+- export (E1): `exportVenueData` (`src/features/export/`) — venue `admin` only (not finance/staff/doorhost), whole venue or one event, one ZIP with `guests.csv` / `contacts.csv` / `requests.csv` / `door.csv` (door incl. `device_id`; anonymised rows as they are), ≤50 000 rows per table (else "export per event"), never billing-gated, web only (native shell points to the web app); every download writes one `export` row to `audit_log` via `log_venue_export`, visible to the venue's admin/finance in Audit; `marketing_opt_in` on contacts = latest matching request decides (`contact_marketing_opt_ins`) — DPA 11.3, ToS 6.2/9.5/16.5, Privacy §10, Guest Terms §4 / Privacy §4.2 (opt-in visible to the venue)
 - `platform_access_log` (B3): what is logged and who can read it — DPA 4.4, ToS 10.3, Privacy §8
 - `GUEST_TERMS_URL` in `src/lib/legal.ts` (B2/D) and the Guest Terms acceptance line on `/e/[slug]`
 - Attio and Slack are manual today (subprocessors B); the moment either gets code (a sync, a webhook), re-check the row and the Privacy §8 summary in the same PR. PostHog and FCM/APNs stay in C until their code lands
