@@ -1,12 +1,13 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260919090000_partial_approval_decision_message.sql:470.
+-- Newest source: supabase/migrations/20261006120000_retention_requests_complete.sql:218.
 
 create or replace function public.run_privacy_retention()
 returns table (
-  guests_anonymized   integer,
-  requests_anonymized integer,
-  refusals_redacted   integer,
-  audit_rows_redacted integer
+  guests_anonymized           integer,
+  requests_anonymized         integer,
+  refusals_redacted           integer,
+  audit_rows_redacted         integer,
+  platform_invites_anonymized integer
 )
 language plpgsql
 security definer
@@ -20,6 +21,7 @@ declare
   v_requests integer := 0;
   v_refusals integer := 0;
   v_audit    integer := 0;
+  v_invites  integer := 0;
 begin
   -- 1. Anonymize eligible guests (event-anchored). Stats stay invariant.
   with old_events as (
@@ -50,6 +52,10 @@ begin
   v_guests := coalesce(array_length(v_guest_ids, 1), 0);
 
   -- 2. Anonymize eligible landing requests + REVOKE their status tokens (F1).
+  --    z8uq9m2hm3: dedupe_key (the e-mail or phone digits) and birthdate are
+  --    PII too. With dedupe_key null an anonymized request no longer occupies
+  --    the partial unique dedup index, so later submissions are not deduped
+  --    against it — the leak 2b's comment describes is closed at the source.
   with old_events as (
     select e.id as event_id
     from public.events e
@@ -71,6 +77,8 @@ begin
         decision_reason = null,
         decision_message = null,
         status_token_hash = null,
+        dedupe_key = null,
+        birthdate = null,
         anonymized_at = now()
     from ranked rk
     where gr.id = rk.id
@@ -88,12 +96,14 @@ begin
   --
   --     Scoping this to `any(v_request_ids)` — what 20260918140000 shipped —
   --     left a hole the fresh-session security review of PR #300 reproduced:
-  --     step 2 clears neither `status` nor `dedupe_key`, so an anonymized
-  --     request stays `pending` with its fingerprint and keeps catching later
+  --     step 2 cleared neither `status` nor `dedupe_key`, so an anonymized
+  --     request stayed `pending` with its fingerprint and kept catching later
   --     submissions on the dedup branch. Those wrote a mirror carrying the new
   --     caller's real name against a request already anonymized — which this
   --     step, looking only at ids from its own run, never saw again. Retention
   --     run #2 reported `0 0 0 0` and the name survived indefinitely.
+  --     (Since z8uq9m2hm3 step 2 nulls dedupe_key, so that path is closed at
+  --     the source; this sweep stays as the self-healing backstop.)
   --
   --     Driving the delete off `anonymized_at` instead of the run's id list
   --     makes the sweep self-healing: it cleans orphans written before this
@@ -106,11 +116,16 @@ begin
   -- 2c. z8uq9m0hw6 — the free-text decision fields go on EVERY anonymized
   --     request, not only this run's: earlier runs, and a deny written after
   --     anonymization, are otherwise never reached again (same lesson as 2b).
+  --     z8uq9m2hm3 — dedupe_key and birthdate likewise, which backfills every
+  --     request anonymized before step 2 nulled them.
   update public.guest_requests gr
   set decision_message = null,
-      decision_reason = null
+      decision_reason = null,
+      dedupe_key = null,
+      birthdate = null
   where gr.anonymized_at is not null
-    and (gr.decision_message is not null or gr.decision_reason is not null);
+    and (gr.decision_message is not null or gr.decision_reason is not null
+         or gr.dedupe_key is not null or gr.birthdate is not null);
 
   -- 3. Redact refusal reasons of the just-anonymized guests.
   update public.refusals
@@ -137,7 +152,7 @@ begin
       'before', null,
       'after', jsonb_build_object(
         'anonymized_at', to_jsonb(gr.anonymized_at),
-        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","decision_message","status_token_hash"]'::jsonb)),
+        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","decision_message","status_token_hash","dedupe_key","birthdate"]'::jsonb)),
     null
   from public.guest_requests gr
   join public.events e on e.id = gr.event_id
@@ -184,6 +199,24 @@ begin
   --    into the audit total so the summary reflects all redacted rows.
   v_audit := v_audit + public.redact_anonymized_contact_audit_pii(v_contact_ids);
 
-  return query select v_guests, v_requests, v_refusals, v_audit;
+  -- 8. z8uq9m2hm3 — platform invites (prospect PII, no venue): 24 months after
+  --    the last activity on the row. platform_invites has no updated_at;
+  --    last_sent_at is the last contact, revoked_at the last operator action
+  --    (greatest() skips the null of an open invite). The anonymize UPDATE
+  --    fires audit_platform_invites like any other write — that diff is the
+  --    record of the anonymization, and 8b scrubs the address out of it.
+  update public.platform_invites pi
+  set email = null,
+      note = null,
+      anonymized_at = now()
+  where pi.anonymized_at is null
+    and greatest(pi.created_at, pi.last_sent_at, pi.revoked_at)
+        < now() - interval '24 months';
+  get diagnostics v_invites = row_count;
+
+  -- 8b. Scrub email/note out of every anonymized invite's audit diffs.
+  v_audit := v_audit + public.redact_anonymized_platform_invite_audit_pii();
+
+  return query select v_guests, v_requests, v_refusals, v_audit, v_invites;
 end;
 $$;
