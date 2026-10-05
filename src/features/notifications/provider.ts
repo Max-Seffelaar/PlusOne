@@ -4,7 +4,8 @@
 //
 // Two providers (Fase 17 N5, 86ey6bfkb; plan §2 decisions 1–2):
 //  - `CapacitorPushProvider` inside the native shell (FCM via
-//    @capacitor/push-notifications). Android in v1; iOS joins in S1b.
+//    @capacitor/push-notifications). Android, and iOS through Firebase Messaging
+//    in the AppDelegate (S1b, 86exxuvye).
 //  - `NoopNotificationProvider` everywhere else. There is deliberately NO web-push
 //    adapter in v1 — `'web-push'` stays in the transport enum for later.
 //

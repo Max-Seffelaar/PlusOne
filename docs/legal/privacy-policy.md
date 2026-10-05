@@ -1,9 +1,9 @@
 # PlusOne — Privacy Policy
 
-> **DRAFT v0.2 — 24 September 2026 — NOT LEGALLY REVIEWED.**
-> Rewritten from v0.1 (9 July 2026) against the code on `main` and the native-app plans (Fase 17). A Dutch lawyer must review this text before it is published at `https://plus-one.io/legal#privacy`. Bracketed placeholders `[like this]` must be completed first; the open list is in `docs/legal/README.md`.
+> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
+> v0.2 (24 September 2026) amended for Legal v0.3: split of the audit role, access logging, Anthropic, retention of audit records and prospects, push text, entity details. A Dutch lawyer must review this text before it is published at `https://plus-one.io/legal#privacy`. Bracketed placeholders `[like this]` must be completed first; the open list is in `docs/legal/README.md`.
 
-**Last updated:** [date of publication] · **Version:** [1.0]
+**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
 
 ---
 
@@ -11,10 +11,10 @@
 
 PlusOne is a guest list platform for venues, clubs and event organizers. It is operated by:
 
-- **Legal entity:** [PlusOne V.O.F. / PlusOne B.V.] ("**PlusOne**", "**we**", "**us**")
-- **Chamber of Commerce (KvK):** [KvK number]
-- **Registered address:** [street, postal code, city], the Netherlands
-- **Privacy contact:** [privacy@plus-one.io]
+- **Legal entity:** The Operators, a sole proprietorship (eenmanszaak), owner Max Merlijn Seffelaar ("**PlusOne**", "**we**", "**us**")
+- **Chamber of Commerce (KvK):** 99992841
+- **Registered address:** Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands
+- **Privacy contact:** privacy@plus-one.io
 
 This policy applies to:
 
@@ -107,7 +107,8 @@ To keep these public pages free of abuse, submissions are **rate-limited** using
 | Purpose | Data | Role | Legal basis |
 |---|---|---|---|
 | Providing access to the platform: accounts, login codes, roles, sessions | Account holder data (section 3) | Controller | Contract with the venue (Art. 6(1)(b)); our legitimate interest in securing accounts (Art. 6(1)(f)) |
-| Fraud resistance and accountability: the audit trail, device identifiers, session records | Account holder and guest data | Controller (own audit design) / processor (guest content) | Legitimate interest of PlusOne and of venues in a guest list that cannot be tampered with unnoticed (Art. 6(1)(f)); contract |
+| Fraud resistance and accountability for guest data: the audit trail of changes to guest lists, requests, door records and quotas | Guest, requester and door data (section 4) | Processor | Determined by the venue as controller (its legitimate interest in a guest list that cannot be tampered with unnoticed) |
+| Platform integrity: the audit trail of accounts, memberships, invitations and promoters, device identifiers, session records | Account holder data (section 3) | Controller | Legitimate interest of PlusOne and of venues in a platform that cannot be tampered with unnoticed (Art. 6(1)(f)); contract |
 | Subscription and billing | Venue company details, billing contact, VAT number, subscription status, payment references | Controller | Contract (Art. 6(1)(b)); tax law (Art. 6(1)(c)) |
 | Customer relationship, onboarding and sales | Business contact details of venues and prospects; aggregated platform usage per venue | Controller | Legitimate interest in running and growing our business (Art. 6(1)(f)) |
 | Support and correspondence | Your messages and contact details | Controller | Legitimate interest (Art. 6(1)(f)); contract |
@@ -122,7 +123,7 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 
 - **Transactional messages only.** We e-mail account holders for login codes, invitations and essential service messages (for example a security notice or a change to these terms). We do not send account holders marketing without a separate, explicit opt-in that you can withdraw at any time.
 - **Guests are never contacted by PlusOne.** The venue may contact you about your request or, if you opted in, about its upcoming nights. [Under consideration, not scheduled: an optional confirmation e-mail to a requester about the venue's decision, sent on the venue's behalf. The current product sends guests no messages at all; this policy and the Subprocessor List will be updated before that changes.]
-- **Venue owners and prospects** may hear from us about the product and our commercial relationship; you can opt out at any time by replying or by e-mailing [privacy@plus-one.io].
+- **Venue owners and prospects** may hear from us about the product and our commercial relationship; you can opt out at any time by replying or by e-mailing privacy@plus-one.io.
 
 ## 8. Who receives personal data
 
@@ -134,12 +135,13 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 - bot protection on public pages (Cloudflare Turnstile);
 - error monitoring with scrubbed reports (Sentry, EU/Germany);
 - subscription billing (Stripe: SEPA Direct Debit and iDEAL; we never see or store your bank account number or card);
-- business e-mail and documents (Google Workspace);
-- and, once live, push notification delivery for the native app (Firebase Cloud Messaging / Apple Push Notification service) and our CRM (Attio).
+- business e-mail and documents (Google Workspace), and our CRM and team messaging, which our team uses by hand with no automated link to the platform (Attio, Slack);
+- engineering and support tooling (Anthropic), with incidental access to production data during support requests and incident response;
+- and, once live, push notification delivery for the native app (Firebase Cloud Messaging / Apple Push Notification service).
 
 **Your venue.** For guest data, the venue's team sees what its roles allow: admins and finance the full picture, staff their own guests within their quota, door hosts the door view of one event.
 
-**Our own team.** A small number of PlusOne operators (platform administrators) can access every venue's data to provide support and resolve incidents. Any change they make is written to the audit trail under their own name, exactly as for any other user.
+**Our own team.** A small number of PlusOne operators (platform administrators) can access every venue's data to provide support and resolve incidents. Any change they make is written to the audit trail under their own name, exactly as for any other user, and access to a venue by platform administrators through the app is logged and shared with the venue on request.
 
 **Authorities.** We disclose personal data to police, courts or supervisory authorities when we are legally required to, and we inform the venue where the data concerns its guests and the law allows it.
 
@@ -159,25 +161,27 @@ Some providers are established, or have parent companies, in the United States o
 
 | Data | Retention |
 |---|---|
-| Account (name, e-mail, phone, roles, consent record) | For as long as the account exists. We delete or anonymize an account on request once it is no longer needed for a venue you work with, or after [24 months] of inactivity |
+| Account (name, e-mail, phone, roles, consent record) | For as long as the account exists. We delete or anonymize an account on request once it is no longer needed for a venue you work with |
 | Login codes | 10 minutes |
 | Sessions | Until you sign out, the session is ended by an admin, or it expires after 30 days without use |
 | Push tokens (native app) | Deleted when you sign out, disable notifications, or the token is unused for 90 days |
-| Audit trail | Kept for as long as the venue exists, for fraud resistance and accountability; personal data inside entries is redacted according to the rules below when the underlying record is anonymized |
-| Error reports | [90 days] in Sentry, then deleted automatically |
+| Audit trail of guests, contacts and requests | Kept for as long as the venue exists, for fraud resistance and accountability; personal data inside entries is redacted according to the rules below when the underlying record is anonymized |
+| Audit trail of accounts, memberships, invitations and promoters | For the life of the venue; deleted with the venue |
+| Error reports | 30 days in Sentry, then deleted automatically |
 | Rate-limit records (salted IP hashes) | At most 2 hours |
 | Billing and invoices | 7 years (Dutch fiscal retention obligation, Art. 52 AWR) |
 | Customer and prospect records (CRM, invitations) | For the duration of the (prospective) customer relationship, and [24 months] after the last contact |
+| Platform invitations to prospects (e-mail address, note) | 24 months after the last contact, then erased |
 | Support correspondence | [2 years] after the last message |
 
 **Guest data we process as processor**
 
-- **The venue sets the retention period** for its guest data: between 1 and 60 months, counted from the **end of the event** (12 months in the standard setup, 24 months in the guided onboarding).
+- **The venue sets the retention period** for its guest data: the period chosen by the venue, at most 60 months after the end of the event (12 months in the standard setup, 24 months in the guided onboarding).
 - Every night an automated job **irreversibly anonymizes** records past that period: the name is replaced by a neutral label (for example "Gast #12"), and e-mail addresses, phone numbers, notes, messages, decision texts and refusal reasons are erased. The status link of a request stops working at the same moment. Address book entries are anonymized once they are no longer linked to a retained event and have not been used for the retention period.
 - The same job **rewrites the audit trail**: personal data inside historical before/after values is replaced, while the structure (who acted, when, what kind of change) is kept so the venue's accountability record stays intact.
 - Aggregate statistics (attendance, +1 totals, tier occupancy, promoter funnels) survive anonymization; they no longer relate to an identifiable person.
-- **Erasure on request.** A venue admin can erase a specific person **immediately**, without waiting for the retention period: one action anonymizes the address book entry, every guest list entry linked to it across the venue's events, the related refusals, and the personal data in the related audit history. Guests should address such requests to the venue; we assist as processor.
-- **End of contract.** When a venue stops using PlusOne it can export its guest data within [30 days]; after that we delete or anonymize it, unless the law requires longer storage.
+- **Erasure on request.** A venue admin can erase a specific person **immediately**, without waiting for the retention period: one action anonymizes the address book entry, every guest list entry and guest request linked to it across the venue's events, the related refusals, and the personal data in the related audit history. Guests should address such requests to the venue; we assist as processor.
+- **End of contract.** When a venue stops using PlusOne it can export its guest data itself during the term and, on request, within [30 days] after the contract ends; after that we delete or anonymize it, unless the law requires longer storage.
 
 ## 11. Security and data breaches
 
@@ -187,7 +191,7 @@ Some providers are established, or have parent companies, in the United States o
 
 **11.3 Access on a need-to-know basis.** Within a venue, access follows roles. Within PlusOne, only named platform administrators can access customer data, for support and incident response, and their changes are audited under their own name. Error reports sent to our monitoring provider are scrubbed before they leave the platform: no request contents, cookies, headers, query strings, e-mail addresses or phone numbers; a user appears only as a random internal ID. Session replay is off.
 
-**11.4 Storage.** Production data lives in the EU (section 9), with automated backups managed by our database provider. Door devices keep a temporary local copy of one event's list so the door keeps working when the connection drops; section 12 explains what that copy contains and when it is wiped.
+**11.4 Storage.** Production data lives in the EU (section 9), with automated backups managed by our database provider and retained for 7 days (they are not separately anonymized; anonymization propagates when a backup expires). Door devices keep a temporary local copy of one event's list so the door keeps working when the connection drops; section 12 explains what that copy contains and when it is wiped.
 
 **11.5 Data breaches.** If we discover a breach of security that affects personal data, we contain it, investigate it and record it. As processor we notify the affected venues **without undue delay and at the latest within [48 hours]** of becoming aware, with what we know at that point, so they can meet their own obligations. As controller we notify the Dutch supervisory authority within 72 hours where the GDPR requires it, and the people affected where the breach is likely to result in a high risk to them.
 
@@ -197,7 +201,7 @@ Some providers are established, or have parent companies, in the United States o
 
 **The PlusOne app for iOS and Android** is the same application in a native shell and processes the same data. The app additionally processes:
 
-- **Push notifications (optional).** If you turn notifications on, the app registers a push token with Firebase Cloud Messaging (Google) — on iOS delivered through the Apple Push Notification service — and we store that token together with the login session it belongs to and an optional device label you can set. Notifications are limited to the working of the platform (for example a new guest request or a quota request for a venue you work at). The message that passes through Google and Apple contains only internal identifiers and the kind of event, never a guest's name or contact details; the visible text is generic (for example "New guest request") [and may name the event — decision pending]. The app fetches the details from PlusOne only after you tap the notification. The token is deleted when you sign out, when a venue admin ends your session, when you disable notifications, or after 90 days without use.
+- **Push notifications (optional).** If you turn notifications on, the app registers a push token with Firebase Cloud Messaging (Google) — on iOS delivered through the Apple Push Notification service — and we store that token together with the login session it belongs to and an optional device label you can set. Notifications are limited to the working of the platform (for example a new guest request or a quota request for a venue you work at). The message that passes through Google and Apple contains only internal identifiers and the kind of event, never a guest's name or contact details; the visible text is generic (for example "New guest request") and never shows the event name. The app fetches the details from PlusOne only after you tap the notification. The token is deleted when you sign out, when a venue admin ends your session, when you disable notifications, or after 90 days without use.
 - **No advertising or tracking identifiers.** The app does not read the advertising ID of your device (IDFA/AAID), does not track you across apps or websites, and contains no analytics or advertising SDK. The app's data-collection labels in the App Store and Google Play are derived from this policy.
 - **App stores.** Apple and Google process your download and any crash report you send them under their own privacy policies; PlusOne receives no personal data from the stores.
 
@@ -206,7 +210,7 @@ Some providers are established, or have parent companies, in the United States o
 Under the GDPR you have the right to access your personal data, to have it corrected or erased, to restrict or object to its processing, to receive it in a portable format, and to withdraw consent where processing is based on consent. You also have the right to lodge a complaint with the **Autoriteit Persoonsgegevens** (autoriteitpersoonsgegevens.nl) or the supervisory authority of the EU member state where you live or work.
 
 - **Guests, requesters and promoters:** exercise your rights with the **venue** that manages the event; it is the controller. If you contact us directly we will refer you to the venue without undue delay and support it in responding.
-- **Account holders, venue contacts and prospects:** e-mail [privacy@plus-one.io]. We may ask you to confirm your identity from the e-mail address on file. We respond within one month; for complex requests we may extend this by two months and will tell you why.
+- **Account holders, venue contacts and prospects:** e-mail privacy@plus-one.io. We may ask you to confirm your identity from the e-mail address on file. We respond within one month; for complex requests we may extend this by two months and will tell you why.
 
 ## 14. Children
 
@@ -218,6 +222,7 @@ We may update this policy when the platform or the law changes. The current vers
 
 ## 16. Contact
 
-[PlusOne V.O.F. / B.V.] · [address] · KvK [number]
-Privacy questions and requests: [privacy@plus-one.io]
-General support: [support@plus-one.io]
+The Operators (sole proprietorship, owner Max Merlijn Seffelaar) · Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands · KvK 99992841
+Privacy questions and requests: privacy@plus-one.io
+General support: support@plus-one.io
+Legal notices: legal@plus-one.io

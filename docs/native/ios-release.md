@@ -242,10 +242,16 @@ on both that the Deur tab still opens with flight mode on after one online visit
 Bound Domains + service worker); if the bridge or the SW fails on a device, report it
 before any App Store submission.
 
-**Push on iOS also needs the web-side switch:** the web app
-(`src/features/notifications/capacitor-provider.ts`) still answers "unsupported" on iOS
-until its follow-up task flips it — until then the iOS build never asks for push
-permission, by design. The native side in this build is ready for it.
+**Push on iOS is on (86exxuvye)** for shells built from that change onward: the web app
+(`src/features/notifications/capacitor-provider.ts`) turns iOS push on only when the
+shell's `PlusOnePushConfig.isConfigured` answers `tokenTransport: "fcm"` — i.e. the
+AppDelegate hands JS the FCM registration token, never the raw APNs token. An older iOS
+build keeps answering "unsupported" and never asks for permission. Opt-in stays explicit:
+`FirebaseMessagingAutoInitEnabled=false` in Info.plist; auto-init is switched on only once
+the APNs registration (= the person's yes) succeeds, and switched off again with the FCM
+token deleted on Profile "off" / sign-out (`invalidateToken`). Token rotation reaches the
+server through the AppDelegate's `MessagingDelegate`. Run the numbered iPhone push test
+list from the 86exxuvye PR on a fresh build.
 
 ## Releasing after setup
 
