@@ -8,6 +8,31 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Legal v0.3 B1: retention + forget_contact cover guest_requests; platform_invites sweep (z8uq9m2hm3)
+
+Branch `claude/z8uq9m2hm3-retention-requests`, milestone Now, high-risk (retention /
+SECURITY DEFINER). Migration `20261006120000_retention_requests_complete.sql`:
+- `run_privacy_retention()` step 2 also nulls `guest_requests.dedupe_key` + `birthdate`;
+  step 2c nulls them on every already-anonymized request (backfill). With the fingerprint
+  gone an anonymized `pending` request no longer occupies the partial dedup index, so the
+  dedup leak 2b documents is closed at the source (2b stays as backstop).
+- New step 8: `platform_invites` idle >24 months (`greatest(created_at, last_sent_at,
+  revoked_at)` — the table has no `updated_at`) → email + note null, new
+  `anonymized_at` stamped; step 8b scrubs email/note from their audit diffs through the new
+  owner-only `redact_anonymized_platform_invite_audit_pii()`. Return gains
+  `platform_invites_anonymized` (DROP + CREATE, EXECUTE re-revoked; pg_cron calls by name).
+- `platform_invites.email` nullable only on anonymized rows (CHECK);
+  `guard_platform_invite_update` admits the anonymize transition only from the job's owner
+  role and freezes anonymized rows. Resend action treats an address-less invite as revoked.
+- `forget_contact()` also scrubs the venue's requests matching the contact's e-mail
+  (lower) or phone digits — same scrub as retention, mirrors deleted, one `anonymize`
+  audit row each; returns `requests_anonymized`. Another venue's request with the same
+  e-mail is untouched.
+- Canonical `run_privacy_retention.sql` + README updated; `database.types.ts` hand-edited
+  (no local stack). pgTAP: privacy (29→40), contacts.privacy (8→14), platform_invites
+  (51→53), landing G7/G9/G11 moved to the new contract. Not run locally (no Supabase
+  stack/docker in the build container) — CI is the first run.
+
 ## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-checklist-screenshot-sizes`, milestone Now. Docs only.
