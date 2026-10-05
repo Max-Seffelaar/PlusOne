@@ -25,6 +25,18 @@ cookie, and fails closed (throws → shell shows "couldn't switch, try again"). 
 admins: reads sentence updated + decision-8 prod-data rule. Not run here (no Supabase
 stack in the container): `pnpm db:test`, `db reset`, e2e/layout — CI is the proof.
 Not done (scope fence): `docs/legal/README.md` "Keep in sync" line (A1 owns docs/legal).
+## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`
+workflow died in the seed with `permission denied for table refusals`: the script UPDATEd the
+seed.sql refusal's reason, but `refusals` and `check_ins` are append-only (UPDATE revoked
+from service_role in the full-schema migration). The touch-up is gone (that refusal sits on
+the seed event, which no shot shows); the live demo night now inserts its own refusal
+(guest #22, reason "Dress code") with the reason set at INSERT. The check-ins upsert had the
+same latent fault: a merge upsert is `ON CONFLICT DO UPDATE`, which needs UPDATE, so both
+writes are now insert-only (`ignoreDuplicates`). A re-run keeps the first run's check-in
+times. No migration, grant or RLS change. Not run here (no docker/supabase CLI): the seed
+end to end; reasoned against the migrations, plus lint/type-check/unit suite.
 
 ## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
 
