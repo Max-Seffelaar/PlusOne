@@ -25,6 +25,7 @@ import type {
   PlatformVenueRow,
   PlatformVenueOption,
   PlatformAuditRow,
+  PlatformAccessLogRow,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatInTz as fmt, formatClock, toDateInput } from './format';
@@ -1118,7 +1119,11 @@ function toPlatformStage(raw: string): PlatformInviteStage {
 /** The ONE canonical shape the Platform screen renders. */
 export interface PlatformInvite {
   id: string;
-  email: string;
+  /** Null for an anonymized invite (see `anonymized`). */
+  email: string | null;
+  /** The retention job removed address + note after 24 months without contact
+   *  (z8uq9m2hm3). The row is frozen in the DB: no resend, no revoke. */
+  anonymized: boolean;
   /** Operator note. Plain text — never rendered as HTML (PR #325, F9). */
   note: string | null;
   stage: PlatformInviteStage;
@@ -1141,7 +1146,8 @@ export function toPlatformInvite(row: PlatformInviteRow): PlatformInvite {
   const idx = PLATFORM_INVITE_STAGES.indexOf(stage as (typeof PLATFORM_INVITE_STAGES)[number]);
   return {
     id: row.id,
-    email: row.email,
+    email: row.email ?? null,
+    anonymized: row.email == null,
     note: row.note ?? null,
     stage,
     stageIndex: stage === 'revoked' ? null : idx,
@@ -1204,6 +1210,31 @@ export interface PlatformVenueOptionItem {
 
 export function toPlatformVenueOption(row: PlatformVenueOption): PlatformVenueOptionItem {
   return { venueId: row.venue_id, name: row.name };
+}
+
+/** The ONE canonical shape the Platform > Access log screen renders (legal
+ *  v0.3 B3). `reason` is free-form operator text — plain text only. */
+export interface PlatformAccessLogEntry {
+  id: string;
+  adminId: string;
+  /** Null when the profile is gone — the screen supplies the fallback copy. */
+  adminName: string | null;
+  venueId: string;
+  venueName: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export function toPlatformAccessLogEntry(row: PlatformAccessLogRow): PlatformAccessLogEntry {
+  return {
+    id: row.id,
+    adminId: row.admin_id,
+    adminName: row.admin_name ?? null,
+    venueId: row.venue_id,
+    venueName: row.venue_name ?? null,
+    reason: row.reason ?? null,
+    createdAt: row.created_at,
+  };
 }
 
 /** The ONE canonical shape the Platform > Audit screen renders. `diff` stays

@@ -597,9 +597,9 @@ select is(
     where anonymized_at is not null and (decision_message is not null or decision_reason is not null)),
   0, 'G14 no anonymized request anywhere still carries free decision text');
 select ok(
-  not has_function_privilege('authenticated', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE')
-  and not has_function_privilege('service_role', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.redact_anonymized_request_audit_pii(uuid[])', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.redact_anonymized_request_audit_pii(uuid[])', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.redact_anonymized_request_audit_pii(uuid[])', 'EXECUTE'),
   'G15 the new audit scrub is owner-only, like its two siblings');
 
 -- ---------------------------------------------------------------------------

@@ -28,6 +28,14 @@ export const SNAPSHOT_DIR = join(process.cwd(), 'test-results', 'layout-snapshot
 /** Minimum pointer hit box, CLAUDE.md "Tablet (T1)" + design-system.md density axis. */
 export const MIN_HIT = 44;
 
+/**
+ * Narrowest the event card's name/meta column may get (86ey6bfyj). The bug it
+ * guards: a viewport-keyed single row on a ~700px card (792px tablet, 1032px
+ * iPad beside the sidebar) left that column ~100px — names wrapped per word.
+ * The single row now only starts on an 860px card, where the column is ~290px.
+ */
+export const EV_INFO_MIN = 160;
+
 // ── allowlists ───────────────────────────────────────────────────────────────
 
 /**
@@ -77,6 +85,12 @@ export interface LayoutSnapshot {
   sidebar: { present: boolean; width: number; left: number };
   tabBar: { present: boolean; bottomGap: number };
   pointerCoarse: boolean;
+  /** Shared event cards (`.evcard`, src/components/po/event-row.tsx) on screen. */
+  evCards: number;
+  /** Per-card layout defects: two of name/chip/meta/counts/actions
+   *  intersecting, a missing part hook, or an info column squeezed under
+   *  EV_INFO_MIN (86ey6bfyj). */
+  evCardIssues: string[];
   consoleErrors: string[];
   failedRequests: string[];
   screenshot: string | null;
@@ -182,7 +196,7 @@ async function settle(page: Page): Promise<void> {
 type Measured = Omit<LayoutSnapshot, 'screenId' | 'project' | 'consoleErrors' | 'failedRequests' | 'screenshot'>;
 
 export async function measure(page: Page): Promise<Measured> {
-  return page.evaluate((minHit) => {
+  return page.evaluate(({ minHit, evInfoMin }) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const NAV_LABELS = new Set(['Home', 'Events', 'Guests', 'Check-in', 'More']);
@@ -333,6 +347,41 @@ export async function measure(page: Page): Promise<Measured> {
     const bar = [...rows].find(([, n]) => n >= 3)?.[0]?.parentElement ?? undefined;
     const br = bar?.getBoundingClientRect();
 
+    // ── 4. event cards ──────────────────────────────────────────────────────
+    // The shared card's parts are tagged `data-ev-part`; no two may intersect
+    // (the 86ey6bfyj tablet bug: pill over the name, stats over venue/date).
+    // A missing tag is a finding too, so dropping a hook can't disarm this.
+    const EV_PARTS = ['name', 'chip', 'meta', 'counts', 'actions'] as const;
+    const evCardIssues: string[] = [];
+    const cards = Array.from(document.querySelectorAll('.evcard')).filter((c) =>
+      isRendered(c, c.getBoundingClientRect()),
+    );
+    cards.forEach((card, idx) => {
+      const label = `card ${idx + 1} "${card.querySelector('[data-ev-part="name"]')?.textContent?.trim() ?? '?'}"`;
+      const boxes: [string, DOMRect][] = [];
+      for (const part of EV_PARTS) {
+        const el = card.querySelector(`[data-ev-part="${part}"]`);
+        if (!el) {
+          evCardIssues.push(`${label}: no [data-ev-part="${part}"]`);
+          continue;
+        }
+        boxes.push([part, el.getBoundingClientRect()]);
+      }
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const [pa, a] = boxes[i];
+          const [pb, b] = boxes[j];
+          const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          // 1px absorbs sub-pixel rounding at a shared edge.
+          if (w > 1 && h > 1) evCardIssues.push(`${label}: ${pa} overlaps ${pb} (${Math.round(w)}×${Math.round(h)})`);
+        }
+      }
+      const info = card.querySelector('[data-ev-part="info"]');
+      const iw = info ? info.getBoundingClientRect().width : 0;
+      if (iw < evInfoMin) evCardIssues.push(`${label}: name/meta column ${Math.round(iw)}px < ${evInfoMin}px`);
+    });
+
     return {
       finalPath: location.pathname,
       innerWidth: vw,
@@ -345,8 +394,10 @@ export async function measure(page: Page): Promise<Measured> {
       sidebar: { present: !!aside, width: ar ? Math.round(ar.width) : 0, left: ar ? Math.round(ar.left) : 0 },
       tabBar: { present: !!bar, bottomGap: br ? Math.round(vh - br.bottom) : -1 },
       pointerCoarse: matchMedia('(pointer: coarse)').matches,
+      evCards: cards.length,
+      evCardIssues,
     };
-  }, MIN_HIT);
+  }, { minHit: MIN_HIT, evInfoMin: EV_INFO_MIN });
 }
 
 /**

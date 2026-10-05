@@ -4,12 +4,16 @@ English-language legal drafts for the paid product, grounded in the actual dataf
 
 | File | Version | What | Publishes to |
 |---|---|---|---|
-| `privacy-policy.md` | **v0.2** (2026-09-24, ClickUp `z8uq9m0w3t`) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
-| `subprocessors.md` | **v0.2** (2026-09-24, `z8uq9m0w3t`) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile) · B controller-side (Resend/SES, Stripe, Google Workspace) · C planned (FCM/APNs, Attio, guest mail, GA, PostHog, Slack) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
-| `data-processing-agreement.md` | v0.1 (2026-07-09, `86ey7q7c2`) — being revised in `z8uq9m0w3u` | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — must mirror `subprocessors.md`, see delta below), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
-| `terms-of-service.md` | v0.1 (2026-07-09, `86ey7q7c2`) — being revised in `z8uq9m0w3u` | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
+| `privacy-policy.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
+| `subprocessors.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, guest mail, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
+| `data-processing-agreement.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
+| `terms-of-service.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
+| `guest-terms.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
+| `guest-terms.nl.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Dutch version of the Guest Terms, same numbering; the Dutch version prevails (D9, lawyer confirms wording) | `https://plus-one.io/legal#guest-terms` (Dutch tab) + Drive |
 
-The URL convention (`/legal` page on plus-one.io, tab picked by the hash) is fixed in `src/lib/legal.ts` (`TERMS_URL`, `PRIVACY_URL`, `TERMS_VERSION`). The app itself runs on `app.plus-one.io`. The retired pre-2026-09-18 domain must not appear anywhere (`tests/unit/claude-md-references.test.ts` guards CLAUDE.md; grep `docs/legal` by hand).
+Publication (Legal v0.3 golf D, `z8uq9m2hm7`) happens after the lawyer's OK and turns every document into "Version 1.0, [publication date]"; until then the repo holds drafts v0.3.
+
+The URL convention (`/legal` page on plus-one.io, tab picked by the hash) is fixed in `src/lib/legal.ts` (`TERMS_URL`, `PRIVACY_URL`, `TERMS_VERSION`). The app itself runs on `app.plus-one.io`. The retired pre-2026-09-18 domain must not appear anywhere (`tests/unit/claude-md-references.test.ts` guards CLAUDE.md; grep `docs/legal` by hand)..
 
 ## Status: DRAFT — not legally reviewed
 
@@ -17,53 +21,58 @@ The URL convention (`/legal` page on plus-one.io, tab picked by the hash) is fix
 
 ## Placeholders to fill before lawyer review
 
-Identity (all four docs):
-- [ ] Legal entity name + form (V.O.F. / B.V.)
-- [ ] KvK number, registered address
-- [ ] Contact mailboxes: `privacy@plus-one.io` and `support@plus-one.io` (create them in Google Workspace, or name the addresses that exist)
-- [x] Brand casing: **Decided 2026-09-24 (Max): PlusOne in all documents.** This file and `privacy-policy.md`/`subprocessors.md` now use the mixed-case "PlusOne" wordmark throughout (previously drafted in the all-caps form used by `design-system.md`'s "Naam" field and the v0.1 drafts/DPA); the legal entity name itself stays the placeholder `[PlusOne V.O.F. / B.V.]` in mixed case.
+Decided and filled in for v0.3 (2026-10-05, `legal-v03-plan-claude-code.md` §7.1):
+- [x] Entity: The Operators, sole proprietorship (eenmanszaak), owner Max Merlijn Seffelaar, KvK 99992841, Goirkestraat 74-14, 5048 GM Tilburg (all docs)
+- [x] Mailboxes `privacy@`, `support@`, `legal@plus-one.io` — **create them (or name the addresses that exist) before publication**
+- [x] Brand casing: PlusOne in all documents (decided 2026-09-24)
+- [x] Court: Rechtbank Zeeland-West-Brabant (ToS 20.2, DPA 14.3); cap floor EUR 5,000 (ToS 14.2, lawyer may adjust); support first response within 24 hours, every day (ToS 11.4); pricing URL `https://www.plus-one.io/pricing` (must exist); English prevails for ToS/DPA, Dutch for the Guest Terms (lawyer confirms wording)
+- [x] Retention: Sentry 30 days; Supabase backups 7 days; inactive accounts "on request"; audit records of accounts/memberships/invites/promoters kept for the life of the venue; `platform_invites` 24 months after last contact
+- [x] Push text never shows the event name (D12); Resend sender domain is the apex `plus-one.io` (D13)
 
-Privacy policy v0.2 (`[…]` in the text):
-- [ ] §10 account inactivity deletion period (draft: 24 months) — does an inactive-account cleanup exist? It does not on `main`; either build it or drop the sentence
-- [ ] §10 Sentry error-report retention (draft: 90 days — confirm the project's retention setting)
-- [ ] §10 CRM/prospect retention after last contact (draft: 24 months) and support correspondence (draft: 2 years)
-- [ ] §10 export window at end of contract (draft: 30 days — must match DPA §11.2)
-- [ ] §11.5 processor breach-notification deadline (draft: 48 hours — must match DPA §10.1)
-- [ ] §12 push notifications: the payload is **ids + kind only** (N2, PR #336 — no names or e-mails; the device fetches details after the tap) and the text now says so. Still open: whether the **event name** may appear in the visible notification text — decision for N5, and the M4/S5 store labels depend on it
-- [ ] §7 the guest confirmation e-mail (`86ey6bn05`) is **under consideration, not scheduled** (CLAUDE.md rule 10 / spec #40(d): the MVP sends guests nothing) — keep the bracketed sentence and the "under consideration" row in subprocessors §C until a decision, then rewrite or drop
-- [ ] §14 minimum age for account holders (draft: 16)
+Still open — `[…]` in the text:
+- [ ] Privacy §10 CRM/prospect retention after last contact (draft: 24 months) and support correspondence (draft: 2 years) — until the lawyer has seen them
+- [ ] Privacy §10 / DPA 11.2 / ToS 16.5 export window at end of contract (draft: 30 days) and Privacy §11.5 / DPA 10.1 breach-notification deadline (draft: 48 hours) — the two documents must match
+- [ ] ToS notice periods (draft values accepted unless the lawyer says otherwise): price change [30] days (7.5), partner arrangement early end [30] days (7.8), restricted-state termination [90] + [30] days (16.2), terms change [30] days (18.1), confidentiality survival [2] years (13.3); 11.1 optional SLA reference
+- [ ] Privacy §7 the guest confirmation e-mail (`86ey6bn05`) is **under consideration, not scheduled** (CLAUDE.md rule 10 / spec #40(d)) — keep the bracketed sentence and the "under consideration" row in subprocessors §C until a decision
+- [ ] **Anthropic** (new in v0.3): contracting entity, DPA/commercial-terms link, transfer safeguard (EU–US DPF / SCCs) and certifications — `[verify]` in `subprocessors.md` section A (the DPA Annex 2 row mirrors it)
+- [ ] **Cap fallback for a data breach** (new): decided *not* to be in the ToS; Max and Joeri fix the amount (plan §7.3 proposes 3× annual fee, minimum EUR 25,000) as an addendum template, below the insured sum
+- [ ] **Backups** (new): confirm the Supabase plan really retains 7 days of backups (stated in DPA 11.4/Annex 1.E/Annex 3 and Privacy §11.4)
+- [ ] Partner/pilot terms (ToS 7.8) and PlusOne's right to terminate for convenience (ToS 16.2) were written from decisions 12 and 14 of the plan; the external reviewer's wording was not in the repo — compare and swap in if it differs
+- [ ] Insurance: AVB/BAV with cyber and data-breach cover before the first paying customer (plan §7.2); confidentiality agreement with Joeri (DPA §5)
 
-Subprocessor list v0.2:
-- [ ] Confirm every vendor's contracting entity and certifications against its current DPA page (Supabase, Vercel, Sentry, Cloudflare, Resend, Stripe, Google, Attio, PostHog, Slack) — the repo names no entities; v0.2 carries general-knowledge values
-- [ ] Sentry: confirm "Prevent Storing of IP Addresses" is on in the project settings (the code scrubs `event.request`/`event.user`, but Sentry derives `user.geo` from the connecting IP after `beforeSend`)
-- [ ] Resend sending domain: still `theoperators.nl` (borrowed, `docs/mail-deliverability.md`); the PlusOne subdomain is F3 (`86ey6b3hv`). Publish with whichever is live
-- [ ] Google Workspace: confirm it is the live mailbox provider (task `86ey7q7c2` said "we gaan Google Workspace gebruiken"; the repo only evidences a Drive mirror) and whether EU data regions are configured
-- [ ] Slack digest: confirm the digest carries no personal data before it goes live (`docs/attio-crm-plan.md` phase 03)
+Subprocessor list v0.3:
+- [ ] Confirm every vendor's contracting entity and certifications against its current DPA page (Supabase, Vercel, Sentry, Cloudflare, Resend, Stripe, Google, Attio, Slack, and Anthropic — see above); the repo names no entities and the list carries general-knowledge values
+- [ ] Sentry: confirm "Prevent Storing of IP Addresses" is on in the project settings (the code scrubs `event.request`/`event.user`, but Sentry derives `user.geo` from the connecting IP after `beforeSend`); screenshot to Drive `02_Legal/`
+- [ ] Resend sender: the decision is the apex `plus-one.io`, no subdomain. `docs/mail-deliverability.md` still records the 2026-07-09 state (a borrowed domain of another brand); confirm the live SMTP sender is already `@plus-one.io` and close or reword F3 `86ey6b3hv`
+- [ ] Google Workspace: confirm it is the live mailbox provider and whether EU data regions are configured
 
 ## Questions for Max / the lawyer
 
-1. **Turnstile is a subprocessor for guest data** (the requester's IP address and browser signals go to Cloudflare on `/e/*`). v0.1 did not list it. Agree with listing it under A, or would the lawyer classify Cloudflare as an independent controller for the bot check?
+1. **Turnstile is a subprocessor for guest data** (the requester's IP address and browser signals go to Cloudflare on `/e/*`). Listed under A in v0.2/v0.3. Agree, or would the lawyer classify Cloudflare as an independent controller for the bot check?
 2. **Sessions screen shows colleagues' IP addresses.** `admin_list_user_sessions` returns `ip` + `user_agent` to venue admins (`src/features/po/adapters.ts:942`). The policy discloses it (§3). Keep, or mask the IP in the UI?
-3. **Platform admins (#49)** have cross-venue read+write for support; writes are audited, reads are not. The policy says so (§8, §11.3). Is that disclosure enough, or does the lawyer want a support-access clause in the DPA (time-boxed, on request) as the Attio plan once proposed?
-4. **Developer tooling that reads production data.** Claude Code sessions have read prod state through the Supabase, Resend and Sentry MCP connectors (`docs/changelog.md`, mail-deliverability check). That puts production personal data in front of Anthropic's API under Anthropic's commercial terms. Either add Anthropic as a subprocessor (purpose: engineering support tooling) or forbid prod-data access via MCP in the operating rules. Decision needed; nothing in v0.2 mentions it yet.
-5. **Attio People sync** will process the name and e-mail of every team member, incl. staff/door accounts that often use private addresses (`docs/attio-crm-plan.md`). Legitimate interest with an opt-out, or consent? The lawyer decides; the policy currently lists it as planned under legitimate interest (§6).
-6. **Marketing opt-in on the request form** is stored but never shown to the venue and cannot be exported. Is it honest to call it a "choice between you and the venue" while the venue cannot act on it? Either surface it in the inbox/export, or drop the checkbox until it is usable.
-7. **Guest-facing notice on `/e/[slug]`.** The public form shows a one-line privacy note and links to no policy, and never names the venue as controller (only "the organizer of this event"). Art. 13 information is the venue's duty, but the page is ours. Recommendation: add a "How your details are used" link (to `#privacy` §4 and the venue's own notice) and name the venue. Code change outside this task.
-8. **Minimum age** for account holders: 16 (Dutch AVG consent age) or 18 (door work at clubs)?
+3. [x] **Platform admins (#49)** — decided 2026-10-05: lightweight variant. Venue-switch by a platform admin is logged in `platform_access_log` (B3, `z8uq9m2hm5`), not visible to the customer, shared on request (DPA 4.4, ToS 10.3, Privacy §8). The heavy variant (DB-enforced support sessions) is backlog ≥25.
+4. [x] **Developer tooling that reads production data** — decided 2026-10-05: Anthropic becomes a subprocessor (section A). Working rule in CLAUDE.md via B3: schema, logs, advisors and aggregates by default; guest rows only for a concrete support ticket or incident, with a `platform_access_log` row or ClickUp reference.
+5. **Attio** now runs by hand (no automated sync from the app) and is listed under B. A People sync would need a legal-basis decision again (legitimate interest with opt-out, or consent) — the lawyer decides before any sync is built.
+6. [x] **Marketing opt-in on the request form** — decided 2026-10-05: the checkbox stays; `marketing_opt_in` is in the export and becomes visible on the request card and contact detail (E1, `z8uq9m2hm6`). The text stays because it becomes true.
+7. [x] **Guest-facing notice on `/e/[slug]`** — decided 2026-10-05: acceptance line above the submit button plus the venue name instead of "the organizer of this event" (B2, `z8uq9m2hm4`).
+8. [x] **Minimum age** for account holders — decided 2026-10-05: 16 stays (GDPR consent age; a 17-year-old door or cloakroom helper is lawful work; guest age is venue policy).
 
-## Code follow-ups the policy text assumes (not built on `main`)
+## Code follow-ups the policy text assumes
 
-The v0.2 text describes the intended behaviour. Each item below is a place where the code on `main` falls short of the text; either fix the code or soften the text before publication.
+The v0.3 text describes the intended behaviour; each item below is a place where `main` falls short until the named task lands. Either the task ships or the text is softened before publication.
 
-- **`guest_requests` anonymization is incomplete.** `run_privacy_retention()` nulls name, e-mail, phone, motivation, decision fields and the status token, but leaves `birthdate`, `marketing_opt_in` and `dedupe_key` (the lowercased e-mail or the phone digits, in plain text) in place. Policy §10 says e-mail addresses and phone numbers are erased. Fix: null `dedupe_key` and `birthdate` in the same step (the dedupe index is only needed while the request is live).
-- **`forget_contact()` does not reach landing requests** (header comment of `20260624120000`): a person's `guest_requests` rows survive an immediate-erasure request until the nightly sweep. Policy §10 says "every guest list entry linked to it"; requests should be included.
-- **`check_ins.device_id` and `audit_log.device_id`** are never anonymized. Random UUIDs, not PII on their own, but they link door actions across events. Accepted as-is in v0.2 (§3 discloses the identifier); note it in the DPA Annex 1 or scrub at anonymization.
-- **No retention for `audit_log` rows or for the diffs of `invites` (e-mail), `influencers` (name, handle, notes), `venue_memberships` (job title) and `platform_invites` (e-mail, note).** Policy §10 says the audit trail is kept for the life of the venue with personal data redacted "when the underlying record is anonymized" — true for guests/contacts/requests, not for those four tables, which are never anonymized. Decide: add them to the retention job, or state their retention explicitly.
-- **`platform_invites` (prospect e-mail + free-text note) has no retention** (#49 open point). Policy §10 promises [24 months] after last contact. Needs a sweep, or a manual runbook step.
-- **Inactive-account deletion** (§10, [24 months]) does not exist. Build it or drop it.
-- **`retention_months` changes are not audited** (only `allow_uncheck` on `venues` is). Cheap to add to the venues audit trigger; worth it because retention is a controller instruction under the DPA.
-- **Native app (Fase 17):** the "no advertising ID / no analytics SDK" commitment in §12 has no line in the plan yet. N3/N5 must verify that `@capacitor/push-notifications` + `firebase-messaging` is pulled in **without** Firebase Analytics/Crashlytics, and M4/S5 must copy the §12 statements into the store labels. Push-token retention (sign-out, admin revoke, 90-day TTL, FCM `UNREGISTERED` prune) matches plan §3 and PR #336 — keep them aligned. Note for N5: `signOutDevice` does not delete tokens server-side; N5 must call `unregister()` before the IDB wipe or policy §12's "deleted when you sign out" is only true via the revoke path.
-- **Sentry offline queue** (IndexedDB) is not cleared by `signOutDevice` (`plusone-door` DB, Cache Storage and the outbox are). Scrubbed events only, so no guest PII, but the policy's "everything is wiped at sign-out" (§12) is about the door copy; keep it that way or add the queue to the wipe.
+- **`guest_requests` anonymization is incomplete** → B1 (`z8uq9m2hm3`): `run_privacy_retention()` must also null `dedupe_key` and `birthdate`.
+- **`forget_contact()` does not reach landing requests** → B1 (`z8uq9m2hm3`): DPA 9.1, Privacy §10 and ToS 9.6 say requests are included.
+- **`platform_invites` has no retention** → B1: sweep at 24 months after last contact (Privacy §10).
+- **Platform admin access to a venue is not logged** → B3 (`z8uq9m2hm5`): `platform_access_log` on every venue switch (DPA 4.4, ToS 10.3, Privacy §8).
+- **No self-service export** → E1 (`z8uq9m2hm6`): DPA 11.3, ToS 9.5/16.5 and Privacy §10 say the customer can export during the term; CSV exists only as an import on `main`.
+- **Request page** → B2 (`z8uq9m2hm4`): venue name, Guest Terms acceptance line, links.
+- **`check_ins.device_id` / `audit_log.device_id`** — accepted as-is (2026-10-05): disclosed in DPA Annex 1.D ("random browser identifier, not anonymized"). No code.
+- **Inactive-account deletion** — decided (2026-10-05): no sweep; the text says "on request".
+- **Audit diffs of `invites`, `venue_memberships`, `influencers`** — decided: kept for the life of the venue and deleted with it (Privacy §10, DPA Annex 1.E/3). No anonymization.
+- **`retention_months` changes are not audited** (only `allow_uncheck` on `venues` is). Cheap to add to the venues audit trigger; worth it because retention is a controller instruction under the DPA. Not scheduled.
+- **Native app (Fase 17):** the "no advertising ID / no analytics SDK" commitment in §12 has no line in the plan yet. N3/N5 must verify that `@capacitor/push-notifications` + `firebase-messaging` is pulled in **without** Firebase Analytics/Crashlytics, and M4/S5 must copy the §12 statements into the store labels. Push-token retention (sign-out, admin revoke, 90-day TTL, FCM `UNREGISTERED` prune) matches plan §3 and PR #336 — keep them aligned. N5 must call `unregister()` before the IDB wipe or §12's "deleted when you sign out" is only true via the revoke path, and the push text never shows the event name (D12).
+- **Sentry offline queue** (IndexedDB) is not cleared by `signOutDevice` (`plusone-door` DB, Cache Storage and the outbox are). Scrubbed events only, so no guest PII; §12's "everything is wiped at sign-out" is about the door copy.
 
 ## Keep in sync with the code
 
@@ -79,17 +88,14 @@ These documents state facts about the system. If any of the following change, up
 - e-mail: Resend as Supabase custom SMTP; any new outbound mail (guest confirmations `86ey6bn05`) → policy §7 + subprocessors C→B
 - push: `push_tokens` schema and retention (`capacitor-plan-claude-code.md` §3, built in PR #336: 90-day TTL, revoke-on-logout, `device_label` ≤120 chars), outbox payload = ids + kind only
 - analytics: still none in code; GA (site) / PostHog (app) are consent-gated plans
+- export (E1): the self-service export function, its roles (admin only), files and the `export` audit action — DPA 11.3, ToS 9.5/16.5, Privacy §10
+- `platform_access_log` (B3): what is logged and who can read it — DPA 4.4, ToS 10.3, Privacy §8
+- `GUEST_TERMS_URL` in `src/lib/legal.ts` (B2/D) and the Guest Terms acceptance line on `/e/[slug]`
+- Attio and Slack are manual today (subprocessors B); the moment either gets code (a sync, a webhook), re-check the row and the Privacy §8 summary in the same PR. PostHog and FCM/APNs stay in C until their code lands
 
-## DPA Annex 2 delta (for the `z8uq9m0w3u` session — do not edit here)
+## DPA Annex 2 delta
 
-`data-processing-agreement.md` Annex 2 lists Supabase, Vercel and Sentry as guest-data subprocessors and mentions Stripe/Google Workspace as controller-side. To stay consistent with `subprocessors.md` v0.2 it must:
-
-1. **Add Cloudflare, Inc. (Turnstile)** to the guest-data table: purpose "bot protection on public guest request pages", location "Cloudflare global network", data "requester IP address and browser signals during the check; nothing stored".
-2. **Add Resend (Plus Five Five, Inc.) — with Amazon SES `eu-west-1` as sub-provider — to the controller-side sentence** next to Stripe and Google Workspace (auth mail to team members; no guest data). It is active, not planned.
-3. **Add the planned guest-data items with the 30-day-notice hook:** Firebase Cloud Messaging / APNs (push content may reference a guest request) and the Resend guest confirmation mail (`86ey6bn05`). Attio, GA, PostHog and Slack are controller-side only and need no notice.
-4. Point the `[URL]` for the list at `https://plus-one.io/legal#subprocessors`.
-5. §8.1 (transfers) should add "login e-mail delivery via Amazon SES in Ireland" and the Vercel edge-network caveat used in policy §9.
-6. §11.2 (export within 30 days): there is **no self-service export on `main`** (CSV exists only as an import). Either the DPA promises an export "on request, delivered by PlusOne", or an export feature is built before the first DPA is signed.
+Done in v0.3: Turnstile and Anthropic are in the DPA Annex 2 table, Resend/SES in the controller-side sentence, the planned FCM/APNs and guest-mail items carry the 30-day-notice hook, the list URL points at `https://plus-one.io/legal#subprocessors`, §8.1 has the SES and edge-network sentences, and §11 has the self-service export. Keep Annex 2 and `subprocessors.md` in step (see below).
 
 ## Stale statements noticed in other docs (out of scope here, for whoever owns them)
 

@@ -107,4 +107,5 @@ export const LAYOUT_SCREENS: readonly LayoutScreen[] = [
   { id: 'platform', user: 'admin', path: screenPath('platform') },
   { id: 'platformvenues', user: 'admin', path: screenPath('platformvenues') },
   { id: 'platformaudit', user: 'admin', path: screenPath('platformaudit') },
+  { id: 'platformaccess', user: 'admin', path: screenPath('platformaccess') },
 ];

@@ -14,6 +14,9 @@ import { loadSnapshot, MIN_HIT, type LayoutSnapshot } from './probe';
  *   field-targets    touch projects: every visible input/select hits ≥44×44
  *   chrome           bottom tabs <1024px, sidebar ≥1024px (use-viewport.ts)
  *   console-network  no console errors, no failed requests (allowlists in probe.ts)
+ *   event-card       Home's event cards: name, status pill, meta, stats and
+ *                    actions never intersect; the name column never squeezed
+ *                    (86ey6bfyj)
  * plus a full-page screenshot per screen × project for human review.
  */
 
@@ -84,6 +87,17 @@ for (const screen of LAYOUT_SCREENS) {
         expect(snap.sidebar.width, 'sidebar is not the 252px column').toBe(252);
         expect(snap.sidebar.left).toBe(0);
       }
+    });
+
+    test('event cards: name, pill, meta, stats and actions never overlap', async () => {
+      const testInfo = test.info();
+      // Home always lists the seed's always-upcoming event, so zero cards there
+      // means the card (or its class hook) vanished — fail, don't skip.
+      const isHome = screen.id.startsWith('home.');
+      test.skip(!isHome && snap.evCards === 0, 'no event cards on this screen');
+      fixmeIfKnown(screen.id, 'event-card', testInfo.project.name);
+      expect(snap.evCards, 'Home rendered no .evcard').toBeGreaterThan(0);
+      expect(snap.evCardIssues, `event card layout:${list(snap.evCardIssues)}`).toEqual([]);
     });
 
     test('no console errors or failed requests', async () => {

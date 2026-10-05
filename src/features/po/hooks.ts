@@ -68,6 +68,8 @@ import {
   fetchPlatformVenueOptions,
   fetchPlatformAuditOverview,
   fetchPlatformAuditOverviewCount,
+  fetchPlatformAccessLog,
+  type PlatformAccessLogParams,
   type PlatformVenueParams,
   type PlatformAuditParams,
   type PoRequestLink,
@@ -112,6 +114,8 @@ import {
   toPlatformVenue,
   toPlatformVenueOption,
   toPlatformAuditEntry,
+  toPlatformAccessLogEntry,
+  type PlatformAccessLogEntry,
   type PlatformInvite,
   type PlatformInviteStage,
   type PlatformVenue,
@@ -1458,5 +1462,23 @@ export function usePoPlatformAuditCount(
     queryKey: poKeys.platformAuditCount(params),
     enabled: options?.enabled ?? true,
     queryFn: () => fetchPlatformAuditOverviewCount(createClient(), params),
+  });
+}
+
+/** Platform > Access log (legal v0.3 B3): one server-windowed page of
+ *  `platform_access_log`, newest first, plus the total for "X of Y". RLS
+ *  returns rows to a platform admin only; the screen never fires this for
+ *  anyone else. */
+export function usePoPlatformAccessLog(
+  params: PlatformAccessLogParams = {},
+  options?: { enabled?: boolean }
+) {
+  return useQuery<{ entries: PlatformAccessLogEntry[]; total: number }>({
+    queryKey: poKeys.platformAccessLog(params),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => {
+      const { rows, total } = await fetchPlatformAccessLog(createClient(), params);
+      return { entries: rows.map(toPlatformAccessLogEntry), total };
+    },
   });
 }

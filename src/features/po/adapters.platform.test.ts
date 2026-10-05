@@ -56,6 +56,13 @@ describe('toPlatformInvite', () => {
     });
   });
 
+  it('marks an invite the retention job anonymized (email null) and keeps the rest', () => {
+    const inv = toPlatformInvite(row({ email: null }));
+    expect(inv.email).toBeNull();
+    expect(inv.anonymized).toBe(true);
+    expect(toPlatformInvite(row()).anonymized).toBe(false);
+  });
+
   it('treats revoked as terminal: no index, revoked flag set', () => {
     const inv = toPlatformInvite(row({ stage: 'revoked', revoked_at: '2026-09-03T12:00:00.000Z' }));
     expect(inv.stageIndex).toBeNull();
