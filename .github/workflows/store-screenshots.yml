@@ -1,0 +1,101 @@
+name: Store screenshots
+
+# Store listing assets (86ey6bf8k, Fase 17 M4): every App Store / Play
+# screenshot set + the Play feature graphic, rendered from the live app on a
+# throwaway local Supabase stack with demo data. Manual only — never on a PR or
+# push: it is a deliverable, not a check. Actions tab → "Store screenshots" →
+# "Run workflow", then download the `store-screenshots` artifact (30 days).
+# How-to + size table: docs/store/screenshots.md.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  store-screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      # Same stack setup as the `layout-suite` job in ci.yml.
+      - name: Install dependencies (shared session-setup script)
+        run: node scripts/session-setup.mjs install
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Start local Supabase stack
+        run: supabase start
+
+      - name: Provision .env.local from the running stack
+        run: node scripts/dev-env.mjs
+
+      # Deliberately NO `pnpm dev:mfa` (the layout suite runs it): it makes
+      # admin@ a platform admin, and the shots log in as the seed script's own
+      # plain venue admin anyway — nothing here needs admin@ or a TOTP.
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Seeds the demo night (scripts/store-screenshot-seed.mjs — refuses any
+      # non-localhost Supabase URL), then renders every set + the feature graphic.
+      - name: Render store screenshots
+        run: pnpm store:screenshots
+
+      - name: Upload store screenshots
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-screenshots
+          path: store-screenshots/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Summarise the artifact
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          {
+            echo "## Store screenshots"
+            if [ -n "$ARTIFACT_URL" ]; then
+              echo "Download (30 days): [store-screenshots]($ARTIFACT_URL)"
+            else
+              echo "Nothing was uploaded (the run did not get far enough to render a shot)."
+            fi
+            if [ -d store-screenshots ]; then
+              echo ""
+              echo "| Set | Files |"
+              echo "|---|---|"
+              for d in store-screenshots/*/; do
+                echo "| $(basename "$d") | $(find "$d" -name '*.png' | wc -l) |"
+              done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: store-screenshots-traces
+          path: test-results/
+          if-no-files-found: ignore

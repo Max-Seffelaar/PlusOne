@@ -67,3 +67,5 @@ supabase/.temp
 # Agent-tool worktree checkouts (isolation: "worktree")
 .claude/worktrees/
 /layout-screenshots/
+# Store listing assets (pnpm store:screenshots), uploaded as a CI artifact
+/store-screenshots/
