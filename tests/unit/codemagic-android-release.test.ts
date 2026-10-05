@@ -90,4 +90,19 @@ describe('codemagic.yaml android-release', () => {
       });
     expect(jsonKeys).toEqual([]);
   });
+
+  it('requires google-services.json (push) and tracks it for app.plusone.guestlist', () => {
+    expect(active).toMatch(/^\s*REQUIRE_GOOGLE_SERVICES:\s*"true"\s*$/m);
+    const tracked = execFileSync('git', ['ls-files', 'android/app/google-services.json'], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
+    expect(tracked).toBe('android/app/google-services.json');
+    const gs = JSON.parse(readFileSync(resolve(root, tracked), 'utf8'));
+    const pkgs = gs.client.map(
+      (c: { client_info: { android_client_info: { package_name: string } } }) =>
+        c.client_info.android_client_info.package_name
+    );
+    expect(pkgs).toContain('app.plusone.guestlist');
+  });
 });

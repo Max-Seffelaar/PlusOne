@@ -8,6 +8,14 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-01 — Play build requires google-services.json (86ey6bfpy)
+
+Branch `claude/86ey6bfpy-require-google-services`, milestone Now. N5 (push) is merged and
+`android/app/google-services.json` (package `app.plusone.guestlist`) is committed, so
+`codemagic.yaml` now sets `REQUIRE_GOOGLE_SERVICES: "true"`: a Play build without it fails
+instead of warning. `tests/unit/codemagic-android-release.test.ts` pins the flag and the
+tracked file's package name; `docs/native/android-release.md` updated.
+
 ## 2026-10-01 — S1b: iOS release workflow → TestFlight (z8uq9m0gvn)
 
 Branch `claude/z8uq9m0gvn-codemagic-ios`, milestone Now (Fase 17 wave 5). Native change →

@@ -49,9 +49,9 @@ workflows:
         APP_VERSION_NAME: "1.0.0"
         PACKAGE_NAME: app.plusone.guestlist
         PROD_SERVER_URL: https://app.plus-one.io
-        # Flip to "true" once N5 (push) is merged and android/app/google-services.json
-        # is committed — from then on a build without it fails instead of warning.
-        REQUIRE_GOOGLE_SERVICES: "false"
+        # N5 (push) is merged and android/app/google-services.json is committed, so a
+        # build without it must fail instead of shipping silently without push.
+        REQUIRE_GOOGLE_SERVICES: "true"
       node: 22
       java: 21
     triggering:
@@ -132,7 +132,7 @@ workflows:
             echo "ERROR: android/app/google-services.json is missing and REQUIRE_GOOGLE_SERVICES=true." >&2
             exit 1
           else
-            echo "WARNING: android/app/google-services.json is missing — this build has NO push notifications. Expected until N5 merges; then set REQUIRE_GOOGLE_SERVICES=true."
+            echo "WARNING: android/app/google-services.json is missing — this build has NO push notifications. The file is committed (N5); set REQUIRE_GOOGLE_SERVICES=true to make its absence fatal."
           fi
       - name: Point Gradle at the Android SDK
         script: |
