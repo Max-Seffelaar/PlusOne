@@ -9,8 +9,7 @@
 // Native shell (#37): the webview cannot save a blob download, so both entry
 // points say "export from the web app" instead (same seam as billing).
 
-import { type JSX } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { type JSX, useCallback, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { isNativeShell } from '@/lib/platform';
@@ -35,17 +34,36 @@ function errorText(error: unknown): string {
   return t.settings.export.errorFailed;
 }
 
+type ExportRun =
+  | { state: 'idle' }
+  | { state: 'pending' }
+  | { state: 'done'; data: ExportOk }
+  | { state: 'error'; error: unknown };
+
+/** Local state, not a React Query mutation: the export is a one-shot download
+ *  with nothing to cache or invalidate, and the screens that host it (venue
+ *  settings, event detail) must not need a QueryClient just for this. */
 function useExportVenueData() {
   const { venueId } = usePoIdentity();
-  return useMutation<ExportOk, Error, ExportScope>({
-    mutationFn: async (scope) => {
-      if (!venueId) throw new ExportError('unauthorized');
-      const res = await exportVenueData({ venueId, scope });
-      if (!res.ok) throw new ExportError(res.error);
-      if (!downloadFile(res.zipBase64, res.filename, 'application/zip')) throw new ExportError('failed');
-      return res;
+  const [run, setRun] = useState<ExportRun>({ state: 'idle' });
+  const start = useCallback(
+    (scope: ExportScope): void => {
+      setRun({ state: 'pending' });
+      void (async () => {
+        try {
+          if (!venueId) throw new ExportError('unauthorized');
+          const res = await exportVenueData({ venueId, scope });
+          if (!res.ok) throw new ExportError(res.error);
+          if (!downloadFile(res.zipBase64, res.filename, 'application/zip')) throw new ExportError('failed');
+          setRun({ state: 'done', data: res });
+        } catch (error) {
+          setRun({ state: 'error', error });
+        }
+      })();
     },
-  });
+    [venueId],
+  );
+  return { run, start, isPending: run.state === 'pending' };
 }
 
 function useCanExport(): boolean {
@@ -56,7 +74,7 @@ function useCanExport(): boolean {
 /** Venue settings card: "Export everything". Renders nothing for non-admins. */
 export function ExportDataCard(): JSX.Element | null {
   const canExport = useCanExport();
-  const run = useExportVenueData();
+  const { run, start, isPending } = useExportVenueData();
   if (!canExport) return null;
   const native = isNativeShell();
 
@@ -70,8 +88,8 @@ export function ExportDataCard(): JSX.Element | null {
         {native ? (
           <Note icon="dl">{t.settings.export.nativeOnly}</Note>
         ) : (
-          <Btn kind="dark" full icon="dl" disabled={run.isPending} onClick={() => run.mutate('venue')}>
-            {run.isPending ? t.settings.export.busy : t.settings.export.everything}
+          <Btn kind="dark" full icon="dl" disabled={isPending} onClick={() => start('venue')}>
+            {isPending ? t.settings.export.busy : t.settings.export.everything}
           </Btn>
         )}
         <ExportStatus run={run} />
@@ -81,15 +99,15 @@ export function ExportDataCard(): JSX.Element | null {
   );
 }
 
-function ExportStatus({ run }: { run: ReturnType<typeof useExportVenueData> }): JSX.Element | null {
-  if (run.isError) {
+function ExportStatus({ run }: { run: ExportRun }): JSX.Element | null {
+  if (run.state === 'error') {
     return (
       <p role="alert" className="mt-[10px] text-[12.5px] text-red-300">
         {errorText(run.error)}
       </p>
     );
   }
-  if (run.isSuccess) {
+  if (run.state === 'done') {
     return (
       <p role="status" className="mt-[10px] text-[12.5px] text-acc-soft">
         {fmt(t.settings.export.done, { ...run.data.counts })}
@@ -102,7 +120,7 @@ function ExportStatus({ run }: { run: ReturnType<typeof useExportVenueData> }): 
 /** Event-detail row: "Export this event". Renders nothing for non-admins. */
 export function ExportEventRow({ eventId }: { eventId: string }): JSX.Element | null {
   const canExport = useCanExport();
-  const run = useExportVenueData();
+  const { run, start, isPending } = useExportVenueData();
   if (!canExport) return null;
   const native = isNativeShell();
 
@@ -110,8 +128,8 @@ export function ExportEventRow({ eventId }: { eventId: string }): JSX.Element | 
     <div className="mt-3">
       <button
         type="button"
-        disabled={native || run.isPending}
-        onClick={() => run.mutate({ eventId })}
+        disabled={native || isPending}
+        onClick={() => start({ eventId })}
         className={cn(
           'flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left',
           !native && press,
@@ -122,7 +140,7 @@ export function ExportEventRow({ eventId }: { eventId: string }): JSX.Element | 
         </span>
         <span className="min-w-0 flex-1">
           <span className="block font-body text-[15px] font-semibold text-text">
-            {run.isPending ? t.settings.export.busy : t.settings.export.eventOnly}
+            {isPending ? t.settings.export.busy : t.settings.export.eventOnly}
           </span>
           <span className="mt-px block text-[12.5px] text-faint">
             {native ? t.settings.export.nativeOnly : t.settings.export.logged}
@@ -138,12 +156,12 @@ export function ExportEventRow({ eventId }: { eventId: string }): JSX.Element | 
  *  for non-admins and in the native shell (the venue card explains why). */
 export function ExportEventButton({ eventId }: { eventId: string }): JSX.Element | null {
   const canExport = useCanExport();
-  const run = useExportVenueData();
+  const { run, start, isPending } = useExportVenueData();
   if (!canExport || isNativeShell()) return null;
   return (
     <div className="min-w-0 flex-1">
-      <Btn kind="quiet" full icon="dl" disabled={run.isPending} onClick={() => run.mutate({ eventId })}>
-        {run.isPending ? t.settings.export.busy : t.events.exportLabel}
+      <Btn kind="quiet" full icon="dl" disabled={isPending} onClick={() => start({ eventId })}>
+        {isPending ? t.settings.export.busy : t.events.exportLabel}
       </Btn>
       <ExportStatus run={run} />
     </div>
