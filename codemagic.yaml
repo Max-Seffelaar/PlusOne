@@ -1,10 +1,10 @@
 # Codemagic — native release builds (Fase 17, capacitor-plan-claude-code.md §2 decision 5).
 #
 # Android (S1a, 86ey6bfpy): signed AAB → Google Play INTERNAL track, as a draft.
-# iOS (S1b): placeholder at the bottom, commented out — not built yet.
+# iOS (S1b, z8uq9m0gvn): App Store build → App Store Connect / TestFlight internal testers.
 #
 # Runbook (what has to exist in Codemagic / Play Console before this works):
-#   docs/native/android-release.md
+#   docs/native/android-release.md, docs/native/ios-release.md
 #
 # Schema: https://docs.codemagic.io/yaml-basic-configuration/yaml-getting-started/
 #   android_signing: https://docs.codemagic.io/yaml-code-signing/signing-android/
@@ -49,9 +49,9 @@ workflows:
         APP_VERSION_NAME: "1.0.0"
         PACKAGE_NAME: app.plusone.guestlist
         PROD_SERVER_URL: https://app.plus-one.io
-        # Flip to "true" once N5 (push) is merged and android/app/google-services.json
-        # is committed — from then on a build without it fails instead of warning.
-        REQUIRE_GOOGLE_SERVICES: "false"
+        # N5 (push) is merged and android/app/google-services.json is committed, so a
+        # build without it must fail instead of shipping silently without push.
+        REQUIRE_GOOGLE_SERVICES: "true"
       node: 22
       java: 21
     triggering:
@@ -132,7 +132,7 @@ workflows:
             echo "ERROR: android/app/google-services.json is missing and REQUIRE_GOOGLE_SERVICES=true." >&2
             exit 1
           else
-            echo "WARNING: android/app/google-services.json is missing — this build has NO push notifications. Expected until N5 merges; then set REQUIRE_GOOGLE_SERVICES=true."
+            echo "WARNING: android/app/google-services.json is missing — this build has NO push notifications. The file is committed (N5); set REQUIRE_GOOGLE_SERVICES=true to make its absence fatal."
           fi
       - name: Point Gradle at the Android SDK
         script: |
@@ -184,42 +184,190 @@ workflows:
         submit_as_draft: true
 
   # ---------------------------------------------------------------------------
-  # S1b — iOS → TestFlight. PLACEHOLDER, NOT BUILT. Needs M1 (Apple org account),
-  # M3 (APNs key in Firebase) and an App Store Connect API key integration.
-  # Uncomment + fill in during S1b (z8uq9m0gvn). Same rules as Android: manual or
-  # `ios-v*` tag only, main-only ancestry check, CAP_SERVER_URL must be unset,
-  # APP_VERSION_NAME is the marketing version, BUILD_NUMBER the build number.
+  # S1b (z8uq9m0gvn) — iOS → TestFlight. Runbook: docs/native/ios-release.md.
+  # Guarded by tests/unit/codemagic-ios-release.test.ts. Same rules as Android:
+  # manual or `ios-v*` tag only, main-only, CAP_SERVER_URL refused, prod
+  # server.url asserted. Uploads to App Store Connect for TestFlight INTERNAL
+  # testers only — never submitted to Beta App Review or App Store review.
   # ---------------------------------------------------------------------------
-  # ios-release:
-  #   name: iOS release → TestFlight
-  #   instance_type: mac_mini_m2
-  #   max_build_duration: 60
-  #   integrations:
-  #     app_store_connect: <App Store Connect API key name>
-  #   environment:
-  #     ios_signing:
-  #       distribution_type: app_store
-  #       bundle_identifier: app.plusone.guestlist
-  #     vars:
-  #       APP_VERSION_NAME: "1.0.0"
-  #     node: 22
-  #   triggering:
-  #     events:
-  #       - tag
-  #     tag_patterns:
-  #       - pattern: 'ios-v*'
-  #         include: true
-  #   scripts:
-  #     - name: Refuse a non-prod server URL
-  #       script: '[ -z "${CAP_SERVER_URL+x}" ] || { echo "CAP_SERVER_URL set" >&2; exit 1; }'
-  #     - corepack enable && pnpm install --frozen-lockfile
-  #     - npx cap sync ios
-  #     - xcode-project use-profiles
-  #     - agvtool new-version -all "$BUILD_NUMBER"   # run in ios/App
-  #     - xcode-project build-ipa --project ios/App/App.xcodeproj --scheme App
-  #   artifacts:
-  #     - build/ios/ipa/*.ipa
-  #   publishing:
-  #     app_store_connect:
-  #       auth: integration
-  #       submit_to_testflight: true
+  ios-release:
+    name: iOS release → TestFlight (internal)
+    # Same free-plan machine as Android (checked 2026-09-25). Xcode + the Codemagic
+    # CLI tools (app-store-connect, xcode-project) are preinstalled.
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    labels:
+      - ios
+      - release
+    integrations:
+      # Team settings → Team integrations → Developer Portal: the App Store Connect
+      # API key saved under exactly this name. The .p8 lives there and in the
+      # password manager only.
+      app_store_connect: PlusOne ASC
+    environment:
+      ios_signing:
+        # Codemagic fetches (or creates) the App Store distribution certificate and
+        # profile through the integration above. Nothing signing-related in the repo.
+        distribution_type: app_store
+        bundle_identifier: app.plusone.guestlist
+      vars:
+        # Marketing version (CFBundleShortVersionString). Kept equal to the
+        # android-release APP_VERSION_NAME — the guard test fails if they drift.
+        APP_VERSION_NAME: "1.0.0"
+        BUNDLE_ID: app.plusone.guestlist
+        PROD_SERVER_URL: https://app.plus-one.io
+        # ios/App/App/GoogleService-Info.plist is committed (client identifiers, not a
+        # secret), so a build without it must fail instead of shipping without push.
+        REQUIRE_GOOGLE_SERVICE_INFO: "true"
+      node: 22
+      xcode: latest
+    triggering:
+      # No `push`/`pull_request` events, ever: manual start or an `ios-v*` tag.
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'ios-v*'
+          include: true
+    cache:
+      cache_paths:
+        - $HOME/Library/pnpm/store
+    scripts:
+      - name: Refuse a commit that is not on main
+        script: |
+          set -euo pipefail
+          # Same guard as android-release: only merged code gets released.
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then git fetch --unshallow origin; fi
+          git fetch origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "ERROR: $(git rev-parse HEAD) is not on origin/main. Release builds only come from main — merge first, then tag a main commit." >&2
+            exit 1
+          fi
+      - name: Refuse a non-prod server URL
+        script: |
+          set -euo pipefail
+          # CAP_SERVER_URL is the debug override read by capacitor.config.ts at sync
+          # time — it must not exist here, not even empty.
+          if [ -n "${CAP_SERVER_URL+x}" ]; then
+            echo "ERROR: CAP_SERVER_URL is set ('${CAP_SERVER_URL}'). Release builds always use the prod config. Remove it from the workflow/env groups." >&2
+            exit 1
+          fi
+      - name: Install dependencies (pnpm via corepack, frozen lockfile)
+        script: |
+          set -euo pipefail
+          corepack enable
+          pnpm --version
+          pnpm install --frozen-lockfile
+      - name: Sync the native project (prod config)
+        script: |
+          set -euo pipefail
+          npx cap sync ios
+          # Belt and braces: check what actually lands in the app bundle.
+          node -e '
+            const c = require("./ios/App/App/capacitor.config.json");
+            const want = process.env.PROD_SERVER_URL;
+            if (c.appId !== process.env.BUNDLE_ID) { console.error("ERROR: appId is " + c.appId); process.exit(1); }
+            if (want !== "https://app.plus-one.io") { console.error("ERROR: PROD_SERVER_URL is " + want + ", expected https://app.plus-one.io"); process.exit(1); }
+            if (!c.server || c.server.url !== "https://app.plus-one.io") { console.error("ERROR: server.url is " + (c.server && c.server.url) + ", expected exactly https://app.plus-one.io"); process.exit(1); }
+            if (c.server.cleartext) { console.error("ERROR: cleartext is enabled in a release build"); process.exit(1); }
+            if (!c.ios || c.ios.limitsNavigationsToAppBoundDomains !== true) { console.error("ERROR: ios.limitsNavigationsToAppBoundDomains is not true"); process.exit(1); }
+            console.log("capacitor.config.json OK: " + c.server.url);
+          '
+      - name: Check GoogleService-Info.plist (push)
+        script: |
+          set -euo pipefail
+          PLIST=ios/App/App/GoogleService-Info.plist
+          if [ -f "$PLIST" ]; then
+            GOT=$(/usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' "$PLIST")
+            if [ "$GOT" != "$BUNDLE_ID" ]; then
+              echo "ERROR: $PLIST is for bundle id '$GOT', expected $BUNDLE_ID (download the iOS app's file, not another app's)." >&2
+              exit 1
+            fi
+            echo "GoogleService-Info.plist present for $GOT — push is wired in."
+          elif [ "$REQUIRE_GOOGLE_SERVICE_INFO" = "true" ]; then
+            echo "ERROR: $PLIST is missing and REQUIRE_GOOGLE_SERVICE_INFO=true." >&2
+            exit 1
+          else
+            echo "WARNING: $PLIST is missing — this build has NO push notifications. Commit it (docs/native/ios-release.md), then set REQUIRE_GOOGLE_SERVICE_INFO=true."
+          fi
+      - name: Resolve Swift packages
+        script: |
+          set -euo pipefail
+          xcodebuild -list -project ios/App/App.xcodeproj
+          xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+      - name: Apply the App Store signing profile
+        script: |
+          set -euo pipefail
+          # Uses the certificate + profile Codemagic fetched for ios_signing above.
+          xcode-project use-profiles
+      - name: Build the signed IPA
+        script: |
+          set -euo pipefail
+          # Build number: TestFlight's latest + 1, never below BUILD_NUMBER — the same
+          # floor rule as Android's versionCode. App Store Connect refuses a build
+          # number it has already seen for this version.
+          APPS_JSON=$(app-store-connect apps list --bundle-id-identifier "$BUNDLE_ID" --strict-match-identifier --json) || {
+            echo "ERROR: could not list App Store Connect apps — check the 'PlusOne ASC' integration (docs/native/ios-release.md)." >&2
+            exit 1
+          }
+          APP_ID=$(printf '%s' "$APPS_JSON" | python3 -c 'import json,sys; a=json.load(sys.stdin); print(a[0]["id"] if len(a) == 1 else "")')
+          if [ -z "$APP_ID" ]; then
+            echo "ERROR: no App Store Connect app record for $BUNDLE_ID — create it first (docs/native/ios-release.md step 1)." >&2
+            exit 1
+          fi
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_ID" || true)
+          case "$LATEST" in
+            ''|*[!0-9]*) echo "WARNING: no build number from TestFlight (got '${LATEST}') — using 0 (expected only before the first upload)."; LATEST=0 ;;
+          esac
+          NEXT=$((LATEST + 1))
+          if [ "$NEXT" -lt "$BUILD_NUMBER" ]; then NEXT="$BUILD_NUMBER"; fi
+          echo "TestFlight latest=$LATEST, BUILD_NUMBER=$BUILD_NUMBER -> build $NEXT"
+          echo "Building $BUNDLE_ID $APP_VERSION_NAME ($NEXT)"
+          # Command-line build settings beat project.pbxproj (MARKETING_VERSION 1.0 /
+          # CURRENT_PROJECT_VERSION 1 there are local-dev defaults only).
+          xcode-project build-ipa \
+            --project ios/App/App.xcodeproj \
+            --scheme App \
+            --archive-xcargs "COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$NEXT MARKETING_VERSION=$APP_VERSION_NAME"
+          echo "$NEXT" > build/ios/ipa/build-number.txt
+      - name: Verify the IPA
+        script: |
+          set -euo pipefail
+          IPA=$(ls build/ios/ipa/*.ipa | head -n 1)
+          WORK="$CM_BUILD_DIR/ipa-check"
+          rm -rf "$WORK" && mkdir -p "$WORK"
+          unzip -q "$IPA" -d "$WORK"
+          APP=$(ls -d "$WORK"/Payload/*.app | head -n 1)
+          PB=/usr/libexec/PlistBuddy
+          check() { if [ "$2" != "$3" ]; then echo "ERROR: $1 is '$2', expected '$3'" >&2; exit 1; fi; echo "$1 OK: $2"; }
+          check CFBundleIdentifier "$($PB -c 'Print :CFBundleIdentifier' "$APP/Info.plist")" "$BUNDLE_ID"
+          check CFBundleShortVersionString "$($PB -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" "$APP_VERSION_NAME"
+          check CFBundleVersion "$($PB -c 'Print :CFBundleVersion' "$APP/Info.plist")" "$(cat build/ios/ipa/build-number.txt)"
+          check UIDeviceFamily "$($PB -c 'Print :UIDeviceFamily' "$APP/Info.plist" | tr -d ' \n')" "Array{12}"
+          check ITSAppUsesNonExemptEncryption "$($PB -c 'Print :ITSAppUsesNonExemptEncryption' "$APP/Info.plist")" "false"
+          codesign --verify --strict "$APP"
+          codesign -d --entitlements - --xml "$APP" > "$WORK/entitlements.plist"
+          check aps-environment "$($PB -c 'Print :aps-environment' "$WORK/entitlements.plist")" "production"
+          check get-task-allow "$($PB -c 'Print :get-task-allow' "$WORK/entitlements.plist" 2>/dev/null || echo false)" "false"
+          check associated-domains "$($PB -c 'Print :com.apple.developer.associated-domains:0' "$WORK/entitlements.plist")" "applinks:app.plus-one.io"
+          check WKAppBoundDomains "$($PB -c 'Print :WKAppBoundDomains' "$APP/Info.plist" | tr -d ' \n')" "Array{app.plus-one.io}"
+          # Committed but not bundled = the copy build phase silently did nothing
+          # (script sandboxing / path drift): a push-less build must never upload green.
+          if [ -f ios/App/App/GoogleService-Info.plist ] && [ ! -f "$APP/GoogleService-Info.plist" ]; then
+            echo "ERROR: ios/App/App/GoogleService-Info.plist is committed but missing from the IPA — the 'Copy GoogleService-Info.plist' build phase did not run (script sandboxing / path drift)." >&2
+            exit 1
+          fi
+          if [ -f "$APP/GoogleService-Info.plist" ]; then echo "GoogleService-Info.plist bundled."; else echo "WARNING: no GoogleService-Info.plist in the IPA (no push in this build)."; fi
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+      # Pins Firebase's transitive SPM packages — commit it after the first green run.
+      - ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Upload only. Internal testers get every processed build through the
+        # internal group's automatic distribution (runbook step 8). No Beta App
+        # Review (that is for external testers) and NEVER an App Store submission:
+        # releasing to the store stays a human action in App Store Connect.
+        submit_to_testflight: false
+        submit_to_app_store: false
