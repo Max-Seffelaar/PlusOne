@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CapacitorPushProvider,
+  INVALIDATE_TIMEOUT_MS,
   LAUNCH_TAP_TIMEOUT_MS,
   LISTEN_RETRY_MS,
   PUSH_CHANNEL_ID,
@@ -79,6 +80,10 @@ let configured: boolean | 'reject';
 let platform: string;
 /** What the config plugin's getLaunchTarget answers; 'missing' = an older shell (the proxy never settles). */
 let launch: { id?: string; data?: Record<string, unknown> } | 'missing' | 'reject';
+/** What isConfigured answers as `tokenTransport` (iOS shells from 86exxuvye say 'fcm'); undefined = omitted. */
+let tokenTransport: string | undefined;
+/** The iOS config plugin's invalidateToken; 'missing' = a shell without it (the proxy never settles). */
+let invalidate: ReturnType<typeof vi.fn<[], Promise<void>>> | 'missing';
 const loadConfigCalls = vi.fn();
 
 function deps(): CapacitorPushDeps {
@@ -90,9 +95,10 @@ function deps(): CapacitorPushDeps {
       const methods: Record<string, unknown> = {
         isConfigured: async () => {
           if (configured === 'reject') throw new Error('"PlusOnePushConfig" plugin is not implemented on android');
-          return { configured };
+          return tokenTransport === undefined ? { configured } : { configured, tokenTransport };
         },
       };
+      if (invalidate !== 'missing') methods.invalidateToken = invalidate;
       if (launch !== 'missing') {
         methods.getLaunchTarget = async () => {
           if (launch === 'reject') throw new Error('"getLaunchTarget" is not implemented on android');
@@ -111,6 +117,8 @@ beforeEach(() => {
   configured = true;
   platform = 'android';
   launch = {};
+  tokenTransport = undefined;
+  invalidate = vi.fn<[], Promise<void>>(async () => undefined);
   loadConfigCalls.mockClear();
 });
 afterEach(() => {
@@ -119,7 +127,9 @@ afterEach(() => {
 
 describe('gates: never touch Firebase when this build cannot push', () => {
   it.each([
-    ['iOS (APNs token until S1b)', 'ios', true],
+    ['an iOS shell that does not say it emits FCM tokens (pre-86exxuvye: raw APNs)', 'ios', true],
+    ['iOS without GoogleService-Info.plist', 'ios', false],
+    ['web', 'web', true],
     ['Android without google-services.json', 'android', false],
     ['an older shell without the config plugin', 'android', 'reject'],
   ] as const)('%s → unsupported, and register/unregister never reach the plugin', async (_label, plat, conf) => {
@@ -135,10 +145,23 @@ describe('gates: never touch Firebase when this build cannot push', () => {
     expect(push.requestPermissions).not.toHaveBeenCalled();
   });
 
-  it('isSupported is Android only', () => {
+  it('isSupported is the native shells only (iOS is then settled by tokenTransport)', () => {
     expect(new CapacitorPushProvider(deps()).isSupported()).toBe(true);
     platform = 'ios';
+    expect(new CapacitorPushProvider(deps()).isSupported()).toBe(true);
+    platform = 'web';
     expect(new CapacitorPushProvider(deps()).isSupported()).toBe(false);
+  });
+
+  it('an iOS shell without the FCM flag never loads the push plugin', async () => {
+    platform = 'ios';
+    let loadedPush = false;
+    const p = new CapacitorPushProvider({ ...deps(), loadPush: async () => ((loadedPush = true), { plugin: capacitorProxy(push) as never }) });
+    await p.checkPermission();
+    p.onRegistration(() => undefined);
+    await flush();
+    expect(loadedPush).toBe(false);
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });
 
@@ -369,10 +392,15 @@ describe('takeLaunchTap: the cold-start tap, read before the first screen (86ey6
     await expect(read).resolves.toBeNull();
   });
 
-  it('iOS / web → null without asking the shell', async () => {
-    platform = 'ios';
+  it('web → null without asking the shell', async () => {
+    platform = 'web';
     await expect(new CapacitorPushProvider(deps()).takeLaunchTap()).resolves.toBeNull();
     expect(loadConfigCalls).not.toHaveBeenCalled();
+  });
+
+  it('iOS → null (its config plugin answers {}; the tap arrives via pushNotificationActionPerformed)', async () => {
+    platform = 'ios';
+    await expect(settles(new CapacitorPushProvider(deps()).takeLaunchTap())).resolves.toBeNull();
   });
 
   it('a tap event carries the FCM message id through, for dedupe', async () => {
@@ -383,5 +411,93 @@ describe('takeLaunchTap: the cold-start tap, read before the first screen (86ey6
     await flush();
     push.emit('pushNotificationActionPerformed', { notification: { id: 'm-1', data: { kind: 'a' } } });
     expect(got).toEqual([{ id: 'm-1', data: { kind: 'a' } }]);
+  });
+});
+
+describe('iOS shell with FCM tokens (86exxuvye)', () => {
+  const FCM = 'dXk3:APA91bH-fcm-registration-token';
+  const APNS = 'A1B2C3D4E5F60718'.repeat(4); // 32 bytes hex, as the plugin formats an APNs token
+
+  beforeEach(() => {
+    platform = 'ios';
+    tokenTransport = 'fcm';
+  });
+
+  it('nothing reaches the push plugin before opt-in: no permission prompt, no register, no channel', async () => {
+    const p = new CapacitorPushProvider(deps());
+    await expect(p.checkPermission()).resolves.toBe('default');
+    p.onRegistration(() => undefined);
+    await flush();
+    expect(push.requestPermissions).not.toHaveBeenCalled();
+    expect(push.register).not.toHaveBeenCalled();
+    expect(push.createChannel).not.toHaveBeenCalled();
+  });
+
+  it('opt-in: register() resolves the FCM token labelled ios', async () => {
+    push.receive = 'granted';
+    push.register.mockImplementation(async () => {
+      setTimeout(() => push.emit('registration', { value: FCM }), 0);
+    });
+    await expect(settles(new CapacitorPushProvider(deps()).register())).resolves.toEqual({ token: FCM, transport: 'fcm', platform: 'ios' });
+  });
+
+  it('a raw APNs token is never handed on as FCM', async () => {
+    push.receive = 'granted';
+    push.register.mockImplementation(async () => {
+      setTimeout(() => push.emit('registration', { value: APNS }), 0);
+    });
+    const p = new CapacitorPushProvider(deps());
+    await expect(settles(p.register())).resolves.toBeNull();
+    const regs: unknown[] = [];
+    p.onRegistration((r) => regs.push(r));
+    await flush();
+    await flush();
+    push.emit('registration', { value: APNS.toLowerCase() });
+    expect(regs).toEqual([]);
+  });
+
+  it('token rotation: a later registration event reaches onRegistration (→ savePushToken re-registers)', async () => {
+    const p = new CapacitorPushProvider(deps());
+    const regs: unknown[] = [];
+    p.onRegistration((r) => regs.push(r));
+    await flush();
+    await flush();
+    push.emit('registration', { value: FCM });
+    push.emit('registration', { value: `${FCM}-rotated` });
+    expect(regs).toEqual([
+      { token: FCM, transport: 'fcm', platform: 'ios' },
+      { token: `${FCM}-rotated`, transport: 'fcm', platform: 'ios' },
+    ]);
+  });
+
+  it('unregister() drops the APNs registration AND invalidates the FCM token (sign-out / off)', async () => {
+    await settles(new CapacitorPushProvider(deps()).unregister());
+    expect(push.unregister).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('unregister() swallows an invalidateToken failure', async () => {
+    invalidate = vi.fn<[], Promise<void>>(async () => {
+      throw new Error('offline');
+    });
+    await expect(settles(new CapacitorPushProvider(deps()).unregister())).resolves.toBeUndefined();
+  });
+
+  it('unregister() never hangs on an invalidateToken that does not answer', async () => {
+    invalidate = 'missing';
+    const p = new CapacitorPushProvider(deps());
+    await p.checkPermission(); // warm the memoized plugin load with real timers
+    vi.useFakeTimers();
+    const done = p.unregister();
+    await vi.advanceTimersByTimeAsync(INVALIDATE_TIMEOUT_MS + 1);
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('Android unregister() does not call invalidateToken (its push plugin deletes the token itself)', async () => {
+    platform = 'android';
+    tokenTransport = undefined;
+    await settles(new CapacitorPushProvider(deps()).unregister());
+    expect(push.unregister).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

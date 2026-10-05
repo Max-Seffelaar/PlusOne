@@ -56,6 +56,16 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="@string/plusone_push_channel_id" />
+        <!-- Consent-first push (86exxuvye): no FCM token / Firebase installation ID
+             on cold start before the person opts in. The opt-in path still yields a
+             token: @capacitor/push-notifications' register() calls
+             setAutoInitEnabled(true) before getToken(), and its unregister() (Profile
+             "off", sign-out) sets it back to false and deletes the token. Firebase
+             persists the runtime value across restarts. No analytics flag: Firebase
+             Analytics is not on the classpath (only firebase-messaging). -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
     </application>
 
     <!-- Permissions -->

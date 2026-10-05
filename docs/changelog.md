@@ -35,6 +35,32 @@ writes are now insert-only (`ignoreDuplicates`). A re-run keeps the first run's 
 times. No migration, grant or RLS change. Not run here (no docker/supabase CLI): the seed
 end to end; reasoned against the migrations, plus lint/type-check/unit suite.
 
+## 2026-10-05 — iOS push on via FCM + no Firebase token before opt-in on Android (86exxuvye)
+
+Branch `claude/86exxuvye-ios-push-autoinit`, milestone Now. **Needs fresh native builds:
+iOS and Android.**
+- **Web (`capacitor-provider.ts`):** `isSupported()` is true on both native shells; on iOS
+  `ready()` additionally requires `isConfigured` → `tokenTransport: 'fcm'` (new in the iOS
+  `PushConfigPlugin`), so a pre-86exxuvye iOS build stays `unsupported` and never stores a
+  raw APNs token push-dispatch can't use. Belt and braces: an iOS token shaped like an APNs
+  token (64 hex) is dropped. `unregister()` on iOS also calls the new
+  `PlusOnePushConfig.invalidateToken` (auto-init off + `deleteToken`, capped at 3 s) — the
+  iOS push plugin's own `unregister()` only drops APNs; Android's plugin already deletes
+  the token. Sign-out (`invalidatePushTransportForSignOut`) and Profile "off" therefore
+  kill the FCM token on both platforms.
+- **iOS native:** `AppDelegate` sets `isAutoInitEnabled = true` only in
+  `didRegisterForRemoteNotificationsWithDeviceToken` (reached only via the web opt-in),
+  and a `MessagingDelegate` (`FcmTokenForwarder`) forwards rotated FCM tokens as the
+  plugin's `registration` event → push-client's persistent `onRegistration` →
+  `savePushToken` (gated on push 'on' here).
+- **Android native:** manifest `firebase_messaging_auto_init_enabled=false`; the plugin's
+  `register()` already calls `setAutoInitEnabled(true)` (Firebase docs: persists across
+  restarts). No analytics flag — Firebase Analytics isn't on the classpath. Rotation was
+  already handled (plugin `onNewToken` → `registration`).
+- Tests: `capacitor-provider.test.ts` — iOS gates (no FCM flag / no plist / web →
+  unsupported), nothing before opt-in, rotation, APNs-token rejection, invalidate on
+  unregister (+ failure / hang bounds), Android never calls invalidate.
+
 ## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-checklist-screenshot-sizes`, milestone Now. Docs only.
