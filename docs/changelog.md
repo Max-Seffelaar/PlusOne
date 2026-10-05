@@ -32,6 +32,13 @@ SECURITY DEFINER). Migration `20261006120000_retention_requests_complete.sql`:
   (no local stack). pgTAP: privacy (29→40), contacts.privacy (8→14), platform_invites
   (51→53), landing G7/G9/G11 moved to the new contract. Not run locally (no Supabase
   stack/docker in the build container) — CI is the first run.
+- Review round (review 5418338014): `platform_invites_insert` pins `anonymized_at is null`
+  (no pre-anonymized insert, pgTAP F3); Platform tab reads `email: string | null` and
+  renders an anonymized invite frozen (no Resend/Revoke); forget-path `anonymize` rows carry
+  the admin as `actor_id`; `redact_anonymized_request_audit_pii(p_request_ids uuid[] default
+  null)` is scoped to the erased ids on the forget path (nightly job unscoped);
+  `usePoForgetContact` also invalidates `poKeys.requests`; spec #49 records the 24-month
+  `platform_invites` retention. Phone-OR match left as is — decision for Max.
 ## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`

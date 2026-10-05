@@ -48,7 +48,7 @@ begin
 end;
 $fn$;
 
-select plan(53);
+select plan(54);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the seed)
@@ -448,6 +448,11 @@ select throws_ok(
       where id = 'fb000000-0000-7000-8000-0000000000b9' $$,
   '42501', null,
   'F2 ...nor bring an anonymized invite back: the row is frozen');
+select throws_ok(
+  $$ insert into public.platform_invites (email, note, invited_by, anonymized_at)
+     values (null, null, '99999999-9999-4999-8999-999999999999', now()) $$,
+  '42501', null,
+  'F3 ...nor insert a pre-anonymized (address-less, frozen) row');
 reset role;
 
 select * from finish();

@@ -147,7 +147,9 @@ function PlatformConsole(): JSX.Element {
       {confirmRevoke && (
         <ConfirmSheet
           icon="close"
-          title={fmt(t.platform.revokeConfirmTitle, { email: confirmRevoke.email })}
+          title={fmt(t.platform.revokeConfirmTitle, {
+            email: confirmRevoke.email ?? t.platform.anonymizedTitle,
+          })}
           confirmLabel={revoke.isPending ? t.platform.revoking : t.platform.revokeConfirm}
           confirmDisabled={revoke.isPending}
           cancelLabel={t.platform.cancel}
@@ -330,16 +332,21 @@ function InviteCard({
     invite.eventCount === 1
       ? fmt(t.platform.events, { count: invite.eventCount })
       : fmt(t.platform.eventsPlural, { count: invite.eventCount });
+  // An anonymized invite is frozen in the DB (z8uq9m2hm3): no address to mail,
+  // nothing to revoke — so no actions, same muted styling as a revoked one.
+  const frozen = invite.revoked || invite.anonymized;
 
   return (
-    <div className={cn('rounded-[16px] border border-line bg-elev p-[14px]', invite.revoked && 'opacity-70')}>
+    <div className={cn('rounded-[16px] border border-line bg-elev p-[14px]', frozen && 'opacity-70')}>
       <div className="flex min-w-0 items-start gap-[10px]">
         <span className="mt-px flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2 text-faint">
           <Icon name="mail" size={16} />
         </span>
         <div className="min-w-0 flex-1">
           {/* Plain text. Prospect PII + free-form operator input: never HTML. */}
-          <div className="truncate text-[14.5px] font-semibold text-text">{invite.email}</div>
+          <div className="truncate text-[14.5px] font-semibold text-text">
+            {invite.email ?? t.platform.anonymizedTitle}
+          </div>
           <div className="mt-0.5 text-[12px] text-faint">
             {fmt(t.platform.invitedOn, { date: day(invite.invitedAt) })}
             {invite.invitedByName ? ` · ${fmt(t.platform.invitedBy, { name: invite.invitedByName })}` : ''}
@@ -365,12 +372,14 @@ function InviteCard({
       )}
 
       <div className="mt-[11px] text-[11.5px] text-faint">
-        {invite.revoked && invite.revokedAt
-          ? fmt(t.platform.revokedOn, { date: day(invite.revokedAt) })
-          : fmt(t.platform.lastSent, { date: day(invite.lastSentAt) })}
+        {invite.anonymized
+          ? t.platform.anonymizedHelp
+          : invite.revoked && invite.revokedAt
+            ? fmt(t.platform.revokedOn, { date: day(invite.revokedAt) })
+            : fmt(t.platform.lastSent, { date: day(invite.lastSentAt) })}
       </div>
 
-      {!invite.revoked && (
+      {!frozen && (
         <>
           <div className="mt-[11px] flex flex-wrap gap-2">
             <Btn

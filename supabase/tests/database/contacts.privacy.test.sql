@@ -11,7 +11,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(14);
+select plan(15);
 
 -- Aged + unlinked → eligible. Its INSERT trips audit_contacts, leaving a PII diff.
 insert into public.contacts (id, venue_id, full_name, email, source, created_at, updated_at)
@@ -163,6 +163,13 @@ select is(
             group by entity_id) t),
   'ba000000-0000-7000-8000-0000000000e1=1,ba000000-0000-7000-8000-0000000000e2=1',
   'E6 exactly one anonymize audit row per forgotten request, none for the other venue''s');
+
+select is(
+  (select count(*)::int from public.audit_log
+    where entity_type = 'guest_requests' and action = 'anonymize'
+      and entity_id in ('ba000000-0000-7000-8000-0000000000e1', 'ba000000-0000-7000-8000-0000000000e2')
+      and actor_id = '11111111-1111-4111-8111-111111111111'),
+  2, 'E7 the forget-path anonymize rows name the admin who erased them (the nightly job writes null)');
 
 select * from finish();
 rollback;

@@ -42,6 +42,12 @@
 --    the same structure-preserving redaction the guest/contact/request paths
 --    use. (Decision 5 keeps the audit diffs of invites/venue_memberships/
 --    influencers; platform_invites is the stated exception that gets a sweep.)
+--    Two limits, by design: (a) "anonymized" covers platform_invites only —
+--    inviteBetaAction provisions an auth.users row via inviteUserByEmail, and
+--    that row keeps the prospect's address; plan decision 4 (inactive accounts:
+--    no sweep, erasure "on request") covers it. (b) Funnel decay is intended:
+--    a swept invite no longer joins auth.users, so even a converted customer's
+--    invite reports `invited`/`revoked` once it is 24 months idle.
 --
 -- Shape changes (expand-only for the deployed app):
 --   * platform_invites.anonymized_at (new, nullable); platform_invites.email
@@ -74,12 +80,23 @@ alter table public.platform_invites
 comment on column public.platform_invites.anonymized_at is
   'Set by run_privacy_retention() step 8 once the invite has seen no activity '
   'for 24 months: email and note are nulled, the row is frozen. Never set by '
-  'the app (guard_platform_invite_update).';
+  'the app (platform_invites_insert pins it null; guard_platform_invite_update '
+  'refuses it on UPDATE).';
 
 -- Grant matrix: unchanged. The table-level `grant select, insert, update ...
 -- to authenticated` from 20260923150000 covers the new column; RLS keeps it
--- platform-admin-only, and the guard below refuses any app-role write that
--- sets anonymized_at or touches an anonymized row.
+-- platform-admin-only. An invite is born un-anonymized (the policy below, the
+-- same pin as revoked_at), and the guard refuses any app-role UPDATE that sets
+-- anonymized_at or touches an anonymized row.
+
+alter policy platform_invites_insert on public.platform_invites
+  with check (
+    public.is_platform_admin()
+    and invited_by = (select auth.uid())
+    and revoked_at is null
+    and revoked_by is null
+    and anonymized_at is null
+  );
 
 -- ---------------------------------------------------------------------------
 -- 2. Immutability guard — admits exactly the owner's anonymize transition
@@ -201,6 +218,55 @@ comment on function public.redact_anonymized_platform_invite_audit_pii() is
   'Owner-only AVG scrub (#29, z8uq9m2hm3): nulls email/note in the audit diffs '
   'of every anonymized platform invite. Idempotent; called by '
   'run_privacy_retention.';
+
+-- ---------------------------------------------------------------------------
+-- 3b. redact_anonymized_request_audit_pii — optional id scope
+-- ---------------------------------------------------------------------------
+-- Body = 20260919090000 plus `p_request_ids`: null (the nightly job) keeps the
+-- global, self-healing sweep; forget_contact passes its own ids so a venue
+-- admin's click touches only the audit rows of the requests it just erased —
+-- never another tenant's, and no join against the whole anonymized population.
+-- The zero-arg signature is dropped (CREATE OR REPLACE cannot add a parameter);
+-- its only callers are run_privacy_retention and forget_contact, both redefined
+-- below. Owner-only, as before.
+
+drop function public.redact_anonymized_request_audit_pii();
+
+create or replace function public.redact_anonymized_request_audit_pii(
+  p_request_ids uuid[] default null
+)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_n integer := 0;
+begin
+  update public.audit_log a
+  set diff = public.redact_audit_diff(a.diff, jsonb_build_object(
+    'decision_message', 'null'::jsonb,
+    'decision_reason',  'null'::jsonb))
+  from public.guest_requests gr
+  where a.entity_type = 'guest_requests'
+    and a.entity_id = gr.id
+    and gr.anonymized_at is not null
+    and (p_request_ids is null or gr.id = any(p_request_ids))
+    and a.diff is not null
+    and (   (a.diff -> 'before' ->> 'decision_message') is not null
+         or (a.diff -> 'after'  ->> 'decision_message') is not null
+         or (a.diff -> 'before' ->> 'decision_reason')  is not null
+         or (a.diff -> 'after'  ->> 'decision_reason')  is not null);
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+revoke execute on function public.redact_anonymized_request_audit_pii(uuid[])
+  from public, anon, authenticated, service_role;
+
+comment on function public.redact_anonymized_request_audit_pii(uuid[]) is
+  'Owner-only AVG scrub (#29, z8uq9m0hw6): nulls decision_message/decision_reason in the audit diffs of anonymized guest requests — all of them (null, the nightly job) or the given ids (forget_contact). Idempotent.';
 
 -- ---------------------------------------------------------------------------
 -- 4. run_privacy_retention — dedupe_key/birthdate + platform_invites sweep
@@ -613,14 +679,15 @@ begin
     where m.request_id = any(v_request_ids);
 
     -- Their own approve/deny diffs lose the free-text decision fields, as in
-    -- retention step 4b (the helper is driven off anonymized_at).
-    perform public.redact_anonymized_request_audit_pii();
+    -- retention step 4b — scoped to exactly these requests.
+    perform public.redact_anonymized_request_audit_pii(v_request_ids);
 
-    -- One clean 'anonymize' entry per request — retention step 5's shape.
+    -- One clean 'anonymize' entry per request — retention step 5's shape, but
+    -- attributed to the admin who erased them (the nightly job writes null).
     insert into public.audit_log
       (actor_id, venue_id, event_id, entity_type, entity_id, action, diff, device_id)
     select
-      null, e.venue_id, gr.event_id, 'guest_requests', gr.id, 'anonymize',
+      (select auth.uid()), e.venue_id, gr.event_id, 'guest_requests', gr.id, 'anonymize',
       jsonb_build_object(
         'before', null,
         'after', jsonb_build_object(
