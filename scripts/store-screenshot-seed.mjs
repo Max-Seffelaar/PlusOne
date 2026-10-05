@@ -17,9 +17,10 @@
 //   * two upcoming events and one past event with a few guests, so Home and the
 //     Events list are not a single card.
 //   * an English, alcohol-free touch-up of the seed rows that would otherwise be
-//     visible: the seed tier "VIP + fles op tafel" (and its fles/champagne
-//     aliases) becomes "Artist", and the Dutch note/motivation/reason strings
-//     become English. Only on this throwaway stack — seed.sql is untouched.
+//     visible: the seed event "PLUSONE Launch Night" becomes "Launch Night",
+//     the seed tier "VIP + fles op tafel" (and its fles/champagne aliases)
+//     becomes "Artist", and the Dutch note/motivation/reason strings become
+//     English. Only on this throwaway stack — seed.sql is untouched.
 //     Append-only rows (check_ins, refusals: UPDATE is revoked even from
 //     service_role) are never touched up — they are inserted right, once.
 //
@@ -146,6 +147,10 @@ async function ensureDemoUser(db) {
 
 /** seed.sql rows that would otherwise show up in a shot: English, no alcohol. */
 async function touchUpSeed(db) {
+  // The seed event is an upcoming card on the demo admin's Home; its all-caps
+  // brand prefix reads as noise in a store shot. Name only — landing_slug and
+  // status stay, so no slug/link/status trigger fires (audit still records it).
+  must('seed event name', await db.from('events').update({ name: 'Launch Night' }).eq('id', SEED.event));
   must(
     'seed tier rename',
     await db

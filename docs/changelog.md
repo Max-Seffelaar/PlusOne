@@ -8,6 +8,33 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Home event card: layout keys on card width, not viewport (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-home-event-card-tablet`, milestone Now (blocks the Play store
+screenshots). Store shots at `play-tablet-7-inch` (792 CSS, bottom tabs) and
+`apple-ipad-13-inch` (1032 CSS, sidebar) showed the Home event card's name/meta column
+squeezed to ~100px: names wrapped per word, the LIVE/UPCOMING pill sat on the name, and the
+stats overlapped the venue/date line. Root cause: the shared card
+(`src/components/po/event-row.tsx`, also the door picker) went single-row at viewport `md:`,
+but its stats + actions need ~650px of fixed width, and the card itself is only ~700px at
+those widths. The row shape now keys on the card's own width (a CSS container query —
+`[container-type:inline-size]` + `[@container(min-width:860px)]:`, Tailwind 3 arbitrary
+variants, no plugin): under 860px the info block (name + pill, meta) sits on top and stats +
+actions share a row below that wraps when it doesn't fit; from 860px (1280+ desktop) it is
+the old single row. Phone is unchanged (stats row, then a full-width actions row). Name gets
+`break-words`, the pill is `shrink-0`; nothing is absolutely positioned. Count/action sizes
+and the `hitRing4` touch rings are untouched.
+
+Guard: the layout suite (`pnpm e2e:layout`) gets an `event-card` check on every screen ×
+device that renders `.evcard` (Home must render ≥1): no two of the `data-ev-part`
+name/chip/meta/counts/actions boxes may intersect, a missing part hook fails, and the
+name/meta column must be ≥160px (`EV_INFO_MIN`). Store seed: the seed event is renamed
+"Launch Night" in `scripts/store-screenshot-seed.mjs` (name only, service_role; seed.sql
+untouched). Verified here: lint, type-check, unit suite, and the real card rendered
+server-side and laid out in Chromium at 390/594/768/792/1024/1032/1280/1366/1440 — no
+overlaps, info column ≥291px everywhere. Not run here (no docker/supabase CLI): the layout
+suite itself — CI's `layout-suite` job runs it on the PR.
+
 ## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`

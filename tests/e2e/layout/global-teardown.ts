@@ -41,6 +41,7 @@ export default async function globalTeardown(): Promise<void> {
     const wide = device.width >= CHROME_BREAKPOINT;
     if (wide && (!s.sidebar.present || s.tabBar.present)) add('chrome', `expected sidebar only (sidebar=${s.sidebar.present}, tabbar=${s.tabBar.present})`, s);
     if (!wide && (s.sidebar.present || !s.tabBar.present)) add('chrome', `expected tab bar only (sidebar=${s.sidebar.present}, tabbar=${s.tabBar.present})`, s);
+    for (const e of s.evCardIssues ?? []) add('event-card', e.replace(/"[^"]*"/, '"…"'), s);
     for (const e of s.consoleErrors) add('console', e.slice(0, 240), s);
     for (const r of s.failedRequests) add('network', r, s);
     if (s.finalPath && !s.screenshot) add('load', `no screenshot for ${s.finalPath}`, s);
@@ -66,6 +67,7 @@ export default async function globalTeardown(): Promise<void> {
     if (s.overflow.length || s.docScrollWidth > s.innerWidth) failing.push('overflow');
     if (device.touch && s.smallTargets.length) failing.push('tap-targets');
     if (device.touch && s.smallFields.length) failing.push('field-targets');
+    if (s.evCardIssues?.length) failing.push('event-card');
     for (const check of failing) {
       const key = `${s.screenId} · ${check}`;
       perScreen.set(key, (perScreen.get(key) ?? new Set()).add(s.project));
