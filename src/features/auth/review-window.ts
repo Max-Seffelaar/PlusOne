@@ -81,6 +81,16 @@ export function configuredReviewCode(env: Env = process.env, now: number = Date.
   return strength >= MIN_CODE_CHARS ? code : null;
 }
 
+/**
+ * True exactly when /auth/review-login is on: the same predicate the route
+ * uses (configuredReviewCode() !== null), reduced to a boolean so a caller
+ * that only needs "is the window open" never holds the code. /login uses it to
+ * decide, server-side, whether to render the "App review sign-in" link.
+ */
+export function reviewLoginEnabled(env: Env = process.env, now: number = Date.now()): boolean {
+  return configuredReviewCode(env, now) !== null;
+}
+
 type MaybeUser = { id?: string | null; email?: string | null } | null | undefined;
 
 /**

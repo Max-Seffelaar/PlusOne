@@ -88,6 +88,8 @@ export const auth = {
 
   // ── App review sign-in (/auth/review-login, store reviewers only) ────────
   reviewTitle: 'App review sign-in',
+  // The /login link to the route above; only rendered while the review window is open.
+  reviewLoginLink: 'App review sign-in',
   reviewHelp: 'Enter the review code from the App Review notes to open the PlusOne demo venue.',
   reviewCodeLabel: 'Review code',
   reviewSubmit: 'Sign in',

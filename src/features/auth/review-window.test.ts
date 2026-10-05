@@ -6,6 +6,7 @@ import {
   demoSessionMustEnd,
   isDemoReviewUser,
   isExactDemoAccount,
+  reviewLoginEnabled,
   reviewWindowOpen,
 } from './review-window';
 
@@ -102,5 +103,25 @@ describe('demoSessionMustEnd — only the demo account, only when the window is 
       expect(demoSessionMustEnd(user, {}, NOW)).toBe(false);
       expect(demoSessionMustEnd(user, open, NOW)).toBe(false);
     }
+  });
+});
+
+describe('reviewLoginEnabled', () => {
+  it('is exactly "configuredReviewCode() !== null" (the route predicate), as a boolean', () => {
+    const cases: Array<Record<string, string | undefined>> = [
+      {},
+      { REVIEW_LOGIN_CODE: '', REVIEW_LOGIN_EXPIRES_AT: '' },
+      { REVIEW_LOGIN_CODE: CODE },
+      { REVIEW_LOGIN_EXPIRES_AT: FUTURE },
+      { REVIEW_LOGIN_CODE: 'abcd-efgh', REVIEW_LOGIN_EXPIRES_AT: FUTURE },
+      { REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW - DAY).toISOString() },
+      { REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW + (MAX_WINDOW_DAYS + 1) * DAY).toISOString() },
+      { REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: FUTURE },
+    ];
+    for (const env of cases) {
+      expect(reviewLoginEnabled(env, NOW)).toBe(configuredReviewCode(env, NOW) !== null);
+      expect(typeof reviewLoginEnabled(env, NOW)).toBe('boolean');
+    }
+    expect(reviewLoginEnabled({ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: FUTURE }, NOW)).toBe(true);
   });
 });

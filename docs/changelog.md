@@ -8,6 +8,34 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — S3 follow-up: "App review sign-in" link on /login (86ey6bfug)
+
+Branch `claude/86ey6bfug-review-signin-link`, milestone Now (store submission). Found in the
+S5 prep (PR #363): a store reviewer in the native shell (remote-URL webview, no address bar)
+could not reach `/auth/review-login` — `/login` had no link to it, App Links only claim
+`/auth/confirm` + `/auth/callback`, and the demo address has no mailbox, so OTP is no way in.
+Max decided option (a) on 2026-10-05.
+
+- `/login` renders a small secondary link "App review sign-in" → `/auth/review-login`
+  **only while the review window is open**. Decided server-side in `src/app/login/page.tsx`
+  with `reviewLoginEnabled()` — new in `src/features/auth/review-window.ts`, exactly
+  `configuredReviewCode() !== null` (the route's own predicate) reduced to a boolean. No
+  code, expiry or reason reaches the page or the client form; nothing in the request can
+  turn it on; the href is a fixed constant.
+- Plain same-origin `<a>` (not `next/link` — the target is a route handler; not
+  `openExternal`/`_blank` — it must stay in the webview). ≥44px tap target. Copy:
+  `t.auth.reviewLoginLink`.
+- `/login` now declares `dynamic = 'force-dynamic'` so a build taken during an open window
+  can never bake the link into static HTML. The service worker already never caches
+  `/login` (network-only bucket) — no SW change.
+- Tests: `src/app/login/page.test.tsx` (open → one link; closed / expired / too far out /
+  missing / empty-string / weak code → none; request params can't force it; no env value
+  in HTML or client props) + a `reviewLoginEnabled` ≡ route-predicate test.
+- Web-only change: no native rebuild. Docs: "Reaching it from the native app" in
+  `docs/review-login.md`.
+
+---
+
 ## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
 
 Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test
