@@ -8,6 +8,15 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — iOS GoogleService-Info.plist committed, required in build (z8uq9m0gvn)
+
+Branch `claude/z8uq9m0gvn-google-service-info`, milestone Now. Max registered the iOS app
+in Firebase; `ios/App/App/GoogleService-Info.plist` (bundle `app.plusone.guestlist`, project
+`plus-one-9c51e`, same as Android's `google-services.json`) is committed — client
+identifiers, not a secret (plan decision 13). `codemagic.yaml` ios-release now sets
+`REQUIRE_GOOGLE_SERVICE_INFO: "true"`; `tests/unit/codemagic-ios-release.test.ts` pins the
+flag and the tracked plist's bundle id / project id.
+
 ## 2026-10-01 — Play build requires google-services.json (86ey6bfpy)
 
 Branch `claude/86ey6bfpy-require-google-services`, milestone Now. N5 (push) is merged and
@@ -59,6 +68,34 @@ Max rebuilds via Codemagic; nothing on the web side changes.
   same auto-init gap** (no `firebase_messaging_auto_init_enabled` meta-data in the manifest)
   — own follow-up, not touched here. Not run here: any iOS build (no Xcode in the
   container) — the first Codemagic run is the real test.
+
+## 2026-10-05 — Neutral tier-alias examples in UI copy (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-neutral-alias-examples`, milestone Now (store submission). The IARC
+questionnaire asks whether the app's own content references alcohol; the shipped alias examples
+("bottle", "champagne") made the honest answer "yes". Replaced with "table"/"backstage" in
+`templates.ts`, `guests.ts` and `events.ts` (i18n surfaces). Parser logic, fixtures, seed and
+code comments untouched; a repo-wide `src/**` scan found no other user-visible alcohol words.
+
+## 2026-10-05 — S5 follow-up: Delete account row in Profile (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-delete-account-row`, milestone Now (store submission). Google
+Play requires apps with accounts to offer a web URL to request account deletion AND a
+path to start it in-app. Accounts are invite-only, so there is no self-service delete;
+deletion is by request (Max, 2026-10-05).
+
+- `src/lib/legal.ts`: `DELETE_ACCOUNT_URL` (`NEXT_PUBLIC_DELETE_ACCOUNT_URL`, default
+  `https://www.plus-one.io/delete-account`, the page built in the marketing-site repo;
+  requests go to `privacy@plus-one.io`). Other legal constants untouched.
+- Profile: an "Account" section at the bottom with a calm "Delete account" row
+  ("Request deletion of your PlusOne account"); the tap goes through the kit's
+  `openExternal` (system browser / Custom Tabs / SFSafariViewController in the native
+  shell). Every role, web and native: it is not billing, so no `isNativeShell` gate. No
+  confirmation, nothing is deleted from the app.
+- Tests: `settings/profile.delete-account.test.tsx` (renders per role, tap →
+  `openExternal(DELETE_ACCOUNT_URL)`, no `_blank`/`window.open`).
+- Store docs (PR #363) still need: Data safety "Delete account URL" =
+  `https://www.plus-one.io/delete-account`; in-app path = Profile → Delete account.
 
 ---
 

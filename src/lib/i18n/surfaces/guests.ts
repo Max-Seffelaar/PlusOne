@@ -206,7 +206,7 @@ export const guests = {
     subFallback: 'One guest per line',
     noUpcoming: 'No upcoming event to add to.',
     noTiers: 'This event has no guest tiers yet. Add one in event settings.',
-    placeholder: 'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink bottle\nLucas van Os +1',
+    placeholder: 'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink table\nLucas van Os +1',
     preview: 'Preview · {n} lines',
     toCheck: '{n} to check',
     rowUnknown: '"{x}" unknown',

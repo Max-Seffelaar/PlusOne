@@ -19,3 +19,12 @@ export const TERMS_URL = process.env.NEXT_PUBLIC_TERMS_URL ?? 'https://plus-one.
 
 /** Privacy Policy. */
 export const PRIVACY_URL = process.env.NEXT_PUBLIC_PRIVACY_URL ?? 'https://plus-one.io/legal#privacy';
+
+/**
+ * Account deletion request page (Google Play account-deletion policy, 86ey6bfyj).
+ * Accounts are invite-only, so there is no self-service delete: the page on the
+ * marketing site explains the by-request flow (privacy@plus-one.io). Opened from
+ * Profile → Delete account via the kit's `openExternal`.
+ */
+export const DELETE_ACCOUNT_URL =
+  process.env.NEXT_PUBLIC_DELETE_ACCOUNT_URL ?? 'https://www.plus-one.io/delete-account';

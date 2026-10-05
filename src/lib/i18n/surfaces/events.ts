@@ -212,7 +212,7 @@ export const events = {
   aliasesFeedLabel: 'Aliases · feed the quick-add',
   aliasesPlaceholder: 'backstage, bs, prod…',
   aliasesNote:
-    'Aliases decide what the quick-add picks up. "bottle" or "champagne" → VIP. The app asks about unknown words, never quietly drops to Regular.',
+    'Aliases decide what the quick-add picks up. "table" or "backstage" → VIP. The app asks about unknown words, never quietly drops to Regular.',
   loadingTiers: 'Loading tiers…',
   loadTiersError: "Couldn't load tiers. Try again in a moment.",
   emptyTiers: 'No guest tiers yet. Add one like "VIP" or "Guest".',
