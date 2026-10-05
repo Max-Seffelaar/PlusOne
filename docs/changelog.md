@@ -69,6 +69,14 @@ Max rebuilds via Codemagic; nothing on the web side changes.
   — own follow-up, not touched here. Not run here: any iOS build (no Xcode in the
   container) — the first Codemagic run is the real test.
 
+## 2026-10-05 — Neutral tier-alias examples in UI copy (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-neutral-alias-examples`, milestone Now (store submission). The IARC
+questionnaire asks whether the app's own content references alcohol; the shipped alias examples
+("bottle", "champagne") made the honest answer "yes". Replaced with "table"/"backstage" in
+`templates.ts`, `guests.ts` and `events.ts` (i18n surfaces). Parser logic, fixtures, seed and
+code comments untouched; a repo-wide `src/**` scan found no other user-visible alcohol words.
+
 ## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
 
 Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test
