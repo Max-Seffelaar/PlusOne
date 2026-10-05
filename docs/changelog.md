@@ -8,6 +8,24 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Legal v0.3 B3: platform_access_log + prod-data rule (z8uq9m2hm5)
+
+Branch `claude/z8uq9m2hm5-platform-access-log`, milestone Now, high-risk (grant matrix).
+Light variant of decision 3 (heavy, DB-enforced support sessions = z8uq9m0vyk, ≥25).
+Migration `20261006130000_platform_access_log.sql`: append-only table
+(`id, admin_id → auth.users default auth.uid(), venue_id → venues on delete cascade,
+reason ≤500, created_at`), RLS on, `revoke all` then `grant select, insert` to
+authenticated; insert only `is_platform_admin() and admin_id = auth.uid()`, select only
+`is_platform_admin()`, no update/delete; a BEFORE INSERT trigger server-stamps
+`created_at`. `switchActiveVenueAction` writes the row in its platform-admin branch
+(venue not in memberships ∪ crew venues) through the user-scoped client, before the
+cookie, and fails closed (throws → shell shows "couldn't switch, try again"). Platform tab
+→ Access log (`/app/platform/access`, `?venue=` filter), read-only, windowed. pgTAP
+`platform_access_log.test.sql` (23) + `tables.test.sql` table list. CLAUDE.md §Platform
+admins: reads sentence updated + decision-8 prod-data rule. Not run here (no Supabase
+stack in the container): `pnpm db:test`, `db reset`, e2e/layout — CI is the proof.
+Not done (scope fence): `docs/legal/README.md` "Keep in sync" line (A1 owns docs/legal).
+
 ## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-checklist-screenshot-sizes`, milestone Now. Docs only.
