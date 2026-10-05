@@ -127,6 +127,9 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
       // row's "View audit"); the filter sheet still lets the user widen back
       // to "All venues".
       return withVenueQuery('/app/platform/audit', id);
+    case 'platformaccess':
+      // Same `?venue=` pre-scope as the audit viewer.
+      return withVenueQuery('/app/platform/access', id);
     // Promotion hub (G3): 'overview' is the URL-less default tab — an explicit
     // {tab:'overview'} builds the same URL as {} (mirrors aanvragen's 'landing').
     case 'promotion':
@@ -267,6 +270,9 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
     if (second === 'venues') return { kind: 'screen', name: 'platformvenues', props: {} };
     if (second === 'audit') {
       return { kind: 'screen', name: 'platformaudit', props: { id: search.get('venue') ?? undefined } };
+    }
+    if (second === 'access') {
+      return { kind: 'screen', name: 'platformaccess', props: { id: search.get('venue') ?? undefined } };
     }
     return { kind: 'screen', name: 'platform', props: {} };
   }

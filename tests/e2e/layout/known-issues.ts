@@ -29,7 +29,7 @@ const FIELD =
 const FIELD_SCREENS = [
   'aanvragen', 'aanvragen.quota', 'checkin.door', 'contacten', 'eventedit', 'eventedit.new',
   'guests.admin', 'guests.door', 'home.admin', 'home.door', 'lijst', 'platform', 'platformaudit',
-  'platformvenues', 'profile', 'quickadd', 'templateedit', 'templateedit.new', 'venuecreate', 'venuesettings',
+  'platformaccess', 'platformvenues', 'profile', 'quickadd', 'templateedit', 'templateedit.new', 'venuecreate', 'venuesettings',
 ] as const;
 
 export const KNOWN_ISSUES: readonly KnownIssue[] = [
