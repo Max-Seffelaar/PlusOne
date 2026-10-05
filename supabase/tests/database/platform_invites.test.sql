@@ -48,7 +48,7 @@ begin
 end;
 $fn$;
 
-select plan(51);
+select plan(53);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the seed)
@@ -423,6 +423,32 @@ select cmp_ok((select count(*)::int from public.audit_log
                   and entity_id = 'fb000000-0000-7000-8000-0000000000b3'
                   and action = 'update'), '>', 0,
   'E2 the revoke is audited as an update');
+
+-- ---------------------------------------------------------------------------
+-- F. Anonymization is the retention job's alone (z8uq9m2hm3)
+-- ---------------------------------------------------------------------------
+-- run_privacy_retention() step 8 nulls email + note and stamps anonymized_at;
+-- the guard admits that transition only from the job's owner role, and freezes
+-- the row afterwards. The sweep itself is pinned in privacy.test.sql (d).
+
+insert into public.platform_invites (id, email, note, invited_by, anonymized_at)
+values ('fb000000-0000-7000-8000-0000000000b9', null, null,
+        '99999999-9999-4999-8999-999999999999', now());
+
+select pg_temp.login('99999999-9999-4999-8999-999999999999');
+select throws_ok(
+  $$ update public.platform_invites
+        set email = null, note = null, anonymized_at = now()
+      where id = 'fb000000-0000-7000-8000-0000000000b1' $$,
+  '42501', null,
+  'F1 a platform admin cannot anonymize an invite through the API (job only)');
+select throws_ok(
+  $$ update public.platform_invites
+        set email = 'terug@klant.test', anonymized_at = null
+      where id = 'fb000000-0000-7000-8000-0000000000b9' $$,
+  '42501', null,
+  'F2 ...nor bring an anonymized invite back: the row is frozen');
+reset role;
 
 select * from finish();
 rollback;
