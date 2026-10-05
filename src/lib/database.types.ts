@@ -1096,6 +1096,38 @@ export type Database = {
           },
         ]
       }
+      platform_access_log: {
+        Row: {
+          admin_id: string
+          created_at: string
+          id: string
+          reason: string | null
+          venue_id: string
+        }
+        Insert: {
+          admin_id?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          venue_id: string
+        }
+        Update: {
+          admin_id?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_access_log_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_invites: {
         Row: {
           anonymized_at: string | null

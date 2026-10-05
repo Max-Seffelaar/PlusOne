@@ -25,6 +25,7 @@ import type {
   PlatformVenueRow,
   PlatformVenueOption,
   PlatformAuditRow,
+  PlatformAccessLogRow,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatInTz as fmt, formatClock, toDateInput } from './format';
@@ -1209,6 +1210,31 @@ export interface PlatformVenueOptionItem {
 
 export function toPlatformVenueOption(row: PlatformVenueOption): PlatformVenueOptionItem {
   return { venueId: row.venue_id, name: row.name };
+}
+
+/** The ONE canonical shape the Platform > Access log screen renders (legal
+ *  v0.3 B3). `reason` is free-form operator text — plain text only. */
+export interface PlatformAccessLogEntry {
+  id: string;
+  adminId: string;
+  /** Null when the profile is gone — the screen supplies the fallback copy. */
+  adminName: string | null;
+  venueId: string;
+  venueName: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export function toPlatformAccessLogEntry(row: PlatformAccessLogRow): PlatformAccessLogEntry {
+  return {
+    id: row.id,
+    adminId: row.admin_id,
+    adminName: row.admin_name ?? null,
+    venueId: row.venue_id,
+    venueName: row.venue_name ?? null,
+    reason: row.reason ?? null,
+    createdAt: row.created_at,
+  };
 }
 
 /** The ONE canonical shape the Platform > Audit screen renders. `diff` stays

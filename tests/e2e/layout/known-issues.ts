@@ -9,7 +9,7 @@
  * a whole screen, and delete the entry in the PR that fixes the bug (the test
  * then runs again and proves the fix).
  */
-export type LayoutCheck = 'overflow' | 'tap-targets' | 'field-targets' | 'chrome' | 'console-network';
+export type LayoutCheck = 'overflow' | 'tap-targets' | 'field-targets' | 'chrome' | 'console-network' | 'event-card';
 
 export interface KnownIssue {
   screen: string;
@@ -29,7 +29,7 @@ const FIELD =
 const FIELD_SCREENS = [
   'aanvragen', 'aanvragen.quota', 'checkin.door', 'contacten', 'eventedit', 'eventedit.new',
   'guests.admin', 'guests.door', 'home.admin', 'home.door', 'lijst', 'platform', 'platformaudit',
-  'platformvenues', 'profile', 'quickadd', 'templateedit', 'templateedit.new', 'venuecreate', 'venuesettings',
+  'platformaccess', 'platformvenues', 'profile', 'quickadd', 'templateedit', 'templateedit.new', 'venuecreate', 'venuesettings',
 ] as const;
 
 export const KNOWN_ISSUES: readonly KnownIssue[] = [

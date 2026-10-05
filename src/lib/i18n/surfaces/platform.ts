@@ -80,6 +80,8 @@ export const platform = {
   venuesNavSub: 'Every company, at a glance',
   auditNavTitle: 'Audit',
   auditNavSub: 'Who did what, everywhere',
+  accessLogNavTitle: 'Access log',
+  accessLogNavSub: 'When we switched into a customer venue',
 
   // ── Venues screen ─────────────────────────────────────────────────────────
   venuesTitle: 'Venues',
@@ -137,4 +139,26 @@ export const platform = {
   auditDiffLabel: 'Before / after',
   auditNoDiff: 'No field-level diff for this action.',
   auditCountOf: '{shown} of {total}',
+
+  // ── Access log screen (legal v0.3 B3) ─────────────────────────────────────
+  // Internal only — the venue never sees this list; we share it on request
+  // (DPA 4.4). The subtitle says what is and isn't in it, so nobody reads it
+  // as a complete record of every read.
+  accessLogTitle: 'Access log',
+  accessLogSubtitle:
+    'Every switch by a platform admin into a venue they are not a member of. One row per switch, not per visit; direct database reads and other cross-venue screens are not in here.',
+  accessLogEmpty: 'No venue access logged for this filter.',
+  accessLogLoading: 'Loading the access log…',
+  accessLogLoadError: "Couldn't load the access log. Try again in a moment.",
+  accessLogFilterVenueLabel: 'Venue',
+  accessLogFilterAllVenues: 'All venues',
+  accessLogFilterClear: 'Clear filter',
+  accessLogUnknownAdmin: 'Unknown',
+  accessLogUnknownVenue: 'Unknown venue',
+  accessLogNoReason: 'No reason given',
+  accessLogColWho: 'Who',
+  accessLogColVenue: 'Venue',
+  accessLogColReason: 'Reason',
+  accessLogColWhen: 'When',
+  accessLogCountOf: '{shown} of {total}',
 } as const;

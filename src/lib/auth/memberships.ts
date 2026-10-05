@@ -155,11 +155,19 @@ export async function isPlatformAdminServer(): Promise<boolean> {
   const user = await getSessionUser();
   if (!user) return false;
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('user_profiles')
     .select('is_platform_admin')
     .eq('id', user.id)
     .maybeSingle();
+  // Throw on a read error rather than reading it as "not a platform admin":
+  // `switchActiveVenueAction` decides whether a `platform_access_log` row is
+  // owed from this, and a silent false would switch a platform admin in
+  // without one (fail-open). Every caller tolerates the throw:
+  // `getPlatformAdminVenue`'s callers (actions.ts, app/app/layout.tsx) both
+  // `.catch(() => null)`, and the crew path of the switch action lets it
+  // propagate so the switch fails closed.
+  if (error) throw error;
   return data?.is_platform_admin === true;
 }
 
