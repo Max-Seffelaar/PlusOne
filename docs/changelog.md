@@ -8,6 +8,34 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — session-setup `stack` mode: local Supabase stack in a cloud session
+
+Branch `claude/session-setup-stack-step`, milestone Now (no ClickUp task; Max's ask). Cloud
+sessions found pgTAP failures only in CI; now `pnpm stack` (= `node scripts/session-setup.mjs
+stack`) brings the local stack up inside the container so `pnpm db:test` runs before the push.
+
+- Opt-in and idempotent; never run by the SessionStart hook (gigabytes, minutes). Decisions in
+  `scripts/lib/stack-plan.mjs` (pure, unit-tested in `tests/unit/session-setup-stack.test.ts`),
+  execution in `session-setup.mjs`.
+- Cloud (`CLAUDE_CODE_REMOTE=true`, root): starts `dockerd` when `docker info` fails, installs the
+  pinned supabase CLI 2.119.0 (versioned release asset, sha256 from the release's checksums.txt,
+  extracted `--no-same-owner`), `supabase start`, `dev-env.mjs`. Laptop: never installs a binary
+  or starts a daemon — it reports what is missing and exits 1. `--start-docker` opts a
+  disposable root Linux box into the dockerd step (never the CLI install).
+- **dev-mfa is opt-in (`--dev-mfa`), against the brief:** measured here, a dev-mfa'd stack fails 6
+  pgTAP files (admin@ becomes a platform admin; pgTAP relies on it not being one). A `supabase
+  db reset` brings db:test back to 74 files / 1787 assertions green. The closing summary reads
+  admin@'s flag and says which state the stack is in. When it does run, dev-mfa gets the
+  stack's own URL + service key via env, so a prod-pointing `.env.local` can never be its target.
+- An existing `.env.local` is never touched (a non-local one is flagged).
+- Measured: from zero (no daemon, no CLI, no images) ≈ 5 min, mostly image pulls; cold with
+  cached images 35 s; a repeat run 5 s and restarts nothing.
+- Not covered: Playwright browsers. This container ships chromium build 1194, while
+  `@playwright/test` 1.60 wants 1223, so 5 of the 6 `e2e:smoke` specs could not launch a
+  browser (`api-health` passed against the stack). CI installs the browser in a separate step.
+
+---
+
 ## 2026-10-05 — Legal v0.3 A2: Guest Terms EN v0.3 + Dutch version (z8uq9m2hm2)
 
 Branch `claude/z8uq9m2hm2-guest-terms`, milestone Now. Text only; no code, no migration.
