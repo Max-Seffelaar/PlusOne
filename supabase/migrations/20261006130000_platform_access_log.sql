@@ -30,6 +30,11 @@
 --   * Other in-app cross-venue reads are not switches and write no row:
 --     Platform > Audit with `?venue=`, the Platform > Venues aggregates, a
 --     direct `/door/<eventId>` or `/e/<slug>` of another venue — all plain RLS.
+--   * A platform admin's flag satisfies `venue_memberships_insert`, so they can
+--     self-insert a REAL membership and then switch as a member: no row here.
+--     That insert is itself audited (`audit_venue_memberships`,
+--     20260613150000) and shows in the venue's team list; the same limitation
+--     is documented for the support badge in 20260924110000.
 --   * `admin_id references auth.users (id)` has no ON DELETE clause: a platform
 --     admin's auth user cannot be deleted while they have log rows. Consistent
 --     with `user_profiles.id … on delete restrict`, so nothing new is blocked;

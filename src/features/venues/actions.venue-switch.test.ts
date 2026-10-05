@@ -28,6 +28,7 @@ const H = vi.hoisted(() => ({
   platformVenue: null as Membership | null,
   // isPlatformAdminServer(): only consulted on the crew-only path.
   isPlatformAdmin: false,
+  isPlatformAdminThrows: false,
   cookieSet: vi.fn(),
   revalidatePath: vi.fn(),
   // platform_access_log insert (legal v0.3 B3): table name + row, and the
@@ -61,7 +62,10 @@ vi.mock('@/lib/auth/memberships', () => ({
     return H.organizerVenues;
   },
   getPlatformAdminVenue: async () => H.platformVenue,
-  isPlatformAdminServer: async () => H.isPlatformAdmin,
+  isPlatformAdminServer: async () => {
+    if (H.isPlatformAdminThrows) throw new Error('read failed');
+    return H.isPlatformAdmin;
+  },
 }));
 
 const { switchActiveVenueAction } = await import('./actions');
@@ -87,6 +91,7 @@ beforeEach(() => {
   H.organizerThrows = false;
   H.platformVenue = null;
   H.isPlatformAdmin = false;
+  H.isPlatformAdminThrows = false;
   H.cookieSet.mockClear();
   H.revalidatePath.mockClear();
   H.logInsert.mockClear();
@@ -217,6 +222,16 @@ describe('switchActiveVenueAction (86eykm7rk)', () => {
         admin_id: 'u1',
         venue_id: VENUE_CREW,
       });
+    });
+
+    it('fails closed when the platform-flag read errors on the crew-only path', async () => {
+      // A silent "false" here would switch a platform admin in without a row.
+      H.memberships = [membership(VENUE_A)];
+      H.organizerVenues = [crewVenue(VENUE_CREW)];
+      H.isPlatformAdminThrows = true;
+      await expect(switchActiveVenueAction(VENUE_CREW)).rejects.toThrow();
+      expect(H.cookieSet).not.toHaveBeenCalled();
+      expect(H.logInsert).not.toHaveBeenCalled();
     });
 
     it('logs nothing for an ordinary crew member (no platform flag)', async () => {
