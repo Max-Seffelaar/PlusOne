@@ -36,7 +36,11 @@ import {
 //      = REVIEW_LOGIN_EXPIRES_AT missing/unparseable/past/more than 60 days out,
 //      or REVIEW_LOGIN_CODE unset/blank/under 26 letters+digits
 //      (review-window.ts). The window closes by itself; nothing to unset.
-//   2. POST only: a cross-site Origin → 404 (no login CSRF into the demo account).
+//   2. POST only: an Origin other than our own → 404 (no login CSRF into the
+//      demo account). `Origin: null` is refused too: a sandboxed iframe or a
+//      data: page on an attacker site sends exactly that. Our own form gets a
+//      real Origin because its page runs under `Referrer-Policy: same-origin`
+//      (FORM_HEADERS below).
 //   3. Per-client attempt limiter BEFORE the compare, so every guess burns the
 //      sender's own budget. No global cap: nobody can lock the reviewer out.
 //   4. Constant-time code compare. The code is never read from a query string.
@@ -80,6 +84,19 @@ const NO_STORE = {
   'Referrer-Policy': 'no-referrer',
 } as const;
 
+// The form page only. Fetch "append a request Origin header": a POST from a
+// document whose referrer policy is `no-referrer` carries `Origin: null` even
+// same-origin, which gate 2 must refuse, so the page that hosts the form runs
+// under `same-origin` instead: a same-origin submit carries the real Origin,
+// and nothing cross-site ever gets a Referer. renderReviewForm sets the same
+// policy in a <meta>, which wins over whatever header reaches the browser.
+// Everything else (404s, redirects) keeps `no-referrer`.
+const FORM_HEADERS = {
+  ...NO_STORE,
+  'Referrer-Policy': 'same-origin',
+  'Content-Type': 'text/html; charset=utf-8',
+} as const;
+
 function notFound(): NextResponse {
   return new NextResponse(null, { status: 404, headers: NO_STORE });
 }
@@ -104,7 +121,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const error = formError(request.nextUrl.searchParams.get('error'));
   return new NextResponse(renderReviewForm(error), {
     status: 200,
-    headers: { ...NO_STORE, 'Content-Type': 'text/html; charset=utf-8' },
+    headers: FORM_HEADERS,
   });
 }
 
@@ -116,9 +133,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const client = reviewClientKey(request.headers);
 
-  // A form POST from a browser always carries Origin; a foreign one is a
-  // cross-site submit (login CSRF). Absent Origin = a non-browser client, which
-  // gains nothing over typing the code into the form itself.
+  // A form POST from a browser always carries Origin; a foreign one, or the
+  // opaque "null" (sandboxed iframe, data: page), is a cross-site submit (login
+  // CSRF). Our own form sends the real origin (FORM_HEADERS). Absent Origin = a
+  // non-browser client, which gains nothing over typing the code into the form.
   const origin = request.headers.get('origin');
   if (origin !== null && origin !== request.nextUrl.origin) {
     logReviewLogin('bad_origin', client);

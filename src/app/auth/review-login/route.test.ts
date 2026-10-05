@@ -168,6 +168,17 @@ describe('GET (enabled)', () => {
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('role="alert"');
   });
+
+  it('serves the form under Referrer-Policy same-origin (header + meta), never no-referrer', async () => {
+    // no-referrer on the form page makes every browser send `Origin: null` on
+    // the submit (Fetch "append a request Origin header"), which the POST refuses.
+    const { GET } = await route();
+    for (const url of [`${ORIGIN}/auth/review-login`, `${ORIGIN}/auth/review-login?error=code`]) {
+      const res = await GET(new NextRequest(url));
+      expect(res.headers.get('referrer-policy')).toBe('same-origin');
+      expect(await res.text()).toContain('<meta name="referrer" content="same-origin">');
+    }
+  });
 });
 
 describe('POST', () => {
@@ -214,6 +225,27 @@ describe('POST', () => {
     const res = await post(form(CODE), { origin: 'https://evil.example' });
     expect(res.status).toBe(404);
     expect(generateLink).not.toHaveBeenCalled();
+  });
+
+  it('Origin "null" (sandboxed iframe / data: page) → 404 even with the right code', async () => {
+    const res = await post(form(CODE), { origin: 'null' });
+    expect(res.status).toBe(404);
+    expect(generateLink).not.toHaveBeenCalled();
+  });
+
+  it('Origin "null" stays refused even with sec-fetch-site: same-origin', async () => {
+    const headers = new Headers({ origin: 'null', 'sec-fetch-site': 'same-origin', 'x-forwarded-for': freshIp() });
+    headers.set('content-type', 'application/x-www-form-urlencoded');
+    const { POST } = await route();
+    const res = await POST(new NextRequest(`${ORIGIN}/auth/review-login`, { method: 'POST', headers, body: form(CODE) }));
+    expect(res.status).toBe(404);
+    expect(generateLink).not.toHaveBeenCalled();
+  });
+
+  it('matching Origin + right code proceeds to generateLink', async () => {
+    const res = await post(form(CODE), { origin: ORIGIN });
+    expect(res.status).toBe(303);
+    expect(generateLink).toHaveBeenCalledTimes(1);
   });
 
   it('no lockout: 100 junk attempts spread over many IPs never block the reviewer on a fresh IP', async () => {
