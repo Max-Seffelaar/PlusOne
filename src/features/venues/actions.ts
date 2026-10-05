@@ -65,6 +65,23 @@ async function otherAdminCount(venueId: string, excludeUserId: string): Promise<
 }
 
 /**
+ * One `platform_access_log` row (legal v0.3 B3). Throws a generic error when
+ * the insert is refused or fails — the caller must not proceed without it.
+ * Only the Postgres error code is logged: the ids are not PII, but nothing
+ * else from the request belongs in a server log either.
+ */
+async function logPlatformVenueAccess(adminId: string, venueId: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('platform_access_log')
+    .insert({ admin_id: adminId, venue_id: venueId });
+  if (error) {
+    console.error('switchActiveVenue: platform_access_log insert failed', error.code);
+    throw new Error('venue-switch-failed');
+  }
+}
+
+/**
  * Outcome of an active-venue switch. Three cases, because the caller has to
  * treat them differently (86eykm7rk):
  *  - `ok`             cookie written, the caller may reload onto the new venue.
@@ -119,6 +136,18 @@ export async function switchActiveVenueAction(venueId: string): Promise<SwitchVe
     // a forged id for a non-admin still falls through to 'denied' below.
     const platformVenue = await getPlatformAdminVenue(parsed.data.venueId).catch(() => null);
     if (!platformVenue) return 'denied';
+
+    // Legal v0.3 B3 (decision 3): every such switch leaves a row in
+    // `platform_access_log`, written BEFORE the cookie through the caller's own
+    // user-scoped client — the insert policy (`is_platform_admin()` and
+    // `admin_id = auth.uid()`) is what confirms it, not this code. Fail CLOSED:
+    // if the row cannot be written the switch does not happen. Throwing (rather
+    // than returning 'denied') is deliberate — the shell maps a thrown action to
+    // "couldn't switch, try again", which is the honest message: access is
+    // fine, the log write failed. The reverse gap (row written, cookie write
+    // then fails) over-logs one switch that never happened; that is the safe
+    // direction for an access trail.
+    await logPlatformVenueAccess(user.id, parsed.data.venueId);
   }
 
   const cookieStore = await cookies();

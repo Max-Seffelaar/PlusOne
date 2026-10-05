@@ -28,13 +28,26 @@ const H = vi.hoisted(() => ({
   platformVenue: null as Membership | null,
   cookieSet: vi.fn(),
   revalidatePath: vi.fn(),
+  // platform_access_log insert (legal v0.3 B3): table name + row, and the
+  // error the user-scoped client reports (null = RLS accepted the row).
+  logInsert: vi.fn(),
+  logError: null as { code: string } | null,
 }));
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({ set: H.cookieSet }),
 }));
 vi.mock('next/cache', () => ({ revalidatePath: H.revalidatePath }));
-vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({}) }));
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({
+    from: (table: string) => ({
+      insert: async (row: unknown) => {
+        H.logInsert(table, row);
+        return { error: H.logError };
+      },
+    }),
+  }),
+}));
 vi.mock('@/lib/auth/context', () => ({
   getSessionUser: async () => H.user,
   getAuthContext: async () => null,
@@ -72,6 +85,8 @@ beforeEach(() => {
   H.platformVenue = null;
   H.cookieSet.mockClear();
   H.revalidatePath.mockClear();
+  H.logInsert.mockClear();
+  H.logError = null;
 });
 
 describe('switchActiveVenueAction (86eykm7rk)', () => {
@@ -150,6 +165,47 @@ describe('switchActiveVenueAction (86eykm7rk)', () => {
       H.platformVenue = null;
       await expect(switchActiveVenueAction(VENUE_B)).resolves.toBe('denied');
       expect(H.cookieSet).not.toHaveBeenCalled();
+      // A refused switch leaves no access-log row behind.
+      expect(H.logInsert).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── platform_access_log (legal v0.3 B3, z8uq9m2hm5) ──────────────────────
+  describe('platform access log', () => {
+    it('writes exactly one row, as the caller, BEFORE the cookie', async () => {
+      H.memberships = [membership(VENUE_A)];
+      H.platformVenue = { venueId: VENUE_B, venueName: 'Venue B', roles: [] };
+      await expect(switchActiveVenueAction(VENUE_B)).resolves.toBe('ok');
+      expect(H.logInsert).toHaveBeenCalledTimes(1);
+      expect(H.logInsert).toHaveBeenCalledWith('platform_access_log', {
+        admin_id: 'u1',
+        venue_id: VENUE_B,
+      });
+      expect(H.logInsert.mock.invocationCallOrder[0]).toBeLessThan(
+        H.cookieSet.mock.invocationCallOrder[0] ?? Infinity
+      );
+    });
+
+    it('fails closed: no cookie and a thrown action when the log insert is refused', async () => {
+      H.memberships = [membership(VENUE_A)];
+      H.platformVenue = { venueId: VENUE_B, venueName: 'Venue B', roles: [] };
+      H.logError = { code: '42501' };
+      await expect(switchActiveVenueAction(VENUE_B)).rejects.toThrow();
+      expect(H.cookieSet).not.toHaveBeenCalled();
+      expect(H.revalidatePath).not.toHaveBeenCalled();
+    });
+
+    it('logs nothing for a venue the caller reaches as a member', async () => {
+      await expect(switchActiveVenueAction(VENUE_B)).resolves.toBe('ok');
+      expect(H.logInsert).not.toHaveBeenCalled();
+    });
+
+    it('logs nothing for an external-crew venue — own access, not platform access', async () => {
+      H.memberships = [membership(VENUE_A)];
+      H.organizerVenues = [crewVenue(VENUE_CREW)];
+      H.platformVenue = { venueId: VENUE_CREW, venueName: 'Crew venue', roles: [] };
+      await expect(switchActiveVenueAction(VENUE_CREW)).resolves.toBe('ok');
+      expect(H.logInsert).not.toHaveBeenCalled();
     });
 
     it('never even calls the platform-admin fallback for a venue the caller already reaches', async () => {
