@@ -6,7 +6,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(5);
+select plan(6);
 
 select set_config('request.jwt.claims', '{"role": "anon"}', true);
 select set_config('role', 'anon', true);
@@ -35,6 +35,12 @@ reset role;
 select ok(
   has_function_privilege('anon', 'public.get_landing_event(text, text)', 'execute'),
   'grant matrix unchanged: anon may execute');
+
+select ok(
+  not has_function_privilege('public', 'public.get_landing_event(text, text)', 'execute')
+  or (select bool_or(a.grantee = 0) from pg_proc p, aclexplode(p.proacl) a
+       where p.oid = 'public.get_landing_event(text, text)'::regprocedure) is not true,
+  'PUBLIC holds no EXECUTE on get_landing_event');
 
 select * from finish();
 rollback;

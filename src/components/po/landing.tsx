@@ -114,10 +114,8 @@ export interface LandingEvent {
   name: string;
   date: string;
   time: string;
-  /** Optional context — only present when the anon data boundary exposes it. */
+  /** The venue's trade name (public read, decision 11): hero pin chip and the legal copy. */
   venue?: string;
-  /** The venue's trade name (public read, decision 11) — names who receives the details. */
-  venueName?: string;
   line?: string;
   closes?: string;
   /** Provenance of the request link ("via Jayden") — influencer/label links only. */
@@ -257,7 +255,7 @@ export function LandingForm({
   slug: string;
   action: SubmitAction;
 }): JSX.Element {
-  const venueName = event.venueName ?? t.landing.venueFallback;
+  const venueName = event.venue?.trim() || t.landing.venueFallback;
   const [name, setName] = useState('');
   const [plus, setPlus] = useState(0);
   const [email, setEmail] = useState('');

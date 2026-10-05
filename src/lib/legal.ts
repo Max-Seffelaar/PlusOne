@@ -28,10 +28,13 @@ export const GUEST_TERMS_URL =
   process.env.NEXT_PUBLIC_GUEST_TERMS_URL ?? 'https://plus-one.io/legal#guest-terms';
 
 /**
- * Guest-facing section of the Privacy Policy (plan §4 anchor). The venue has no
- * privacy URL of its own in the app, so "{venue}'s privacy notice" points here too.
+ * Privacy notice linked from the request page ("{venue}'s privacy notice", "How your
+ * details are used"). The venue has no privacy URL of its own in the app, so this is
+ * the PlusOne Privacy Policy. The live site has no `#guests` anchor yet (it would land
+ * on the Terms tab), so it equals PRIVACY_URL for now; wave D (legal v0.3) flips it to
+ * `${PRIVACY_URL.split('#')[0]}#guests` once plus-one.io knows that anchor.
  */
-export const GUEST_PRIVACY_URL = `${PRIVACY_URL.split('#')[0]}#guests`;
+export const GUEST_PRIVACY_URL = PRIVACY_URL;
 
 /**
  * Account deletion request page (Google Play account-deletion policy, 86ey6bfyj).

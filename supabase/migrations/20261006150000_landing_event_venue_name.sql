@@ -29,6 +29,8 @@ security definer
 set search_path = ''
 as $$
 begin
+  -- Same budget as record_link_pageview (a venue's door WiFi NATs many phones
+  -- behind one IP). Burns first, so probing costs budget even on a closed slug.
   if not public.consume_public_throttle('slug:' || p_ip_hash, 15, 60) then
     return;
   end if;

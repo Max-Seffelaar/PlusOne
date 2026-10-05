@@ -24,7 +24,7 @@ export const landing = {
   formTitle: 'Get yourself on the list',
   // 86eyke279: e-mail + phone are required now, so the sub no longer promises
   // that "the rest" is a bonus — it says what we need and why.
-  formSub: 'Name, email and phone. {venue} needs a way to reach you once your spot is confirmed.',
+  formSub: 'Name, email and phone, so {venue} can reach you once your spot is confirmed.',
   closesBanner: 'Sign-ups close {closes}',
 
   nameLabel: 'Name',

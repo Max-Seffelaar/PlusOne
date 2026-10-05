@@ -296,11 +296,11 @@ describe('Turnstile watchdog — stuck script load', () => {
 // Legal v0.3 B2 (z8uq9m2hm4): the venue is named and the Guest Terms are accepted
 // by sending the form (decision 11).
 describe('request page legal copy', () => {
-  const WITH_VENUE: LandingEvent = { ...EVENT, venueName: 'Club Vesper' };
+  const WITH_VENUE: LandingEvent = { ...EVENT, venue: 'Club Vesper' };
 
   it('names the venue instead of "the organizer"', () => {
     const { container } = render(<LandingForm event={WITH_VENUE} slug="x" action={vi.fn()} />);
-    expect(container.textContent).toContain('Club Vesper needs a way to reach you');
+    expect(container.textContent).toContain('so Club Vesper can reach you');
     expect(container.textContent).toContain('Your details go to Club Vesper');
     expect(container.textContent).not.toContain('organizer');
   });
@@ -312,8 +312,8 @@ describe('request page legal copy', () => {
       "By sending this request you accept the PlusOne Guest Terms and Club Vesper's privacy notice.",
     );
     expect(screen.getByRole('link', { name: 'PlusOne Guest Terms' })).toHaveAttribute('href', 'https://plus-one.io/legal#guest-terms');
-    expect(screen.getByRole('link', { name: 'privacy notice' })).toHaveAttribute('href', 'https://plus-one.io/legal#guests');
-    expect(screen.getByRole('link', { name: 'How your details are used' })).toHaveAttribute('href', 'https://plus-one.io/legal#guests');
+    expect(screen.getByRole('link', { name: 'privacy notice' })).toHaveAttribute('href', 'https://plus-one.io/legal#privacy');
+    expect(screen.getByRole('link', { name: 'How your details are used' })).toHaveAttribute('href', 'https://plus-one.io/legal#privacy');
     const send = screen.getByRole('button', { name: 'Request my spot' });
     expect(line.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -337,5 +337,6 @@ describe('request page legal copy', () => {
   it('falls back to a neutral name when the public read carries none', () => {
     const { container } = render(<LandingForm event={EVENT} slug="x" action={vi.fn()} />);
     expect(container.textContent).toContain("the organizer's privacy notice");
+    expect(container.textContent).toContain('so the organizer can reach you');
   });
 });
