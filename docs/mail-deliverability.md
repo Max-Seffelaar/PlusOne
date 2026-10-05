@@ -1,84 +1,96 @@
-# Mail deliverability — login OTP (Prod-ready 9/7 — task 10)
+# Mail deliverability — login OTP (Prod-ready 9/7 — task 10; sender moved in F3, 86ey6b3hv)
 
 **Why this matters:** login is 100% e-mail (OTP code + invite/magic links, decision #20).
 If auth mail lands in spam or bounces, **login is down**. This doc records what sends
-prod mail today, how the sending domain is authenticated, and the evidence that it
-actually delivers. Verified 2026-07-09.
+prod mail today, how the sending domain is authenticated, how to diagnose a failure, and
+the rules that keep it working. State verified 2026-10-05.
 
-## Verdict: 🟢 green, proven in production
+## Verdict: 🟢 green
 
-Prod auth mail is sent through **Resend** (SMTP) from **`theoperators.nl`**, an
-Operators-owned domain that is fully verified in Resend with correct SPF/DKIM/DMARC.
-Real testers on Gmail, Hotmail and business domains all received their mail in the
-inbox. Nothing to fix for launch. The remaining items are scale-time, not now.
+Prod auth mail is sent through **Resend** (SMTP) as **`PlusOne <noreply@plus-one.io>`**.
+The domain `plus-one.io` is verified in Resend with SPF/DKIM/DMARC in place. Gmail shows
+*mailed-by* `rsend.plus-one.io`, *signed-by* `plus-one.io`, delivered to **Inbox**.
 
 ## What sends prod mail
 
 - **Provider:** Resend, wired as Supabase Auth's **custom SMTP** (not the built-in
   shared Supabase mailer). Supabase only generates the OTP/invite/magic-link mails;
   Resend transports them via Amazon SES **eu-west-1**.
-- **Sending domain:** `theoperators.nl` — Resend domain status **verified**, sending
-  **enabled**, region **eu-west-1**. This is a *borrowed* Operators domain "for now";
-  a dedicated PlusOne sending domain is the F3 branded-mail work (ClickUp 86ey6b3hv).
-- **App origin at time of check:** `https://plus-one-the-operators.vercel.app` (still
-  the Vercel domain — no custom PlusOne app domain yet; also part of F3/branding).
+- **Supabase Auth SMTP settings:** host `smtp.resend.com`, port `465`, sender name
+  `PlusOne`, sender address `noreply@plus-one.io`.
+- **Sender domain:** the **apex `plus-one.io`**, no subdomain. This is a decision: the
+  sender is and stays the apex. Resend domain status **verified**, region **eu-west-1**.
+- **Retired:** the old sender `info@theoperators.nl` (a borrowed Operators domain) is
+  gone and its Resend DNS records at `theoperators.nl` were removed. Don't reintroduce it.
+- **App origin:** `https://app.plus-one.io` (Vercel project `plus-one`).
 - **Data residency:** everything stays in the EU — Supabase (Ireland), Resend/SES
-  (eu-west-1), Sentry (EU), Vercel (fra1). Consistent.
+  (eu-west-1), Sentry (EU), Vercel (fra1).
 
-## DNS authentication (verified via public resolver + Resend)
+## Supabase URL configuration (Auth → URL Configuration)
 
-Checked over DNS-over-HTTPS (`dns.google`) to bypass the local ISP resolver, and
-cross-checked against Resend's domain record:
+- **Site URL = `https://app.plus-one.io` — NO trailing slash.** The auth mail templates
+  append paths to the Site URL; a trailing slash produced broken `//auth/confirm` links.
+- **Redirect allow list:** `https://app.plus-one.io` and `https://app.plus-one.io/**`.
 
-| Record | Value | Result |
+## DNS authentication (DNS hosted at TransIP)
+
+| Record | Value | Purpose |
 |---|---|---|
-| DKIM `resend._domainkey.theoperators.nl` | 1024-bit RSA public key published | ✅ |
-| SPF `send.theoperators.nl` | `v=spf1 include:amazonses.com ~all` | ✅ (Resend return-path) |
-| Bounce MX `send.theoperators.nl` | `feedback-smtp.eu-west-1.amazonses.com` | ✅ EU region |
-| DMARC `_dmarc.theoperators.nl` | `v=DMARC1; p=none;` | ⚠️ present, monitor-only, no `rua=` |
-| apex MX | `mx.transip.email` (normal mailbox provider) | ℹ️ unrelated to sending |
+| DKIM `resend._domainkey.plus-one.io` | TXT, key supplied by Resend | signs the mail |
+| Return-path `send.plus-one.io` | MX → `feedback-smtp.eu-west-1.amazonses.com` + SPF TXT (`include:amazonses.com`) | bounce handling (the "mailed-by" side) |
+| DMARC `_dmarc.plus-one.io` | `v=DMARC1; p=none;` | monitor-only, no `rua=` |
+| Apex SPF `plus-one.io` | `v=spf1 include:_spf.google.com ~all` | Google Workspace mailboxes |
 
-Both **SPF and DKIM align** (relaxed) to the From domain, so auth mail **passes DMARC**
-→ inbox placement. `p=none` does not hurt delivery; it just means no enforcement and
-no aggregate reports are collected.
+**Exactly one SPF record on the apex.** Two `v=spf1` TXT records make SPF invalid
+(permerror) for the whole domain. A stray duplicate `v=spf1 ~all` was found on the apex
+and removed (2026-10-05); if mail ever starts failing SPF, count the apex `v=spf1`
+records first. The Resend SPF lives on `send.plus-one.io`, not the apex — don't merge it
+into the apex record.
 
-## Evidence it actually delivers (not just on-paper)
+DKIM and the return-path domain both align (relaxed) to the From domain, so auth mail
+passes DMARC. `p=none` does not hurt delivery; it just means no enforcement and no
+aggregate reports.
 
-**Resend send log — 11/11 delivered, 0 bounced, 0 complained** (as of 2026-07-09):
+## Troubleshooting
 
-- Recipients included **Gmail** (`…@gmail.com`), **Hotmail** (`pete_carlson@hotmail.com`),
-  and business domains (`@teamignition.nl`, `@thisplays.nl`, `@groeniek.nl`) — every
-  one `status: delivered`.
-- Subjects in use: `PlusOne: You've been invited`, `You've been invited`,
-  `Your sign-in link`.
+### Every OTP request returns 500 — `550 The plus-one.io domain is not verified`
 
-**Supabase auth logs (24h) + auth.users:** 10 users, 7 confirmed, 3 signed in the last
-7 days. **Zero SMTP/send-side errors** in the logs — the only mail-related log lines are
-user-side friction (`email link has expired`, `One-time token not found`, mistyped TOTP),
-never a delivery failure.
+Seen 2026-10-05. Cause: the sender domain is **not verified in the Resend account that
+owns the API key stored in Supabase SMTP** (wrong account/team, or the domain was
+verified in a different Resend account). Supabase can't send, so every `/otp` call fails.
+
+Diagnose: Supabase dashboard → **Logs → Auth**, filter on `/otp` with status `500`. The
+log line contains `550 The plus-one.io domain is not verified`. Fix: in Resend, open the
+account the Supabase API key belongs to → Domains → confirm `plus-one.io` is **Verified**
+(re-run verification after fixing DNS), or replace the key in Supabase with one from the
+account that has the verified domain.
+
+### Mail arrives in spam / SPF fails
+
+Check the apex has exactly one SPF record (above), DKIM `resend._domainkey` resolves, and
+Resend shows the domain as Verified.
+
+## Secret handling
+
+**The Resend SMTP API key lives in exactly two places: Supabase Auth SMTP settings and
+the password manager.** Never put it in the repo, `.env*` files, Vercel env vars, ClickUp,
+chat or screenshots. The app never sends auth mail itself, so it has no use for it. If it
+leaks, rotate it in Resend and paste the new one into Supabase.
 
 ## How to re-verify (recipe)
 
-- **Resend MCP / dashboard:** `list-domains` → confirm `theoperators.nl` = verified,
-  sending enabled. `list-emails` → confirm recent auth mail `status: delivered`, watch
-  for any `bounced`/`complained`.
-- **Supabase MCP:** `get_logs(service: "auth")` → scan for SMTP errors (there should be
-  none); `auth.users` for confirmed/sign-in counts.
+- **Resend dashboard:** Domains → `plus-one.io` verified, region eu-west-1; Emails → recent
+  auth mail `delivered`, watch for `bounced`/`complained`.
+- **Supabase:** Logs → Auth → scan for SMTP errors (there should be none).
+- **Gmail:** open a received mail → Show original → SPF/DKIM/DMARC all `PASS`.
 - **DNS:** query a **public** resolver (not the local ISP one, which hijacks lookups):
-  `resend._domainkey`, `send.<domain>` TXT+MX, `_dmarc.<domain>`.
+  `resend._domainkey.plus-one.io`, `send.plus-one.io` TXT+MX, `_dmarc.plus-one.io`, and the
+  apex TXT (one `v=spf1`).
 
 ## Open / scale-time (NOT blocking launch)
 
-1. **Borrowed domain (F3).** Login mail is `From @theoperators.nl` and the app is on a
-   `*.vercel.app` URL. Fine for pilots, but PlusOne's login deliverability is coupled to
-   another brand's domain reputation. Permanent fix = dedicated PlusOne sending + app
-   domain (branded-mail F3, 86ey6b3hv). Don't let "for now" become permanent silently.
-   The domain is chosen (2026-09-18): the app moves to `app.plus-one.io`, the marketing
-   site owns `plus-one.io`. The PlusOne sending domain (which subdomain of `plus-one.io`
-   Resend sends from) is still part of F3.
-2. **Resend plan / volume limits.** Every login is an OTP send. Confirm the Operators
-   Resend plan's daily/monthly caps before onboarding venues at scale (≥5–25). Volume is
-   trivial today (11 mails), so no issue yet.
-3. **DMARC `p=none`, no `rua=`.** Optional: add `rua=mailto:…@theoperators.nl` to collect
-   aggregate reports and get visibility. Consider tightening to `p=quarantine` later,
-   only after reports confirm all legit mail aligns.
+1. **Resend plan / volume limits.** Every login is an OTP send. Confirm the Resend plan's
+   daily/monthly caps before onboarding venues at scale (≥5–25).
+2. **DMARC `p=none`, no `rua=`.** Optional: add `rua=mailto:…@plus-one.io` to collect
+   aggregate reports. Consider tightening to `p=quarantine` later, only after reports
+   confirm all legit mail (incl. Google Workspace) aligns.
