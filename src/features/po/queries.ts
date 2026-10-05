@@ -2466,3 +2466,67 @@ export async function fetchPlatformAuditOverviewCount(
   if (error) throw error;
   return data ?? 0;
 }
+
+// ── Platform > Access log (legal v0.3 B3, z8uq9m2hm5) ──────────────────────
+
+export interface PlatformAccessLogRow {
+  id: string;
+  admin_id: string;
+  admin_name: string | null;
+  venue_id: string;
+  venue_name: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface PlatformAccessLogParams {
+  venueId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** One page of `platform_access_log`, newest first, optionally one venue, plus
+ *  the total for "X of Y". RLS returns rows to a platform admin only. The
+ *  admin names come from a second read keyed on the page's admin ids — at most
+ *  `limit` ids (≤ 50), never an unbounded list (CLAUDE.md Scale). */
+export async function fetchPlatformAccessLog(
+  client: Client,
+  params: PlatformAccessLogParams = {}
+): Promise<{ rows: PlatformAccessLogRow[]; total: number }> {
+  const limit = Math.min(Math.max(params.limit ?? 50, 1), 50);
+  const offset = Math.max(params.offset ?? 0, 0);
+  let q = client
+    .from('platform_access_log')
+    .select('id, admin_id, venue_id, reason, created_at, venues(name)', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (params.venueId) q = q.eq('venue_id', params.venueId);
+  const { data, error, count } = await q;
+  if (error) throw error;
+  const page = data ?? [];
+
+  const adminIds = [...new Set(page.map((r) => r.admin_id))];
+  const names = new Map<string, string | null>();
+  if (adminIds.length > 0) {
+    const { data: profiles, error: pErr } = await client
+      .from('user_profiles')
+      .select('id, full_name')
+      .in('id', adminIds);
+    if (pErr) throw pErr;
+    for (const p of profiles ?? []) names.set(p.id, p.full_name ?? null);
+  }
+
+  return {
+    total: count ?? 0,
+    rows: page.map((r) => ({
+      id: r.id,
+      admin_id: r.admin_id,
+      admin_name: names.get(r.admin_id) ?? null,
+      venue_id: r.venue_id,
+      venue_name: r.venues?.name ?? null,
+      reason: r.reason,
+      created_at: r.created_at,
+    })),
+  };
+}

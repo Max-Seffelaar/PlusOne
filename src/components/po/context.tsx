@@ -49,7 +49,9 @@ export type ScreenName =
   /** Platform > Venues (P-05) — same closed-by-RLS shape as 'platform'. */
   | 'platformvenues'
   /** Platform > Audit (P-05) — same closed-by-RLS shape as 'platform'. */
-  | 'platformaudit';
+  | 'platformaudit'
+  /** Platform > Access log (legal v0.3 B3) — same closed-by-RLS shape. */
+  | 'platformaccess';
 
 export interface ScreenProps {
   id?: string;

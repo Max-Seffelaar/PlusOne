@@ -95,6 +95,10 @@ const PlatformAudit = dynamic(
   () => import('./screens/platform-audit').then((m) => m.PlatformAudit),
   { loading: ScreenLoading, ssr: false },
 );
+const PlatformAccessLog = dynamic(
+  () => import('./screens/platform-access-log').then((m) => m.PlatformAccessLog),
+  { loading: ScreenLoading, ssr: false },
+);
 // QuickAdd (#2b): the guest quick-add flow carries the parser + dedupe engine and
 // (via the lazy phone field) the country picker — heavy and only ever reached by
 // tapping "add guest", never on the door-only / common path. Split into its own
@@ -184,6 +188,8 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav, ev: (id?: string)
       return <PlatformVenues />;
     case 'platformaudit':
       return <PlatformAudit venueId={p.id} />;
+    case 'platformaccess':
+      return <PlatformAccessLog venueId={p.id} />;
     default:
       return null;
   }

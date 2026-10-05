@@ -118,4 +118,7 @@ export const poKeys = {
   }) => [...poKeys.all, 'platform-audit', params] as const,
   platformAuditCount: (params: { venueId?: string; since?: string; until?: string }) =>
     [...poKeys.all, 'platform-audit-count', params] as const,
+  // Legal v0.3 B3: platform_access_log page (+ total), per venue filter/page.
+  platformAccessLog: (params: { venueId?: string; limit?: number; offset?: number }) =>
+    [...poKeys.all, 'platform-access-log', params] as const,
 } as const;
