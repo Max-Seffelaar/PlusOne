@@ -107,21 +107,20 @@ describe('demoSessionMustEnd — only the demo account, only when the window is 
 });
 
 describe('reviewLoginEnabled', () => {
-  it('is exactly "configuredReviewCode() !== null" (the route predicate), as a boolean', () => {
-    const cases: Array<Record<string, string | undefined>> = [
-      {},
-      { REVIEW_LOGIN_CODE: '', REVIEW_LOGIN_EXPIRES_AT: '' },
-      { REVIEW_LOGIN_CODE: CODE },
-      { REVIEW_LOGIN_EXPIRES_AT: FUTURE },
-      { REVIEW_LOGIN_CODE: 'abcd-efgh', REVIEW_LOGIN_EXPIRES_AT: FUTURE },
-      { REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW - DAY).toISOString() },
-      { REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW + (MAX_WINDOW_DAYS + 1) * DAY).toISOString() },
-      { REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: FUTURE },
-    ];
-    for (const env of cases) {
-      expect(reviewLoginEnabled(env, NOW)).toBe(configuredReviewCode(env, NOW) !== null);
-      expect(typeof reviewLoginEnabled(env, NOW)).toBe('boolean');
-    }
-    expect(reviewLoginEnabled({ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: FUTURE }, NOW)).toBe(true);
+  const cases: Array<[Record<string, string | undefined>, boolean]> = [
+    [{}, false],
+    [{ REVIEW_LOGIN_CODE: '', REVIEW_LOGIN_EXPIRES_AT: '' }, false],
+    [{ REVIEW_LOGIN_CODE: CODE }, false],
+    [{ REVIEW_LOGIN_EXPIRES_AT: FUTURE }, false],
+    [{ REVIEW_LOGIN_CODE: 'abcd-efgh', REVIEW_LOGIN_EXPIRES_AT: FUTURE }, false],
+    [{ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW - DAY).toISOString() }, false],
+    [{ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: new Date(NOW + (MAX_WINDOW_DAYS + 1) * DAY).toISOString() }, false],
+    [{ REVIEW_LOGIN_CODE: CODE, REVIEW_LOGIN_EXPIRES_AT: FUTURE }, true],
+  ];
+
+  it.each(cases)('%j → %s', (env, expected) => {
+    expect(reviewLoginEnabled(env, NOW)).toBe(expected);
+    // Still the route's predicate: configuredReviewCode() is non-null exactly when enabled.
+    expect(configuredReviewCode(env, NOW) !== null).toBe(expected);
   });
 });

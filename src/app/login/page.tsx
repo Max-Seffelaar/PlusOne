@@ -36,8 +36,12 @@ export default async function LoginPage({
   // /auth/confirm, `devlogin` from the local dev shortcut). Tell the user what
   // happened and put the "send me a code" step right in front of them, instead
   // of a generic dead end (P-01). An unknown value is ignored.
+  // An own-key check, not `in`: inherited keys (`?error=constructor`) must not
+  // pass. hasOwnProperty.call because the tsconfig lib predates Object.hasOwn.
   const errorKind =
-    error && error in LOGIN_ERROR_MESSAGES ? (error as LoginErrorKind) : undefined;
+    error && Object.prototype.hasOwnProperty.call(LOGIN_ERROR_MESSAGES, error)
+      ? (error as LoginErrorKind)
+      : undefined;
   // Store reviewers in the native shell have no address bar and the demo
   // address has no mailbox, so this link is their only way to the review route.
   // Decided here on the server with the route's own predicate; only this
@@ -56,7 +60,7 @@ export default async function LoginPage({
           href={REVIEW_LOGIN_PATH}
           className="text-dim mt-6 inline-flex min-h-[44px] items-center px-3 text-sm underline underline-offset-4 hover:brightness-125"
         >
-          {t.auth.reviewLoginLink}
+          {t.auth.reviewTitle}
         </a>
       ) : null}
     </main>

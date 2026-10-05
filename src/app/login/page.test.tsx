@@ -123,3 +123,19 @@ describe('/login review sign-in link', () => {
     expect(Object.keys(formProps[0] ?? {}).sort()).toEqual(['errorKind', 'nextPath']);
   });
 });
+
+describe('/login ?error= mapping', () => {
+  it('maps a known error kind through to the form', async () => {
+    await renderLogin({ error: 'link' });
+    expect(formProps[0]?.errorKind).toBe('link');
+  });
+
+  it.each(['constructor', 'hasOwnProperty', 'toString', '__proto__'])(
+    'ignores the inherited key ?error=%s (no errorKind)',
+    async (error) => {
+      await renderLogin({ error });
+      expect(formProps).toHaveLength(1);
+      expect(formProps[0]?.errorKind).toBeUndefined();
+    },
+  );
+});

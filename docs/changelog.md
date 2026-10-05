@@ -78,7 +78,7 @@ Max decided option (a) on 2026-10-05.
   turn it on; the href is a fixed constant.
 - Plain same-origin `<a>` (not `next/link` — the target is a route handler; not
   `openExternal`/`_blank` — it must stay in the webview). ≥44px tap target. Copy:
-  `t.auth.reviewLoginLink`.
+  reuses `t.auth.reviewTitle`, so link text and the page heading cannot drift.
 - `/login` now declares `dynamic = 'force-dynamic'` so a build taken during an open window
   can never bake the link into static HTML. The service worker already never caches
   `/login` (network-only bucket) — no SW change.
@@ -87,6 +87,13 @@ Max decided option (a) on 2026-10-05.
   in HTML or client props) + a `reviewLoginEnabled` ≡ route-predicate test.
 - Web-only change: no native rebuild. Docs: "Reaching it from the native app" in
   `docs/review-login.md`.
+- Review round (review 5414857452): merged main; the route's GET gate and
+  `demoSessionMustEnd` now call `reviewLoginEnabled()` too (one predicate; POST still reads
+  `configuredReviewCode()` because it compares the value); `reviewLoginEnabled` test is
+  `[env, expected]` pairs; docs: link-first review notes in "Per submissie" step 4, a
+  "Hoe het werkt" pointer, and the one-page-load expiry race (link → 404, deliberately
+  kept). Pre-existing fix: `/login?error=` uses an own-key check (`hasOwnProperty.call`; the tsconfig lib predates `Object.hasOwn`), so `?error=constructor`
+  / `hasOwnProperty` no longer crash the form (tested).
 
 ---
 
