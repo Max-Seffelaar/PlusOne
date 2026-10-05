@@ -26,6 +26,20 @@ before the cookie, and fails closed (throws → shell shows "couldn't switch, tr
 admins: reads sentence updated + decision-8 prod-data rule. Not run here (no Supabase
 stack in the container): `pnpm db:test`, `db reset`, e2e/layout — CI is the proof.
 Not done (scope fence): `docs/legal/README.md` "Keep in sync" line (A1 owns docs/legal).
+## 2026-10-05 — Legal v0.3 A1: docs text v0.3 (z8uq9m2hm1)
+
+Branch `claude/z8uq9m2hm1-legal-v03-docs`, milestone Now. Text only; no code, no migration.
+`docs/legal/` DPA, ToS, privacy policy, subprocessor list and README → v0.3 (2026-10-05) per
+`legal-v03-plan-claude-code.md` §3 A1: audit role split (processor for guest data, controller for
+accounts/platform), Platform Administrator access logging, Anthropic as subprocessor (entity,
+safeguard, certifications still `[verify]`), Attio/Slack moved to B, Cloudflare Turnstile and
+Resend/SES in DPA Annex 2, self-service export and 7-day backups, audit-record retention, entity
+(The Operators, eenmanszaak, KvK 99992841), court, cap floor EUR 5,000, PlusOne termination for
+convenience, partner/pilot terms, push text never shows the event name. README: version table
+incl. Guest Terms row, questions 3/4/6/7/8 ticked, follow-ups mapped to B1/B2/B3/E1, new Max
+checklist items. One line at N5 in `capacitor-plan-claude-code.md` (D12); dated note in
+`docs/mail-deliverability.md` (sender domain). Reviewer wording for ToS 7.8/16.2 was not in the
+repo: written from plan decisions 12 and 14. `guest-terms.md` untouched (A2).
 ## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`

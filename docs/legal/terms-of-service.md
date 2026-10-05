@@ -1,12 +1,12 @@
 # PlusOne — Terms of Service (Venues and Organizers)
 
-> **DRAFT v0.2 — 24 September 2026 — NOT LEGALLY REVIEWED.**
-> Supersedes draft v0.1 (9 July 2026). This draft must be reviewed by a Dutch lawyer before any customer signs or the terms are published. Bracketed placeholders `[like this]` must be completed first.
+> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
+> Supersedes draft v0.2 (24 September 2026). This draft must be reviewed by a Dutch lawyer before any customer signs or the terms are published. Bracketed placeholders `[like this]` must be completed first.
 > Publishes to `https://plus-one.io/legal#terms`. Guests and requesters are covered by the separate **Guest Terms** (`guest-terms.md`, proposed `https://plus-one.io/legal#guest-terms`).
 
-**Last updated:** [date of publication]
+**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
 
-These Terms of Service (the "**Terms**") govern the use of the PlusOne guest list platform (the "**Service**") provided by **[PlusOne V.O.F. / PlusOne B.V.]**, registered with the Dutch Chamber of Commerce under number [KvK number], with registered address at [address] ("**PlusOne**", "**we**", "**us**"). The Service is offered exclusively to businesses and professional organizations (B2B). By creating a venue, accepting an invitation to a venue, or otherwise using the Service, the Customer and its Users agree to these Terms.
+These Terms of Service (the "**Terms**") govern the use of the PlusOne guest list platform (the "**Service**") provided by **The Operators**, a sole proprietorship (eenmanszaak) registered with the Dutch Chamber of Commerce under number 99992841, owner Max Merlijn Seffelaar, with registered address at Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands ("**PlusOne**", "**we**", "**us**"). The Service is offered exclusively to businesses and professional organizations (B2B). By creating a venue, accepting an invitation to a venue, or otherwise using the Service, the Customer and its Users agree to these Terms.
 
 ## 1. Definitions
 
@@ -21,7 +21,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 - **Event**: an event (night, show, party, private function) that the Customer creates in the Service under its Venue.
 - **Guest**: a natural person who is placed on a guest list for an Event, who submits a request for a spot via a Request Link, or who is checked in or refused at the Door.
 - **Guest Data**: personal data of Guests and of address book contacts processed in the Service on behalf of the Customer (as further described in the DPA).
-- **Guest Terms**: the short terms that apply between PlusOne and Guests who use the public request pages and status pages of the Service.
+- **Guest Terms**: the short terms that apply between PlusOne and Guests who use the public request pages and status pages of the Service. In the Guest Terms, "Venue" means the venue, club or organizer that shared the link with the Guest, i.e. the Customer and its Venue in the sense of these Terms.
 - **Intellectual Property Rights**: all intellectual property rights worldwide, whether registered or not, including copyright, database rights, trademarks, trade names, design rights, patents, know-how and rights in software and documentation, and all applications for and renewals of such rights.
 - **Native App**: the PlusOne app for iOS and Android, distributed through the Apple App Store and Google Play, which loads the same Service in a native shell.
 - **Organizer**: a User who is granted access to one or more specific Events of a Venue (for example an external promoter) rather than to the Venue as a whole.
@@ -101,7 +101,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 ## 7. Fees and payment
 
-7.1. **Pricing.** Subscription fees and plan contents are as stated at `https://plus-one.io/pricing` [confirm URL] at the time of subscribing, or in a written order. All amounts are in euros and **exclusive of VAT** (BTW) and any other applicable taxes.
+7.1. **Pricing.** Subscription fees and plan contents are as stated at `https://www.plus-one.io/pricing` at the time of subscribing, or in a written order. All amounts are in euros and **exclusive of VAT** (BTW) and any other applicable taxes.
 
 7.2. **Payment provider.** Fees are collected through PlusOne's payment provider Stripe. Available payment methods are **iDEAL** and **SEPA Direct Debit**; the iDEAL confirmation of the first payment establishes the SEPA Direct Debit mandate for subsequent renewals. PlusOne never receives or stores bank account numbers, IBANs or card details; these are held by the payment provider. Invoices are made available by the payment provider.
 
@@ -115,7 +115,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 7.7. **Taxes.** The Customer is responsible for providing a valid VAT number and billing details and for any taxes that apply to its use of the Service other than PlusOne's own income taxes.
 
-7.8. **Pilot and comped arrangements.** PlusOne may agree with a Customer that a Venue uses the Service without charge for a pilot period or as a partner ("comped"). Such an arrangement is agreed in writing (e-mail suffices), may be ended by either party with [30] days' notice, and does not otherwise change these Terms; in particular the DPA, section 8 (acceptable use) and section 14 (liability) apply in full.
+7.8. **Pilot and partner arrangements.** PlusOne may agree with a Customer that a Venue uses the Service without charge for a fixed pilot or partner period ("comped"). Such an arrangement is agreed in writing (e-mail suffices) and states the end date of the free period and the rate that applies afterwards. Unless the Customer cancels before the end date, the Venue continues as a paid Subscription at that rate from the end date, without a further order. Either party may end the arrangement earlier with [30] days' notice. It does not otherwise change these Terms; in particular the DPA, section 8 (acceptable use) and section 14 (liability) apply in full.
 
 7.9. **No purchases in the Native Apps.** Subscriptions, plan changes, payment methods and invoices are managed exclusively through the web application. The Native Apps show billing status only and contain no purchase, upgrade or checkout functionality. Nothing is sold through the app stores.
 
@@ -141,7 +141,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 9.4. **Accuracy and minimization.** The Customer will enter only the Guest Data it needs. A name is the only mandatory field for a guest list entry; a request through a Request Link requires name, e-mail address and phone number so that the Customer can reach the Guest.
 
-9.5. **Retention and anonymization.** The Customer configures a retention period per Venue (between 1 and 60 months after each Event ends; default 12 months). After that period the Service **irreversibly anonymizes** the Guest Data of the Event automatically, as described in the DPA. The Customer is responsible for choosing a retention period that fits its own legal obligations and for exporting anything it needs to keep before that period expires. Anonymization cannot be undone by PlusOne.
+9.5. **Retention and anonymization.** The Customer configures a retention period per Venue (between 1 and 60 months after each Event ends; default 12 months). After that period the Service **irreversibly anonymizes** the Guest Data of the Event automatically, as described in the DPA. The Customer is responsible for choosing a retention period that fits its own legal obligations and for exporting anything it needs to keep, using the export function of the Service, before that period expires. Anonymization cannot be undone by PlusOne.
 
 9.6. **Erasure on request.** The Customer can erase an individual person immediately, without waiting for the retention period, using the built-in "forget" function; this irreversibly anonymizes the person's address book entry, guest list entries, refusal records and related audit history across the Venue.
 
@@ -155,7 +155,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 10.2. **No hard deletion.** Guests removed from a list are marked as removed rather than deleted, so that the history stays complete until anonymization. Quota bookkeeping follows from this: a guest with N companions occupies 1 + N spots; removing a guest frees the spots unless the guest has already been checked in.
 
-10.3. **Platform Administrators (support access).** A small number of PlusOne operators hold a Platform Administrator flag that allows them to read and, where needed, write in any Venue in order to provide support, investigate incidents and debug the Service. This access (a) is limited to what is reasonably necessary for the purpose, (b) is used at the Customer's request or where PlusOne reasonably considers it necessary for security, integrity or legal compliance, (c) is subject to the confidentiality and processor obligations of the DPA, and (d) leaves every write in the audit log under the name of the PlusOne operator concerned, visible to the Customer in the same way as its own Users' actions. PlusOne does not use this access to make decisions about Guests on the Customer's behalf.
+10.3. **Platform Administrators (support access).** A small number of PlusOne operators hold a Platform Administrator flag that allows them to read and, where needed, write in any Venue in order to provide support, investigate incidents and debug the Service. This access (a) is limited to what is reasonably necessary for the purpose, (b) is used at the Customer's request or where PlusOne reasonably considers it necessary for security, integrity or legal compliance, (c) is subject to the confidentiality and processor obligations of the DPA, and (d) leaves every write in the audit log under the name of the PlusOne operator concerned, visible to the Customer in the same way as its own Users' actions. Access to a Venue by Platform Administrators through the application is logged and made available to the Customer on request. PlusOne does not use this access to make decisions about Guests on the Customer's behalf.
 
 ## 11. Availability, maintenance and support
 
@@ -165,7 +165,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 11.3. **Incidents.** In case of an incident affecting the Service, PlusOne follows its incident runbook and informs affected Customers where the incident is material. Personal data breaches are handled under the DPA.
 
-11.4. **Support.** Support is provided in English and Dutch via [support e-mail address] on business days. Response targets: [to be defined]. Support does not include on-site presence at Events, training beyond documentation, or support for the Customer's own devices and network.
+11.4. **Support.** Support is provided in English and Dutch via support@plus-one.io. PlusOne aims to give a first response within 24 hours of receipt, every day of the week. Support does not include on-site presence at Events, training beyond documentation, or support for the Customer's own devices and network.
 
 ## 12. Intellectual property
 
@@ -193,11 +193,11 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 14.1. **No warranties beyond the Terms.** Except as expressly stated in these Terms, the Service is provided as is, and PlusOne gives no warranties, express or implied, including as to fitness for a particular purpose, uninterrupted or error-free operation, or the accuracy of any information entered by the Customer, its Users or Guests.
 
-14.2. **Cap.** PlusOne's total aggregate liability toward the Customer under or in connection with the Agreement, per contract year and on whatever legal basis, is limited to **the fees actually paid by the Customer for the Service in the 12 months preceding the event giving rise to the claim**, or, if higher, **EUR [amount]** [placeholder — a Trial or comped Venue has paid nothing; the lawyer should confirm whether a fixed floor is desirable].
+14.2. **Cap.** PlusOne's total aggregate liability toward the Customer under or in connection with the Agreement, per contract year and on whatever legal basis, is limited to **the fees actually paid by the Customer for the Service in the 12 months preceding the event giving rise to the claim**, or, if higher, **EUR 5,000** (a fixed floor, because a Trial or comped Venue has paid nothing).
 
 14.3. **Exclusions.** PlusOne is not liable for indirect or consequential damage, including lost profits, lost revenue or door income, lost data that the Customer could have exported, damage to reputation or goodwill, fines or claims arising from the Customer's Events, and damage resulting from (a) decisions taken by the Customer or its Users at the Door on the basis of information in the Service, (b) Guests who were admitted or refused, (c) the conduct of Users, Organizers or Guests, (d) loss, theft or misuse of a logged-in device, (e) devices that were not loaded with an Event before going offline, (f) incorrect configuration by the Customer (roles, quotas, retention, Request Links), or (g) failures of internet connectivity, the Customer's devices, or third-party services outside PlusOne's control.
 
-14.4. **No limitation for intent or gross negligence.** The limitations and exclusions in this section do not apply in case of intent or willful recklessness (*opzet of bewuste roekeloosheid*) of PlusOne's management, nor where liability cannot be limited under mandatory law (including Art. 82 GDPR, as allocated between the parties in the DPA).
+14.4. **No limitation for intent or gross negligence.** The limitations and exclusions in this section do not apply in case of intent or willful recklessness (*opzet of bewuste roekeloosheid*) of PlusOne's owner, nor where liability cannot be limited under mandatory law (including Art. 82 GDPR, as allocated between the parties in the DPA).
 
 14.5. **Conditions for a claim.** Damage must be reported to PlusOne in writing as soon as possible and in any event within 30 days of discovery, with sufficient detail for PlusOne to respond. Any claim lapses 12 months after the Customer became, or reasonably should have become, aware of the event giving rise to it.
 
@@ -211,13 +211,13 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 16.1. **Term.** The Agreement begins when the Venue is created (section 2.2) and continues for the Trial and any subsequent Subscription periods until terminated in accordance with these Terms.
 
-16.2. **Termination for convenience.** The Customer may cancel its Subscription at any time with effect from the end of the current billing period (section 7.3). PlusOne may terminate a Venue that has been in the restricted state of section 6.2 or 7.4 for more than [90] days, with [30] days' written notice to the Venue's administrators.
+16.2. **Termination for convenience.** The Customer may cancel its Subscription at any time with effect from the end of the current billing period (section 7.3). PlusOne may terminate a Venue that has been in the restricted state of section 6.2 or 7.4 for more than [90] days, with [30] days' written notice to the Venue's administrators. PlusOne may also terminate the Agreement for a Venue for convenience, with at least three (3) months' written notice to the Venue's administrators, effective at the end of the billing period in which that notice period ends; prepaid fees for the period after termination are refunded pro rata, and section 16.5 applies.
 
 16.3. **Termination for cause.** Either party may terminate the Agreement with immediate effect by written notice if the other party (a) materially breaches the Agreement and does not cure the breach within 14 days after written notice, (b) is declared bankrupt, applies for suspension of payments, or ceases its business, or (c) in the case of the Customer, uses the Service in breach of section 8 in a manner that cannot be cured.
 
-16.4. **Effect of termination.** On termination, the Customer's right to use the Service ends, subject to the export period below. Fees already due remain payable; prepaid fees are not refunded except where these Terms expressly provide otherwise (sections 7.5, 15.2, 17, 18).
+16.4. **Effect of termination.** On termination, the Customer's right to use the Service ends, subject to the export period below. Fees already due remain payable; prepaid fees are not refunded except where these Terms expressly provide otherwise (sections 7.5, 15.2, 16.2, 17, 18).
 
-16.5. **Data export.** For **30 days** after termination, PlusOne will, on the Customer's written request, provide an export of the Customer's non-anonymized Customer Content in a structured, commonly used, machine-readable format (such as CSV or JSON). The Customer is encouraged to request its export before the end of the Subscription; PlusOne may charge reasonable costs for repeated or unusually large export requests.
+16.5. **Data export.** During the term the Customer can export its Customer Content itself, using the self-service export function of the Service. For **30 days** after termination, PlusOne will, on the Customer's written request, provide an export of the Customer's non-anonymized Customer Content in a structured, commonly used, machine-readable format (such as CSV or JSON). The Customer is encouraged to request its export before the end of the Subscription; PlusOne may charge reasonable costs for repeated or unusually large export requests.
 
 16.6. **Deletion after termination.** After the export period, PlusOne deletes or irreversibly anonymizes the Customer's Guest Data in accordance with the DPA, except where EU or Dutch law requires longer retention (for example, invoices and billing records for the statutory period). Non-personal, aggregated statistics may be retained. User Accounts are not deleted on termination of a Venue: they continue to exist for the individual User's other venues, and are removed under the Privacy Policy.
 
@@ -239,7 +239,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 19.1. **Assignment.** The Customer may not assign or transfer the Agreement without PlusOne's prior written consent, which will not be unreasonably withheld for a transfer to a successor of the Customer's business. PlusOne may assign the Agreement to an affiliated company or to a successor in a merger, acquisition or sale of its business, with notice to the Customer.
 
-19.2. **Notices.** Notices to the Customer are sent to the e-mail address of its administrators or shown in the Service. Notices to PlusOne are sent to [legal e-mail address].
+19.2. **Notices.** Notices to the Customer are sent to the e-mail address of its administrators or shown in the Service. Notices to PlusOne are sent to legal@plus-one.io.
 
 19.3. **Severability.** If any provision of these Terms is void, voidable or unenforceable, the remainder stays in force and the provision is replaced by a valid provision that most closely reflects its intent.
 
@@ -249,14 +249,14 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 19.6. **Electronic contracting.** The parties agree that the Agreement may be concluded and amended electronically, and that PlusOne's records of acceptance in the Service (including the audit log and acceptance timestamps) are sufficient evidence of acceptance.
 
-19.7. **Language.** These Terms are drawn up in English. A Dutch translation may be provided for convenience; in case of discrepancy, the [English / Dutch] version prevails [lawyer to advise].
+19.7. **Language.** These Terms are drawn up in English. A Dutch translation may be provided for convenience; in case of discrepancy, the English version prevails.
 
 ## 20. Governing law and disputes
 
 20.1. The Agreement is governed exclusively by **Dutch law**. The Vienna Sales Convention (CISG) does not apply.
 
-20.2. Disputes arising from or in connection with the Agreement are submitted exclusively to the competent court of the district of [court district, e.g. Limburg / Amsterdam], the Netherlands, unless mandatory law provides otherwise. Before starting proceedings, the parties will attempt in good faith to resolve the dispute by discussion between their management within 30 days.
+20.2. Disputes arising from or in connection with the Agreement are submitted exclusively to the District Court of Zeeland-West-Brabant (Rechtbank Zeeland-West-Brabant), the Netherlands, unless mandatory law provides otherwise. Before starting proceedings, the parties will attempt in good faith to resolve the dispute by discussion between their management within 30 days.
 
 ---
 
-**PlusOne** · [PlusOne V.O.F. / PlusOne B.V.] · KvK [number] · [address] · [legal e-mail address] · `https://plus-one.io`
+**PlusOne** · The Operators (sole proprietorship, owner Max Merlijn Seffelaar) · KvK 99992841 · Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands · legal@plus-one.io · `https://plus-one.io`

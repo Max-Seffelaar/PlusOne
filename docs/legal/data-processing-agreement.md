@@ -1,11 +1,11 @@
 # PlusOne — Data Processing Agreement (Verwerkersovereenkomst)
 
-> **DRAFT v0.1.1 — 24 September 2026 — NOT LEGALLY REVIEWED.**
-> v0.1 (9 July 2026) amended only where it conflicted with Terms of Service v0.2 (definitions, support access by Platform Administrators, data export on termination). Annex 2 is maintained by the Subprocessor List and was not touched here. This draft must be reviewed by a Dutch lawyer before any customer signs. Bracketed placeholders `[like this]` must be completed first.
+> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
+> v0.1.1 (24 September 2026) amended for Legal v0.3: split of the audit role (2.3), logging of Platform Administrator access (4.4), transfers (8.1), erasure of guest requests (9.1), self-service export and backups (11), Annexes 1–3 and the Subprocessor List (Annex 2). This draft must be reviewed by a Dutch lawyer before any customer signs. Bracketed placeholders `[like this]` must be completed first.
 
 This Data Processing Agreement ("**DPA**") forms part of the agreement between:
 
-1. **[PlusOne V.O.F. / PlusOne B.V.]**, registered with the Dutch Chamber of Commerce under number [KvK number], with registered address at [address] ("**PlusOne**" or "**Processor**"); and
+1. **The Operators**, a sole proprietorship (eenmanszaak) registered with the Dutch Chamber of Commerce under number 99992841, owner Max Merlijn Seffelaar, with registered address at Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands ("**PlusOne**" or "**Processor**"); and
 2. The customer identified in the applicable order form or online subscription ("**Customer**" or "**Controller**"),
 
 together the "**Parties**", and supplements the PlusOne Terms of Service or other written agreement between the Parties (the "**Agreement**").
@@ -20,7 +20,7 @@ Terms such as "personal data", "processing", "controller", "processor", "data su
 
 2.2. For **Guest Data**, the Customer is the **controller** and PlusOne is the **processor**. PlusOne processes Guest Data exclusively on behalf of and for the purposes of the Customer.
 
-2.3. For personal data that PlusOne processes for its own purposes — user account management, authentication, billing, customer relationship management, scrubbed error diagnostics and platform security/audit integrity — PlusOne acts as an **independent controller**, as described in the PlusOne Privacy Policy. Such processing is outside the scope of this DPA.
+2.3. For personal data that PlusOne processes for its own purposes — user account management, authentication, billing, customer relationship management, scrubbed error diagnostics, and the audit of accounts, memberships and platform integrity — PlusOne acts as an **independent controller**, as described in the PlusOne Privacy Policy. Such processing is outside the scope of this DPA. The audit trail of Guest Data (clause 2.2) is not covered by this clause: PlusOne keeps it as processor, on the Customer's behalf.
 
 2.4. The details of the processing (nature, purpose, duration, data categories, data subjects) are set out in **Annex 1**.
 
@@ -36,7 +36,7 @@ This DPA applies for as long as PlusOne processes Guest Data under the Agreement
 
 4.3. PlusOne informs the Customer immediately if, in its opinion, an instruction infringes the GDPR or other applicable data protection law.
 
-4.4. **Support access.** The Customer instructs PlusOne that its Platform Administrators may access Guest Data in the Customer's Venue, including by making changes, to the extent reasonably necessary to provide support requested by the Customer, to investigate and resolve incidents and defects, and to protect the security and integrity of the Service. Such access is limited to the purpose at hand, is subject to clause 5 (confidentiality), and every change made through it is recorded in the append-only audit log under the identity of the PlusOne operator concerned, where the Customer can see it. PlusOne does not use this access to take decisions about Guests on the Customer's behalf.
+4.4. **Support access.** The Customer instructs PlusOne that its Platform Administrators may access Guest Data in the Customer's Venue, including by making changes, to the extent reasonably necessary to provide support requested by the Customer, to investigate and resolve incidents and defects, and to protect the security and integrity of the Service. Such access is limited to the purpose at hand, is subject to clause 5 (confidentiality), and every change made through it is recorded in the append-only audit log under the identity of the PlusOne operator concerned, where the Customer can see it. Access to a Venue by Platform Administrators through the application is logged and made available to the Customer on request. PlusOne does not use this access to take decisions about Guests on the Customer's behalf.
 
 ## 5. Confidentiality
 
@@ -50,7 +50,7 @@ PlusOne ensures that every person authorized to process Guest Data (including it
 
 ## 7. Subprocessors
 
-7.1. The Customer grants PlusOne **general written authorization** to engage Subprocessors. The Subprocessors authorized at the date of this DPA are listed in **Annex 2** (the PlusOne Subprocessor List, maintained at [URL]).
+7.1. The Customer grants PlusOne **general written authorization** to engage Subprocessors. The Subprocessors authorized at the date of this DPA are listed in **Annex 2** (the PlusOne Subprocessor List, maintained at https://plus-one.io/legal#subprocessors).
 
 7.2. PlusOne will notify the Customer (by e-mail to the venue admin contact) at least **30 days** before authorizing a new Subprocessor that will process Guest Data. The Customer may object within that period on reasonable, data-protection-related grounds. If the Parties cannot resolve the objection in good faith, the Customer may terminate the affected part of the Agreement; PlusOne will refund any prepaid fees for the period after termination. Continued use of the Service after the notice period constitutes acceptance.
 
@@ -58,7 +58,7 @@ PlusOne ensures that every person authorized to process Guest Data (including it
 
 ## 8. International transfers
 
-8.1. Guest Data is stored and processed within the **European Union** (database and authentication in Ireland; application hosting in Frankfurt, Germany; error monitoring in Sentry's EU region, Germany).
+8.1. Guest Data is stored and processed within the **European Union** (database and authentication in Ireland; application hosting in Frankfurt, Germany; error monitoring in Sentry's EU region, Germany; login and invitation e-mail to team members via Amazon SES in Ireland). Connections to the Service pass through the hosting provider's global network of edge locations, which may briefly process connection data (such as an IP address) outside the EU while routing a request.
 
 8.2. Where a Subprocessor or its parent entity is established outside the EEA, PlusOne ensures a valid transfer mechanism under Chapter V GDPR (an adequacy decision, such as the EU–US Data Privacy Framework, and/or the EU Standard Contractual Clauses), as recorded per Subprocessor in Annex 2.
 
@@ -66,7 +66,7 @@ PlusOne ensures that every person authorized to process Guest Data (including it
 
 9.1. **Data subject rights (Art. 12–23).** Taking into account the nature of the processing, PlusOne assists the Customer with appropriate technical and organizational measures in fulfilling data subject requests. The Service provides self-service tooling for this purpose, including:
   - full visibility of a data subject's records via the venue address book and audit log;
-  - the built-in **erasure function** ("forget contact"): a venue admin can irreversibly anonymize a person's address book entry, all linked guest list entries across the venue's events, refusal records, and the personal data inside the related audit history, in one operation, without waiting for the retention period;
+  - the built-in **erasure function** ("forget contact"): a venue admin can irreversibly anonymize a person's address book entry, all linked guest list entries and guest requests across the venue's events, refusal records, and the personal data inside the related audit history, in one operation, without waiting for the retention period;
   - configurable retention with automatic anonymization (Annex 1, section E).
 
   If a data subject request cannot be fulfilled through the Service, PlusOne provides reasonable further assistance on request. If a data subject contacts PlusOne directly about Guest Data, PlusOne will refer the data subject to the Customer without undue delay and will not respond substantively except on the Customer's instruction or where legally required.
@@ -87,7 +87,11 @@ PlusOne ensures that every person authorized to process Guest Data (including it
 
 11.2. Upon termination of the Agreement, PlusOne will, on the Customer's written request made within **30 days** after termination, provide an **export** of the Customer's non-anonymized Guest Data in a structured, commonly used, machine-readable format (such as CSV or JSON). After this period, PlusOne deletes or irreversibly anonymizes all Guest Data, unless EU or member state law requires longer storage. Non-personal, aggregated statistics (e.g. attendance counts) may be retained, as they no longer relate to an identifiable person. Guest Data that was already anonymized under clause 11.1 before the request cannot be restored.
 
-11.3. On written request, PlusOne confirms in writing that deletion/anonymization has been completed.
+11.3. During the term, the Customer can export its Guest Data itself, in a structured, machine-readable format (CSV), through the self-service export function of the Service.
+
+11.4. Backups are retained by the database provider for 7 days and are not separately anonymized; anonymization or deletion carried out under this DPA propagates to backups when they expire.
+
+11.5. On written request, PlusOne confirms in writing that deletion/anonymization has been completed.
 
 ## 12. Audits
 
@@ -107,7 +111,7 @@ The liability of each Party under this DPA is governed by the limitations and ex
 
 14.2. If any provision of this DPA is held invalid, the remainder stays in force; the Parties will replace the invalid provision with a valid one that most closely reflects its intent.
 
-14.3. This DPA is governed by **Dutch law**. Disputes are submitted to the competent court identified in the Agreement.
+14.3. This DPA is governed by **Dutch law**. Disputes are submitted to the District Court of Zeeland-West-Brabant (Rechtbank Zeeland-West-Brabant).
 
 ---
 
@@ -123,6 +127,7 @@ Enabling the Customer to manage guest lists for its events: maintaining lists, d
 - Guests on the Customer's guest lists;
 - Persons who submit a guest request via the Customer's public request pages or personal invite links;
 - Persons in the Customer's venue address book (contacts);
+- Promoters (influencers) to whom the Customer has given a personal request link;
 - (As context in audit records:) the Customer's staff members who perform actions in the platform.
 
 **D. Categories of personal data**
@@ -130,29 +135,32 @@ Enabling the Customer to manage guest lists for its events: maintaining lists, d
 | Data subject | Data |
 |---|---|
 | Guests | Full name; optionally e-mail address, phone number, note; number of accompanying guests; tier/category; list status; source of entry |
-| Guest requesters | Full name; optionally e-mail address, phone number, motivation; marketing opt-in choice; decision and decision reason; hashed status token |
+| Guest requesters | Full name; e-mail address and phone number (both required on the request form); optionally motivation; marketing opt-in choice; decision and decision reason; hashed status token; an internal duplicate-check key derived from the e-mail address or phone number, and date of birth where recorded (both erased on anonymization) |
 | Address book contacts | Full name; optionally e-mail address, phone number, birthdate, note, preferred tier |
-| Door records | Check-in timestamp, party size arrived, device identifier, acting staff member; refusal timestamp and reason |
+| Promoters | Name; optionally a handle; notes added by the Customer; hashed access token for the promoter's statistics page |
+| Door records | Check-in timestamp, party size arrived, device identifier (a random browser identifier, not anonymized), acting staff member; refusal timestamp and reason |
 | Audit trail | Actor, action, timestamp, and before/after values of changed records (personal data within these values is redacted upon anonymization) |
 
 No special categories of personal data (Art. 9 GDPR) are intended to be processed. The Customer instructs its staff and guests not to enter such data in free-text fields (notes, motivations, refusal reasons).
 
 **E. Duration of the processing and retention**
-Processing continues for the duration of the Agreement. Guest Data is retained per event for the venue-configured retention period (1–60 months after the event ends; default 12 months), after which an automated daily job irreversibly anonymizes it: names are replaced by neutral labels, contact details and free-text fields are erased, status tokens are revoked, and personal data inside historical audit records is redacted while non-personal audit structure is preserved. Address book contacts are anonymized when no longer linked to retained events and inactive for the retention period. Earlier erasure is available at any time through the built-in erasure function. End-of-contract handling is described in clause 11.
+Processing continues for the duration of the Agreement. Guest Data is retained per event for the venue-configured retention period (1–60 months after the event ends; default 12 months), after which an automated daily job irreversibly anonymizes it: names are replaced by neutral labels, contact details and free-text fields are erased, status tokens are revoked, and personal data inside historical audit records is redacted while non-personal audit structure is preserved. Address book contacts are anonymized when no longer linked to retained events and inactive for the retention period. Earlier erasure is available at any time through the built-in erasure function. Audit records of accounts, memberships, invites and promoters are kept for the life of the Venue and deleted with it. Backups are retained by the database provider for 7 days and are not separately anonymized; anonymization propagates when the backup expires. End-of-contract handling, including the self-service export during the term, is described in clause 11.
 
 ---
 
 # Annex 2 — Authorized Subprocessors
 
-The authorized Subprocessors, including entity, purpose, data location and transfer safeguards, are listed in the **PlusOne Subprocessor List** at [URL], version dated [date]. At the date of this DPA the Subprocessors processing Guest Data are:
+The authorized Subprocessors, including entity, purpose, data location and transfer safeguards, are listed in the **PlusOne Subprocessor List** at https://plus-one.io/legal#subprocessors, version dated 5 October 2026. At the date of this DPA the Subprocessors processing Guest Data are:
 
 | Subprocessor | Purpose | Location of Guest Data |
 |---|---|---|
 | Supabase, Inc. | Database, authentication, realtime infrastructure | EU — Ireland (AWS `eu-west-1`) |
 | Vercel, Inc. | Application hosting and delivery | EU — Frankfurt, Germany (`fra1`) |
 | Functional Software, Inc. (Sentry) | Error monitoring (scrubbed reports; internal user ID only, no guest personal data by design) | EU — Germany |
+| Cloudflare, Inc. (Turnstile) | Bot protection on public guest request pages | Cloudflare global network; the requester's IP address and browser signals during the check; nothing stored |
+| Anthropic, PBC | Engineering and support tooling; incidental access to production data during support requests and incident response (typically schema, logs and aggregates; guest rows only for a specific case); inputs are not used for model training | US (transfer safeguard as recorded in the Subprocessor List) |
 
-Stripe and Google Workspace process only PlusOne's own controller-side data (billing, correspondence) and no Guest Data; they are listed in the Subprocessor List for transparency.
+Stripe, Google Workspace and Resend (login and invitation e-mail to team members, transported by Amazon SES in Ireland) process only PlusOne's own controller-side data (billing, correspondence, authentication mail) and no Guest Data; they are listed in the Subprocessor List for transparency. Firebase Cloud Messaging / Apple Push Notification service (push) and a guest confirmation e-mail are planned items that may involve Guest Data and are subject to the notice in clause 7.2 before activation.
 
 ---
 
@@ -178,11 +186,12 @@ Stripe and Google Workspace process only PlusOne's own controller-side data (bil
 **Retention and erasure**
 - Automated daily anonymization job per the venue retention setting (Annex 1.E), including structure-preserving redaction of audit history.
 - Built-in immediate erasure function for data subject requests (Art. 17 GDPR).
+- Audit records of accounts, memberships, invites and promoters are kept for the life of the Venue and deleted with it.
 
 **Infrastructure**
 - All primary data storage and processing in EU regions (Ireland, Frankfurt); encryption in transit (TLS) and at rest.
 - Hosting on ISO 27001 / SOC 2 certified infrastructure providers (see Subprocessor List).
-- Daily automated database backups by the hosting provider; documented backup-restore procedure and incident runbook.
+- Daily automated database backups by the hosting provider, retained for 7 days; documented backup-restore procedure and incident runbook.
 - Uptime monitoring with immediate escalation to on-call personnel.
 
 **Organizational**
