@@ -17,7 +17,7 @@ pnpm store:screenshots -- --project=play-phone   # one set
 
 Output: `store-screenshots/<set>/<nn>-<screen>.png` (gitignored), e.g. `store-screenshots/play-phone/03-door-check-in.png`, plus `store-screenshots/play-feature-graphic/play-feature-graphic.png`.
 
-`pnpm store:screenshots` first runs `scripts/store-screenshot-seed.mjs`. That script **hard-refuses any non-localhost Supabase URL** (the same hostname check as `/auth/dev-login`). It is idempotent, so a re-run never duplicates rows and refreshes the times, so the demo night is always live. It never edits `supabase/seed.sql`. Locally it shares the one stack with other worktrees ("One DB owner", CLAUDE.md), but it only adds rows and touches up a few seed strings. It does not reset anything.
+`pnpm store:screenshots` first runs `scripts/store-screenshot-seed.mjs`. That script **hard-refuses any non-localhost Supabase URL** (the same hostname check as `/auth/dev-login`). It is idempotent, so a re-run never duplicates rows and refreshes the event times, so the demo night is always live. Check-ins and refusals are append-only (no UPDATE grant, not even for service_role), so they are inserted once and a re-run keeps their first-run times; reset the stack first for fresh ones (CI always starts fresh). It never edits `supabase/seed.sql`. Locally it shares the one stack with other worktrees ("One DB owner", CLAUDE.md), but it only adds rows and touches up a few seed strings. It does not reset anything.
 
 What the seed adds:
 

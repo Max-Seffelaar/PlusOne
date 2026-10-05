@@ -28,6 +28,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             return
         }
         FirebaseApp.configure()
+        // Token rotation (86exxuvye): FCM reports a new or refreshed token here.
+        // Setting the delegate fetches nothing by itself; with auto-init off
+        // (Info.plist) no token exists until the person opts in.
+        Messaging.messaging().delegate = shared
+    }
+
+    /// The delegate must outlive `configureFirebaseIfPresent` (Messaging holds it
+    /// weakly), and the AppDelegate instance is not reachable from a static method.
+    private static let shared = FcmTokenForwarder()
+
+    /// The last FCM token handed to the web app: a rotation callback for a token
+    /// the web app already has is not forwarded twice.
+    static var lastForwardedFcmToken: String?
+
+    /// Hands an FCM registration token to @capacitor/push-notifications, which
+    /// emits it to JS as its `registration` event (a `String` object is passed
+    /// through as-is; only a `Data` object would be hex-encoded as an APNs token).
+    static func forwardFcmToken(_ token: String) {
+        lastForwardedFcmToken = token
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: token)
     }
 
     /// APNs handed us a device token. push-dispatch only speaks FCM (plan decision 1),
@@ -41,12 +61,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                                                             userInfo: [NSLocalizedDescriptionKey: "Firebase is not configured in this build"]))
             return
         }
+        // Reaching this method IS the opt-in: APNs registration only starts from
+        // the web app's register() (ask card / Profile / an account that already
+        // said yes). From here on FCM may keep its token fresh across launches, so
+        // rotations reach the delegate below. Persisted by Firebase; turned off
+        // again by `PlusOnePushConfig.invalidateToken` on "off" / sign-out (the
+        // Android plugin does the same in register()/unregister()).
+        Messaging.messaging().isAutoInitEnabled = true
         Messaging.messaging().apnsToken = deviceToken
         Messaging.messaging().token { token, error in
             if let error = error {
                 NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
             } else if let token = token {
-                NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: token)
+                AppDelegate.forwardFcmToken(token)
             }
         }
     }
@@ -115,5 +142,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                                           sessionRole: connectingSceneSession.role)
         config.delegateClass = SceneDelegate.self
         return config
+    }
+}
+
+/// FCM token rotation (86exxuvye). Firebase calls this when it creates or refreshes
+/// the registration token (also once per launch with the current one while
+/// auto-init is on). A new token goes to the web app through the same
+/// `registration` event as the opt-in path, where push-client's persistent
+/// `onRegistration` listener upserts it into `push_tokens` — only while push is
+/// 'on' on this device, so nothing is stored after "off" or sign-out.
+///
+/// Opt-in stays explicit: auto-init is off until the APNs registration above
+/// (Info.plist `FirebaseMessagingAutoInitEnabled=false`), so before the person
+/// says yes Firebase has no token and this is never called.
+final class FcmTokenForwarder: NSObject, MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let token = fcmToken, !token.isEmpty else { return }
+        guard messaging.isAutoInitEnabled else { return }
+        guard token != AppDelegate.lastForwardedFcmToken else { return }
+        AppDelegate.forwardFcmToken(token)
     }
 }
