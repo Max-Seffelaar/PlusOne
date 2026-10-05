@@ -12,14 +12,16 @@
 //     customer sees.
 //   * "Neon Nights" at Club Vesper, LIVE right now (started 90 min ago), with 60
 //     guests across Guest/VIP/Artist tiers, +N plus-ones, 26 check-ins spread
-//     over the night, two pending landing guests, three open guest requests and
-//     one open quota request.
+//     over the night, one refusal at the door, two pending landing guests, three
+//     open guest requests and one open quota request.
 //   * two upcoming events and one past event with a few guests, so Home and the
 //     Events list are not a single card.
 //   * an English, alcohol-free touch-up of the seed rows that would otherwise be
 //     visible: the seed tier "VIP + fles op tafel" (and its fles/champagne
 //     aliases) becomes "Artist", and the Dutch note/motivation/reason strings
 //     become English. Only on this throwaway stack — seed.sql is untouched.
+//     Append-only rows (check_ins, refusals: UPDATE is revoked even from
+//     service_role) are never touched up — they are inserted right, once.
 //
 // Writes go through the service role (RLS bypassed, as in seed.sql), so every
 // trigger still fires: quota/capacity/tier caps, audit_log, scope derivation,
@@ -163,10 +165,10 @@ async function touchUpSeed(db) {
     'seed request reason',
     await db.from('guest_requests').update({ decision_reason: 'List is full tonight' }).eq('id', 'bb000000-0000-7000-8000-000000000003'),
   );
-  must(
-    'seed refusal reason',
-    await db.from('refusals').update({ reason: 'Dress code' }).eq('guest_id', 'cc000000-0000-7000-8000-000000000005'),
-  );
+  // No refusal touch-up here: refusals (like check_ins) are append-only — UPDATE
+  // is revoked even from service_role (full_schema migration). The seed refusal
+  // sits on the seed event, which no shot shows; the live night carries its own
+  // refusal, with an English reason set at INSERT (seedLiveNight).
 }
 
 async function upsertEvent(db, { eventId, name, slug, startMin, hours, capacity }) {
@@ -241,7 +243,11 @@ async function checkIn(db, eventId, guests, { firstMin, spacingMin, block }) {
       offline_synced: false,
     };
   });
-  must('check-ins', await db.from('check_ins').upsert(rows, { onConflict: 'id' }));
+  // Insert-only (ON CONFLICT DO NOTHING): a merge upsert is ON CONFLICT DO
+  // UPDATE, which needs the UPDATE grant service_role does not hold on
+  // check_ins. A re-run keeps the first run's check-in times; for fresh times,
+  // reset the stack first (the CI workflow always starts from a fresh stack).
+  must('check-ins', await db.from('check_ins').upsert(rows, { onConflict: 'id', ignoreDuplicates: true }));
 }
 
 // ── the live night ───────────────────────────────────────────────────────────
@@ -277,6 +283,29 @@ async function seedLiveNight(db) {
   // 26 arrivals between doors and now, roughly every 3 minutes.
   const arrived = guests.filter((g, i) => g.status === 'approved' && i % 9 !== 4).slice(0, 26);
   await checkIn(db, eventId, arrived, { firstMin: -85, spacingMin: 3, block: 'e' });
+
+  // One guest turned away at the door. The reason is set on INSERT — refusals
+  // are append-only (no UPDATE grant for any role), and insert-only on conflict
+  // keeps a re-run idempotent. Guest #22 is approved and not among the arrivals
+  // (i % 9 === 4); the refusal trigger mirrors guests.status → refused.
+  const refusedAt = minutes(-40);
+  must(
+    'refusal',
+    await db.from('refusals').upsert(
+      {
+        id: id('e', 700),
+        guest_id: id('e', 122),
+        event_id: eventId,
+        venue_id: STORE_DEMO.venueId,
+        refused_by: SEED.lisa,
+        reason: 'Dress code',
+        refused_at: refusedAt,
+        client_timestamp: refusedAt,
+        device_id: 'door-ipad-01',
+      },
+      { onConflict: 'id', ignoreDuplicates: true },
+    ),
+  );
 
   const requests = [
     { n: 1, full_name: 'Maya Lindgren', plus_ones: 1, motivation: 'Friends of the headliner' },

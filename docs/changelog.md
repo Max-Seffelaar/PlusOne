@@ -22,6 +22,18 @@ incl. Guest Terms row, questions 3/4/6/7/8 ticked, follow-ups mapped to B1/B2/B3
 checklist items. One line at N5 in `capacitor-plan-claude-code.md` (D12); dated note in
 `docs/mail-deliverability.md` (sender domain). Reviewer wording for ToS 7.8/16.2 was not in the
 repo: written from plan decisions 12 and 14. `guest-terms.md` untouched (A2).
+## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`
+workflow died in the seed with `permission denied for table refusals`: the script UPDATEd the
+seed.sql refusal's reason, but `refusals` and `check_ins` are append-only (UPDATE revoked
+from service_role in the full-schema migration). The touch-up is gone (that refusal sits on
+the seed event, which no shot shows); the live demo night now inserts its own refusal
+(guest #22, reason "Dress code") with the reason set at INSERT. The check-ins upsert had the
+same latent fault: a merge upsert is `ON CONFLICT DO UPDATE`, which needs UPDATE, so both
+writes are now insert-only (`ignoreDuplicates`). A re-run keeps the first run's check-in
+times. No migration, grant or RLS change. Not run here (no docker/supabase CLI): the seed
+end to end; reasoned against the migrations, plus lint/type-check/unit suite.
 
 ## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
 
