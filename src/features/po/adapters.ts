@@ -751,6 +751,9 @@ export interface PoGuestRequest {
   /** Open queue, already-refused (still re-addable), or approved (the query only
    *  returns AUTO-approved ones — the read-only trace section). */
   status: 'pending' | 'denied' | 'approved';
+  /** Legal v0.3 decision 2: the guest ticked "Keep me posted" on this request
+   *  (guest_requests.marketing_opt_in). Shown as a badge; PlusOne sends nothing. */
+  marketingOptIn: boolean;
   /** How an approved/denied request was decided (F1): by a human or by an
    *  auto-approve link. 'manual' for undecided rows (the column's default). */
   decidedVia: Database['public']['Enums']['decision_source'];
@@ -799,6 +802,7 @@ export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestReq
     viaLabel: row.viaLabel,
     viaStandard: row.viaStandard,
     denyReason: status === 'denied' ? row.decision_reason : null,
+    marketingOptIn: row.marketing_opt_in === true,
     flag: row.plus_ones >= 3 ? `Large group (+${row.plus_ones})` : undefined,
   };
 }

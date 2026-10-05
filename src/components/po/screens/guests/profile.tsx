@@ -2,7 +2,7 @@
 
 import { type JSX, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { usePoEvents, usePoContacts, usePoPersonProfile, usePoOrganizerEventIds } from '@/features/po/hooks';
+import { usePoEvents, usePoContacts, usePoContactOptIns, usePoPersonProfile, usePoOrganizerEventIds } from '@/features/po/hooks';
 import { usePoToggleContactPermanent } from '@/features/po/mutations';
 import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
 import { guestSourceLabel } from '@/features/po/format';
@@ -11,7 +11,7 @@ import { isDoorOnlyRole } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Top, hitArea44 } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, KeepMePostedBadge, Label, Loading, MiniChip, Note, Scroll, Seg, Top, hitArea44 } from '../../kit';
 import { Toast } from '../../shell';
 import { TierPill, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
@@ -72,10 +72,15 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
   const { selected, toggle: toggleSel, clear: clearSel, selectAll: selectAllSel } = useGuestSelection();
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
 
+  // Legal v0.3 decision 2: who asked for venue updates (latest request decides).
+  const { data: optedIn } = usePoContactOptIns();
+  const [onlyOptedIn, setOnlyOptedIn] = useState(false);
+
   const term = q.trim().toLowerCase();
-  const cs = term
+  const byTerm = term
     ? contacts.filter((c) => c.name.toLowerCase().includes(term) || (c.phoneLast4 ?? '').includes(term))
     : contacts;
+  const cs = onlyOptedIn ? byTerm.filter((c) => optedIn?.has(c.id)) : byTerm;
 
   const hasSel = selected.size > 0;
   const selectedPeople: BulkAddCandidate[] = cs
@@ -114,7 +119,18 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
             </Btn>
           </div>
         ) : (
-          <Field icon="search" placeholder={t.guests.contacts.searchPlaceholder} value={q} onChange={setQ} inputMode="text" />
+          <>
+            <Field icon="search" placeholder={t.guests.contacts.searchPlaceholder} value={q} onChange={setQ} inputMode="text" />
+            {contacts.length > 0 && (
+              <div role="group" aria-label={t.guests.contacts.filterAria} className="mt-[10px]">
+                <Seg
+                  value={onlyOptedIn ? 'optedIn' : 'all'}
+                  onChange={(v) => setOnlyOptedIn(v === 'optedIn')}
+                  items={[['all', t.guests.contacts.filterAll], ['optedIn', t.guests.contacts.filterOptedIn]] as const}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
       <Scroll pad={16} bottom={24}>
@@ -127,7 +143,7 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
         ) : isError ? (
           <Empty text={t.guests.contacts.loadError} />
         ) : cs.length === 0 ? (
-          <Empty text={term ? t.guests.contacts.emptyFiltered : t.guests.contacts.empty} />
+          <Empty text={onlyOptedIn && !term ? t.guests.contacts.emptyOptedIn : term ? t.guests.contacts.emptyFiltered : t.guests.contacts.empty} />
         ) : (
           <div className="flex flex-col gap-[9px]">
             {cs.map((c) => {
@@ -152,6 +168,9 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
                       <span className="text-[11.5px] text-faint">
                         {fmt(t.guests.contacts.onListCount, { n: c.events })}{c.phoneLast4 ? ` · ••${c.phoneLast4}` : ''}
                       </span>
+                      {optedIn?.has(c.id) && (
+                        <KeepMePostedBadge label={t.guests.contacts.keepMePostedBadge} title={t.guests.contacts.keepMePostedTitle} />
+                      )}
                     </div>
                   </button>
                   <button
@@ -300,6 +319,7 @@ export function ContactProfile({
   const toggleVast = usePoToggleContactPermanent();
   // Warm here, not when a sheet opens: an organizer's row actions depend on it.
   const organizerEventIds = usePoOrganizerEventIds();
+  const { data: optedIn } = usePoContactOptIns();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -393,6 +413,9 @@ export function ContactProfile({
                 of its (single) appearance instead. */}
             {!p.isContact && (
               <TierPill name={p.events[0]?.tier ?? undefined} color={p.events[0]?.tierColor} fallback={p.role} />
+            )}
+            {p.isContact && optedIn?.has(p.id) && (
+              <KeepMePostedBadge label={t.guests.contacts.keepMePostedBadge} title={t.guests.contacts.keepMePostedTitle} />
             )}
             {p.vast && (
               <span className="inline-flex items-center gap-[5px] rounded-[7px] border border-transparent bg-acc-dim px-2 py-[3px] font-body text-[11px] font-bold uppercase tracking-[0.04em] text-acc">

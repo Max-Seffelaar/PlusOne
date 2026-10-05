@@ -520,6 +520,7 @@ export type PoGuestRequestRow = Pick<
   | 'decision_reason'
   | 'request_link_id'
   | 'decided_via'
+  | 'marketing_opt_in'
 > & {
   /** Resolved link identity (influencer name ?? label); null for the default
    *  link, a legacy pre-links request, or an unreadable link (RLS). */
@@ -581,7 +582,7 @@ export async function fetchGuestRequests(
   const { data, error } = await client
     .from('guest_requests')
     .select(
-      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
+      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via, marketing_opt_in'
     )
     .eq('venue_id', venueId)
     // z8uq9m0hw6: an anonymized request (#29, past the retention window) is no
@@ -1238,6 +1239,20 @@ export async function fetchContacts(
 
   const counts = await contactEventCounts(client, rows.map((c) => c.id));
   return rows.map((c) => ({ ...c, eventCount: counts.get(c.id) ?? 0 }));
+}
+
+/**
+ * Contact ids currently opted in to venue updates (legal v0.3 decision 2) —
+ * the SQL derivation `contact_marketing_opt_ins` (latest matching request
+ * decides), so the contacts screen and the data export can never disagree.
+ * SECURITY INVOKER: role-relative through contacts + guest_requests RLS
+ * (staff/doorhost get []). Ranged: the result can pass 1 000 rows.
+ */
+export async function fetchContactMarketingOptIns(client: Client, venueId: string): Promise<string[]> {
+  const rows = await fetchAllRanged<{ contact_id: string }>((from, to) =>
+    client.rpc('contact_marketing_opt_ins', { p_venue_id: venueId }).select('contact_id').range(from, to),
+  );
+  return rows.map((r) => r.contact_id);
 }
 
 /** Minimal e-mail/phone projection for the import dedup preview ("BESTAAT AL"). */

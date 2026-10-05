@@ -273,6 +273,13 @@ export const guests = {
     empty:
       'No contacts yet. Guests with an email or phone number are saved here automatically. Added someone by name only? Add their email or phone to save them.',
     onListCount: '{n}× on a list',
+    // Legal v0.3 decision 2: latest request had "Keep me posted" ticked.
+    keepMePostedBadge: 'Keep me posted ✓',
+    keepMePostedTitle: 'Opted in to venue updates on their latest request',
+    filterAll: 'All',
+    filterOptedIn: 'Opted in to venue updates',
+    filterAria: 'Filter contacts',
+    emptyOptedIn: 'No contacts opted in to venue updates yet.',
     editAria: 'Edit {name}',
     openAria: 'Open {name}',
     unmakeRegular: 'Stop adding to every list',
