@@ -216,9 +216,9 @@ workflows:
         APP_VERSION_NAME: "1.0.0"
         BUNDLE_ID: app.plusone.guestlist
         PROD_SERVER_URL: https://app.plus-one.io
-        # Flip to "true" once ios/App/App/GoogleService-Info.plist is committed —
-        # from then on a build without it fails instead of warning.
-        REQUIRE_GOOGLE_SERVICE_INFO: "false"
+        # ios/App/App/GoogleService-Info.plist is committed (client identifiers, not a
+        # secret), so a build without it must fail instead of shipping without push.
+        REQUIRE_GOOGLE_SERVICE_INFO: "true"
       node: 22
       xcode: latest
     triggering:
