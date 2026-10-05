@@ -9,7 +9,7 @@
  * a whole screen, and delete the entry in the PR that fixes the bug (the test
  * then runs again and proves the fix).
  */
-export type LayoutCheck = 'overflow' | 'tap-targets' | 'field-targets' | 'chrome' | 'console-network';
+export type LayoutCheck = 'overflow' | 'tap-targets' | 'field-targets' | 'chrome' | 'console-network' | 'event-card';
 
 export interface KnownIssue {
   screen: string;
