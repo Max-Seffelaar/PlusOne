@@ -61,9 +61,9 @@ always a human action in App Store Connect.
 - **Version** (`CFBundleShortVersionString`) = `APP_VERSION_NAME` in `codemagic.yaml`. iOS
   and Android each declare it, and the guard test fails if they differ — bump **both** in
   the same PR.
-- `GoogleService-Info.plist` missing ⇒ the build **warns** (no push) and continues. Once
-  the file is committed (step 5), set `REQUIRE_GOOGLE_SERVICE_INFO: "true"` in
-  `codemagic.yaml` so a build without push fails. Independently of that flag, a file that
+- `GoogleService-Info.plist` is committed and `REQUIRE_GOOGLE_SERVICE_INFO: "true"` is set
+  in `codemagic.yaml`, so a build without it **fails** (no silent build without push).
+  Independently of that flag, a file that
   is committed but **missing from the IPA** always fails *Verify the IPA* (the copy build
   phase didn't run; `ENABLE_USER_SCRIPT_SANDBOXING = NO` on the App target keeps it able to
   read the file).
@@ -166,8 +166,8 @@ Source: <https://docs.codemagic.io/yaml-code-signing/signing-ios/> (accessed 202
 2. Put the file **exactly** here: `ios/App/App/GoogleService-Info.plist` (next to
    `Info.plist` and `AppDelegate.swift`). Do not rename it — a browser that saved it as
    `GoogleService-Info (1).plist` must be renamed back.
-3. Commit it in a small PR together with flipping `REQUIRE_GOOGLE_SERVICE_INFO: "true"`
-   in the `ios-release` workflow of `codemagic.yaml`. It is not a secret (plan decision 13).
+3. **Done:** the file is committed and `REQUIRE_GOOGLE_SERVICE_INFO: "true"` is set in the
+   `ios-release` workflow of `codemagic.yaml`. It is not a secret (plan decision 13).
 
 Check: the build log's *Check GoogleService-Info.plist (push)* step prints
 `GoogleService-Info.plist present for app.plusone.guestlist`; the step fails loudly if

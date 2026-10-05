@@ -13,7 +13,7 @@
  *      and the marketing version moves in lockstep with Android's;
  *   6. iPhone + iPad stay in v1 (TARGETED_DEVICE_FAMILY "1,2", plan decision 10);
  *   7. push is wired for APNs-via-FCM, and a missing GoogleService-Info.plist warns
- *      until REQUIRE_GOOGLE_SERVICE_INFO makes it fatal; a committed plist missing
+ *      until REQUIRE_GOOGLE_SERVICE_INFO makes it fatal (now "true"); a committed plist missing
  *      from the IPA is always fatal; Messaging never auto-inits (consent-first);
  *   8. no signing secret (.p8/.p12/.mobileprovision/…) is ever tracked.
  * Checks run on the ios-release block only, so the Android workflow can never
@@ -114,9 +114,24 @@ describe('codemagic.yaml ios-release', () => {
   });
 
   it('a missing GoogleService-Info.plist warns, REQUIRE_GOOGLE_SERVICE_INFO makes it fatal', () => {
-    expect(ios).toMatch(/REQUIRE_GOOGLE_SERVICE_INFO:\s*"(true|false)"/);
+    expect(ios).toMatch(/REQUIRE_GOOGLE_SERVICE_INFO:\s*"true"/);
     expect(ios).toContain('elif [ "$REQUIRE_GOOGLE_SERVICE_INFO" = "true" ]; then');
     expect(ios).toContain("PlistBuddy -c 'Print :BUNDLE_ID'");
+  });
+
+  it('the committed plist is tracked, for the iOS bundle, in the same Firebase project as Android', () => {
+    const tracked = execFileSync('git', ['ls-files', 'ios/App/App/GoogleService-Info.plist'], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
+    expect(tracked).toBe('ios/App/App/GoogleService-Info.plist');
+    const plist = read('ios/App/App/GoogleService-Info.plist');
+    const key = (k: string) => plist.match(new RegExp(`<key>${k}</key>\\s*<string>([^<]+)</string>`))?.[1];
+    expect(plist).toMatch(/^<\?xml[^>]*\?>\s*<!DOCTYPE plist[\s\S]*<plist version="1.0">[\s\S]*<\/plist>\s*$/);
+    expect(key('BUNDLE_ID')).toBe('app.plusone.guestlist');
+    expect(key('PROJECT_ID')).toBe('plus-one-9c51e');
+    const android = JSON.parse(read('android/app/google-services.json'));
+    expect(key('PROJECT_ID')).toBe(android.project_info.project_id);
   });
 
   it('fails the build when the plist is committed but missing from the IPA', () => {
