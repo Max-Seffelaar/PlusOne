@@ -8,6 +8,23 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — M4: automated store screenshots + Play feature graphic (86ey6bf8k)
+
+Branch `claude/86ey6bf8k-store-screenshots`, milestone Now (Fase 17 store submission). The store listing images are now produced by a repeatable run, so nobody has to make them by hand.
+
+- `pnpm store:screenshots` runs two steps:
+  - `scripts/store-screenshot-seed.mjs`: PII-free demo data on the local stack. It hard-refuses a non-localhost Supabase URL and is idempotent. It never edits `seed.sql`.
+  - `playwright.store.config.ts` with `tests/e2e/store/`: six sets at the exact store pixel sizes (Play phone, 7", 10"; iPhone 6.9"; iPad 13" portrait and landscape) plus the 1024×500 feature graphic. Output goes to `store-screenshots/` (gitignored).
+- Reuses the QA-1 layout suite's `newProjectContext`, `shellMounted` gate, chrome breakpoint and the shared consent helper. The specs assert the exact PNG size, no alpha, the expected chrome, touch emulation, and that the Deur shot is the outbox door.
+- The shots log in as a dedicated plain venue admin (`store-demo@plusone.test`), not `admin@`. `pnpm dev:mfa` makes `admin@` a platform admin, and the internal Platform nav item must never appear in a listing.
+- Alcohol-free and English, on this stack only. The seed tier "VIP + fles op tafel" (aliases fles/champagne) becomes "Artist", and the visible Dutch seed strings become English.
+- The Play tablet sizes are 1188×2112 (9:16) and 2560×1440 (16:9), not the 10:16 sizes in the brief. Play's preview-asset help now asks for 9:16/16:9. Sources and access dates are in `docs/store/screenshots.md`.
+- New workflow `.github/workflows/store-screenshots.yml` runs on `workflow_dispatch` only and uploads the `store-screenshots` artifact (30 days). It uses the same stack setup as `layout-suite`, minus `dev:mfa`.
+- The base `playwright.config.ts` now also ignores `tests/e2e/store/` (as it already did `layout/`), so `pnpm e2e` never runs the store specs under the single-project config.
+- Not run in the building session (no Docker there). The first real run is the workflow after merge.
+
+---
+
 ## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
 
 Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test
