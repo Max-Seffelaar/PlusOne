@@ -21,12 +21,12 @@ import { CHROME_BREAKPOINT } from '../layout/matrix';
  * a real phone/tablet. CSS widths are picked against the ONE chrome breakpoint
  * (1024, use-viewport.ts) and the `md:` (768) content switch:
  *   play-phone      432 CSS  → bottom tabs, phone layout
- *   play-tablet-7   792 CSS  → bottom tabs, `md:` tablet layout (T1)
- *   play-tablet-10 1280 CSS  → sidebar (landscape)
- *   apple-iphone-69 430 CSS  → bottom tabs (iPhone 15/16 Pro Max viewport)
- *   apple-ipad-13  1032 CSS  → sidebar — a real 13" iPad is 1032 CSS px wide in
+ *   play-tablet-7-inch   792 CSS  → bottom tabs, `md:` tablet layout (T1)
+ *   play-tablet-10-inch 1280 CSS  → sidebar (landscape)
+ *   apple-iphone-6-9-inch 430 CSS  → bottom tabs (iPhone 15/16 Pro Max viewport)
+ *   apple-ipad-13-inch  1032 CSS  → sidebar — a real 13" iPad is 1032 CSS px wide in
  *                  portrait, so the sidebar IS what an iPad 13" user sees
- *   apple-ipad-13-landscape 1376 CSS → sidebar
+ *   apple-ipad-13-inch-landscape 1376 CSS → sidebar
  */
 export interface StoreSet {
   name: string;
@@ -43,11 +43,11 @@ const ALL: readonly StoreShotId[] = ['home', 'guestlist', 'door', 'requests', 's
 
 export const STORE_SETS: readonly StoreSet[] = [
   { name: 'play-phone', width: 432, height: 768, dpr: 2.5, shots: ALL }, // 1080×1920
-  { name: 'play-tablet-7', width: 792, height: 1408, dpr: 1.5, shots: ALL }, // 1188×2112
-  { name: 'play-tablet-10', width: 1280, height: 720, dpr: 2, shots: ALL }, // 2560×1440
-  { name: 'apple-iphone-69', width: 430, height: 932, dpr: 3, shots: ALL }, // 1290×2796
-  { name: 'apple-ipad-13', width: 1032, height: 1376, dpr: 2, shots: ALL }, // 2064×2752
-  { name: 'apple-ipad-13-landscape', width: 1376, height: 1032, dpr: 2, shots: ['guestlist', 'door'] }, // 2752×2064
+  { name: 'play-tablet-7-inch', width: 792, height: 1408, dpr: 1.5, shots: ALL }, // 1188×2112
+  { name: 'play-tablet-10-inch', width: 1280, height: 720, dpr: 2, shots: ALL }, // 2560×1440
+  { name: 'apple-iphone-6-9-inch', width: 430, height: 932, dpr: 3, shots: ALL }, // 1290×2796
+  { name: 'apple-ipad-13-inch', width: 1032, height: 1376, dpr: 2, shots: ALL }, // 2064×2752
+  { name: 'apple-ipad-13-inch-landscape', width: 1376, height: 1032, dpr: 2, shots: ['guestlist', 'door'] }, // 2752×2064
 ];
 
 /** The demo user + night written by scripts/store-screenshot-seed.mjs (same ids). */
@@ -63,13 +63,21 @@ export const STORE_DEMO = {
  * Billing. URLs are built with the app's own route helpers, like the layout
  * suite's screens.ts, so a route rename moves this list with it.
  */
-export const STORE_SHOTS: Record<StoreShotId, { order: number; path: string }> = {
-  home: { order: 1, path: tabPath('start') },
-  guestlist: { order: 2, path: screenPath('lijst', { id: STORE_DEMO.liveEventId }) },
-  door: { order: 3, path: doorPath({ eventId: STORE_DEMO.liveEventId }) },
-  requests: { order: 4, path: screenPath('aanvragen') },
-  stats: { order: 5, path: screenPath('stats') },
+export const STORE_SHOTS: Record<StoreShotId, { order: number; slug: string; path: string }> = {
+  home: { order: 1, slug: 'home', path: tabPath('start') },
+  guestlist: { order: 2, slug: 'guest-list', path: screenPath('lijst', { id: STORE_DEMO.liveEventId }) },
+  door: { order: 3, slug: 'door-check-in', path: doorPath({ eventId: STORE_DEMO.liveEventId }) },
+  requests: { order: 4, slug: 'requests', path: screenPath('aanvragen') },
+  stats: { order: 5, slug: 'stats', path: screenPath('stats') },
 };
+
+/**
+ * File name `<nn>-<slug>.png`, e.g. `03-door-check-in.png`. Names are human
+ * readable: lowercase, hyphens only (tests/unit/store-screenshot-names.test.ts).
+ */
+export function shotFile(shot: { order: number; slug: string }): string {
+  return `${String(shot.order).padStart(2, '0')}-${shot.slug}.png`;
+}
 
 /** The PNG size the store expects for a set. */
 export function pixelSize(s: StoreSet): { width: number; height: number } {
@@ -86,7 +94,12 @@ export function expectsSidebar(s: StoreSet): boolean {
   return s.width >= CHROME_BREAKPOINT;
 }
 
-export const FEATURE_GRAPHIC = { name: 'play-feature-graphic', width: 1024, height: 500 } as const;
+export const FEATURE_GRAPHIC = {
+  name: 'play-feature-graphic',
+  file: 'play-feature-graphic.png',
+  width: 1024,
+  height: 500,
+} as const;
 
 export const STORE_PROJECTS: Project[] = [
   ...STORE_SETS.map((s) => ({

@@ -15,6 +15,7 @@ Branch `claude/86ey6bf8k-store-screenshots`, milestone Now (Fase 17 store submis
 - `pnpm store:screenshots` runs two steps:
   - `scripts/store-screenshot-seed.mjs`: PII-free demo data on the local stack. It hard-refuses a non-localhost Supabase URL and is idempotent. It never edits `seed.sql`.
   - `playwright.store.config.ts` with `tests/e2e/store/`: six sets at the exact store pixel sizes (Play phone, 7", 10"; iPhone 6.9"; iPad 13" portrait and landscape) plus the 1024×500 feature graphic. Output goes to `store-screenshots/` (gitignored).
+- Names are human readable and hyphen-only: set folders `play-phone`, `play-tablet-7-inch`, `play-tablet-10-inch`, `apple-iphone-6-9-inch`, `apple-ipad-13-inch`, `apple-ipad-13-inch-landscape`; files `01-home.png`, `02-guest-list.png`, `03-door-check-in.png`, `04-requests.png`, `05-stats.png`, `play-feature-graphic.png`. A unit test enforces `/^[a-z0-9]+(-[a-z0-9]+)*(\.png)?$/`.
 - Reuses the QA-1 layout suite's `newProjectContext`, `shellMounted` gate, chrome breakpoint and the shared consent helper. The specs assert the exact PNG size, no alpha, the expected chrome, touch emulation, and that the Deur shot is the outbox door.
 - The shots log in as a dedicated plain venue admin (`store-demo@plusone.test`), not `admin@`. `pnpm dev:mfa` makes `admin@` a platform admin, and the internal Platform nav item must never appear in a listing.
 - Alcohol-free and English, on this stack only. The seed tier "VIP + fles op tafel" (aliases fles/champagne) becomes "Artist", and the visible Dutch seed strings become English.

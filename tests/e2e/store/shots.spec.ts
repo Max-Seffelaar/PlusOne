@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { measure, newProjectContext } from '../layout/probe';
-import { STORE_DIR, cleanForShot, openAs, pngInfo, shotFile } from './capture';
-import { STORE_DEMO, STORE_SHOTS, expectsSidebar, pixelSize, storeSetFor } from './sets';
+import { STORE_DIR, cleanForShot, openAs, pngInfo } from './capture';
+import { STORE_DEMO, STORE_SHOTS, expectsSidebar, pixelSize, shotFile, storeSetFor } from './sets';
 
 /**
  * One screenshot per shot × store set (86ey6bf8k). Each test is a fresh
@@ -48,7 +48,7 @@ for (const [id, shot] of Object.entries(STORE_SHOTS)) {
 
       const dir = join(STORE_DIR, set.name);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, shotFile(shot.order, id)), png);
+      writeFileSync(join(dir, shotFile(shot)), png);
     } finally {
       await context.close();
     }

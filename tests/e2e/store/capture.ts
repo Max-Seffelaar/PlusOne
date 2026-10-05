@@ -71,8 +71,3 @@ export function pngInfo(buf: Buffer): { width: number; height: number; colorType
   }
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20), bitDepth: buf[24], colorType: buf[25] };
 }
-
-/** File name `<nn>-<screen>.png`. */
-export function shotFile(order: number, id: string): string {
-  return `${String(order).padStart(2, '0')}-${id}.png`;
-}

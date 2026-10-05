@@ -15,7 +15,7 @@ pnpm store:screenshots     # seed the demo night, then render every set
 pnpm store:screenshots -- --project=play-phone   # one set
 ```
 
-Output: `store-screenshots/<set>/<nn>-<screen>.png` (gitignored) + `store-screenshots/play-feature-graphic/feature-graphic-1024x500.png`.
+Output: `store-screenshots/<set>/<nn>-<screen>.png` (gitignored), e.g. `store-screenshots/play-phone/03-door-check-in.png`, plus `store-screenshots/play-feature-graphic/play-feature-graphic.png`.
 
 `pnpm store:screenshots` first runs `scripts/store-screenshot-seed.mjs`. That script **hard-refuses any non-localhost Supabase URL** (the same hostname check as `/auth/dev-login`). It is idempotent, so a re-run never duplicates rows and refreshes the times, so the demo night is always live. It never edits `supabase/seed.sql`. Locally it shares the one stack with other worktrees ("One DB owner", CLAUDE.md), but it only adds rows and touches up a few seed strings. It does not reset anything.
 
@@ -25,6 +25,10 @@ What the seed adds:
 - **"Neon Nights", live right now:** 60 fictional guests (no e-mail or phone) across Guest/VIP/Artist, +N plus-ones, 26 check-ins spread over the night, two pending landing guests, three open guest requests and one open quota request.
 - Two upcoming nights and one past night.
 - An English, alcohol-free touch-up of the visible `seed.sql` strings. The tier "VIP + fles op tafel" and its aliases become "Artist", and the Dutch note, motivation and reason strings become English.
+
+## Naming
+
+Names are human readable: lowercase, hyphens only, no underscores or spaces (guarded by `tests/unit/store-screenshot-names.test.ts`). Set folders: `play-phone`, `play-tablet-7-inch`, `play-tablet-10-inch`, `apple-iphone-6-9-inch`, `apple-ipad-13-inch`, `apple-ipad-13-inch-landscape`. Screen files keep their order prefix: `01-home.png`, `02-guest-list.png`, `03-door-check-in.png`, `04-requests.png`, `05-stats.png`.
 
 ## Shot-list
 
@@ -43,11 +47,11 @@ Never captured: Settings, Platform, Billing.
 | Set (folder) | PNG px | CSS viewport × DPR | Chrome | Store slot |
 |---|---|---|---|---|
 | `play-phone` | 1080×1920 | 432×768 × 2.5 | bottom tabs | Play: Phone |
-| `play-tablet-7` | 1188×2112 | 792×1408 × 1.5 | bottom tabs, `md:` tablet layout (T1) | Play: 7-inch tablet |
-| `play-tablet-10` | 2560×1440 (landscape) | 1280×720 × 2 | sidebar | Play: 10-inch tablet |
-| `apple-iphone-69` | 1290×2796 | 430×932 × 3 | bottom tabs | App Store: iPhone 6.9" |
-| `apple-ipad-13` | 2064×2752 | 1032×1376 × 2 | sidebar | App Store: iPad 13" |
-| `apple-ipad-13-landscape` | 2752×2064 | 1376×1032 × 2 (guest list + door only) | sidebar | App Store: iPad 13" |
+| `play-tablet-7-inch` | 1188×2112 | 792×1408 × 1.5 | bottom tabs, `md:` tablet layout (T1) | Play: 7-inch tablet |
+| `play-tablet-10-inch` | 2560×1440 (landscape) | 1280×720 × 2 | sidebar | Play: 10-inch tablet |
+| `apple-iphone-6-9-inch` | 1290×2796 | 430×932 × 3 | bottom tabs | App Store: iPhone 6.9" |
+| `apple-ipad-13-inch` | 2064×2752 | 1032×1376 × 2 | sidebar | App Store: iPad 13" |
+| `apple-ipad-13-inch-landscape` | 2752×2064 | 1376×1032 × 2 (guest list + door only) | sidebar | App Store: iPad 13" |
 | `play-feature-graphic` | 1024×500 | 1024×500 × 1 | — | Play: Feature graphic |
 
 Every set emulates touch (`(pointer: coarse)`), as on the real device. A real 13" iPad is 1032 CSS px wide in portrait, which is past the one chrome breakpoint (1024), so the iPad shows the sidebar in both orientations. That is what an iPad user actually sees. The bottom-tab tablet layout is in the Play 7" set. All PNGs are 24-bit RGB with no alpha; the spec checks the PNG header.
@@ -79,7 +83,7 @@ No device mockups, and no claims the product doesn't back (no ticketing, no invi
 ## Uploading
 
 1. **Play Console** → your app → **Grow users → Store presence → Main store listing → Graphics**.
-2. Upload `play-feature-graphic/feature-graphic-1024x500.png` as the Feature graphic.
-3. Upload `play-phone/*` under Phone screenshots, `play-tablet-7/*` under 7-inch tablet and `play-tablet-10/*` under 10-inch tablet, in file-name order. Save.
+2. Upload `play-feature-graphic/play-feature-graphic.png` as the Feature graphic.
+3. Upload `play-phone/*` under Phone screenshots, `play-tablet-7-inch/*` under 7-inch tablet and `play-tablet-10-inch/*` under 10-inch tablet, in file-name order. Save.
 4. **App Store Connect** → the app → the version being prepared → **Previews and Screenshots**.
-5. Drag `apple-iphone-69/*` into **iPhone 6.9" Display**, then `apple-ipad-13/*` plus `apple-ipad-13-landscape/*` into **iPad 13" Display**. Apple scales these down for the smaller display sizes.
+5. Drag `apple-iphone-6-9-inch/*` into **iPhone 6.9" Display**, then `apple-ipad-13-inch/*` plus `apple-ipad-13-inch-landscape/*` into **iPad 13" Display**. Apple scales these down for the smaller display sizes.

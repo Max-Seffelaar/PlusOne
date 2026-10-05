@@ -79,5 +79,5 @@ test('Play feature graphic', async ({ page }) => {
 
   const dir = join(STORE_DIR, FEATURE_GRAPHIC.name);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'feature-graphic-1024x500.png'), png);
+  writeFileSync(join(dir, FEATURE_GRAPHIC.file), png);
 });
