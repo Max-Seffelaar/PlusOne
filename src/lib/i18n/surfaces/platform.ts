@@ -144,7 +144,7 @@ export const platform = {
   // as a complete record of every read.
   accessLogTitle: 'Access log',
   accessLogSubtitle:
-    'Every switch by a platform admin into a venue they are not a member of. Direct database reads are not in here.',
+    'Every switch by a platform admin into a venue they are not a member of. One row per switch, not per visit; direct database reads and other cross-venue screens are not in here.',
   accessLogEmpty: 'No venue access logged for this filter.',
   accessLogLoading: 'Loading the access log…',
   accessLogLoadError: "Couldn't load the access log. Try again in a moment.",

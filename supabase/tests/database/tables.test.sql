@@ -51,7 +51,7 @@ select tables_are(
     -- into a venue they hold no membership at. Platform admins only.
     'platform_access_log'
   ],
-  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links + billing)' 
+  'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----

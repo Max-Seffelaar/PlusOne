@@ -41,7 +41,7 @@ begin
 end;
 $fn$;
 
-select plan(23);
+select plan(24);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the seed)
@@ -101,8 +101,10 @@ select ok(
 select ok(
   not has_table_privilege('authenticated', 'public.platform_access_log', 'UPDATE')
   and not has_table_privilege('authenticated', 'public.platform_access_log', 'DELETE')
-  and not has_table_privilege('authenticated', 'public.platform_access_log', 'TRUNCATE'),
-  'A3 authenticated holds no UPDATE, DELETE or TRUNCATE — append-only'
+  and not has_table_privilege('authenticated', 'public.platform_access_log', 'TRUNCATE')
+  and not has_table_privilege('authenticated', 'public.platform_access_log', 'REFERENCES')
+  and not has_table_privilege('authenticated', 'public.platform_access_log', 'TRIGGER'),
+  'A3 authenticated holds no UPDATE, DELETE, TRUNCATE, REFERENCES or TRIGGER — append-only'
 );
 
 select ok(
@@ -112,6 +114,19 @@ select ok(
 
 select has_trigger('public', 'platform_access_log', 'stamp_platform_access_log',
   'A5 created_at is stamped by a BEFORE INSERT trigger');
+
+-- has_table_privilege() is blind to a column-only grant, and
+-- grant_matrix.test.sql checks column ACLs for anon only — so a later
+-- `grant update (reason) … to authenticated` would keep A3/B7 green while
+-- making the log rewritable. Pin it here.
+select is_empty($$
+  select a.attname || ' -> ' || x.privilege_type
+  from pg_attribute a
+  cross join lateral aclexplode(a.attacl) x
+  where a.attrelid = 'public.platform_access_log'::regclass
+    and a.attnum > 0 and not a.attisdropped
+    and x.grantee in ('anon'::regrole, 'authenticated'::regrole)
+$$, 'A6 no app role holds a column-level privilege on platform_access_log');
 
 -- ---------------------------------------------------------------------------
 -- B. Platform admin — inserts for self only, cannot rewrite or wipe

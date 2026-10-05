@@ -4,8 +4,9 @@
 -- Light variant of "audit trail for read-only cross-venue platform-admin
 -- support sessions" (the heavy, DB-enforced variant is backlog item
 -- z8uq9m0vyk, milestone ≥25). One row every time a PlusOne platform admin
--- (decision #49) switches INTO a venue through the app while holding no own
--- membership there. The row is written by `switchActiveVenueAction`
+-- (decision #49) switches INTO a venue through the app while holding no REAL
+-- venue_memberships row there (crew/event_organizers scope does not exempt
+-- them: a platform admin can grant themself crew scope, unaudited). The row is written by `switchActiveVenueAction`
 -- (src/features/venues/actions.ts) through the caller's own user-scoped client,
 -- so the INSERT policy below is what proves who wrote it.
 --
@@ -16,6 +17,23 @@
 --     them (decision 8).
 --   * Not customer-visible (decision 3): SELECT is platform admins only. We
 --     share rows with a venue on request (DPA 4.4).
+
+-- Accepted residuals of this LIGHT trail (review of PR #376) — read the log
+-- with these in mind:
+--   * A hand-set `po_active_venue` cookie (devtools/curl) is honoured by
+--     src/app/app/layout.tsx after `getPlatformAdminVenue` alone; only
+--     `switchActiveVenueAction` writes a row. Entering a venue that way leaves
+--     no trace here.
+--   * One row per SWITCH, not per session. The cookie lives a year, so one row
+--     can stand for months of access to that venue: "last row" is not "last
+--     access".
+--   * Other in-app cross-venue reads are not switches and write no row:
+--     Platform > Audit with `?venue=`, the Platform > Venues aggregates, a
+--     direct `/door/<eventId>` or `/e/<slug>` of another venue — all plain RLS.
+--   * `admin_id references auth.users (id)` has no ON DELETE clause: a platform
+--     admin's auth user cannot be deleted while they have log rows. Consistent
+--     with `user_profiles.id … on delete restrict`, so nothing new is blocked;
+--     operator-account erasure is "on request" (Privacy §10), by hand.
 --
 -- Integrity (an operator must not be able to forge or wipe their own trail
 -- through the API):

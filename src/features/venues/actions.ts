@@ -4,7 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser, getAuthContext } from '@/lib/auth/context';
-import { getMyMemberships, getOrganizerVenues, getPlatformAdminVenue } from '@/lib/auth/memberships';
+import {
+  getMyMemberships,
+  getOrganizerVenues,
+  getPlatformAdminVenue,
+  isPlatformAdminServer,
+} from '@/lib/auth/memberships';
 import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
@@ -112,9 +117,11 @@ export type SwitchVenueResult = 'ok' | 'unauthenticated' | 'denied';
  * not the revocation race this is about. `roles: []` is not "no access": event
  * scope IS access (#24/86ey21vre).
  *
- * Never throws on a refusal: the access check is a live read, so a member
- * removed between the render of `myVenues` and the click legitimately lands
- * here. The caller decides what the user sees.
+ * Never throws on an ACCESS refusal: the access check is a live read, so a
+ * member removed between the render of `myVenues` and the click legitimately
+ * lands here. The caller decides what the user sees. It DOES throw when a
+ * required `platform_access_log` row cannot be written (legal v0.3 B3) — the
+ * switch is then not performed.
  */
 export async function switchActiveVenueAction(venueId: string): Promise<SwitchVenueResult> {
   const user = await getSessionUser();
@@ -128,6 +135,14 @@ export async function switchActiveVenueAction(venueId: string): Promise<SwitchVe
     getOrganizerVenues().catch(() => []),
   ]);
   const reachable = new Set([...memberships, ...organizerVenues].map((m) => m.venueId));
+  const isMember = memberships.some((m) => m.venueId === parsed.data.venueId);
+  // Whether this switch must leave a `platform_access_log` row (legal v0.3
+  // B3): a platform admin entering a venue they hold no REAL membership at.
+  // Crew scope does not exempt them — `event_organizers` is self-grantable for
+  // a platform admin (has_venue_role → is_platform_admin()) and carries no
+  // audit trigger, so "add yourself as crew, then switch" would otherwise be a
+  // silent, repeatable way around the trail (review of PR #376).
+  let logAccess = false;
   if (!reachable.has(parsed.data.venueId)) {
     // Support/debug access (decision #49, P-05): a PlusOne platform admin may
     // switch into a venue they hold no membership at, so "jump in to help"
@@ -136,7 +151,14 @@ export async function switchActiveVenueAction(venueId: string): Promise<SwitchVe
     // a forged id for a non-admin still falls through to 'denied' below.
     const platformVenue = await getPlatformAdminVenue(parsed.data.venueId).catch(() => null);
     if (!platformVenue) return 'denied';
+    logAccess = true;
+  } else if (!isMember) {
+    // Reachable through crew scope only — log iff the caller is a platform
+    // admin. An ordinary crew member never writes a row (RLS would refuse it).
+    logAccess = await isPlatformAdminServer();
+  }
 
+  if (logAccess) {
     // Legal v0.3 B3 (decision 3): every such switch leaves a row in
     // `platform_access_log`, written BEFORE the cookie through the caller's own
     // user-scoped client — the insert policy (`is_platform_admin()` and

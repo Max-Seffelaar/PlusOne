@@ -17,11 +17,12 @@ Migration `20261006130000_platform_access_log.sql`: append-only table
 reason ≤500, created_at`), RLS on, `revoke all` then `grant select, insert` to
 authenticated; insert only `is_platform_admin() and admin_id = auth.uid()`, select only
 `is_platform_admin()`, no update/delete; a BEFORE INSERT trigger server-stamps
-`created_at`. `switchActiveVenueAction` writes the row in its platform-admin branch
-(venue not in memberships ∪ crew venues) through the user-scoped client, before the
-cookie, and fails closed (throws → shell shows "couldn't switch, try again"). Platform tab
+`created_at`. `switchActiveVenueAction` writes the row whenever a platform admin enters a venue they
+hold no real membership at — crew scope does not exempt them (review round 1: crew is
+self-grantable and unaudited for a platform admin) — through the user-scoped client,
+before the cookie, and fails closed (throws → shell shows "couldn't switch, try again"). Platform tab
 → Access log (`/app/platform/access`, `?venue=` filter), read-only, windowed. pgTAP
-`platform_access_log.test.sql` (23) + `tables.test.sql` table list. CLAUDE.md §Platform
+`platform_access_log.test.sql` (24) + `tables.test.sql` table list. CLAUDE.md §Platform
 admins: reads sentence updated + decision-8 prod-data rule. Not run here (no Supabase
 stack in the container): `pnpm db:test`, `db reset`, e2e/layout — CI is the proof.
 Not done (scope fence): `docs/legal/README.md` "Keep in sync" line (A1 owns docs/legal).
