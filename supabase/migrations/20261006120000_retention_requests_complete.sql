@@ -21,7 +21,7 @@
 -- 2. forget_contact() erased the contact + its linked guests but not the
 --    person's landing requests ("no reliable person key", 20260624120000).
 --    It now matches the venue's not-yet-anonymized requests on the contact's
---    e-mail (case-insensitive) or phone digits — read BEFORE the contact itself
+--    e-mail, with the phone as fallback only (see the function's comment) — read BEFORE the contact itself
 --    is scrubbed — and applies exactly the retention scrub to them: 'Aanvraag
 --    #n' (ranked over the full event, like the nightly job), contact fields,
 --    motivation, decision fields, status token, dedupe_key, birthdate null,
@@ -512,10 +512,17 @@ revoke execute on function public.run_privacy_retention()
 -- admin-of-this-venue self-guard, the guest/refusal/contact cascade — is
 -- unchanged. SECURITY DEFINER / search_path / grants as before.
 --
--- Matching: the contact's e-mail (lower()) or phone digits, against requests of
+-- Matching (decision Max, 2026-10-05 — phone is a FALLBACK key): a request of
 -- the contact's venue (guest_requests.venue_id AND the event's venue — the
--- denormalized column is server-derived, the join is belt and braces).
--- Equality only, never a prefix/like, and an empty key matches nothing.
+-- denormalized column is server-derived, the join is belt and braces) is erased
+-- when (a) its e-mail equals the contact's, or (b) its phone digits equal the
+-- contact's AND it carries no e-mail or the contact's own. Keys are
+-- contacts.email_norm / phone_norm, with the identical expressions on the
+-- request side (same as submit_guest_request and the autolink trigger). Known
+-- miss, deliberately not "fixed" here: digits-only normalisation means a
+-- contact stored as 06… does not meet a request stored as +316… — the same
+-- miss every contact path has today. Equality only, never a prefix/like, and
+-- an empty key matches nothing.
 -- Already-anonymized requests are skipped (idempotent). A contact that is
 -- itself already anonymized has no e-mail/phone left, so a re-run matches no
 -- request — the first run is the one that cascades.
@@ -539,9 +546,9 @@ declare
   v_contact     boolean := false;
 begin
   -- 0. Resolve the contact + its venue (venue is derived, never client-supplied).
-  select venue_id, anonymized_at,
-         nullif(lower(btrim(coalesce(email, ''))), ''),
-         nullif(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), '')
+  --    The person keys are the contact's stored generated columns
+  --    (20260615110000) — the one normalisation every contact path shares.
+  select venue_id, anonymized_at, email_norm, phone_norm
     into v_venue_id, v_already, v_email, v_phone_dig
   from public.contacts
   where id = p_contact_id;
@@ -639,9 +646,19 @@ begin
       where gr.venue_id = v_venue_id
         and e.venue_id = v_venue_id
         and gr.anonymized_at is null
-        and (   (v_email is not null and lower(gr.email) = v_email)
-             or (v_phone_dig is not null
-                 and regexp_replace(coalesce(gr.phone, ''), '[^0-9]', '', 'g') = v_phone_dig))
+        and (
+              -- (a) the e-mail matches
+              (v_email is not null
+               and nullif(lower(btrim(coalesce(gr.email, ''))), '') = v_email)
+              -- (b) phone as FALLBACK only: the phone matches AND the request
+              --     carries no e-mail or the contact's own. A shared number
+              --     (office, family) never erases someone with another address.
+              --     (Decision Max, 2026-10-05.)
+           or (v_phone_dig is not null
+               and nullif(regexp_replace(coalesce(gr.phone, ''), '[^0-9]', '', 'g'), '') = v_phone_dig
+               and (nullif(lower(btrim(coalesce(gr.email, ''))), '') is null
+                    or nullif(lower(btrim(coalesce(gr.email, ''))), '') = v_email))
+        )
     ),
     ranked as (
       select gr.id,
@@ -708,7 +725,7 @@ end;
 $$;
 
 comment on function public.forget_contact(uuid) is
-  'AVG #29 on-request erasure: immediately anonymizes one address-book contact + all its linked guests (and their refusals) + the landing requests in the same venue that carry its e-mail or phone, ignoring the retention window. Admin-of-venue only (self-guarded; role-only, no AAL2 step-up). Audit diffs are scrubbed structure-preserving and the action is logged. Reuses run_privacy_retention machinery scoped to one person.';
+  'AVG #29 on-request erasure: immediately anonymizes one address-book contact + all its linked guests (and their refusals) + the landing requests in the same venue that carry its e-mail (or its phone with no other e-mail), ignoring the retention window. Admin-of-venue only (self-guarded; role-only, no AAL2 step-up). Audit diffs are scrubbed structure-preserving and the action is logged. Reuses run_privacy_retention machinery scoped to one person.';
 
 -- Least privilege, unchanged: an authenticated admin calls it (self-guarded
 -- inside); never anon, and not service_role.

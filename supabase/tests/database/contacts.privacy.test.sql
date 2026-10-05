@@ -11,7 +11,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(15);
+select plan(16);
 
 -- Aged + unlinked → eligible. Its INSERT trips audit_contacts, leaving a PII diff.
 insert into public.contacts (id, venue_id, full_name, email, source, created_at, updated_at)
@@ -109,7 +109,11 @@ insert into public.guest_requests
    'Wis Mij', 'wis.mij@real.test', '+31611112222', 'andere zaal', 'wis.mij@real.test', '1995-03-03', 'tok-c-e3'),
   -- e4: venue 1, a stranger on the same event as e1
   ('ba000000-0000-7000-8000-0000000000e4', 'ee000000-0000-7000-8000-000000000001',
-   'Ander Persoon', 'ander@real.test', null, null, 'ander@real.test', null, 'tok-c-e4');
+   'Ander Persoon', 'ander@real.test', null, null, 'ander@real.test', null, 'tok-c-e4'),
+  -- e5: venue 1, SAME phone (shared number) but ANOTHER e-mail — phone is a
+  --     fallback key only (decision Max, 2026-10-05), so this must stay
+  ('ba000000-0000-7000-8000-0000000000e5', 'ee000000-0000-7000-8000-0000000000e1',
+   'Huisgenoot', 'huisgenoot@real.test', '+31 6 1111 2222', null, 'huisgenoot@real.test', null, 'tok-c-e5');
 
 -- A status-token mirror (a deduped caller's name) hanging off e1.
 insert into public.guest_request_status_mirrors (request_id, token_hash, full_name, plus_ones)
@@ -121,7 +125,7 @@ create temp table forget_req as
 reset role;
 
 select is((select (r ->> 'requests_anonymized')::int from forget_req), 2,
-  'E1 forget_contact anonymized the person''s two requests in this venue');
+  'E1 forget_contact anonymized the person''s two requests in this venue (same e-mail; phone with no e-mail)');
 
 select is(
   (select string_agg(
@@ -170,6 +174,13 @@ select is(
       and entity_id in ('ba000000-0000-7000-8000-0000000000e1', 'ba000000-0000-7000-8000-0000000000e2')
       and actor_id = '11111111-1111-4111-8111-111111111111'),
   2, 'E7 the forget-path anonymize rows name the admin who erased them (the nightly job writes null)');
+
+select is(
+  (select full_name || '|' || email || '|' || phone || '|' || coalesce(status_token_hash, '-') || '|'
+          || (anonymized_at is null)::text
+     from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000e5'),
+  'Huisgenoot|huisgenoot@real.test|+31 6 1111 2222|tok-c-e5|true',
+  'E8 a request sharing only the PHONE but carrying another e-mail is untouched (phone = fallback key)');
 
 select * from finish();
 rollback;

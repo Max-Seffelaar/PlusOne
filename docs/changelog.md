@@ -38,7 +38,12 @@ SECURITY DEFINER). Migration `20261006120000_retention_requests_complete.sql`:
   the admin as `actor_id`; `redact_anonymized_request_audit_pii(p_request_ids uuid[] default
   null)` is scoped to the erased ids on the forget path (nightly job unscoped);
   `usePoForgetContact` also invalidates `poKeys.requests`; spec #49 records the 24-month
-  `platform_invites` retention. Phone-OR match left as is — decision for Max.
+  `platform_invites` retention.
+- Decision Max (2026-10-05): in `forget_contact`, phone is a fallback key only. A request
+  is erased on an e-mail match, or on a phone match when the request has no e-mail or the
+  contact's own. Keys come from `contacts.email_norm/phone_norm`; pgTAP E8 pins that a
+  shared phone with another e-mail stays. Not changed: digits-only normalisation, so a
+  `06…` contact never meets a `+316…` request (same on every contact path).
 
 ## 2026-10-05 — Legal v0.3 A1: docs text v0.3 (z8uq9m2hm1)
 
