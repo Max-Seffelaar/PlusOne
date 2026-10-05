@@ -77,6 +77,28 @@ questionnaire asks whether the app's own content references alcohol; the shipped
 `templates.ts`, `guests.ts` and `events.ts` (i18n surfaces). Parser logic, fixtures, seed and
 code comments untouched; a repo-wide `src/**` scan found no other user-visible alcohol words.
 
+## 2026-10-05 — S5 follow-up: Delete account row in Profile (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-delete-account-row`, milestone Now (store submission). Google
+Play requires apps with accounts to offer a web URL to request account deletion AND a
+path to start it in-app. Accounts are invite-only, so there is no self-service delete;
+deletion is by request (Max, 2026-10-05).
+
+- `src/lib/legal.ts`: `DELETE_ACCOUNT_URL` (`NEXT_PUBLIC_DELETE_ACCOUNT_URL`, default
+  `https://www.plus-one.io/delete-account`, the page built in the marketing-site repo;
+  requests go to `privacy@plus-one.io`). Other legal constants untouched.
+- Profile: an "Account" section at the bottom with a calm "Delete account" row
+  ("Request deletion of your PlusOne account"); the tap goes through the kit's
+  `openExternal` (system browser / Custom Tabs / SFSafariViewController in the native
+  shell). Every role, web and native: it is not billing, so no `isNativeShell` gate. No
+  confirmation, nothing is deleted from the app.
+- Tests: `settings/profile.delete-account.test.tsx` (renders per role, tap →
+  `openExternal(DELETE_ACCOUNT_URL)`, no `_blank`/`window.open`).
+- Store docs (PR #363) still need: Data safety "Delete account URL" =
+  `https://www.plus-one.io/delete-account`; in-app path = Profile → Delete account.
+
+---
+
 ## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
 
 Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test
