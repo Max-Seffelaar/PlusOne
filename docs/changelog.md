@@ -8,6 +8,22 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Legal v0.3 B2: request page names the venue + Guest Terms accept line (z8uq9m2hm4)
+
+Branch `claude/z8uq9m2hm4-request-page-legal`, milestone Now. Decision 11 of
+`legal-v03-plan-claude-code.md`: `/e/[slug]` says the venue's name instead of "the organizer",
+and carries "By sending this request you accept the PlusOne Guest Terms and {venue}'s privacy
+notice." directly above the send button. `venues.name` was NOT in the public read, so
+`get_landing_event` gained exactly one column, `venue_name` (migration `20261006150000`, drop +
+recreate, grant matrix restated: anon/authenticated/service_role execute, nothing else; new
+pgTAP `landing_venue_name.test.sql`). New `GUEST_TERMS_URL` (env override
+`NEXT_PUBLIC_GUEST_TERMS_URL`) and `GUEST_PRIVACY_URL` (`PRIVACY_URL` base + `#guests`; the venue
+has no privacy URL field, so "{venue}'s privacy notice" and "How your details are used" both
+land there). Links go through the kit's `ExternalLink`/`openExternal`. Copy via the catalogue
+(`{venue}` in `formSub`, `emailRequired`, `privacyNote`; `venueFallback` when no name).
+Gotcha: the pre-existing footer in `landing-frame.tsx` still uses `target="_blank"` (not B2's file).
+Not run here (no supabase/docker): pgTAP, `db:reset`, e2e/layout suites.
+
 ## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`

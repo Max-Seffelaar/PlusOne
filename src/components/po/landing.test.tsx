@@ -292,3 +292,50 @@ describe('Turnstile watchdog — stuck script load', () => {
     expect(submitBtn()).toBeDisabled();
   });
 });
+
+// Legal v0.3 B2 (z8uq9m2hm4): the venue is named and the Guest Terms are accepted
+// by sending the form (decision 11).
+describe('request page legal copy', () => {
+  const WITH_VENUE: LandingEvent = { ...EVENT, venueName: 'Club Vesper' };
+
+  it('names the venue instead of "the organizer"', () => {
+    const { container } = render(<LandingForm event={WITH_VENUE} slug="x" action={vi.fn()} />);
+    expect(container.textContent).toContain('Club Vesper needs a way to reach you');
+    expect(container.textContent).toContain('Your details go to Club Vesper');
+    expect(container.textContent).not.toContain('organizer');
+  });
+
+  it('shows the accept line above the send button with both legal links', () => {
+    render(<LandingForm event={WITH_VENUE} slug="x" action={vi.fn()} />);
+    const line = screen.getByTestId('accept-line');
+    expect(line.textContent).toBe(
+      "By sending this request you accept the PlusOne Guest Terms and Club Vesper's privacy notice.",
+    );
+    expect(screen.getByRole('link', { name: 'PlusOne Guest Terms' })).toHaveAttribute('href', 'https://plus-one.io/legal#guest-terms');
+    expect(screen.getByRole('link', { name: 'privacy notice' })).toHaveAttribute('href', 'https://plus-one.io/legal#guests');
+    expect(screen.getByRole('link', { name: 'How your details are used' })).toHaveAttribute('href', 'https://plus-one.io/legal#guests');
+    const send = screen.getByRole('button', { name: 'Request my spot' });
+    expect(line.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('opens legal links through openExternal, never target="_blank"', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(<LandingForm event={WITH_VENUE} slug="x" action={vi.fn()} />);
+    // Scoped to the legal links: the pre-existing footer link (landing-frame.tsx) is not B2's.
+    for (const a of [
+      screen.getByRole('link', { name: 'PlusOne Guest Terms' }),
+      screen.getByRole('link', { name: 'privacy notice' }),
+      screen.getByRole('link', { name: 'How your details are used' }),
+    ]) {
+      expect(a).not.toHaveAttribute('target');
+    }
+    fireEvent.click(screen.getByRole('link', { name: 'PlusOne Guest Terms' }));
+    expect(open).toHaveBeenCalledWith('https://plus-one.io/legal#guest-terms', '_blank', 'noopener,noreferrer');
+    open.mockRestore();
+  });
+
+  it('falls back to a neutral name when the public read carries none', () => {
+    const { container } = render(<LandingForm event={EVENT} slug="x" action={vi.fn()} />);
+    expect(container.textContent).toContain("the organizer's privacy notice");
+  });
+});

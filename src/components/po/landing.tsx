@@ -11,11 +11,12 @@ import { type JSX, useEffect, useRef, useState, useTransition } from 'react';
 import Script from 'next/script';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
+import { GUEST_PRIVACY_URL, GUEST_TERMS_URL } from '@/lib/legal';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
 import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
 import { Icon, type IconName } from './icon';
-import { copyStateLabel, fieldErrorBorder, fieldErrorText, useCopyText } from './kit';
+import { ExternalLink, copyStateLabel, fieldErrorBorder, fieldErrorText, useCopyText } from './kit';
 import { LandingFooter as Footer, LandingWrap as Wrap } from './landing-frame';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
@@ -115,6 +116,8 @@ export interface LandingEvent {
   time: string;
   /** Optional context — only present when the anon data boundary exposes it. */
   venue?: string;
+  /** The venue's trade name (public read, decision 11) — names who receives the details. */
+  venueName?: string;
   line?: string;
   closes?: string;
   /** Provenance of the request link ("via Jayden") — influencer/label links only. */
@@ -254,6 +257,7 @@ export function LandingForm({
   slug: string;
   action: SubmitAction;
 }): JSX.Element {
+  const venueName = event.venueName ?? t.landing.venueFallback;
   const [name, setName] = useState('');
   const [plus, setPlus] = useState(0);
   const [email, setEmail] = useState('');
@@ -322,7 +326,7 @@ export function LandingForm({
     const nErr = ok ? null : t.landing.nameError;
     const trimmedEmail = email.trim();
     const eErr = !trimmedEmail
-      ? t.landing.emailRequired
+      ? fmt(t.landing.emailRequired, { venue: venueName })
       : isValidEmail(trimmedEmail)
         ? null
         : t.landing.emailError;
@@ -476,7 +480,7 @@ export function LandingForm({
       {Hero}
       <div className="rounded-[24px] border border-line bg-elev px-[22px] py-6">
         <div className="mb-1 font-display text-[21px] font-extrabold tracking-[-0.01em]">{t.landing.formTitle}</div>
-        <div className="mb-[14px] text-[13.5px] leading-[1.45] text-faint">{t.landing.formSub}</div>
+        <div className="mb-[14px] text-[13.5px] leading-[1.45] text-faint">{fmt(t.landing.formSub, { venue: venueName })}</div>
         {event.closes && (
           <div className="mb-[18px] inline-flex items-center gap-2 rounded-[11px] bg-acc-dim px-3 py-2">
             <Icon name="clock" size={14} stroke="#B5A6FF" />
@@ -618,6 +622,18 @@ export function LandingForm({
           </div>
         )}
 
+        <p className="mb-[6px] mt-1 text-[11.5px] leading-[1.45] text-ghost" data-testid="accept-line">
+          {t.landing.acceptPre}
+          <ExternalLink href={GUEST_TERMS_URL} className="underline">
+            {t.landing.acceptTermsLink}
+          </ExternalLink>
+          {fmt(t.landing.acceptMid, { venue: venueName })}
+          <ExternalLink href={GUEST_PRIVACY_URL} className="underline">
+            {t.landing.acceptPrivacyLink}
+          </ExternalLink>
+          {t.landing.acceptPost}
+        </p>
+
         <button
           type="button"
           onClick={submit}
@@ -635,7 +651,12 @@ export function LandingForm({
         )}
         <div className="mt-[14px] flex items-start gap-2">
           <Icon name="shield" size={14} className="text-ghost" />
-          <span className="text-[11.5px] leading-[1.45] text-ghost">{t.landing.privacyNote}</span>
+          <span className="text-[11.5px] leading-[1.45] text-ghost">
+            {fmt(t.landing.privacyNote, { venue: venueName })}{' '}
+            <ExternalLink href={GUEST_PRIVACY_URL} className="underline">
+              {t.landing.privacyHow}
+            </ExternalLink>
+          </span>
         </div>
       </div>
       <Footer />

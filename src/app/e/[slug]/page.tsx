@@ -59,6 +59,7 @@ export default async function LandingPage({
     name: event.event_name,
     date: dateFmt.format(starts),
     time: timeFmt.format(starts),
+    venueName: event.venue_name,
     via: event.via_label ?? undefined,
     spotsLeft: event.spots_left,
   };
