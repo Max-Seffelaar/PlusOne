@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Push (Fase 17 S1b): APNs, used by FCM under the hood. APS_ENVIRONMENT is a
+	     build setting in project.pbxproj: `development` for Debug, `production` for
+	     Release (the TestFlight/App Store build). Requires the Push Notifications
+	     capability on the App ID (docs/native/ios-release.md). -->
+	<key>aps-environment</key>
+	<string>$(APS_ENVIRONMENT)</string>
 	<!-- Universal links (Fase 17 S4): the app claims app.plus-one.io, and the
 	     AASA file served there limits the claim to /auth/confirm + /auth/callback.
 	     Requires the Associated Domains capability on the App ID
