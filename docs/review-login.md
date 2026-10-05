@@ -8,7 +8,9 @@ met fake data en één demo-user, plus de prod-safe route
 
 ## Hoe het werkt
 
-- `GET /auth/review-login`: codeformulier (statische HTML, geen JS).
+- `GET /auth/review-login`: codeformulier (statische HTML, geen JS). Zolang het venster
+  open is, linkt `/login` er zelf naartoe (**"App review sign-in"**, zie "Reaching it from
+  the native app").
 - `POST /auth/review-login`: de code gaat in de **form body**, nooit in de URL.
   Bij een match wordt de sessie van de demo-user gezet en gaat de reviewer naar `/app`
   (eerst de consent-gate, net als elke andere login).
@@ -267,6 +269,33 @@ set status = 'comped', updated_at = now()
 where venue_id = 'de300000-0000-7000-8000-000000000001';
 ```
 
+## Reaching it from the native app
+
+De native app is een remote-URL-shell zonder adresbalk, dus een reviewer kan
+`/auth/review-login` niet intypen. Daarom staat op `/login` onder het OTP-formulier een
+kleine link **"App review sign-in"** → `/auth/review-login`, een gewone same-origin link
+die in de webview blijft.
+
+- De link verschijnt **alleen zolang het reviewvenster open is**: precies dezelfde check
+  als de route (`reviewLoginEnabled()` in `src/features/auth/review-window.ts`: de GET-gate
+  van de route, `demoSessionMustEnd` en deze link gebruiken alle drie die ene functie),
+  op de server beslist. Venster dicht, verlopen,
+  te ver vooruit, code te zwak, of een env-var leeg of afwezig: geen link.
+- Alleen die boolean bereikt de pagina; code, vervaldatum en reden nooit. Niets in het
+  request (query, headers) kan de link aanzetten, en de href is vast.
+- `/login` rendert per request (`dynamic = 'force-dynamic'`) en de service worker
+  cachet `/login` nooit, dus de link verdwijnt bij het eerstvolgende laden na het
+  sluiten van het venster.
+- **De link kan het venster één paginalading overleven.** Een `/login` die vlak vóór
+  `REVIEW_LOGIN_EXPIRES_AT` is geladen, toont de link nog; tikt de reviewer er pas na het
+  verlopen op, dan krijgt hij de lege 404 (Android: de offline-pagina). De 404 blijft
+  bewust zo. Zet het venster daarom ruim voorbij de verwachte reviewperiode.
+- Wat iedereen op `/login` daarmee kan zien: óf er nu een reviewvenster open is. Meer
+  niet; de code blijft de grens.
+
+In de review-notes is dus genoeg: "Tik op het loginscherm op *App review sign-in* en vul
+de code in." (plus de URL voor wie in een browser test).
+
 ## Per submissie: code + vervaldatum zetten
 
 1. Genereer een nieuwe code (28 base32-tekens = 140 bits, in groepjes van 4):
@@ -280,7 +309,9 @@ where venue_id = 'de300000-0000-7000-8000-000000000001';
 
    Redeploy, want env-vars gelden pas na een nieuwe deploy.
 3. Draai het seedscript opnieuw (events naar voren, MFA-reset).
-4. Zet in de review-notes de URL `https://app.plus-one.io/auth/review-login` en de code.
+4. Zet in de review-notes, link eerst: "Tik op het loginscherm op *App review sign-in*
+   en vul de code in", plus de code. De URL `https://app.plus-one.io/auth/review-login`
+   alleen als terugval voor wie in een browser test.
 
 Na de vervaldatum is de route een 404 en eindigt elke demo-sessie bij het volgende
 verzoek aan de app (middleware). Een oude code werkt niet meer zodra je een nieuwe zet.

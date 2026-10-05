@@ -9,6 +9,7 @@ import {
   DEMO_VENUE_ID,
   configuredReviewCode,
   isExactDemoAccount,
+  reviewLoginEnabled,
 } from '@/features/auth/review-window';
 import {
   AttemptLimiter,
@@ -99,7 +100,7 @@ function formError(raw: string | null): ReviewFormError {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (!configuredReviewCode()) return notFound();
+  if (!reviewLoginEnabled()) return notFound();
   const error = formError(request.nextUrl.searchParams.get('error'));
   return new NextResponse(renderReviewForm(error), {
     status: 200,
@@ -108,6 +109,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // The one place that needs the code itself; null here is the same gate as
+  // reviewLoginEnabled(), read once so the check and the value cannot disagree.
   const expected = configuredReviewCode();
   if (!expected) return notFound();
 
