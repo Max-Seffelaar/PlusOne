@@ -8,6 +8,24 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Legal v0.3 A2: Guest Terms EN v0.3 + Dutch version (z8uq9m2hm2)
+
+Branch `claude/z8uq9m2hm2-guest-terms`, milestone Now. Text only; no code, no migration.
+`docs/legal/guest-terms.md` → v0.3 (2026-10-05, same date as A1) per `legal-v03-plan-claude-code.md`
+§3 A2 and decisions 9–11: the §5 liability cap and the indirect-damage exclusion are gone (6:237 sub f
+BW), leaving the as-is availability sentences, "PlusOne is not responsible for the event, the guest
+list decisions or admission. Those are the Venue's." and the intent/gross-negligence carve-out
+(consumer wording kept, deliberately different from ToS 14.4); §3 opens with acceptance by sending
+the request form (6:234 BW, mirrors the B2 acceptance line on `/e/[slug]`); §4 retention reads "the
+period chosen by the Venue, at most 60 months after the event"; §1 heading drops "organizer"; the
+entity paragraph and `support@plus-one.io` use A1's exact wording; §6 adds the language clause
+(Dutch prevails, `[lawyer: confirm this wording]`, D9). New `docs/legal/guest-terms.nl.md`: full
+Dutch version, je-vorm, same six sections and numbering, "Venue" kept as the defined term. Section
+numbering unchanged on purpose: decision 2, D3 and the privacy policy cite Guest Terms §4/§6.
+`docs/legal/README.md` deliberately untouched (A1, PR #377, rewrites it); the two Guest Terms table
+rows are in the PR body for the orchestrator to add after #377 merges. Checks run here: lint,
+type-check, unit suite (`CI=true pnpm test`); pgTAP/e2e not applicable (no code).
+
 ## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
 
 Branch `claude/86ey6bfyj-store-seed-refusal`, milestone Now. The manual `store-screenshots`
