@@ -1,9 +1,6 @@
 # PlusOne — Subprocessor List
 
-> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
-> v0.2 (24 September 2026) amended for Legal v0.3: Anthropic added (section A), Attio and Slack moved to section B, sender domain and push text settled. A Dutch lawyer must review this text before it is published at `https://plus-one.io/legal#subprocessors`. Bracketed placeholders `[like this]` must be completed first; the open list is in `docs/legal/README.md`.
-
-**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
+**Last updated:** 2026-10-06 · **Version:** 1.0
 
 PlusOne (The Operators, a sole proprietorship (eenmanszaak) registered with the Dutch Chamber of Commerce under number 99992841, owner Max Merlijn Seffelaar) uses the providers below to run the PlusOne platform (plus-one.io, app.plus-one.io and the PlusOne apps for iOS and Android). This list is **Annex 2 of our Data Processing Agreement (DPA)** and is referenced by our Privacy Policy (`https://plus-one.io/legal#privacy`).
 
@@ -64,4 +61,4 @@ We notify venues (venue admin contacts, by e-mail) at least **30 days** before a
 | Version | Date | Change |
 |---|---|---|
 | 0.3 | 2026-10-05 | Anthropic added to A (engineering and support tooling); Attio and Slack moved from C to B (in use by the team, manual, no sync from the app); Resend sender domain `plus-one.io`; push text never shows the event name; entity details filled in |
-| 1.0 | on publication | First published version (after legal review) |
+| 1.0 | 2026-10-06 | First published version (after legal review) |

@@ -1,9 +1,6 @@
 # PlusOne — Privacy Policy
 
-> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
-> v0.2 (24 September 2026) amended for Legal v0.3: split of the audit role, access logging, Anthropic, retention of audit records and prospects, push text, entity details. A Dutch lawyer must review this text before it is published at `https://plus-one.io/legal#privacy`. Bracketed placeholders `[like this]` must be completed first; the open list is in `docs/legal/README.md`.
-
-**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
+**Last updated:** 2026-10-06 · **Version:** 1.0
 
 ---
 

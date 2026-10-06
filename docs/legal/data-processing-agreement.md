@@ -1,7 +1,6 @@
 # PlusOne — Data Processing Agreement (Verwerkersovereenkomst)
 
-> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
-> v0.1.1 (24 September 2026) amended for Legal v0.3: split of the audit role (2.3), logging of Platform Administrator access (4.4), transfers (8.1), erasure of guest requests (9.1), self-service export and backups (11), Annexes 1–3 and the Subprocessor List (Annex 2). This draft must be reviewed by a Dutch lawyer before any customer signs. Bracketed placeholders `[like this]` must be completed first.
+**Last updated:** 2026-10-06 · **Version:** 1.0
 
 This Data Processing Agreement ("**DPA**") forms part of the agreement between:
 
@@ -150,7 +149,7 @@ Processing continues for the duration of the Agreement. Guest Data is retained p
 
 # Annex 2 — Authorized Subprocessors
 
-The authorized Subprocessors, including entity, purpose, data location and transfer safeguards, are listed in the **PlusOne Subprocessor List** at https://plus-one.io/legal#subprocessors, version dated 5 October 2026. At the date of this DPA the Subprocessors processing Guest Data are:
+The authorized Subprocessors, including entity, purpose, data location and transfer safeguards, are listed in the **PlusOne Subprocessor List** at https://plus-one.io/legal#subprocessors, version dated 6 October 2026. At the date of this DPA the Subprocessors processing Guest Data are:
 
 | Subprocessor | Purpose | Location of Guest Data |
 |---|---|---|

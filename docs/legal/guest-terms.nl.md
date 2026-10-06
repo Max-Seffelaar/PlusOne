@@ -1,10 +1,6 @@
 # PlusOne — Gastvoorwaarden
 
-> **CONCEPT v0.3 — 5 oktober 2026 — NIET JURIDISCH GETOETST.**
-> Nederlandse versie van `guest-terms.md` (Guest Terms EN v0.3, dezelfde datum, dezelfde paragraafnummers). Bij verschil tussen de twee versies geldt de Nederlandse versie [advocaat bevestigt deze formulering, plan §7.1 D9]. Nieuw in v0.3 (Legal v0.3, `legal-v03-plan-claude-code.md` §3 A2, besluiten 9–11). Moet door een Nederlandse advocaat worden getoetst vóór publicatie. Plaatsen tussen haken `[zoals dit]` eerst invullen.
-> Publicatie op `https://plus-one.io/legal#guest-terms`. Geschreven om op één telefoonscherm te passen; de huisregels en privacyverklaring van de Venue staan ernaast, niet erin.
-
-**Laatst bijgewerkt:** 2026-10-05 · **Versie:** 0.3 (concept; wordt 1.0 na juridische toetsing)
+**Laatst bijgewerkt:** 2026-10-06 · **Versie:** 1.0
 
 Deze Gastvoorwaarden gelden als je een aanvraagpagina (`app.plus-one.io/e/…`) of statuspagina (`app.plus-one.io/r/…`) van PlusOne gebruikt, als een venue je in PlusOne op een gastenlijst zet, of als je wordt ingecheckt of geweigerd aan een deur die met PlusOne werkt. PlusOne wordt geëxploiteerd door **The Operators**, een eenmanszaak, ingeschreven bij de Kamer van Koophandel onder nummer 99992841, eigenaar Max Merlijn Seffelaar, gevestigd aan de Goirkestraat 74-14, 5048 GM Tilburg ("**PlusOne**", "**wij**").
 

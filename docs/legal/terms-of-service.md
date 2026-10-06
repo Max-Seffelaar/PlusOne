@@ -1,10 +1,6 @@
 # PlusOne — Terms of Service (Venues and Organizers)
 
-> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
-> Supersedes draft v0.2 (24 September 2026). This draft must be reviewed by a Dutch lawyer before any customer signs or the terms are published. Bracketed placeholders `[like this]` must be completed first.
-> Publishes to `https://plus-one.io/legal#terms`. Guests and requesters are covered by the separate **Guest Terms** (`guest-terms.md`, proposed `https://plus-one.io/legal#guest-terms`).
-
-**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
+**Last updated:** 2026-10-06 · **Version:** 1.0
 
 These Terms of Service (the "**Terms**") govern the use of the PlusOne guest list platform (the "**Service**") provided by **The Operators**, a sole proprietorship (eenmanszaak) registered with the Dutch Chamber of Commerce under number 99992841, owner Max Merlijn Seffelaar, with registered address at Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands ("**PlusOne**", "**we**", "**us**"). The Service is offered exclusively to businesses and professional organizations (B2B). By creating a venue, accepting an invitation to a venue, or otherwise using the Service, the Customer and its Users agree to these Terms.
 

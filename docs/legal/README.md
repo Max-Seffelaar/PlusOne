@@ -1,23 +1,30 @@
-# Legal documents — DRAFTS
+# Legal documents
 
 English-language legal drafts for the paid product, grounded in the actual dataflows of the codebase (retention job `run_privacy_retention`, `forget_contact`, RLS boundary, audit triggers, Sentry scrubbing, Stripe billing, Resend auth mail, Cloudflare Turnstile, the offline door cache, platform admins #49) and the native-app plans (`capacitor-plan-claude-code.md`).
 
 | File | Version | What | Publishes to |
 |---|---|---|---|
-| `privacy-policy.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
-| `subprocessors.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, guest mail, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
-| `data-processing-agreement.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
-| `terms-of-service.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
-| `guest-terms.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
-| `guest-terms.nl.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Dutch version of the Guest Terms, same numbering; the Dutch version prevails (D9, lawyer confirms wording) | `https://plus-one.io/legal#guest-terms` (Dutch tab) + Drive |
+| `privacy-policy.md` | **1.0** (2026-10-06) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
+| `subprocessors.md` | **1.0** (2026-10-06) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, guest mail, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
+| `data-processing-agreement.md` | **1.0** (2026-10-06) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
+| `terms-of-service.md` | **1.0** (2026-10-06) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
+| `guest-terms.md` | **1.0** (2026-10-06) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
+| `guest-terms.nl.md` | **1.0** (2026-10-06) | Dutch version of the Guest Terms, same numbering; the Dutch version prevails (D9, lawyer confirms wording) | `https://plus-one.io/legal#guest-terms` (Dutch tab) + Drive |
 
-Publication (Legal v0.3 golf D, `z8uq9m2hm7`) happens after the lawyer's OK and turns every document into "Version 1.0, [publication date]"; until then the repo holds drafts v0.3.
+Published as **Version 1.0, 6 October 2026** (Legal v0.3 wave D, `z8uq9m2hm7`), after the lawyer approved the v0.3 texts. The site renders these Markdown files verbatim: `Plus-One.io/scripts/gen-legal.mjs` converts them into `src/lib/legal-docs.generated.ts`, so a change here is only live after that script is re-run and the site is deployed. Later changes are 1.x with a row in the version history below.
+
+## Version history
+
+| Version | Date | Change |
+|---|---|---|
+| 1.0 | 2026-10-06 | First published version of all documents (Terms of Service, Privacy Policy, DPA, Subprocessor List, Guest Terms EN/NL), approved by the lawyer. Drafting notes and brackets removed; no change to the approved wording. |
+| 0.3 | 2026-10-05 | Legal v0.3 drafts (`legal-v03-plan-claude-code.md`). |
 
 The URL convention (`/legal` page on plus-one.io, tab picked by the hash) is fixed in `src/lib/legal.ts` (`TERMS_URL`, `PRIVACY_URL`, `TERMS_VERSION`). The app itself runs on `app.plus-one.io`. The retired pre-2026-09-18 domain must not appear anywhere (`tests/unit/claude-md-references.test.ts` guards CLAUDE.md; grep `docs/legal` by hand)..
 
-## Status: DRAFT — not legally reviewed
+## Status: published, lawyer-approved (v1.0)
 
-**Hard requirement: a Dutch lawyer must review the final versions before any customer signs or the documents are published.** Draft cheap with Claude, validate once with a human. Publication of the privacy policy is also a hard dependency for the app-store submission (Fase 17 L1, ClickUp `86ey1vbrj`): both stores require a live privacy URL, and the store data-collection labels (M4/S5) are derived from §12 of the policy.
+**A Dutch lawyer approved the v0.3 texts (confirmed by Max, 2026-10-06) and they are published as v1.0.** Any later change to wording goes back to the lawyer first. Publication of the privacy policy is also a hard dependency for the app-store submission (Fase 17 L1, ClickUp `86ey1vbrj`): both stores require a live privacy URL, and the store data-collection labels (M4/S5) are derived from §12 of the policy.
 
 ## Placeholders to fill before lawyer review
 
