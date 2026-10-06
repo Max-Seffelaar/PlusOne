@@ -52,7 +52,10 @@ select tables_are(
     'platform_access_log',
     -- 20261006170000 (raw-PostgREST throttle binding): sha256 of the app
     -- server's trust secret. RLS on, no policies, no app-role grants.
-    'public_throttle_trusted_callers'
+    'public_throttle_trusted_callers',
+    -- Notificaties N1 (z8uq9m2yvk): push bundling state per (venue, kind).
+    -- RLS on, no policies, no app-role grants.
+    'notification_throttle'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );

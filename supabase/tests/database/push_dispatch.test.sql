@@ -35,7 +35,7 @@ returns int language sql as $fn$
   where url = 'http://127.0.0.1:9/functions/v1/push-dispatch';
 $fn$;
 
-select plan(42);
+select plan(44);
 
 select set_config('request.jwt.claims', '{}', true);
 
@@ -296,6 +296,30 @@ select is(
    where id in ('9d000000-0000-7000-8000-000000000006', '9d000000-0000-7000-8000-000000000007')),
   array['9d000000-0000-7000-8000-000000000007'::uuid],
   'G3 finished outbox rows older than 30 days are dropped; unfinished ones are kept');
+
+-- ---------------------------------------------------------------------------
+-- H. Insert-time kick vs bundling (N1, 20261007110000): a direct row wakes the
+--    function, a bundled row (due only at its slot end) does not.
+-- ---------------------------------------------------------------------------
+reset role;
+select set_config('request.jwt.claims', '{}', true);
+update public.notification_outbox set created_at = now() - interval '3 hours'
+where venue_id = 'aa000000-0000-7000-8000-000000000001' and kind = 'guest_request_created';
+select set_config('pgtap.q0', pg_temp.queued()::text, true);
+
+insert into public.guest_requests (id, event_id, full_name)
+values ('9b100000-0000-7000-8000-000000000001', 'ee000000-0000-7000-8000-000000000001', 'Kick Direct');
+select is(pg_temp.queued() - current_setting('pgtap.q0')::int, 1,
+  'H1 a direct guest-request push still wakes the function (one pg_net request)');
+
+insert into public.notification_throttle (venue_id, kind, throttled_at, throttled_until)
+values ('aa000000-0000-7000-8000-000000000001', 'guest_request_created', now(), now() + interval '24 hours')
+on conflict (venue_id, kind) do update
+  set throttled_at = excluded.throttled_at, throttled_until = excluded.throttled_until;
+insert into public.guest_requests (id, event_id, full_name)
+values ('9b100000-0000-7000-8000-000000000002', 'ee000000-0000-7000-8000-000000000001', 'Kick Bundled');
+select is(pg_temp.queued() - current_setting('pgtap.q0')::int, 1,
+  'H2 a bundled insert queues no pg_net request (nothing is due until its slot end)');
 
 select * from finish();
 rollback;

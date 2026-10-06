@@ -211,6 +211,20 @@ The building session never solo-approves risky work; a fresh session has no inve
 
 Number them so Max can answer "1 ✅, 2 ❌ — …" as feedback per component.
 
+3. **Mark every question with who answers it (QA-0):** **✅ automatic** = a numbered assert `Q<n>` in the screen's flow under `tests/flows/` (same number as in the handoff) · **👁 screenshot NN** = look at step NN on the contact sheet · **🖐 manual** = needs hands on a device or a judgment call. Aim for ≤ 3 🖐; Max answers the 🖐 questions and only the 👁 ones he disagrees with.
+
+**Flow harness (QA-0).** A UI PR adds or extends a flow `tests/flows/<name>.flow.ts` (fixtures in `tests/flows/harness.ts`: `flow.shot(label)` screenshots a step, `flow.check(n, text, fn)` is handoff question n) and registers the paths that should trigger it in `tests/flows/flows.mjs`. `pnpm qa:flows <name>` runs it on four variants built from the layout matrix — desktop browser, phone browser, phone and iPad inside a simulated native shell — and writes `flow-screenshots/<flow>/contact-sheet.png` (gitignored). Needs the local stack on the **plain seed** (no `pnpm dev:mfa`; Playwright starts `pnpm dev` on `E2E_PORT`, default 3000, or reuses one there). The CI job `flow-shots` (beside `layout-suite`, not required) runs only the flows whose paths the PR touches — a README-only PR runs none — and posts the contact sheet as an artifact plus one sticky PR comment with the assert table. The native-shell guard (`native-shell-guard.flow.ts`) is a fixed flow. Example, onboarding (`next=/onboarding` with `create=1`):
+
+```
+1–13 ✅ automatic — consent first; "Create account" disabled until ticked; Welcome; company step;
+     plan + payment in the browser / none in the native shell; Team skippable; done after reload;
+     new venue active; Billing browser vs native; no sideways scroll; no target=_blank;
+     no uncaught page errors; native simulation live
+14 👁 screenshots 01–11 — spacing, lavender accent, fonts match design-system.md
+15 👁 screenshots 04–08 (phone) — touch targets ≥ 44px on the wizard (fenced from the layout suite)
+16 🖐 the store build on a real iPhone/Android: invite link → wizard → no plan step
+```
+
 ## What NOT to do
 
 - Do not add auth providers, password login, or third-party auth services.
