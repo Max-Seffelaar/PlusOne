@@ -67,7 +67,7 @@ Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, o
 
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
-Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. Rename: `/rename Onboarding okt 2026 — orchestrator`.
+Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. **Aanbevolen gebruik: per golf een verse sessie met deze zelfde prompt** (context en kosten blijven klein; de prompt vindt zelf de lopende golf), met bovenaan één regel welke golf het is. Rename: `/rename Onboarding okt 2026 — orchestrator golf <X>`.
 
 ```
 Je bent de orchestrator voor het hele onboarding-programma oktober 2026 van PlusOne Guestlist: golven A tot en met F, in één sessie.
