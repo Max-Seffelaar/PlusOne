@@ -94,7 +94,8 @@ Daarna, per worker uit het golf-blok:
 Per opgeleverde PR:
 - Lees de diff zelf, adversarieel: wat zou CI afkeuren, welke CLAUDE.md-regel wordt geschonden, waar is de scope overschreden, waar wordt een guard verzwakt, zit er PII in logs of URL's? Bevindingen gaan als review-comment op de PR (met de Claude Code-footer), niet als chat.
 - High-risk PR (gemarkeerd in het golf-blok): spawn de reviewer-sessie uit §5 en vraag Max om `/code-review ultra <PR#> --post`. Pas na een schone ronde gaat de PR naar Max.
-- Oordeel aan Max in één regel per PR: "klaar voor je test-handoff" of "niet mergen, want …", plus de genummerde handoff-vragen (UI-PR's), gemarkeerd ✅ automatisch / 👁 screenshot / 🖐 handmatig zodra QA-0 gemerged is.
+- Screenshots (vanaf golf B, zodra QA-0 gemerged is): elke UI-PR levert de flow-harness-output: contact sheet per device inclusief de native-shell-simulatie, link naar het CI-artifact in de PR-body, en het rapport met ✅/❌ per assert. Jij bekijkt de contact sheets zelf, stap voor stap op 390, 1280 en native-shell, en vergelijkt met het klaar-als uit de brief én met de contact sheets van de vorige golf (regressie). Een UI-PR zonder flow is niet klaar. In golf A geldt dit alleen voor QA-0 zelf; P1 levert de Network-screenshot uit het meetplan.
+- Oordeel aan Max in één regel per PR: "klaar voor je test-handoff" of "niet mergen, want …", plus de genummerde handoff-vragen (UI-PR's), gemarkeerd ✅ automatisch / 👁 screenshot NN (nummer uit de contact sheet) / 🖐 handmatig zodra QA-0 gemerged is. Max kijkt naar de contact sheet en beantwoordt alleen de 🖐-vragen.
 
 Harde regels:
 - Merge nooit zelf en vraag er niet om; Max merged na zijn test en doet de prod-push van migraties.
@@ -106,6 +107,7 @@ Harde regels:
 Einde van de golf (exit-criterium uit het golf-blok gehaald, of Max zegt stop):
 - §2b van dit document bijwerken: per taak PR-nummer en status (docs-PR).
 - Changelog-entry in docs/changelog.md (nieuwste bovenaan) met wat gemerged, wat open, wat geblokkeerd en waarop (zelfde docs-PR).
+- Contact-sheet-links (CI-artifact, 14 dagen; kopieer de PNG's naar flow-screenshots/<golf>/ in de docs-PR als ze langer bewaard moeten blijven) per taak in §2b en in het overdrachtsbericht, zodat de volgende golf ze als regressie-referentie heeft.
 - ClickUp-comment op elke taak van de golf als de koppeling het toelaat.
 - Laatste bericht aan Max: de exacte startvoorwaarden voor golf <GOLF+1> (welke merges, welke §6-stappen, welke open punten) — dat bericht is de eerste input van de volgende orchestrator.
 ```
