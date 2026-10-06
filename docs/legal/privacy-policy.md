@@ -1,9 +1,6 @@
 # PlusOne — Privacy Policy
 
-> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
-> v0.2 (24 September 2026) amended for Legal v0.3: split of the audit role, access logging, Anthropic, retention of audit records and prospects, push text, entity details. A Dutch lawyer must review this text before it is published at `https://plus-one.io/legal#privacy`. Bracketed placeholders `[like this]` must be completed first; the open list is in `docs/legal/README.md`.
-
-**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
+**Last updated:** 2026-10-06 · **Version:** 1.0
 
 ---
 
@@ -122,7 +119,7 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 ## 7. How we use your contact details
 
 - **Transactional messages only.** We e-mail account holders for login codes, invitations and essential service messages (for example a security notice or a change to these terms). We do not send account holders marketing without a separate, explicit opt-in that you can withdraw at any time.
-- **Guests are never contacted by PlusOne.** The venue may contact you about your request or, if you opted in, about its upcoming nights. [Under consideration, not scheduled: an optional confirmation e-mail to a requester about the venue's decision, sent on the venue's behalf. The current product sends guests no messages at all; this policy and the Subprocessor List will be updated before that changes.]
+- **Guests are never contacted by PlusOne.** The venue may contact you about your request or, if you opted in, about its upcoming nights.
 - **Venue owners and prospects** may hear from us about the product and our commercial relationship; you can opt out at any time by replying or by e-mailing privacy@plus-one.io.
 
 ## 8. Who receives personal data
@@ -170,9 +167,9 @@ Some providers are established, or have parent companies, in the United States o
 | Error reports | 30 days in Sentry, then deleted automatically |
 | Rate-limit records (salted IP hashes) | At most 2 hours |
 | Billing and invoices | 7 years (Dutch fiscal retention obligation, Art. 52 AWR) |
-| Customer and prospect records (CRM, invitations) | For the duration of the (prospective) customer relationship, and [24 months] after the last contact |
+| Customer and prospect records (CRM, invitations) | For the duration of the (prospective) customer relationship, and 24 months after the last contact |
 | Platform invitations to prospects (e-mail address, note) | 24 months after the last contact, then erased |
-| Support correspondence | [2 years] after the last message |
+| Support correspondence | 2 years after the last message |
 
 **Guest data we process as processor**
 
@@ -181,7 +178,7 @@ Some providers are established, or have parent companies, in the United States o
 - The same job **rewrites the audit trail**: personal data inside historical before/after values is replaced, while the structure (who acted, when, what kind of change) is kept so the venue's accountability record stays intact.
 - Aggregate statistics (attendance, +1 totals, tier occupancy, promoter funnels) survive anonymization; they no longer relate to an identifiable person.
 - **Erasure on request.** A venue admin can erase a specific person **immediately**, without waiting for the retention period: one action anonymizes the address book entry, every guest list entry and guest request linked to it across the venue's events, the related refusals, and the personal data in the related audit history. Guests should address such requests to the venue; we assist as processor.
-- **End of contract.** When a venue stops using PlusOne it can export its guest data itself during the term and, on request, within [30 days] after the contract ends; after that we delete or anonymize it, unless the law requires longer storage.
+- **End of contract.** When a venue stops using PlusOne it can export its guest data itself during the term and, on request, within 30 days after the contract ends; after that we delete or anonymize it, unless the law requires longer storage.
 
 ## 11. Security and data breaches
 
@@ -193,7 +190,7 @@ Some providers are established, or have parent companies, in the United States o
 
 **11.4 Storage.** Production data lives in the EU (section 9), with automated backups managed by our database provider and retained for 7 days (they are not separately anonymized; anonymization propagates when a backup expires). Door devices keep a temporary local copy of one event's list so the door keeps working when the connection drops; section 12 explains what that copy contains and when it is wiped.
 
-**11.5 Data breaches.** If we discover a breach of security that affects personal data, we contain it, investigate it and record it. As processor we notify the affected venues **without undue delay and at the latest within [48 hours]** of becoming aware, with what we know at that point, so they can meet their own obligations. As controller we notify the Dutch supervisory authority within 72 hours where the GDPR requires it, and the people affected where the breach is likely to result in a high risk to them.
+**11.5 Data breaches.** If we discover a breach of security that affects personal data, we contain it, investigate it and record it. As processor we notify the affected venues **without undue delay and at the latest within 48 hours** of becoming aware, with what we know at that point, so they can meet their own obligations. As controller we notify the Dutch supervisory authority within 72 hours where the GDPR requires it, and the people affected where the breach is likely to result in a high risk to them.
 
 ## 12. Door devices and the native apps
 

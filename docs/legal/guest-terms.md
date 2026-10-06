@@ -1,10 +1,6 @@
 # PlusOne — Guest Terms
 
-> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
-> Supersedes draft v0.2 (24 September 2026). Changed for Legal v0.3 (`legal-v03-plan-claude-code.md` §3 A2, decisions 9–11): liability cap removed, acceptance by sending the request form, retention wording, entity details, contact address. Must be reviewed by a Dutch lawyer before publication. Bracketed placeholders `[like this]` must be completed first.
-> Publishes to `https://plus-one.io/legal#guest-terms`. Written to fit one mobile screen; the Venue's own house rules and privacy notice go alongside it, not inside it. A Dutch version exists in `guest-terms.nl.md`; the Dutch version prevails (section 6).
-
-**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
+**Last updated:** 2026-10-06 · **Version:** 1.0
 
 These Guest Terms apply when you use a PlusOne request page (`app.plus-one.io/e/…`) or status page (`app.plus-one.io/r/…`), when a venue puts you on a guest list in PlusOne, or when you are checked in or refused at a door that uses PlusOne. PlusOne is operated by **The Operators**, a sole proprietorship (eenmanszaak) registered with the Dutch Chamber of Commerce under number 99992841, owner Max Merlijn Seffelaar, with registered address at Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands ("**PlusOne**", "**we**").
 
@@ -30,4 +26,4 @@ The request and status pages are provided as they are. PlusOne does not guarante
 
 ## 6. Changes, language, law and contact
 
-We may update these Guest Terms; the current version is always at `https://plus-one.io/legal#guest-terms`. These Guest Terms are available in English and in Dutch; if the two versions differ, the Dutch version prevails. [lawyer: confirm this wording] Dutch law applies. Questions about PlusOne (not about an event or a guest list, those go to the Venue): support@plus-one.io.
+We may update these Guest Terms; the current version is always at `https://plus-one.io/legal#guest-terms`. These Guest Terms are available in English and in Dutch; if the two versions differ, the Dutch version prevails. Dutch law applies. Questions about PlusOne (not about an event or a guest list, those go to the Venue): support@plus-one.io.

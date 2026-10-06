@@ -4,15 +4,16 @@
 //
 // The legal pages live on the marketing site (plus-one.io, repo Plus-One.io),
 // not in this app (app.plus-one.io): one `/legal` page whose tab is picked by
-// the hash (#terms, #privacy, #dpa, #guest-terms). Override per-environment via
-// NEXT_PUBLIC_TERMS_URL / NEXT_PUBLIC_PRIVACY_URL / NEXT_PUBLIC_GUEST_TERMS_URL.
+// the hash (#terms, #privacy, #dpa, #subprocessors, #guest-terms, #guests).
+// Override per-environment via NEXT_PUBLIC_TERMS_URL / NEXT_PUBLIC_PRIVACY_URL /
+// NEXT_PUBLIC_GUEST_TERMS_URL.
 //
-// TODO(go-live — ClickUp 86ey1vbrj): the URLs are final, the text behind them is
-// not. The site's /legal page must carry the final Terms and Privacy Policy
-// (drafts in docs/legal/) BEFORE production launch.
+// Legal v0.3 wave D (z8uq9m2hm7, 86ey1vbrj): the site publishes the lawyer-approved
+// texts as Version 1.0 (2026-10-06), generated from docs/legal/ (Plus-One.io
+// scripts/gen-legal.mjs). A wording change there means a new TERMS_VERSION here.
 
 /** Version of the legal docs a user/venue consents to. Bump on a material change. */
-export const TERMS_VERSION = '2026-06-24';
+export const TERMS_VERSION = '2026-10-06';
 
 /** Terms of Service. */
 export const TERMS_URL = process.env.NEXT_PUBLIC_TERMS_URL ?? 'https://plus-one.io/legal#terms';
@@ -30,11 +31,10 @@ export const GUEST_TERMS_URL =
 /**
  * Privacy notice linked from the request page ("{venue}'s privacy notice", "How your
  * details are used"). The venue has no privacy URL of its own in the app, so this is
- * the PlusOne Privacy Policy. The live site has no `#guests` anchor yet (it would land
- * on the Terms tab), so it equals PRIVACY_URL for now; wave D (legal v0.3) flips it to
- * `${PRIVACY_URL.split('#')[0]}#guests` once plus-one.io knows that anchor.
+ * the guest section (§4) of the PlusOne Privacy Policy: the site's `#guests` anchor
+ * selects the Privacy tab and scrolls to it.
  */
-export const GUEST_PRIVACY_URL = PRIVACY_URL;
+export const GUEST_PRIVACY_URL = `${PRIVACY_URL.split('#')[0]}#guests`;
 
 /**
  * Account deletion request page (Google Play account-deletion policy, 86ey6bfyj).

@@ -312,8 +312,8 @@ describe('request page legal copy', () => {
       "By sending this request you accept the PlusOne Guest Terms and Club Vesper's privacy notice.",
     );
     expect(screen.getByRole('link', { name: 'PlusOne Guest Terms' })).toHaveAttribute('href', 'https://plus-one.io/legal#guest-terms');
-    expect(screen.getByRole('link', { name: 'privacy notice' })).toHaveAttribute('href', 'https://plus-one.io/legal#privacy');
-    expect(screen.getByRole('link', { name: 'How your details are used' })).toHaveAttribute('href', 'https://plus-one.io/legal#privacy');
+    expect(screen.getByRole('link', { name: 'privacy notice' })).toHaveAttribute('href', 'https://plus-one.io/legal#guests');
+    expect(screen.getByRole('link', { name: 'How your details are used' })).toHaveAttribute('href', 'https://plus-one.io/legal#guests');
     const send = screen.getByRole('button', { name: 'Request my spot' });
     expect(line.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

@@ -1,50 +1,49 @@
-# Legal documents — DRAFTS
+# Legal documents
 
 English-language legal drafts for the paid product, grounded in the actual dataflows of the codebase (retention job `run_privacy_retention`, `forget_contact`, RLS boundary, audit triggers, Sentry scrubbing, Stripe billing, Resend auth mail, Cloudflare Turnstile, the offline door cache, platform admins #49) and the native-app plans (`capacitor-plan-claude-code.md`).
 
 | File | Version | What | Publishes to |
 |---|---|---|---|
-| `privacy-policy.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
-| `subprocessors.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, guest mail, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
-| `data-processing-agreement.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
-| `terms-of-service.md` | **v0.3** (2026-10-05, `z8uq9m2hm1`) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
-| `guest-terms.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
-| `guest-terms.nl.md` | **v0.3** (2026-10-05, `z8uq9m2hm2`) | Dutch version of the Guest Terms, same numbering; the Dutch version prevails (D9, lawyer confirms wording) | `https://plus-one.io/legal#guest-terms` (Dutch tab) + Drive |
+| `privacy-policy.md` | **1.0** (2026-10-06) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
+| `subprocessors.md` | **1.0** (2026-10-06) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, guest mail, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
+| `data-processing-agreement.md` | **1.0** (2026-10-06) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
+| `terms-of-service.md` | **1.0** (2026-10-06) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
+| `guest-terms.md` | **1.0** (2026-10-06) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
+| `guest-terms.nl.md` | **1.0** (2026-10-06) | Dutch version of the Guest Terms, same numbering; the Dutch version prevails (D9, lawyer confirms wording) | `https://plus-one.io/legal#guest-terms` (Dutch tab) + Drive |
 
-Publication (Legal v0.3 golf D, `z8uq9m2hm7`) happens after the lawyer's OK and turns every document into "Version 1.0, [publication date]"; until then the repo holds drafts v0.3.
+Published as **Version 1.0, 6 October 2026** (Legal v0.3 wave D, `z8uq9m2hm7`), after the lawyer approved the v0.3 texts. The site renders these Markdown files verbatim: `Plus-One.io/scripts/gen-legal.mjs` converts them into `src/lib/legal-docs.generated.ts`, so a change here is only live after that script is re-run and the site is deployed. Later changes are 1.x with a row in the version history below.
+
+## Version history
+
+| Version | Date | Change |
+|---|---|---|
+| 1.0 | 2026-10-06 | First published version of all documents (Terms of Service, Privacy Policy, DPA, Subprocessor List, Guest Terms EN/NL), approved by the lawyer. Drafting notes and brackets removed; no change to the approved wording. |
+| 0.3 | 2026-10-05 | Legal v0.3 drafts (`legal-v03-plan-claude-code.md`). |
 
 The URL convention (`/legal` page on plus-one.io, tab picked by the hash) is fixed in `src/lib/legal.ts` (`TERMS_URL`, `PRIVACY_URL`, `TERMS_VERSION`). The app itself runs on `app.plus-one.io`. The retired pre-2026-09-18 domain must not appear anywhere (`tests/unit/claude-md-references.test.ts` guards CLAUDE.md; grep `docs/legal` by hand)..
 
-## Status: DRAFT — not legally reviewed
+## Status: published, lawyer-approved (v1.0)
 
-**Hard requirement: a Dutch lawyer must review the final versions before any customer signs or the documents are published.** Draft cheap with Claude, validate once with a human. Publication of the privacy policy is also a hard dependency for the app-store submission (Fase 17 L1, ClickUp `86ey1vbrj`): both stores require a live privacy URL, and the store data-collection labels (M4/S5) are derived from §12 of the policy.
+**A Dutch lawyer approved the v0.3 texts (confirmed by Max, 2026-10-06) and they are published as v1.0.** Any later change to wording goes back to the lawyer first. Publication of the privacy policy is also a hard dependency for the app-store submission (Fase 17 L1, ClickUp `86ey1vbrj`): both stores require a live privacy URL, and the store data-collection labels (M4/S5) are derived from §12 of the policy.
 
-## Placeholders to fill before lawyer review
+## Placeholders and open items
 
-Decided and filled in for v0.3 (2026-10-05, `legal-v03-plan-claude-code.md` §7.1):
+Decided and filled in for v0.3 (2026-10-05, `legal-v03-plan-claude-code.md` §7.1); published unchanged as v1.0 after the lawyer approved the texts:
 - [x] Entity: The Operators, sole proprietorship (eenmanszaak), owner Max Merlijn Seffelaar, KvK 99992841, Goirkestraat 74-14, 5048 GM Tilburg (all docs)
-- [x] Mailboxes `privacy@`, `support@`, `legal@plus-one.io` — **create them (or name the addresses that exist) before publication**
+- [x] Mailboxes `privacy@`, `support@`, `legal@plus-one.io` — exist (confirmed by Max, 2026-10-06)
 - [x] Brand casing: PlusOne in all documents (decided 2026-09-24)
 - [x] Court: Rechtbank Zeeland-West-Brabant (ToS 20.2, DPA 14.3); cap floor EUR 5,000 (ToS 14.2, lawyer may adjust); support first response within 24 hours, every day (ToS 11.4); pricing URL `https://www.plus-one.io/pricing` (must exist); English prevails for ToS/DPA, Dutch for the Guest Terms (lawyer confirms wording)
 - [x] Retention: Sentry 30 days; Supabase backups 7 days; inactive accounts "on request"; audit records of accounts/memberships/invites/promoters kept for the life of the venue; `platform_invites` 24 months after last contact
 - [x] Push text never shows the event name (D12); Resend sender domain is the apex `plus-one.io` (D13)
 
-Still open — `[…]` in the text:
-- [ ] Privacy §10 CRM/prospect retention after last contact (draft: 24 months) and support correspondence (draft: 2 years) — until the lawyer has seen them
-- [ ] Privacy §10 / DPA 11.2 / ToS 16.5 export window at end of contract (draft: 30 days) and Privacy §11.5 / DPA 10.1 breach-notification deadline (draft: 48 hours) — the two documents must match
-- [ ] ToS notice periods (draft values accepted unless the lawyer says otherwise): price change [30] days (7.5), partner arrangement early end [30] days (7.8), restricted-state termination [90] + [30] days (16.2), terms change [30] days (18.1), confidentiality survival [2] years (13.3); 11.1 optional SLA reference
-- [ ] Privacy §7 the guest confirmation e-mail (`86ey6bn05`) is **under consideration, not scheduled** (CLAUDE.md rule 10 / spec #40(d)) — keep the bracketed sentence and the "under consideration" row in subprocessors §C until a decision
-- [ ] **Anthropic** (new in v0.3): contracting entity, DPA/commercial-terms link, transfer safeguard (EU–US DPF / SCCs) and certifications — `[verify]` in `subprocessors.md` section A (the DPA Annex 2 row mirrors it)
-- [ ] **Cap fallback for a data breach** (new): decided *not* to be in the ToS; Max and Joeri fix the amount (plan §7.3 proposes 3× annual fee, minimum EUR 25,000) as an addendum template, below the insured sum
-- [ ] **Backups** (new): confirm the Supabase plan really retains 7 days of backups (stated in DPA 11.4/Annex 1.E/Annex 3 and Privacy §11.4)
-- [ ] Partner/pilot terms (ToS 7.8) and PlusOne's right to terminate for convenience (ToS 16.2) were written from decisions 12 and 14 of the plan; the external reviewer's wording was not in the repo — compare and swap in if it differs
-- [ ] Insurance: AVB/BAV with cyber and data-breach cover before the first paying customer (plan §7.2); confidentiality agreement with Joeri (DPA §5)
+Closed at publication (2026-10-06): the `[…]` notice periods, retention and breach/export values (draft values accepted by the lawyer), the Guest Terms wording notes, the Privacy §7 guest-mail sentence (removed; see below), the Anthropic, Supabase and Cloudflare entity and transfer-safeguard details and the Anthropic certifications, the Sentry IP setting, the Google Workspace region wording, the cap-fallback addendum and the mailboxes.
 
-Subprocessor list v0.3:
-- [ ] Confirm every vendor's contracting entity and certifications against its current DPA page (Supabase, Vercel, Sentry, Cloudflare, Resend, Stripe, Google, Attio, Slack, and Anthropic — see above); the repo names no entities and the list carries general-knowledge values
-- [ ] Sentry: confirm "Prevent Storing of IP Addresses" is on in the project settings (the code scrubs `event.request`/`event.user`, but Sentry derives `user.geo` from the connecting IP after `beforeSend`); screenshot to Drive `02_Legal/`
-- [ ] Resend sender: the decision is the apex `plus-one.io`, no subdomain. `docs/mail-deliverability.md` still records the 2026-07-09 state (a borrowed domain of another brand); confirm the live SMTP sender is already `@plus-one.io` and close or reword F3 `86ey6b3hv`
-- [ ] Google Workspace: confirm it is the live mailbox provider and whether EU data regions are configured
+Still open after publication:
+- [ ] **Guest confirmation e-mail** (`86ey6bn05`) is being built as a separate task. That task must update the Privacy Policy and the Subprocessor List to **v1.1** (section C → B, Privacy §7) **before it ships**; until then the policy says PlusOne never contacts guests.
+- [ ] **Certifications column** (`subprocessors.md`): only Anthropic's are confirmed; the other rows show "—" until their certifications are verified (Supabase, Vercel, Resend, Attio, Slack). Add them as a 1.0.x edit.
+- [ ] **Backups**: confirm the Supabase plan really retains 7 days of backups (DPA 11.4/Annex 1.E/Annex 3, Privacy §11.4).
+- [ ] **Resend sender**: confirm the live SMTP sender is the apex `@plus-one.io` and close or reword F3 `86ey6b3hv` (`docs/mail-deliverability.md` still records the 2026-07-09 state).
+- [ ] **Insurance**: AVB/BAV with cyber and data-breach cover before the first paying customer (plan §7.2); confidentiality agreement with Joeri (DPA §5).
 
 ## Questions for Max / the lawyer
 

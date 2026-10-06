@@ -1,10 +1,6 @@
 # PlusOne — Terms of Service (Venues and Organizers)
 
-> **DRAFT v0.3 — 5 October 2026 — NOT LEGALLY REVIEWED.**
-> Supersedes draft v0.2 (24 September 2026). This draft must be reviewed by a Dutch lawyer before any customer signs or the terms are published. Bracketed placeholders `[like this]` must be completed first.
-> Publishes to `https://plus-one.io/legal#terms`. Guests and requesters are covered by the separate **Guest Terms** (`guest-terms.md`, proposed `https://plus-one.io/legal#guest-terms`).
-
-**Last updated:** 2026-10-05 · **Version:** 0.3 (draft; published as 1.0 after legal review)
+**Last updated:** 2026-10-06 · **Version:** 1.0
 
 These Terms of Service (the "**Terms**") govern the use of the PlusOne guest list platform (the "**Service**") provided by **The Operators**, a sole proprietorship (eenmanszaak) registered with the Dutch Chamber of Commerce under number 99992841, owner Max Merlijn Seffelaar, with registered address at Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands ("**PlusOne**", "**we**", "**us**"). The Service is offered exclusively to businesses and professional organizations (B2B). By creating a venue, accepting an invitation to a venue, or otherwise using the Service, the Customer and its Users agree to these Terms.
 
@@ -53,7 +49,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 3.3. **Best efforts; no guarantee of results.** PlusOne performs the Service with reasonable skill and care. All obligations of PlusOne are obligations of best efforts (*inspanningsverplichtingen*), unless a specific result has been agreed in writing. PlusOne does not guarantee that the Service is error-free, uninterrupted, or that it meets the Customer's specific requirements or the requirements of any venue license, permit or authority.
 
-3.4. **Development and changes.** PlusOne continuously develops the Service and may add, change or remove functionality. PlusOne will not materially reduce the core functionality of the Service (guest lists, Request Links, Door, audit log) during a paid Subscription period without at least [30] days' notice, unless the change is required by law, by an app store or platform provider, or for security reasons.
+3.4. **Development and changes.** PlusOne continuously develops the Service and may add, change or remove functionality. PlusOne will not materially reduce the core functionality of the Service (guest lists, Request Links, Door, audit log) during a paid Subscription period without at least 30 days' notice, unless the change is required by law, by an app store or platform provider, or for security reasons.
 
 3.5. **The Door and offline operation.** The Door is designed to keep working during temporary loss of connectivity: the guest list of an Event that was opened on the device while online is cached on that device, and check-ins and refusals are queued locally and synchronized when the connection returns. The Customer acknowledges that (a) offline operation requires the device to have loaded the Event beforehand, (b) numbers shown on different devices may briefly differ until they synchronize, and (c) the device itself must be kept secure (section 4.6). PlusOne is not responsible for check-ins that were never entered, or for decisions taken at the Door on the basis of information in the Service.
 
@@ -109,13 +105,13 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 7.4. **Failed payments.** If a payment fails, the payment provider retries collection according to its dunning schedule and the Customer is notified in the Service. During this period the Service remains available. If payment continues to fail, PlusOne may place the Venue in the restricted state of section 6.2 and ultimately cancel the Subscription. Restriction never blocks the Door for already-planned Events, nor read access to Customer Content.
 
-7.5. **Price changes.** PlusOne may change its prices. A price change is announced at least [30] days in advance to the Venue's administrators and applies from the first billing period after the effective date. If the Customer does not accept a price increase, it may cancel the Subscription with effect from that date.
+7.5. **Price changes.** PlusOne may change its prices. A price change is announced at least 30 days in advance to the Venue's administrators and applies from the first billing period after the effective date. If the Customer does not accept a price increase, it may cancel the Subscription with effect from that date.
 
 7.6. **Disputed charges.** Objections to an invoice must be raised within 30 days of the invoice date, failing which the invoice is deemed accepted. A chargeback or reversal of a direct debit does not release the Customer from its payment obligation; PlusOne may charge reasonable costs for failed collections.
 
 7.7. **Taxes.** The Customer is responsible for providing a valid VAT number and billing details and for any taxes that apply to its use of the Service other than PlusOne's own income taxes.
 
-7.8. **Pilot and partner arrangements.** PlusOne may agree with a Customer that a Venue uses the Service without charge for a fixed pilot or partner period ("comped"). Such an arrangement is agreed in writing (e-mail suffices) and states the end date of the free period and the rate that applies afterwards. Unless the Customer cancels before the end date, the Venue continues as a paid Subscription at that rate from the end date, without a further order. Either party may end the arrangement earlier with [30] days' notice. It does not otherwise change these Terms; in particular the DPA, section 8 (acceptable use) and section 14 (liability) apply in full.
+7.8. **Pilot and partner arrangements.** PlusOne may agree with a Customer that a Venue uses the Service without charge for a fixed pilot or partner period ("comped"). Such an arrangement is agreed in writing (e-mail suffices) and states the end date of the free period and the rate that applies afterwards. Unless the Customer cancels before the end date, the Venue continues as a paid Subscription at that rate from the end date, without a further order. Either party may end the arrangement earlier with 30 days' notice. It does not otherwise change these Terms; in particular the DPA, section 8 (acceptable use) and section 14 (liability) apply in full.
 
 7.9. **No purchases in the Native Apps.** Subscriptions, plan changes, payment methods and invoices are managed exclusively through the web application. The Native Apps show billing status only and contain no purchase, upgrade or checkout functionality. Nothing is sold through the app stores.
 
@@ -159,7 +155,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 ## 11. Availability, maintenance and support
 
-11.1. **Availability.** PlusOne aims for high availability and monitors the Service continuously with escalation to on-call personnel, but does not commit to a specific uptime percentage under these Terms [optional: replace with SLA reference for enterprise plans].
+11.1. **Availability.** PlusOne aims for high availability and monitors the Service continuously with escalation to on-call personnel, but does not commit to a specific uptime percentage under these Terms.
 
 11.2. **Maintenance.** PlusOne performs maintenance where possible outside the peak hours of nightlife venues (evenings and nights, Thursday to Sunday). Planned maintenance that is expected to cause noticeable downtime is announced in advance to the Venue's administrators. Emergency maintenance may be performed without notice.
 
@@ -187,7 +183,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 13.2. This obligation does not apply to information that is or becomes public without breach, that the receiving party already lawfully held, or that must be disclosed under law or a court order (in which case the receiving party will, where permitted, inform the other party first).
 
-13.3. This section survives the end of the Agreement for [2] years; for personal data, the DPA and applicable law govern.
+13.3. This section survives the end of the Agreement for 2 years; for personal data, the DPA and applicable law govern.
 
 ## 14. Warranties and liability
 
@@ -211,7 +207,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 16.1. **Term.** The Agreement begins when the Venue is created (section 2.2) and continues for the Trial and any subsequent Subscription periods until terminated in accordance with these Terms.
 
-16.2. **Termination for convenience.** The Customer may cancel its Subscription at any time with effect from the end of the current billing period (section 7.3). PlusOne may terminate a Venue that has been in the restricted state of section 6.2 or 7.4 for more than [90] days, with [30] days' written notice to the Venue's administrators. PlusOne may also terminate the Agreement for a Venue for convenience, with at least three (3) months' written notice to the Venue's administrators, effective at the end of the billing period in which that notice period ends; prepaid fees for the period after termination are refunded pro rata, and section 16.5 applies.
+16.2. **Termination for convenience.** The Customer may cancel its Subscription at any time with effect from the end of the current billing period (section 7.3). PlusOne may terminate a Venue that has been in the restricted state of section 6.2 or 7.4 for more than 90 days, with 30 days' written notice to the Venue's administrators. PlusOne may also terminate the Agreement for a Venue for convenience, with at least three (3) months' written notice to the Venue's administrators, effective at the end of the billing period in which that notice period ends; prepaid fees for the period after termination are refunded pro rata, and section 16.5 applies.
 
 16.3. **Termination for cause.** Either party may terminate the Agreement with immediate effect by written notice if the other party (a) materially breaches the Agreement and does not cure the breach within 14 days after written notice, (b) is declared bankrupt, applies for suspension of payments, or ceases its business, or (c) in the case of the Customer, uses the Service in breach of section 8 in a manner that cannot be cured.
 
@@ -231,7 +227,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 ## 18. Changes to these Terms
 
-18.1. PlusOne may amend these Terms. Material changes are announced to the Venue's administrators (by e-mail or in the Service) at least [30] days before they take effect. If the Customer does not accept a material change, it may cancel the Subscription with effect from the effective date; continued use after that date, or acceptance of the new version in the Service, constitutes acceptance. Non-material changes (such as clarifications and changes required by law) may take effect immediately upon publication at `https://plus-one.io/legal#terms`.
+18.1. PlusOne may amend these Terms. Material changes are announced to the Venue's administrators (by e-mail or in the Service) at least 30 days before they take effect. If the Customer does not accept a material change, it may cancel the Subscription with effect from the effective date; continued use after that date, or acceptance of the new version in the Service, constitutes acceptance. Non-material changes (such as clarifications and changes required by law) may take effect immediately upon publication at `https://plus-one.io/legal#terms`.
 
 18.2. The Service records which version of the Terms each User and each Venue accepted; a new material version is presented for acceptance in the Service.
 

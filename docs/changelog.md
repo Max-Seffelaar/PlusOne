@@ -32,6 +32,63 @@ and forget skip anonymized rows).
 
 ---
 
+## 2026-10-06 — Legal v0.3 D: legal documents published as Version 1.0, consent re-prompt (z8uq9m2hm7)
+
+The lawyer approved the v0.3 texts (Max, 2026-10-06) and wave D published them. No migration.
+
+- **Docs (PR #392, merged):** `docs/legal/*.md` became Version 1.0 / 2026-10-06 (banners and brackets removed,
+  Max's subprocessor values in, Privacy §7 guest-mail sentence deleted, README open-items pruned). Certification cells
+  Anthropic-only; Supabase, Vercel, Resend, Attio and Slack show "—" until verified (1.0.x edit).
+- **Site (Plus-One.io PR #8, merged):** `/legal` renders the six documents (Terms, Privacy, DPA, Subprocessors, Guest Terms
+  EN + NL switch) from `src/lib/legal-docs.generated.ts`, produced by `scripts/gen-legal.mjs` from this repo's
+  `docs/legal/`. The generator refuses drafting markers and never rewords. Anchors: `#terms`, `#privacy`, `#dpa`,
+  `#subprocessors`, `#guest-terms`, `#guest-terms-nl`, `#guests` (Privacy §4). To change a text: edit `docs/legal/`,
+  re-run the script in Plus-One.io, bump `TERMS_VERSION` here when it is a material change.
+- **App (this PR):** `TERMS_VERSION` `2026-06-24` → `2026-10-06` — every signed-in user is re-prompted by the consent
+  gate (`/app` layout) at next load, and new venues record the new version; `GUEST_PRIVACY_URL` now ends in `#guests`
+  (guest section of the Privacy Policy) instead of `#privacy`; the `src/lib/legal.ts` go-live TODO (86ey1vbrj) is closed.
+  `landing.test.tsx` pins the new URL.
+- **Open:** guest confirmation mail (`86ey6bn05`) must bump Privacy + Subprocessor List to v1.1 before it ships.
+
+## 2026-10-06 — Legal v0.3 E1 manual QA follow-ups: platform-admin export, CSV formula hardening, door price (z8uq9m2hm6)
+
+Max ran the 15-question test handoff for E1 (#384) against the local stack. All 15 pass after three follow-up PRs,
+each independently reviewed (fresh code-review + adversarial security-review agents). No migration in any of them.
+
+- **#389** — a platform admin who switches into a venue **without a membership** gets `roles: []`
+  (`getPlatformAdminVenue`), which hid the export at three levels: the More → Venue settings row, the
+  `VenueSettings` screen ("no rights"), and the card. The server side was already right (`has_venue_role` admits
+  `is_platform_admin()`; `log_venue_export` writes `platform_access_log` reason `export`). Fix: `useCanExport` =
+  admin OR `usePoIsPlatformAdmin()`; the no-rights branch still mounts the self-gated `ExportDataCard`; the More row
+  shows for `caps.viewSettings || isPlatformAdmin`. Also: "Export this event" on the Edit event (gear) screen —
+  admins looked there, not on the detail screen.
+- **#391** — **CSV formula injection via a locale split** (security review; pre-existing in E1's `csv.ts`, live in
+  prod until merged). Dutch Excel opens a `.csv` with list separator `;` and honours a `"` only at a cell START, so
+  any field in a later column (public `full_name`, `motivation`, staff notes) split on its own `;` or line break:
+  `EventX,"Jan;=1+1;",…` yielded a clean `=1+1` cell. First fix (quote `;`/TAB) only protected column 1 — caught by
+  the re-review. Final: `SPLIT_FORMULA` puts an apostrophe after every in-field `,` `;` TAB `|` CR LF before
+  `= + - @` (past whitespace and stray quotes); `FORMULA_START` looks past all Unicode whitespace, ZWSP, BOM and a
+  leading `"`. Proof: a test reader that ignores quoting and splits on every separator, 13 payloads × every column,
+  red against the old `csv.ts`. Plus `export.reachability.test.tsx` pinning the two #389 gates (mutation-checked).
+- **#393** — guests.csv gains `door_price` (`door_price_cents` as `10.00`, never `€10,-`) and `currency` (`EUR`,
+  ISO 4217 — no currency column exists; billing is EUR-only, #32) after `tier`; empty for a tier without a price.
+  `SPLIT_FORMULA` also covers VT, FF, NEL, U+2028, U+2029. **guests.csv column order changed.**
+
+**Visible trade-off (accepted):** a formula-start character after a separator inside a field gets a visible `'`
+(note bullets `'- drinks`, `'@insta`, `€10,'-` in free text), like E.164 phones (`'+316…`). Nothing is lost.
+
+**Gotchas:** in this Windows setup, Python/bash heredoc edits turned `\u200B`/`\uFEFF` escapes in TS sources into
+invisible literal characters — write such escapes via a `.cjs` script using `String.fromCharCode(92)`, then grep
+for the escape text. `pnpm test` is `vitest` (watch mode) and hangs a non-interactive shell — use
+`pnpm vitest run`. Locally on Windows, `capacitor-native-shell`, `codemagic-*` and `pgtap-plan-run-gate` unit tests
+fail on `main` too (CI on Linux is green). The shared local stack was reset twice by another session during the QA
+pass (CLAUDE.md "One DB owner").
+
+**Not done, spun off as separate tasks:** seed links Sanne Mulder's guest row to Pim Scholten's contact (wrong
+`last_seen_event` in contacts.csv; pgTAP depends on those rows); a deep link to an event of another of your venues
+shows "no events" instead of offering a switch; phone-matched opt-in lets a request with someone's phone number
+switch their "Keep me posted" off (product/consent decision).
+
 ## 2026-10-06 — Fase 17 wave 4 wrap-up: Play/App Store prep, review login, prod config (86exxuvye)
 
 Docs-only wrap-up PR, milestone **Now** (gets venue #5 signed: store presence). Covers the merged wave-4 PRs:
