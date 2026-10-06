@@ -8,6 +8,14 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Legal 1.2: push (FCM/APNs) active, no DPA 7.2 notice needed
+
+**What:** push notifications are live (Edge Function `push-dispatch`, native apps in store review), so Firebase Cloud Messaging (with the Apple Push Notification service) moved from section C to section A of the Subprocessor List (version 1.2), with a matching row in DPA Annex 2 and the "planned item" sentence removed. Privacy §8 now lists push delivery in the present tense. Certifications: FCM per Google's Firebase privacy page (ISO 27001; SOC 1/2/3); APNs "—" (no Apple trust page to cite).
+
+**Why no notice:** on 2026-10-06 PlusOne had no customer under the DPA (test venues of friends only), so clause 7.2 / list §E did not apply; the first customers accept the list as published (same reasoning as the Resend correction in 1.1).
+
+**Open:** the marketing site (`Plus-One.io`) must publish 1.2.
+
 ## 2026-10-06 — Legal 1.1: certifications filled in, Resend becomes a guest-data subprocessor (guest confirmation e-mail)
 
 **What:** `docs/legal/` 1.0 → 1.1 (privacy policy, subprocessor list, DPA, ToS; Guest Terms unchanged). Certifications column completed from the vendors' trust pages (Supabase, Vercel, Resend, Attio, Slack). Resend moved from "planned" to section A for the guest confirmation e-mail (`86ey6bn05`), with matching text in DPA Annex 2, Privacy §4/§7/§8/§9 and ToS 5.6. README: backups 7 days and the apex sender confirmed, F3 closed, the 30-day notice e-mail template for venue admins added.
