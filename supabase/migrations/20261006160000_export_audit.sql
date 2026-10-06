@@ -9,7 +9,9 @@
 --   1. public.log_venue_export(...) — writes ONE audit_log row (action
 --      'export', entity 'venues') per download. This is the one deliberate
 --      exception to "reads are not audited" (CLAUDE.md rule 4): an export moves
---      the whole guest list out of the platform, so it leaves a trail.
+--      the whole guest list out of the platform, so it leaves a trail. A
+--      platform admin exporting a venue where they hold no admin membership
+--      also gets a platform_access_log row (B3's trail of app-level access).
 --   2. public.contact_marketing_opt_ins(venue) — which contacts are currently
 --      opted in to venue updates (decision 2). Contacts carry no opt-in column;
 --      the consent lives on guest_requests.marketing_opt_in. One derivation in
@@ -52,11 +54,13 @@
 
 create or replace function public.log_venue_export(
   p_venue_id uuid,
-  p_event_id uuid,
   p_guests integer,
   p_contacts integer,
   p_requests integer,
-  p_door integer
+  p_door integer,
+  -- Last and defaulted: a venue-wide export simply omits it (the generated
+  -- types then read `p_event_id?: string`, no null cast at the call site).
+  p_event_id uuid default null
 )
 returns uuid
 language plpgsql
@@ -94,6 +98,22 @@ begin
     raise exception 'not allowed' using errcode = '42501';
   end if;
 
+  -- A platform admin (decision #49) passes has_venue_role at every venue. When
+  -- they export a venue where they are not a real admin member, that is
+  -- cross-venue access through the app, so it also lands in
+  -- platform_access_log (legal v0.3 B3, decision 3), exactly like a venue
+  -- switch would. Written here, by the definer, so the table's policies stay
+  -- as B3 made them; created_at is still server-stamped by its trigger.
+  if public.is_platform_admin() and not exists (
+    select 1 from public.venue_memberships m
+     where m.venue_id = p_venue_id
+       and m.user_id = v_actor
+       and 'admin' = any (m.roles)
+  ) then
+    insert into public.platform_access_log (admin_id, venue_id, reason)
+    values (v_actor, p_venue_id, 'export');
+  end if;
+
   insert into public.audit_log
     (actor_id, venue_id, event_id, entity_type, entity_id, action, diff, device_id)
   values
@@ -112,18 +132,19 @@ begin
 end;
 $$;
 
-comment on function public.log_venue_export(uuid, uuid, integer, integer, integer, integer) is
+comment on function public.log_venue_export(uuid, integer, integer, integer, integer, uuid) is
   'Legal v0.3 E1: one audit_log row (action export, entity venues) per in-app '
   'data export. Venue admins only; actor is always auth.uid(); an event scope '
-  'must belong to the venue. SECURITY DEFINER because authenticated has no '
+  'must belong to the venue; a platform admin without an admin membership '
+  'also gets a platform_access_log row. SECURITY DEFINER because authenticated has no '
   'INSERT on audit_log (and must not: that would allow forged audit rows).';
 
 -- `authenticated` only. anon has no uid (the body refuses anyway, but a dead
 -- privilege on an audit writer is not worth having). service_role carries no
 -- `sub` either, and no server flow exports through the service key.
-revoke execute on function public.log_venue_export(uuid, uuid, integer, integer, integer, integer)
+revoke execute on function public.log_venue_export(uuid, integer, integer, integer, integer, uuid)
   from public, anon, service_role;
-grant execute on function public.log_venue_export(uuid, uuid, integer, integer, integer, integer)
+grant execute on function public.log_venue_export(uuid, integer, integer, integer, integer, uuid)
   to authenticated;
 
 -- ---------------------------------------------------------------------------

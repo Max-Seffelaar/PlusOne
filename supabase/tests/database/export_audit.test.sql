@@ -9,6 +9,10 @@
 --   * an anonymous caller;
 --   * anyone who wants to bypass the RPC and forge an audit row directly.
 --
+-- Audit-row counts only look at rows of THIS transaction (`created_at = now()`,
+-- the column default is the transaction start), so the file also passes on a
+-- stack where someone already exported through the UI.
+--
 -- Everything rolls back.
 
 begin;
@@ -32,7 +36,7 @@ begin
 end;
 $fn$;
 
-select plan(26);
+select plan(30);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the seed)
@@ -82,7 +86,7 @@ insert into public.guest_requests
 -- ---------------------------------------------------------------------------
 
 select has_function('public', 'log_venue_export',
-  array['uuid', 'uuid', 'integer', 'integer', 'integer', 'integer'],
+  array['uuid', 'integer', 'integer', 'integer', 'integer', 'uuid'],
   'log_venue_export exists');
 
 select is(
@@ -93,12 +97,12 @@ select is(
 
 select ok(
   not has_function_privilege('anon',
-    'public.log_venue_export(uuid, uuid, integer, integer, integer, integer)', 'execute'),
+    'public.log_venue_export(uuid, integer, integer, integer, integer, uuid)', 'execute'),
   'anon cannot execute log_venue_export');
 
 select ok(
   has_function_privilege('authenticated',
-    'public.log_venue_export(uuid, uuid, integer, integer, integer, integer)', 'execute'),
+    'public.log_venue_export(uuid, integer, integer, integer, integer, uuid)', 'execute'),
   'authenticated can execute log_venue_export');
 
 select ok(
@@ -122,7 +126,7 @@ select ok(
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 
 select isnt(
-  public.log_venue_export('aa000000-0000-7000-8000-000000000001', null, 30, 12, 7, 4),
+  public.log_venue_export('aa000000-0000-7000-8000-000000000001', 30, 12, 7, 4),
   null,
   'admin logs a venue-wide export');
 
@@ -133,7 +137,7 @@ select results_eq(
             diff ->> 'scope', (diff -> 'rows' ->> 'guests')::int, (diff -> 'rows' ->> 'door')::int
        from public.audit_log
       where action = 'export' and venue_id = 'aa000000-0000-7000-8000-000000000001'
-        and event_id is null $$,
+        and event_id is null and created_at = now() $$,
   $$ values ('11111111-1111-4111-8111-111111111111'::uuid, 'venues'::text,
              'aa000000-0000-7000-8000-000000000001'::uuid, 'export'::text, null::uuid,
              'venue'::text, 30, 4) $$,
@@ -142,15 +146,16 @@ select results_eq(
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 
 select lives_ok(
-  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001',
-       'ee000000-0000-7000-8000-000000000001', 30, 5, 3, 2) $$,
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', 30, 5, 3, 2,
+       'ee000000-0000-7000-8000-000000000001') $$,
   'admin logs a per-event export');
 
 reset role;
 
 select is(
   (select diff ->> 'scope' from public.audit_log
-    where action = 'export' and event_id = 'ee000000-0000-7000-8000-000000000001'),
+    where action = 'export' and event_id = 'ee000000-0000-7000-8000-000000000001'
+      and created_at = now()),
   'event',
   'per-event export is stamped with its event and scope event');
 
@@ -158,7 +163,8 @@ select is(
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is(
   (select count(*)::int from public.audit_log
-    where action = 'export' and venue_id = 'aa000000-0000-7000-8000-000000000001'),
+    where action = 'export' and venue_id = 'aa000000-0000-7000-8000-000000000001'
+      and created_at = now()),
   2,
   'the venue admin sees both export rows in the audit log');
 
@@ -167,23 +173,23 @@ select is(
 -- ---------------------------------------------------------------------------
 
 select throws_ok(
-  $$ select public.log_venue_export('ac000000-0000-7000-8000-0000000000e1', null, 1, 1, 1, 1) $$,
+  $$ select public.log_venue_export('ac000000-0000-7000-8000-0000000000e1', 1, 1, 1, 1) $$,
   '42501', 'not allowed',
   'admin of X cannot log an export for a venue they do not administer');
 
 select throws_ok(
-  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001',
-       'ec000000-0000-7000-8000-0000000000e1', 1, 1, 1, 1) $$,
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', 1, 1, 1, 1,
+       'ec000000-0000-7000-8000-0000000000e1') $$,
   '42501', 'not allowed',
   'an event of another venue cannot be pinned onto this venue''s export (scope mismatch)');
 
 select throws_ok(
-  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', null, -1, 0, 0, 0) $$,
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', -1, 0, 0, 0) $$,
   '22023', null,
   'a negative count is refused');
 
 select throws_ok(
-  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', null, 50001, 0, 0, 0) $$,
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', 50001, 0, 0, 0) $$,
   '22023', null,
   'a count above the 50 000 export cap is refused');
 
@@ -196,25 +202,25 @@ select throws_ok(
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333');
 select throws_ok(
-  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', null, 1, 1, 1, 1) $$,
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', 1, 1, 1, 1) $$,
   '42501', 'not allowed',
   'finance cannot log an export (admin only)');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select throws_ok(
-  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', null, 1, 1, 1, 1) $$,
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', 1, 1, 1, 1) $$,
   '42501', 'not allowed',
   'staff cannot log an export');
 
 select pg_temp.login_anon();
 select throws_ok(
-  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', null, 1, 1, 1, 1) $$,
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', 1, 1, 1, 1) $$,
   '42501', null,
   'anon cannot call log_venue_export');
 
 reset role;
 select is(
-  (select count(*)::int from public.audit_log where action = 'export'),
+  (select count(*)::int from public.audit_log where action = 'export' and created_at = now()),
   2,
   'no denied call left a row behind');
 
@@ -249,6 +255,56 @@ select is(
   (select count(*)::int from public.contact_marketing_opt_ins('aa000000-0000-7000-8000-000000000001')),
   0,
   'staff reads no opt-ins (contacts + requests RLS)');
+
+-- ---------------------------------------------------------------------------
+-- E. Platform admin (decision #49) → also a platform_access_log row (B3)
+-- ---------------------------------------------------------------------------
+reset role;
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+) values (
+  '00000000-0000-0000-0000-000000000000', '9e000000-0000-4000-8000-0000000000e1',
+  'authenticated', 'authenticated', 'platform-export@plusone.test', '', now(),
+  '{"provider": "email", "providers": ["email"]}'::jsonb, '{"full_name": "Export Platform"}'::jsonb,
+  now(), now(), '', '', '', '', '', '', '', ''
+);
+insert into public.user_profiles (id, full_name, email) values
+  ('9e000000-0000-4000-8000-0000000000e1', 'Export Platform', 'platform-export@plusone.test');
+select set_config('plusone.platform_admin_write', 'on', true);
+update public.user_profiles set is_platform_admin = true
+ where id = '9e000000-0000-4000-8000-0000000000e1';
+select set_config('plusone.platform_admin_write', 'off', true);
+
+select pg_temp.login('9e000000-0000-4000-8000-0000000000e1');
+select lives_ok(
+  $$ select public.log_venue_export('aa000000-0000-7000-8000-000000000001', 3, 2, 1, 0) $$,
+  'a platform admin without a membership can export a venue (decision #49)');
+reset role;
+
+select is(
+  (select count(*)::int from public.platform_access_log
+    where admin_id = '9e000000-0000-4000-8000-0000000000e1'
+      and venue_id = 'aa000000-0000-7000-8000-000000000001'
+      and reason = 'export'),
+  1,
+  'that export also writes one platform_access_log row (reason export)');
+
+select is(
+  (select actor_id from public.audit_log
+    where action = 'export' and created_at = now()
+      and actor_id = '9e000000-0000-4000-8000-0000000000e1'),
+  '9e000000-0000-4000-8000-0000000000e1'::uuid,
+  'and its audit_log export row names the platform admin, visible to the venue');
+
+select is(
+  (select count(*)::int from public.platform_access_log
+    where admin_id = '11111111-1111-4111-8111-111111111111'),
+  0,
+  'a venue admin''s own exports write no platform_access_log row');
 
 select * from finish();
 rollback;

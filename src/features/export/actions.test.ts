@@ -245,7 +245,7 @@ describe('exportVenueData — content', () => {
     expect(auditCalls()).toEqual([
       {
         name: 'log_venue_export',
-        args: { p_venue_id: VENUE, p_event_id: null, p_guests: 3, p_contacts: 2, p_requests: 1, p_door: 2 },
+        args: { p_venue_id: VENUE, p_guests: 3, p_contacts: 2, p_requests: 1, p_door: 2 },
       },
     ]);
   });
@@ -268,6 +268,17 @@ describe('exportVenueData — content', () => {
     for (const r of dataReads().filter((x) => ['guests', 'guest_requests', 'check_ins', 'refusals'].includes(x.table))) {
       expect(r.eqs).toContainEqual(['event_id', EVENT]);
     }
+  });
+});
+
+describe('exportVenueData — former team members', () => {
+  it('leaves the actor cell empty instead of leaking a raw user id', async () => {
+    H.store.user_profiles = []; // can_view_profile denies: membership gone (#24)
+    const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
+    if (!res.ok) throw new Error(res.error);
+    const files = readZip(Buffer.from(res.zipBase64, 'base64'));
+    for (const csv of files.values()) expect(csv).not.toContain(ADMIN);
+    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,,dev-1');
   });
 });
 

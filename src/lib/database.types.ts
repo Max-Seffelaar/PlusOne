@@ -2180,17 +2180,6 @@ export type Database = {
         }
         Returns: number
       }
-      log_venue_export: {
-        Args: {
-          p_contacts: number
-          p_door: number
-          p_event_id: string | null
-          p_guests: number
-          p_requests: number
-          p_venue_id: string
-        }
-        Returns: string
-      }
       list_own_sessions: {
         Args: never
         Returns: {
@@ -2203,6 +2192,17 @@ export type Database = {
           updated_at: string
           user_agent: string
         }[]
+      }
+      log_venue_export: {
+        Args: {
+          p_contacts: number
+          p_door: number
+          p_event_id?: string
+          p_guests: number
+          p_requests: number
+          p_venue_id: string
+        }
+        Returns: string
       }
       mark_guest_regular: { Args: { p_guest_id: string }; Returns: undefined }
       mark_onboarding_complete: {

@@ -82,11 +82,12 @@ export async function exportVenueData(input: unknown): Promise<ExportVenueDataRe
     // Fail-closed: the file only leaves the server once its audit row exists.
     const { error: auditError } = await supabase.rpc('log_venue_export', {
       p_venue_id: venueId,
-      p_event_id: eventId,
       p_guests: counts.guests,
       p_contacts: counts.contacts,
       p_requests: counts.requests,
       p_door: counts.door,
+      // Defaulted to null in SQL: a venue-wide export omits it.
+      ...(eventId ? { p_event_id: eventId } : {}),
     });
     if (auditError) {
       console.error('exportVenueData: audit write failed', auditError.code);
