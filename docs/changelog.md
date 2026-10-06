@@ -30,7 +30,14 @@ contact detail, plus an "Opted in to venue updates" filter. Audit feed names the
 Migration renamed `20261006140000` → `20261006160000` after B2 (#379) landed
 `20261006150000` on main (out-of-order for `db push`). Ran on a local stack (`pnpm stack`):
 fresh migrate + seed, `pnpm db:test` 77 files / 1865 assertions green (incl. `export_audit`
-26/26). Not run: e2e/layout suites — CI is the proof. Not done: the plan's e2e smoke (admin downloads, file has the seed
+26/26). Review round 1 (Fable): recap "Export" button squeezed to 42px in the flex row
+(wrapper `flex-1` next to a `w-full` Btn) → `w-full` wrapper, layout suite `pastevent` 23/23
+locally; a platform admin's export now also writes `platform_access_log` (reason `export`)
+when they are no admin member; `p_event_id` moved last with `default null` so the generated
+type is `p_event_id?: string`; no raw user uuid in the CSV for an unreadable (former) actor;
+lookup tables named in `ExportTooLargeError`; pgTAP counts scoped to the test transaction
+(26 → 30 asserts). pgTAP 77 files / 1869 green locally. Open: measure an export near the
+50 000 cap on a preview deployment (Vercel duration/payload) before trusting the constant. Not done: the plan's e2e smoke (admin downloads, file has the seed
 guest) — Vitest covers the content against a fake client instead.
 
 ## 2026-10-05 — Legal v0.3 B2: request page names the venue + Guest Terms accept line (z8uq9m2hm4)
