@@ -14,7 +14,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 **Why ahead of the feature:** a guest-facing e-mail makes Resend process Guest Data, so DPA 7.2 / list §E requires 30 days' notice before activation. Publishing 1.1 now starts that clock; the feature may ship no earlier than 30 days after Max sends the notice. Treated as a non-material terms change (no `TERMS_VERSION` bump) — the lawyer confirms.
 
-**Open:** Max sends the notice e-mail and records the date in the README; insurance (AVB/BAV) and the Joeri confidentiality agreement remain open.
+**Correction same day:** no notice e-mail was needed — on 2026-10-06 PlusOne had no customer under the DPA (test venues only), so the first customers accept the list as published; the Resend rows and the README say so. The template stays for future additions. Open: insurance (AVB/BAV) and the Joeri confidentiality agreement.
 
 ## 2026-10-06 — Legal v0.3 D: legal documents published as Version 1.0, consent re-prompt (z8uq9m2hm7)
 

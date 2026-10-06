@@ -39,16 +39,16 @@ Decided and filled in for v0.3 (2026-10-05, `legal-v03-plan-claude-code.md` §7.
 Closed at publication (2026-10-06): the `[…]` notice periods, retention and breach/export values (draft values accepted by the lawyer), the Guest Terms wording notes, the Privacy §7 guest-mail sentence (removed; see below), the Anthropic, Supabase and Cloudflare entity and transfer-safeguard details and the Anthropic certifications, the Sentry IP setting, the Google Workspace region wording, the cap-fallback addendum and the mailboxes.
 
 Still open after publication:
-- [x] **Guest confirmation e-mail** (`86ey6bn05`): the documents moved ahead of the feature on 2026-10-06 (v1.1: Resend in section A of the Subprocessor List, DPA Annex 2, Privacy §4/§7/§8/§9, ToS 5.6). Resend becomes a guest-data subprocessor, so DPA 7.2 / list §E applies: **Max e-mails every venue admin the 30-day notice (template below)** and the feature ships no earlier than 30 days after that e-mail. If the notice goes out later than 2026-10-06, change the date in the Resend rows (list A, DPA Annex 2).
+- [x] **Guest confirmation e-mail** (`86ey6bn05`): the documents moved ahead of the feature on 2026-10-06 (v1.1: Resend in section A of the Subprocessor List, DPA Annex 2, Privacy §4/§7/§8/§9, ToS 5.6). Resend is a guest-data subprocessor from this version on. No DPA 7.2 notice was needed: on 2026-10-06 PlusOne had no customer under the DPA yet (only test venues of friends), so the first customers accept the list as published. The 30-day notice rule applies to every subprocessor added **after** the first DPA is signed — keep the template below for that.
 - [x] **Certifications column** filled in 2026-10-06 from the vendors' trust pages: Supabase SOC 2 Type 2 + ISO/IEC 27001:2022; Vercel SOC 2 Type 2 + ISO/IEC 27001:2022; Resend SOC 2 Type II; Attio ISO/IEC 27001:2022; Slack SOC 2 Type II + ISO/IEC 27001/27017/27018.
 - [x] **Backups**: 7 days confirmed in the Supabase dashboard (Max, 2026-10-06).
 - [x] **Resend sender**: live SMTP sender is `noreply@plus-one.io` (apex) — confirmed by Max 2026-10-06 and recorded in `docs/mail-deliverability.md`; F3 `86ey6b3hv` closed.
 - [ ] **Insurance**: AVB/BAV with cyber and data-breach cover before the first paying customer (plan §7.2); confidentiality agreement with Joeri (DPA §5).
-- [ ] **30-day subprocessor notice for Resend (guest mail)** — send to every venue admin, then record the send date here. Template:
+- **30-day subprocessor notice — template for future additions** (DPA 7.2 / list §E; not needed for Resend, see above):
 
-  > Subject: PlusOne — new subprocessor for guest e-mail (30-day notice)
+  > Subject: PlusOne — new subprocessor (30-day notice)
   >
-  > Hi, we're adding one capability to PlusOne: when you decide on a guest request, PlusOne can e-mail the guest your decision on your behalf. That e-mail is delivered by Resend (Amazon SES, Ireland, EU), which therefore becomes a subprocessor for guest data under our DPA (clause 7.2). The updated Subprocessor List (version 1.1) and Privacy Policy are at https://www.plus-one.io/legal. The feature goes live no earlier than 30 days from today. If you object on data-protection grounds, reply to this e-mail within 30 days. Nothing changes for you otherwise.
+  > Hi, we're adding [provider] to PlusOne for [purpose]. It will process [which guest data] in [location], which makes it a subprocessor for guest data under our DPA (clause 7.2). The updated Subprocessor List (version [x.y]) and Privacy Policy are at https://www.plus-one.io/legal. This goes live no earlier than 30 days from today. If you object on data-protection grounds, reply to this e-mail within 30 days. Nothing changes for you otherwise.
 
 ## Questions for Max / the lawyer
 
