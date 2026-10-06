@@ -9,7 +9,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   classifyFcmError,
+  digestCount,
   handleDispatch,
+  notificationFor,
   parseServiceAccount,
   resetAccessTokenCache,
   rowOutcome,
@@ -402,5 +404,45 @@ describe('service-account JWT', () => {
       new TextEncoder().encode(`${h}.${c}`)
     );
     expect(ok).toBe(true);
+  });
+});
+
+describe('hourly digest (N1, bundled slot)', () => {
+  const digest = (id: string, kind: string, count: number): ClaimedRow => {
+    const r = row(id, [DEVICE_A], kind);
+    return { ...r, payload: { ...r.payload, count } };
+  };
+
+  it('sends ONE push carrying the count for a claimed slot and completes only its representative', async () => {
+    const { fetchFn, calls } = fakeUpstreams({ batches: [[digest('slot-1', 'guest_request_created', 20)]] });
+    const res = await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {} });
+    expect(await res.json()).toMatchObject({ claimed: 1, sent: 1 });
+
+    const sends = calls.filter((c) => c.url.startsWith('https://fcm.googleapis.com/'));
+    expect(sends).toHaveLength(1);
+    const msg = (sends[0].body as { message: { notification: { title: string; body: string }; data: Record<string, string> } }).message;
+    expect(msg.notification.title).toBe('20 new requests');
+    // Ids and a number: never a name.
+    expect(msg.data).toEqual({ kind: 'guest_request_created', venue_id: 'v1', event_id: 'e1', request_id: 'req-slot-1', count: '20' });
+    // complete_push_outbox settles the rest of the slot server-side.
+    expect(completes(calls)).toEqual([{ p_id: 'slot-1', p_outcome: 'sent', p_error: null }]);
+  });
+
+  it('words the quota digest separately and keeps single-request copy for count < 2', () => {
+    expect(notificationFor('quota_request_created', { count: 12 })?.title).toBe('12 new quota requests');
+    expect(notificationFor('guest_request_created', { count: 1 })?.title).toBe('New guest request');
+    expect(notificationFor('guest_request_created', { count: 'x' })?.title).toBe('New guest request');
+  });
+
+  it('never words a decision as a digest, even if a count appears', () => {
+    expect(notificationFor('quota_request_decided', { status: 'approved', count: 9 })?.title).toBe('Quota request approved');
+  });
+
+  it('reads the count from a number or a string, only as an integer >= 2', () => {
+    expect(digestCount({ count: 20 })).toBe(20);
+    expect(digestCount({ count: '20' })).toBe(20);
+    expect(digestCount({ count: 1 })).toBeNull();
+    expect(digestCount({ count: 2.5 })).toBeNull();
+    expect(digestCount({})).toBeNull();
   });
 });
