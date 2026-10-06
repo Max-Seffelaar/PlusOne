@@ -1331,7 +1331,9 @@ export interface ContactAppearance {
   /** Per-event door note + priority (shown on the pinned event's task card). */
   note: string | null;
   notePriority: Database['public']['Enums']['note_priority'];
-  addedBy: string;
+  /** guests.added_by — NULL when the system added them (a request auto-approved
+   *  through a request link, #4/#15), so it is never a user id to resolve. */
+  addedBy: string | null;
   /** Where this appearance came from (app | landing | door | permanent) + the
    *  non-default request link behind a landing sign-up (item J). The actor NAME
    *  comes from the profile's shared `actorNames` map, keyed by `addedBy`. */
@@ -1397,7 +1399,7 @@ type ProfileAppearanceRaw = {
   tier_id: string | null;
   anonymized_at: string | null;
   created_at: string;
-  added_by: string;
+  added_by: string | null;
   note: string | null;
   note_priority: Database['public']['Enums']['note_priority'];
   source: Database['public']['Enums']['guest_source'];
@@ -1455,11 +1457,14 @@ function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
   };
 }
 
-/** Collect the distinct actor ids across appearances (added / checked / refused). */
+/** Collect the distinct actor ids across appearances (added / checked / refused).
+ *  A system-added appearance has no added_by; it must never reach `.in('id', …)`
+ *  as the literal "null" (PostgREST 400s on the uuid cast and the whole profile
+ *  falls to its not-found state). */
 function actorIds(appearances: ContactAppearance[]): string[] {
   const ids = new Set<string>();
   for (const a of appearances) {
-    ids.add(a.addedBy);
+    if (a.addedBy) ids.add(a.addedBy);
     for (const ci of a.checkIns) {
       ids.add(ci.checkedBy);
       if (ci.voidedBy) ids.add(ci.voidedBy);
@@ -1500,9 +1505,11 @@ async function fetchGuestAppearance(client: Client, guestId: string): Promise<Co
 
 /** Resolve a set of actor ids → display names in one round-trip (RLS-scoped;
  *  an unreadable actor simply drops out and the screen shows a fallback). */
-async function fetchActorNames(client: Client, ids: string[]): Promise<Record<string, string>> {
-  if (ids.length === 0) return {};
-  const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', ids);
+async function fetchActorNames(client: Client, ids: readonly (string | null | undefined)[]): Promise<Record<string, string>> {
+  // Defensive: drop empty/null ids so one system-added row can't 400 the read.
+  const clean = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  if (clean.length === 0) return {};
+  const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', clean);
   if (error) throw error;
   const names: Record<string, string> = {};
   for (const p of data ?? []) names[p.id] = p.full_name;
@@ -2311,7 +2318,9 @@ export async function fetchVenueLabelFunnel(
  */
 export interface PlatformInviteRow {
   id: string;
-  email: string;
+  /** Null once run_privacy_retention() anonymized the invite (24 months idle,
+   *  z8uq9m2hm3) — the only case: the table's CHECK pins it otherwise. */
+  email: string | null;
   note: string | null;
   created_at: string;
   last_sent_at: string;

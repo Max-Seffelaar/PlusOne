@@ -405,6 +405,9 @@ export const guests = {
     tRefusal: 'Refused at {event}',
     tRefusalReason: 'Refused at {event} · {reason}',
     actorDoor: 'Door',
+    // "Added" with no person behind it: auto-approved through a request link.
+    // Same name the Events card's provenance line uses (source.signUpLink).
+    actorSignUpLink: 'Sign-up link',
     // Pinned origin event (opened from a guest list)
     thisEvent: 'This event',
     // Name-only guest (not a contact yet) → promote

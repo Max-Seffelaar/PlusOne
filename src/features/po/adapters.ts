@@ -500,6 +500,9 @@ export interface PoProfileTimelineItem {
   event: string;
   /** Resolved actor name; '' when unknown (the screen renders a fallback). */
   who: string;
+  /** kind='added' with no actor: the system added them through a request link
+   *  (guests.added_by NULL) — the screen names the link, not a person. */
+  viaSignUpLink: boolean;
   /** "14 Dec · 23:14" (Amsterdam). */
   when: string;
   /** Companions present (kind='checkin'); 0 otherwise. */
@@ -599,7 +602,7 @@ export function toPoContactProfile(
         startsAt: a.eventStartsAt,
         phase: eventPhase(a.eventStartsAt, a.eventEndsAt, nowMs),
         tierId: a.tierId,
-        addedById: a.addedBy ?? null,
+        addedById: a.addedBy,
         listLocked: a.eventListLocked,
         autoLockAt: a.eventAutoLockAt,
         cancelled: a.eventCancelled,
@@ -607,7 +610,7 @@ export function toPoContactProfile(
         source: a.source,
         // The profile already resolved every actor id to a name in one read —
         // reuse that map instead of a second per-appearance profile embed.
-        addedByName: actorNames[a.addedBy] ?? null,
+        addedByName: a.addedBy ? actorNames[a.addedBy] ?? null : null,
         linkLabel: a.linkLabel,
       };
     })
@@ -623,7 +626,8 @@ export function toPoContactProfile(
       key: `add-${a.guestId}`,
       kind: 'added',
       event: a.eventName,
-      who: actorNames[a.addedBy] ?? '',
+      who: a.addedBy ? actorNames[a.addedBy] ?? '' : '',
+      viaSignUpLink: a.addedBy == null,
       when: timelineWhen(a.addedAt),
       arrived: 0,
       reason: '',
@@ -637,6 +641,7 @@ export function toPoContactProfile(
         who: actorNames[c.checkedBy] ?? '',
         when: timelineWhen(c.checkedAt),
         arrived: c.arrived,
+        viaSignUpLink: false,
         reason: '',
         ts: c.checkedAt,
       });
@@ -648,6 +653,7 @@ export function toPoContactProfile(
           who: c.voidedBy ? actorNames[c.voidedBy] ?? '' : '',
           when: timelineWhen(c.voidedAt),
           arrived: 0,
+          viaSignUpLink: false,
           reason: '',
           ts: c.voidedAt,
         });
@@ -661,6 +667,7 @@ export function toPoContactProfile(
         who: actorNames[r.refusedBy] ?? '',
         when: timelineWhen(r.refusedAt),
         arrived: 0,
+        viaSignUpLink: false,
         reason: r.reason,
         ts: r.refusedAt,
       });
@@ -1123,7 +1130,11 @@ function toPlatformStage(raw: string): PlatformInviteStage {
 /** The ONE canonical shape the Platform screen renders. */
 export interface PlatformInvite {
   id: string;
-  email: string;
+  /** Null for an anonymized invite (see `anonymized`). */
+  email: string | null;
+  /** The retention job removed address + note after 24 months without contact
+   *  (z8uq9m2hm3). The row is frozen in the DB: no resend, no revoke. */
+  anonymized: boolean;
   /** Operator note. Plain text — never rendered as HTML (PR #325, F9). */
   note: string | null;
   stage: PlatformInviteStage;
@@ -1146,7 +1157,8 @@ export function toPlatformInvite(row: PlatformInviteRow): PlatformInvite {
   const idx = PLATFORM_INVITE_STAGES.indexOf(stage as (typeof PLATFORM_INVITE_STAGES)[number]);
   return {
     id: row.id,
-    email: row.email,
+    email: row.email ?? null,
+    anonymized: row.email == null,
     note: row.note ?? null,
     stage,
     stageIndex: stage === 'revoked' ? null : idx,

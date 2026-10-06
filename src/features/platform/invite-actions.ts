@@ -176,7 +176,9 @@ export async function resendBetaInviteAction(
     .select('id, email, revoked_at')
     .eq('id', parsed.data.inviteId)
     .maybeSingle();
-  if (!invite || invite.revoked_at) return { ok: false, error: NOT_ALLOWED };
+  // An invite anonymized by the retention sweep (z8uq9m2hm3) has no address
+  // left to mail and is frozen in the DB: answer it like a revoked one.
+  if (!invite || invite.revoked_at || !invite.email) return { ok: false, error: NOT_ALLOWED };
 
   // Budget after the lookup (an unknown id costs nothing) and before the
   // last_sent_at bump (a rate-limited resend must not claim it sent something).
