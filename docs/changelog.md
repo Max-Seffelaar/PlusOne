@@ -27,8 +27,10 @@ audit is fail-closed (no row, no file). UI: Venue settings → "Export data" car
 row on the event screen and the formerly dead "Export" button on the past-event recap;
 "Keep me posted ✓" badge (kit `KeepMePostedBadge`) on request cards, contacts list and
 contact detail, plus an "Opted in to venue updates" filter. Audit feed names the export.
-Not run here (no Supabase stack in the container): `pnpm db:test`, `db reset`, e2e/layout
-suites — CI is the proof. Not done: the plan's e2e smoke (admin downloads, file has the seed
+Migration renamed `20261006140000` → `20261006160000` after B2 (#379) landed
+`20261006150000` on main (out-of-order for `db push`). Ran on a local stack (`pnpm stack`):
+fresh migrate + seed, `pnpm db:test` 77 files / 1865 assertions green (incl. `export_audit`
+26/26). Not run: e2e/layout suites — CI is the proof. Not done: the plan's e2e smoke (admin downloads, file has the seed
 guest) — Vitest covers the content against a fake client instead.
 
 ## 2026-10-05 — Legal v0.3 B2: request page names the venue + Guest Terms accept line (z8uq9m2hm4)
