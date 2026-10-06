@@ -3,7 +3,8 @@
 --   * admin/organizer manage, finance reads the venue address book directly;
 --   * staff/doorhost get NO direct table access, only the PII-free reuse RPC.
 -- Relies on the seed: venue aa..01 has contacts c0..01 Sanne (permanent),
--- c0..02 Anouk (permanent), c0..03 Pim (ordinary, linked to guest cc..02);
+-- c0..02 Anouk (permanent), c0..03 Pim (ordinary; guest cc..02 Pim Scholten
+-- autolinks to it by phone, so its reuse stat is 1);
 -- venue aa..02 has c0..04 Marit. Everything rolls back.
 --
 -- NB: the reuse-search section runs FIRST, before the INSERT tests, so it reads

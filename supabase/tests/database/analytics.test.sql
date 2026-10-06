@@ -8,7 +8,7 @@
 -- Seed baseline (supabase/seed.sql): venue aa..01 has one event ee..01 with 30
 -- guests; 27 are "registered"/on-list (status approved/checked_in — pending
 -- Aïcha, removed Pieter AND refused Bram excluded, M4/#44), 3 checked in
--- (Sanne/Daan/Esra), 1 refused (Bram, tracked separately), 24 no-shows.
+-- (Pim/Daan/Esra), 1 refused (Bram, tracked separately), 24 no-shows.
 -- Adders: Max 20, Tom 8 (incl. removed Pieter, see 4.6), Lisa 1.
 
 begin;
@@ -70,7 +70,7 @@ select is((select registered from public.event_tier_stats('ee000000-0000-7000-80
 select is((select present from public.event_tier_stats('ee000000-0000-7000-8000-000000000001')
            where tier_name = 'Regular'), 2, '3.3 Regular present = 2 (Daan, Esra)');
 select is((select present from public.event_tier_stats('ee000000-0000-7000-8000-000000000001')
-           where tier_name = 'VIP'), 1, '3.4 VIP present = 1 (Sanne)');
+           where tier_name = 'VIP'), 1, '3.4 VIP present = 1 (Pim)');
 select is((select registered from public.event_tier_stats('ee000000-0000-7000-8000-000000000001')
            where tier_name = 'VIP + fles op tafel'), 1, '3.5 fles tier has 1 registered (Juri)');
 
@@ -81,8 +81,8 @@ select is((select registered from public.event_tier_stats('ee000000-0000-7000-80
 select is((select count(*)::int from public.event_user_additions('ee000000-0000-7000-8000-000000000001')),
   3, '4.1 three adders (Yusuf''s only guest is pending → not an adder)');
 
--- Max: 20 rows / 27 heads (Juri +2, Sanne +1, Daan, Esra, + 16 bulk); none
--- removed; 3 checked in = 4 heads arrived (Sanne arrived +1).
+-- Max: 20 rows / 27 heads (Juri +2, Pim +1, Daan, Esra, + 16 bulk); none
+-- removed; 3 checked in = 4 heads arrived (Pim arrived +1).
 select is((select added from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
            where full_name = 'Max de Vries'), 20, '4.2 Max added = 20 rows');
 select is((select added_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
@@ -90,7 +90,7 @@ select is((select added_headcount from public.event_user_additions('ee000000-000
 select is((select removed_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
            where full_name = 'Max de Vries'), 0, '4.4 Max removed = 0 heads');
 select is((select present_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
-           where full_name = 'Max de Vries'), 4, '4.5 Max checked-in = 4 heads (Sanne +1, Daan, Esra)');
+           where full_name = 'Max de Vries'), 4, '4.5 Max checked-in = 4 heads (Pim +1, Daan, Esra)');
 
 -- Tom now gains the removed Pieter (+2): 8 rows / 13 heads, of which 3 removed.
 select is((select added from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
@@ -112,13 +112,13 @@ select is((select added_free_headcount from public.event_user_additions('ee00000
 select is((select present_free_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
            where full_name = 'Max de Vries'), 4, '4.12 all seed tiers free → Max present-free = 4');
 
--- Make VIP a paid tier: Max's VIP heads (Sanne 2 + bulk VIP #10/#15/#20 = 3) = 5.
+-- Make VIP a paid tier: Max's VIP heads (Pim 2 + bulk VIP #10/#15/#20 = 3) = 5.
 update public.guest_tiers set door_price_cents = 1500
 where id = 'dd000000-0000-7000-8000-000000000002';
 select is((select added_free_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
            where full_name = 'Max de Vries'), 22, '4.13 VIP paid → Max added-free = 22 (27 − 5 VIP heads)');
 select is((select present_free_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
-           where full_name = 'Max de Vries'), 2, '4.14 VIP paid → Max present-free = 2 (Daan + Esra; Sanne now paid)');
+           where full_name = 'Max de Vries'), 2, '4.14 VIP paid → Max present-free = 2 (Daan + Esra; Pim now paid)');
 
 -- ===========================================================================
 -- 5. Weigeringen met reden
