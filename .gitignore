@@ -69,3 +69,6 @@ supabase/.temp
 /layout-screenshots/
 # Store listing assets (pnpm store:screenshots), uploaded as a CI artifact
 /store-screenshots/
+
+# QA-0 flow-screenshot harness output (scripts/flow-shots)
+flow-screenshots/
