@@ -1,6 +1,6 @@
 # PlusOne — Privacy Policy
 
-**Last updated:** 2026-10-06 · **Version:** 1.0
+**Last updated:** 2026-10-06 · **Version:** 1.1
 
 ---
 
@@ -78,7 +78,7 @@ To keep these public pages free of abuse, submissions are **rate-limited** using
 
 **4.6 Audit trail.** Changes to the records above are logged with before/after values so the venue can detect fraud and account for its list. Personal data inside this log is redacted when the record itself is anonymized (section 10).
 
-**What we do not do with guest data.** We never contact guests, never send marketing, never sell or share guest data with anyone but the venue and our subprocessors, never sync it to our CRM, and never use it to build profiles. The marketing opt-in on the request form is a choice between you and the venue: PlusOne only stores it.
+**What we do not do with guest data.** We send guests no messages of our own (the one e-mail a guest can receive through PlusOne is the venue's decision on a request, sent on the venue's behalf, section 7), never send marketing, never sell or share guest data with anyone but the venue and our subprocessors, never sync it to our CRM, and never use it to build profiles. The marketing opt-in on the request form is a choice between you and the venue: PlusOne only stores it.
 
 ## 5. If you visit our website or use the app in a browser
 
@@ -119,7 +119,7 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 ## 7. How we use your contact details
 
 - **Transactional messages only.** We e-mail account holders for login codes, invitations and essential service messages (for example a security notice or a change to these terms). We do not send account holders marketing without a separate, explicit opt-in that you can withdraw at any time.
-- **Guests are never contacted by PlusOne.** The venue may contact you about your request or, if you opted in, about its upcoming nights.
+- **Guests are e-mailed only on the venue's behalf.** If you request a spot through a venue's request page, the venue's decision on your request can be confirmed to you by e-mail, sent by PlusOne on behalf of the venue through our e-mail provider (Resend, EU). That is the only message PlusOne sends to guests; it contains no marketing, and the venue decides its content. The venue may also contact you itself about your request or, if you opted in, about its upcoming nights.
 - **Venue owners and prospects** may hear from us about the product and our commercial relationship; you can opt out at any time by replying or by e-mailing privacy@plus-one.io.
 
 ## 8. Who receives personal data
@@ -128,7 +128,7 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 
 - database, authentication and realtime infrastructure (Supabase, EU/Ireland);
 - application hosting and content delivery (Vercel, EU/Frankfurt, with a global edge network for connections);
-- delivery of login and invitation e-mails (Resend, EU);
+- delivery of login and invitation e-mails to venue teams, and of request confirmations to guests on the venue's behalf (Resend, EU);
 - bot protection on public pages (Cloudflare Turnstile);
 - error monitoring with scrubbed reports (Sentry, EU/Germany);
 - subscription billing (Stripe: SEPA Direct Debit and iDEAL; we never see or store your bank account number or card);
@@ -148,7 +148,7 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 
 ## 9. International transfers
 
-Personal data is stored and processed in the **European Union**: the database and authentication in Ireland (Supabase, AWS `eu-west-1`), the application in Frankfurt, Germany (Vercel `fra1`), login e-mails via Amazon SES in Ireland (Resend), and error reports in Sentry's EU region in Germany. Connections to the app pass through the provider's global network of edge locations, which may briefly process connection data (such as your IP address) outside the EU while routing your request.
+Personal data is stored and processed in the **European Union**: the database and authentication in Ireland (Supabase, AWS `eu-west-1`), the application in Frankfurt, Germany (Vercel `fra1`), e-mail (login codes, invitations, request confirmations) via Amazon SES in Ireland (Resend), and error reports in Sentry's EU region in Germany. Connections to the app pass through the provider's global network of edge locations, which may briefly process connection data (such as your IP address) outside the EU while routing your request.
 
 Some providers are established, or have parent companies, in the United States or the United Kingdom. For those we rely on an adequacy decision of the European Commission (the EU–US Data Privacy Framework for certified US providers; the UK adequacy decision) and/or the EU Standard Contractual Clauses, recorded per provider in the Subprocessor List. Where neither applies, we do not use the provider.
 

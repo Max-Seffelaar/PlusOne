@@ -1,6 +1,6 @@
 # Legal v0.3 — docs én code gelijktrekken, in golven
 
-> Status: **plan, besproken en besloten met Max op 2026-10-05**. Bron: de externe feedback op de legal drafts v0.2 (24 september 2026) plus de "Code follow-ups" en "Questions" die al in `docs/legal/README.md` v0.2 stonden. Dit document is het *wat* én het *hoe*; de mechaniek (orchestrator per golf, workers op eigen ClickUp-taak/branch/PR, reviewer-sessies voor high-risk PR's, migratie-timestamps vooraf toegewezen) is identiek aan `capacitor-orchestration-claude-code.md` §1 en wordt hier niet herhaald.
+> Status: **uitgevoerd — alle golven gemerged en Version 1.0 gepubliceerd op 2026-10-06; 1.1 (certificeringen, gastmail via Resend) op 2026-10-06. Open punten staan in `docs/legal/README.md`.** Besproken en besloten met Max op 2026-10-05. Bron: de externe feedback op de legal drafts v0.2 (24 september 2026) plus de "Code follow-ups" en "Questions" die al in `docs/legal/README.md` v0.2 stonden. Dit document is het *wat* én het *hoe*; de mechaniek (orchestrator per golf, workers op eigen ClickUp-taak/branch/PR, reviewer-sessies voor high-risk PR's, migratie-timestamps vooraf toegewezen) is identiek aan `capacitor-orchestration-claude-code.md` §1 en wordt hier niet herhaald.
 >
 > Milestone: **Now** — de eerste DPA wordt ondertekend zodra venue #5 tekent, en de app-store-submissie (Fase 17 L1) vereist een gepubliceerde privacy policy. Lijn: **code fixen, tekst niet afzwakken**, behalve waar hieronder expliciet anders besloten.
 
