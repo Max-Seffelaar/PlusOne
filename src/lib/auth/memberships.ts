@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from './context';
 import type { VenueRole } from '@/features/auth/roles';
@@ -29,22 +30,50 @@ export interface PendingInvite {
   createdAt: string;
 }
 
-// The caller's own memberships (RLS: a user always sees their own). Drives the
-// venue switcher and "which venues do I manage" decisions.
-export async function getMyMemberships(): Promise<Membership[]> {
+/** A membership row plus the onboarding inputs of its venue (see below). */
+export interface MembershipWithVenueState extends Membership {
+  /** `venues.settings` — the onboarding gate reads `settings.onboarding`. */
+  venueSettings: unknown;
+  /** `subscriptions.plan_id` of the venue (1:1), null when none is readable. */
+  planId: string | null;
+}
+
+// The caller's own memberships, with the venue's onboarding state embedded —
+// ONE `venue_memberships` read per request (React `cache()`, Snelheid P1, perf
+// audit finding 2). The `/app` layout used to read this table three times per
+// document (onboarding, reporting venues, the access set) and then a separate
+// `venues` read for the onboarding gate; the embed carries exactly what that
+// read selected (`settings`, `subscriptions(plan_id)`) under the same RLS
+// (embedded rows obey their own table's policies, as the `.in()` read did).
+export const getMyMembershipsWithVenueState = cache(async (): Promise<MembershipWithVenueState[]> => {
   const user = await getSessionUser();
   if (!user) return [];
   const supabase = await createClient();
   const { data } = await supabase
     .from('venue_memberships')
-    .select('venue_id, roles, venues(name)')
+    .select('venue_id, roles, venues(name, settings, subscriptions(plan_id))')
     .eq('user_id', user.id);
 
-  return (data ?? []).map((row) => ({
-    venueId: row.venue_id,
-    venueName: row.venues?.name ?? 'Unknown venue',
-    roles: row.roles,
-  }));
+  return (data ?? []).map((row) => {
+    // subscriptions is 1:1 with venue (unique venue_id), so it resolves to a
+    // single row (or null) under detect_one_to_one_relationships.
+    const sub = Array.isArray(row.venues?.subscriptions) ? row.venues?.subscriptions[0] : row.venues?.subscriptions;
+    return {
+      venueId: row.venue_id,
+      venueName: row.venues?.name ?? 'Unknown venue',
+      roles: row.roles,
+      venueSettings: row.venues?.settings ?? null,
+      planId: sub?.plan_id ?? null,
+    };
+  });
+});
+
+// The caller's own memberships (RLS: a user always sees their own). Drives the
+// venue switcher and "which venues do I manage" decisions. Same cached read as
+// above, projected to the plain Membership shape.
+export async function getMyMemberships(): Promise<Membership[]> {
+  const rows = await getMyMembershipsWithVenueState();
+  return rows.map(({ venueId, venueName, roles }) => ({ venueId, venueName, roles }));
 }
 
 // Venues the caller can reach as EXTERNAL CREW only: they organize ≥1 event there
@@ -53,7 +82,8 @@ export async function getMyMemberships(): Promise<Membership[]> {
 // venue, but every role-gated capability stays off (event-scoped access only). RLS
 // is the boundary: own organizer rows are readable, and the venue/events are visible
 // via organizes_event_at_venue / is_event_organizer.
-export async function getOrganizerVenues(): Promise<Membership[]> {
+// Cached per request (Snelheid P1): the layout and the onboarding gate share it.
+export const getOrganizerVenues = cache(async (): Promise<Membership[]> => {
   const user = await getSessionUser();
   if (!user) return [];
   const supabase = await createClient();
@@ -68,7 +98,7 @@ export async function getOrganizerVenues(): Promise<Membership[]> {
     if (ev?.venue_id) byVenue.set(ev.venue_id, ev.venues?.name ?? 'Unknown venue');
   }
   return [...byVenue].map(([venueId, venueName]) => ({ venueId, venueName, roles: [] as VenueRole[] }));
-}
+});
 
 // Venues where the caller may see reports & the audit log: admin or finance
 // (spec §2 — "Statistieken & rapportages", "Audit log inzien"). Drives the

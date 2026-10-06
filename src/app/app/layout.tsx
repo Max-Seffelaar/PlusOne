@@ -14,9 +14,8 @@ import {
   getReportingVenues,
   getPlatformAdminVenue,
 } from '@/lib/auth/memberships';
-import { getSessionUser } from '@/lib/auth/context';
+import { getAuthContext, getMyProfile, getSessionUser } from '@/lib/auth/context';
 import { resolveActiveVenueId, getActiveVenueCookieValue } from '@/lib/auth/active-venue';
-import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
 import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
 import { isMobileUA } from '@/lib/ua';
@@ -71,19 +70,39 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   // a Server Component cannot clear cookies.
   if (demoSessionMustEnd(user)) redirect(REVIEW_SESSION_END_PATH);
 
+  // Everything below the session check runs as ONE parallel wave (Snelheid P1,
+  // perf audit 2026-10 finding 2): the helpers are per-request `cache()`d, so
+  // the onboarding gate, the reporting venues and the access set share one
+  // `venue_memberships` read, the consent gate and the MFA recommendation share
+  // one `user_profiles` read, and every helper reuses the getUser above. Only
+  // the FETCHING is parallel — the gates below still decide in the same order
+  // as before: login → demo window → onboarding → consent → MFA.
+  //
+  // `getAuthContext()` here only warms the per-request cache for
+  // `recommendMfaIfDue` further down (its RPC joins this wave instead of
+  // starting a third one). Its error is swallowed HERE only: the cached
+  // promise is the same, so `recommendMfaIfDue` still sees — and throws — it
+  // exactly where it did before.
+  const [onboarding, memberships, organizerVenues, profileRow] = await Promise.all([
+    // Never for the demo account (see the gate below), so it is not even read.
+    isDemoReviewUser(user) ? null : getOnboardingState(),
+    getMyMemberships(),
+    getOrganizerVenues().catch(() => []),
+    getMyProfile(),
+    getAuthContext().catch(() => null),
+  ]);
+
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
   // so it serves mobile web too. Never the demo account (86ey6bfug): the wizard
   // only creates venues and sends invites, both refused for it, and it can reach
   // an unfinished state on its own (it is admin of the demo venue, so it can
   // PATCH settings.onboarding.completed back to false). The seed restores that
   // flag; this keeps the reviewer in the app until it does.
-  if (!isDemoReviewUser(user)) {
-    const state = await getOnboardingState();
-    if (state.step !== 'done') redirect('/onboarding');
-  }
+  if (onboarding && onboarding.step !== 'done') redirect('/onboarding');
 
   // Best-effort: the caller's reporting venues (admin/finance) gate the
   // Statistieken entry in "Meer". Non-admin or no access → empty → hidden.
+  // Derived from the cached memberships above: no extra read.
   const venues = await getReportingVenues().catch(() => []);
 
   // Identity + active venue for the live-data layer (PoLiveProvider, STAP 3.2).
@@ -92,10 +111,6 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   // real membership always wins over a crew scope for the same venue. This lets a
   // membership-less crew member land on /app scoped to their event's venue, and a
   // multi-company person switch between every venue they can touch.
-  const [memberships, organizerVenues] = await Promise.all([
-    getMyMemberships(),
-    getOrganizerVenues().catch(() => []),
-  ]);
   const memberIds = new Set(memberships.map((m) => m.venueId));
   const accessVenues = [...memberships, ...organizerVenues.filter((v) => !memberIds.has(v.venueId))];
   let activeVenueId: string | null = null;
@@ -134,13 +149,8 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
     roles: active?.roles ?? [],
   };
 
-  // Real display name + role label for the shell footer (RLS: own profile).
-  const supabase = await createClient();
-  const { data: profileRow } = await supabase
-    .from('user_profiles')
-    .select('full_name, terms_accepted_at, terms_version')
-    .eq('id', user.id)
-    .maybeSingle();
+  // Real display name + role label for the shell footer: `profileRow` (RLS: own
+  // profile) was read in the parallel wave above.
   // Consent gate (#20/#40): accept the current Terms + Privacy before the app —
   // on first login and again after every TERMS_VERSION bump. `gateNext` brings
   // the user back to the deep link they opened (see the note above). Runs

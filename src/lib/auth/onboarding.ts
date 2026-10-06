@@ -1,8 +1,7 @@
 import 'server-only';
 
-import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from './context';
-import { getMyMemberships } from './memberships';
+import { getMyMembershipsWithVenueState, getOrganizerVenues } from './memberships';
 
 // Self-service onboarding (#40). A new owner is provisioned invite-only and has
 // ZERO memberships on first login; the flow lets them create their first venue,
@@ -36,41 +35,26 @@ export async function getOnboardingState(): Promise<OnboardingState> {
   const user = await getSessionUser();
   if (!user) return { step: 'venue', venueId: null };
 
-  const memberships = await getMyMemberships();
-  const supabase = await createClient();
+  // Both reads are per-request cached (Snelheid P1): the `/app` layout fetches
+  // them in parallel anyway, so this gate adds no round-trip of its own.
+  const memberships = await getMyMembershipsWithVenueState();
 
   if (memberships.length === 0) {
     // An event organizer has no venue membership but already has access to their
     // event (#24) — they must never be pushed into venue creation.
-    const { count } = await supabase
-      .from('event_organizers')
-      .select('event_id', { count: 'exact', head: true })
-      .eq('user_id', user.id);
-    if ((count ?? 0) > 0) return { step: 'done', venueId: null };
+    const organizerVenues = await getOrganizerVenues();
+    if (organizerVenues.length > 0) return { step: 'done', venueId: null };
     return { step: 'venue', venueId: null };
   }
 
-  const { data } = await supabase
-    .from('venues')
-    .select('id, settings, subscriptions(plan_id)')
-    .in(
-      'id',
-      memberships.map((m) => m.venueId)
-    );
-
-  const inOnboarding = (data ?? []).find((v) => {
-    const onboarding = (v.settings as { onboarding?: OnboardingFlags } | null)?.onboarding;
+  const inOnboarding = memberships.find((m) => {
+    const onboarding = (m.venueSettings as { onboarding?: OnboardingFlags } | null)?.onboarding;
     return onboarding !== undefined && onboarding.completed !== true;
   });
 
   if (!inOnboarding) return { step: 'done', venueId: null };
 
-  // subscriptions is 1:1 with venue (unique venue_id), so it resolves to a single
-  // row (or null) under detect_one_to_one_relationships.
-  const sub = Array.isArray(inOnboarding.subscriptions)
-    ? inOnboarding.subscriptions[0]
-    : inOnboarding.subscriptions;
-  const hasPlan = Boolean(sub?.plan_id);
+  const hasPlan = Boolean(inOnboarding.planId);
 
-  return { step: hasPlan ? 'team' : 'plan', venueId: inOnboarding.id };
+  return { step: hasPlan ? 'team' : 'plan', venueId: inOnboarding.venueId };
 }

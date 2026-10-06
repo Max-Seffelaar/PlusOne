@@ -22,6 +22,10 @@ vi.mock('next/navigation', () => ({
 const getSessionUserMock = vi.fn();
 vi.mock('@/lib/auth/context', () => ({
   getSessionUser: () => getSessionUserMock(),
+  // The own-profile read moved behind the per-request cached getMyProfile
+  // (Snelheid P1); `profileRow` below still drives it.
+  getMyProfile: async () => profileRow,
+  getAuthContext: async () => null,
 }));
 
 const recommendMfaIfDueMock = vi.fn(async (_next: string) => {});
@@ -30,15 +34,6 @@ vi.mock('@/lib/auth/guards', () => ({
 }));
 
 let profileRow: Record<string, unknown> | null = null;
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(async () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: profileRow }) }),
-      }),
-    }),
-  })),
-}));
 
 vi.mock('@/lib/auth/onboarding', () => ({
   getOnboardingState: vi.fn(async () => ({ step: 'done' })),

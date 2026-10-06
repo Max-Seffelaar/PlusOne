@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { cache } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 
@@ -20,29 +21,66 @@ export interface AuthContext {
 
 // Always verify server-side with getUser() (CLAUDE.md: never trust getSession
 // alone on the server).
-export async function getSessionUser(): Promise<User | null> {
+//
+// Wrapped in React `cache()` (Snelheid P1, perf audit 2026-10 finding 2): one
+// GoTrue round-trip per server request instead of one per helper. Before this,
+// a single `/app` document load called getUser 8-9 times in series (layout →
+// onboarding → memberships ×3 → organizer venues → MFA context → listFactors,
+// plus the root not-found boundary). `cache()` is scoped to ONE request: it is
+// never shared across requests or users, and outside a React server render
+// (route handlers) it simply calls through. Within a request every caller sees
+// the same verified answer — the first getUser of the request decides.
+export const getSessionUser = cache(async (): Promise<User | null> => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user ?? null;
+});
+
+/** The caller's own profile fields the `/app` gates and shell read. */
+export interface MyProfile {
+  full_name: string | null;
+  terms_accepted_at: string | null;
+  terms_version: string | null;
+  mfa_snooze_until: string | null;
 }
 
-// Full auth context for layout/guards: identity + AAL + MFA state in one pass.
-export async function getAuthContext(): Promise<AuthContext | null> {
+/**
+ * The signed-in user's own `user_profiles` row (RLS: own profile), read ONCE
+ * per request for the `/app` layout: the shell name, the consent gate and the
+ * MFA recommendation all used to read it separately (perf audit finding 2).
+ * Null when signed out or the row is missing — callers treat that exactly like
+ * the old `maybeSingle()` null.
+ */
+export const getMyProfile = cache(async (): Promise<MyProfile | null> => {
+  const user = await getSessionUser();
+  if (!user) return null;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data } = await supabase
+    .from('user_profiles')
+    .select('full_name, terms_accepted_at, terms_version, mfa_snooze_until')
+    .eq('id', user.id)
+    .maybeSingle();
+  return data ?? null;
+});
+
+// Full auth context for layout/guards: identity + AAL + MFA state in one pass.
+// Cached per request like getSessionUser. Reuses the cached user instead of a
+// second getUser, and reads the factors off `user.factors` — exactly what
+// `auth.mfa.listFactors()` returns, minus the extra getUser it makes to get
+// them. `getAuthenticatorAssuranceLevel()` reads the local session (no network).
+export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
+  const user = await getSessionUser();
   if (!user) return null;
 
-  const [{ data: aal }, { data: factors }, { data: requiresMfa }] = await Promise.all([
+  const supabase = await createClient();
+  const [{ data: aal }, { data: requiresMfa }] = await Promise.all([
     supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
-    supabase.auth.mfa.listFactors(),
     supabase.rpc('current_user_requires_mfa'),
   ]);
 
-  const hasVerifiedTotp = (factors?.all ?? []).some(
+  const hasVerifiedTotp = (user.factors ?? []).some(
     (f) => f.factor_type === 'totp' && f.status === 'verified'
   );
   const currentLevel = (aal?.currentLevel ?? null) as Aal;
@@ -55,4 +93,4 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     requiresMfa: requiresMfa ?? false,
     hasVerifiedTotp,
   };
-}
+});
