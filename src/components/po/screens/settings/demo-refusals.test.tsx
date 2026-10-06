@@ -44,6 +44,7 @@ vi.mock('../../context', () => ({
 }));
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: ['admin'], venueName: 'Venue A' }) }));
 vi.mock('@/features/po/hooks', () => ({
+  usePoIsPlatformAdmin: () => false,
   usePoVenueSettings: () => ({ data: H.settings, isLoading: false, isError: false }),
   usePoTeam: () => ({ data: H.team }),
   usePoInvites: () => ({
