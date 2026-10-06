@@ -148,9 +148,17 @@ volledig in `consume_public_throttle`:
 
 1. Genereer het geheim lokaal: `openssl rand -hex 32`.
 2. Vercel → Project Settings → Environment Variables → `PUBLIC_RPC_TRUST_SECRET`
-   (scope Production; Preview mag hetzelfde of een eigen waarde). Redeploy. De
+   met scope **Production én Preview, dezelfde waarde**. Redeploy. De
    productie-build weigert zonder deze var (`scripts/hooks/lib/required-env.mjs`),
    dus zet hem **vóór** het mergen van deze PR.
+   Waarom Preview ook: er is geen staging, previews praten met de prod-database,
+   en die vertrouwt alleen geheimen waarvan de hash in
+   `public_throttle_trusted_callers` staat. Een preview zonder (bekend) geheim
+   deelt na stap 3 de `<prefix>:~untrusted`-buckets met raw callers — lege
+   landingspagina's en `rate_limited` bij testen, wat eruitziet als een bug in
+   de PR. Wil je toch een eigen Preview-geheim (bv. om het prod-geheim niet in
+   preview-builds te hebben), voeg dan in stap 3 een tweede rij toe met label
+   `vercel-preview-…`.
 3. Pas als die deploy live is: in de Supabase SQL-editor (prod) de hash
    toevoegen. Bereken de hex-digest lokaal, zodat het geheim zelf nooit in
    SQL-history belandt:
