@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
@@ -59,8 +58,6 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
   } as Database['public']['Tables']['quota_requests']['Insert']);
   if (error) return mapMutationError(error);
 
-  revalidatePath(`/events/${eventId}/guests`);
-  revalidatePath(`/events/${eventId}/quota-requests`);
   return { ok: true };
 }
 
@@ -70,11 +67,8 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
  * exactly the four granted columns. RLS turns a row the caller may not decide
  * (already decided, other venue, not an admin) into UPDATE 0, not an error, so
  * the deny asks for the updated id back and treats zero rows as a refusal.
- * eventId is only used to revalidate the right paths.
  */
-export async function decideQuotaRequest(
-  input: DecideQuotaRequestInput & { eventId?: string }
-): Promise<ActionResult> {
+export async function decideQuotaRequest(input: DecideQuotaRequestInput): Promise<ActionResult> {
   const parsed = decideQuotaRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
   const { requestId, decision, reason } = parsed.data;
@@ -104,9 +98,5 @@ export async function decideQuotaRequest(
     if (!data || data.length === 0) return NOT_DECIDABLE;
   }
 
-  if (input.eventId) {
-    revalidatePath(`/events/${input.eventId}/guests`);
-    revalidatePath(`/events/${input.eventId}/quota-requests`);
-  }
   return { ok: true };
 }

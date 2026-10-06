@@ -2,8 +2,7 @@ import 'server-only';
 
 import { redirect } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
-import { createClient } from '@/lib/supabase/server';
-import { getAuthContext, getSessionUser, type AuthContext } from './context';
+import { getAuthContext, getMyProfile, getSessionUser, type AuthContext } from './context';
 import { requireConsent } from './consent';
 
 function loginRedirect(nextPath?: string): string {
@@ -40,12 +39,9 @@ export async function recommendMfaIfDue(currentPath: string, ctx?: AuthContext |
   if (!resolved) return;
   if (!resolved.requiresMfa || resolved.hasVerifiedTotp) return;
 
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from('user_profiles')
-    .select('mfa_snooze_until, terms_accepted_at')
-    .eq('id', resolved.user.id)
-    .maybeSingle();
+  // The caller's own profile row, cached per request (Snelheid P1): the `/app`
+  // layout already read it for the consent gate, so this costs no round-trip.
+  const data = await getMyProfile();
 
   const acceptedAt = data?.terms_accepted_at ? new Date(data.terms_accepted_at).getTime() : NaN;
   const sinceAcceptedMs = Date.now() - acceptedAt;

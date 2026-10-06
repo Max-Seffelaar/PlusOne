@@ -9,7 +9,7 @@
  * built with `useMemo` and handed to `<DoorProvider>` as a bare identifier, and
  * that every provider in between forwarded `children` untouched. All three were
  * true, and all three have stopped existing: the door is its own component now,
- * and `usePoEvents`/`usePoDoorCandidates`/`usePoGuestRequests` are read in its
+ * and `usePoEvents`/`usePoDoorCandidates`/the request badge are read in its
  * siblings rather than its ancestors, so an unrelated shell update cannot
  * schedule a door render at all. A source-shape assertion about a memo that is
  * gone can only be deleted; what it was ultimately protecting is the OUTCOME,
@@ -111,6 +111,16 @@ vi.mock('@/features/po/hooks', async () => {
     usePoEvents: () => ({ data: useSyncExternalStore(H.events.subscribe, H.events.get, H.events.get) }),
     usePoGuestRequests: () => ({
       data: useSyncExternalStore(H.guestRequests.subscribe, H.guestRequests.get, H.guestRequests.get),
+    }),
+    // The nav badge reads a head count since Snelheid P1. Fed from the same
+    // store (pending rows counted) so the "unrelated shell update" stimulus
+    // below still lands on the chrome. The real hook's role gate is not under
+    // test here — this measures where a badge change re-renders, not who may
+    // send the query.
+    usePoOpenRequestCount: () => ({
+      data: useSyncExternalStore(H.guestRequests.subscribe, H.guestRequests.get, H.guestRequests.get).filter(
+        (r: { status: string }) => r.status === 'pending',
+      ).length,
     }),
     usePoCanManageTemplates: () => false,
     usePoIsDoorOrganizer: () => false,

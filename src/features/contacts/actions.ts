@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
@@ -42,8 +41,6 @@ export type AddContactsToEventResult =
 // engine (#22/#31) stay the real boundary — never the service client (CLAUDE.md).
 // The permanent sync / add-to-event paths are SECURITY DEFINER RPCs that
 // self-guard role + list-lock and write past RLS deliberately.
-
-const APP_PATH = '/app';
 
 /** Both dedup unique indexes are venue-scoped (contacts_venue_email_uidx /
  *  contacts_venue_phone_uidx, migration 20260615110000) — the collision is
@@ -102,7 +99,6 @@ export async function upsertContact(input: UpsertContactInput): Promise<ActionRe
     if (error) return mapContactUniqueError(error) ?? mapMutationError(error);
   }
 
-  revalidatePath(APP_PATH);
   return { ok: true };
 }
 
@@ -128,7 +124,6 @@ export async function forgetContact(input: ForgetContactInput): Promise<ActionRe
   });
   if (error) return mapMutationError(error);
 
-  revalidatePath(APP_PATH);
   return { ok: true };
 }
 
@@ -150,7 +145,6 @@ export async function toggleContactPermanent(input: TogglePermanentInput): Promi
     .eq('id', contactId);
   if (error) return mapMutationError(error);
 
-  revalidatePath(APP_PATH);
   return { ok: true };
 }
 
@@ -193,8 +187,6 @@ export async function addContactToEvent(input: AddContactToEventInput): Promise<
   });
   if (error) return mapMutationError(error);
 
-  revalidatePath(APP_PATH);
-  revalidatePath(`/events/${eventId}/guests`);
   return { ok: true };
 }
 
@@ -244,7 +236,6 @@ export async function importContacts(input: ImportContactsInput): Promise<Import
     return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
   }
   const r = parsedResult.data;
-  revalidatePath(APP_PATH);
   return { ok: true, inserted: r.inserted, updated: r.updated, skipped: r.skipped, ids: r.ids };
 }
 
@@ -288,8 +279,6 @@ export async function addContactsToEvent(input: AddContactsToEventInput): Promis
     return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
   }
   const r = parsedResult.data;
-  revalidatePath(APP_PATH);
-  revalidatePath(`/events/${eventId}/guests`);
   return { ok: true, added: r.added, already: r.already, skipped: r.skipped };
 }
 
@@ -314,7 +303,6 @@ export async function promoteGuestToContact(input: PromoteGuestToContactInput): 
   });
   if (error) return mapMutationError(error);
 
-  revalidatePath(APP_PATH);
   return { ok: true };
 }
 
@@ -339,6 +327,5 @@ export async function markGuestRegular(input: MarkGuestRegularInput): Promise<Ac
   });
   if (error) return mapMutationError(error);
 
-  revalidatePath(APP_PATH);
   return { ok: true };
 }

@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from './context';
 import type { VenueRole } from '@/features/auth/roles';
@@ -30,8 +31,11 @@ export interface PendingInvite {
 }
 
 // The caller's own memberships (RLS: a user always sees their own). Drives the
-// venue switcher and "which venues do I manage" decisions.
-export async function getMyMemberships(): Promise<Membership[]> {
+// venue switcher and "which venues do I manage" decisions. Per-request
+// `cache()` (Snelheid P1, perf audit finding 2): the `/app` layout used to read
+// this table three times per document (onboarding, reporting venues, the
+// access set); now they share one read.
+export const getMyMemberships = cache(async (): Promise<Membership[]> => {
   const user = await getSessionUser();
   if (!user) return [];
   const supabase = await createClient();
@@ -45,7 +49,46 @@ export async function getMyMemberships(): Promise<Membership[]> {
     venueName: row.venues?.name ?? 'Unknown venue',
     roles: row.roles,
   }));
+});
+
+/** The onboarding inputs of one of the caller's venues. */
+export interface VenueOnboardingState {
+  venueId: string;
+  /** `venues.settings` — the onboarding gate reads `settings.onboarding`. */
+  settings: unknown;
+  /** `subscriptions.plan_id` of the venue (1:1), null when none is readable. */
+  planId: string | null;
 }
+
+/**
+ * The onboarding gate's inputs for every venue the caller is a member of:
+ * `venues.settings` + `subscriptions(plan_id)`, embedded from the caller's own
+ * membership rows so it needs no membership ids first and runs in the SAME
+ * parallel wave as `getMyMemberships` (Snelheid P1). Deliberately a separate
+ * read from the membership list (review of PR #408): an error in this embed
+ * (a grant or RLS change on `subscriptions`, a timeout) must never empty the
+ * membership list — it degrades to `[]` here, which the gate reads as "nothing
+ * in onboarding", exactly like the separate `venues` read on main did.
+ */
+export const getMyVenueOnboardingStates = cache(async (): Promise<VenueOnboardingState[]> => {
+  const user = await getSessionUser();
+  if (!user) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('venue_memberships')
+    .select('venue_id, venues(settings, subscriptions(plan_id))')
+    .eq('user_id', user.id);
+
+  return (data ?? [])
+    .filter((row) => row.venues)
+    .map((row) => {
+      // subscriptions is 1:1 with venue (unique venue_id), so it resolves to a
+      // single row (or null) under detect_one_to_one_relationships.
+      const subs = row.venues?.subscriptions;
+      const sub = Array.isArray(subs) ? subs[0] : subs;
+      return { venueId: row.venue_id, settings: row.venues?.settings ?? null, planId: sub?.plan_id ?? null };
+    });
+});
 
 // Venues the caller can reach as EXTERNAL CREW only: they organize ≥1 event there
 // but hold no venue membership (#24 + 86ey21vre). Returned as memberships with an
@@ -53,7 +96,8 @@ export async function getMyMemberships(): Promise<Membership[]> {
 // venue, but every role-gated capability stays off (event-scoped access only). RLS
 // is the boundary: own organizer rows are readable, and the venue/events are visible
 // via organizes_event_at_venue / is_event_organizer.
-export async function getOrganizerVenues(): Promise<Membership[]> {
+// Cached per request (Snelheid P1): the layout and the onboarding gate share it.
+export const getOrganizerVenues = cache(async (): Promise<Membership[]> => {
   const user = await getSessionUser();
   if (!user) return [];
   const supabase = await createClient();
@@ -68,7 +112,7 @@ export async function getOrganizerVenues(): Promise<Membership[]> {
     if (ev?.venue_id) byVenue.set(ev.venue_id, ev.venues?.name ?? 'Unknown venue');
   }
   return [...byVenue].map(([venueId, venueName]) => ({ venueId, venueName, roles: [] as VenueRole[] }));
-}
+});
 
 // Venues where the caller may see reports & the audit log: admin or finance
 // (spec §2 — "Statistieken & rapportages", "Audit log inzien"). Drives the

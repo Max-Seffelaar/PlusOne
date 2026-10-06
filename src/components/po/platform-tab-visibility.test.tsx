@@ -46,6 +46,7 @@ vi.mock('@/features/po/hooks', () => ({
   usePoIsDoorOrganizer: () => false,
   usePoEvents: () => ({ data: [] }),
   usePoGuestRequests: () => ({ data: [] }),
+  usePoOpenRequestCount: () => ({ data: 0 }),
   usePoDoorCandidates: () => ({ data: [], isLoading: false, isSuccess: true, isFetching: false, refetch: () => {} }),
   usePoIsPlatformAdmin: () => H.isPlatformAdmin,
   usePoPlatformInvites: () => {

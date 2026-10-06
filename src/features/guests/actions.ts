@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
 import {
@@ -30,10 +29,6 @@ export type ActionResult = { ok: true } | MutationError;
 // mutate through the USER-scoped client so RLS (membership, role, list-lock,
 // #24) and the quota engine (#22/#31) are the real boundary — never the service
 // client (CLAUDE.md). The quota/tier triggers surface as 45001/45002.
-
-function guestsPath(eventId: string) {
-  return `/events/${eventId}/guests`;
-}
 
 // ── contact_id verification (K, ADE UX round) ────────────────────────────────
 // A client may ask to link a name-only guest to an existing contact. That id is
@@ -113,7 +108,6 @@ export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
   } as Database['public']['Tables']['guests']['Insert']);
   if (error) return mapMutationError(error);
 
-  revalidatePath(guestsPath(eventId));
   return { ok: true };
 }
 
@@ -175,7 +169,6 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
   }
   if (error) return mapMutationError(error);
 
-  revalidatePath(guestsPath(eventId));
   return { ok: true };
 }
 
@@ -202,15 +195,12 @@ export async function updateGuest(input: UpdateGuestInput): Promise<ActionResult
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
-  const { data, error, count } = await supabase
+  const { error, count } = await supabase
     .from('guests')
     .update(patch, { count: 'exact' })
-    .eq('id', guestId)
-    .select('event_id')
-    .maybeSingle();
+    .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  if (data?.event_id) revalidatePath(guestsPath(data.event_id));
   return { ok: true };
 }
 
@@ -226,15 +216,12 @@ export async function changeGuestTier(input: ChangeTierInput): Promise<ActionRes
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { data, error, count } = await supabase
+  const { error, count } = await supabase
     .from('guests')
     .update({ tier_id: tierId }, { count: 'exact' })
-    .eq('id', guestId)
-    .select('event_id')
-    .maybeSingle();
+    .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  if (data?.event_id) revalidatePath(guestsPath(data.event_id));
   return { ok: true };
 }
 
@@ -242,7 +229,7 @@ export async function changeGuestTier(input: ChangeTierInput): Promise<ActionRes
 export async function changeGuestsTierBulk(input: ChangeTierBulkInput): Promise<ActionResult> {
   const parsed = changeTierBulkSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { guestIds, tierId, eventId } = parsed.data;
+  const { guestIds, tierId } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -262,7 +249,6 @@ export async function changeGuestsTierBulk(input: ChangeTierBulkInput): Promise<
   if (error) return mapMutationError(error);
   if (!count) return notFound();
 
-  revalidatePath(guestsPath(eventId));
   return { ok: true };
 }
 
@@ -276,14 +262,11 @@ export async function removeGuest(guestId: string): Promise<ActionResult> {
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { data, error, count } = await supabase
+  const { error, count } = await supabase
     .from('guests')
     .update({ status: 'removed' }, { count: 'exact' })
-    .eq('id', guestId)
-    .select('event_id')
-    .maybeSingle();
+    .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  if (data?.event_id) revalidatePath(guestsPath(data.event_id));
   return { ok: true };
 }

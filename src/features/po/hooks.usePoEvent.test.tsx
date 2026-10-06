@@ -11,9 +11,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { poKeys } from './keys';
 import type { ReactNode } from 'react';
 
-const H = vi.hoisted(() => ({ venueId: null as string | null }));
+const H = vi.hoisted(() => ({ venueId: null as string | null, fetches: 0 }));
 
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
 vi.mock('./PoLiveProvider', () => ({
@@ -23,7 +24,11 @@ vi.mock('./queries', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./queries')>();
   return {
     ...actual,
-    fetchEvents: async () => [{ id: 'e1' } as never],
+    // The single-event read (Snelheid P1) filters by id server-side: honour it.
+    fetchEvents: async (_c: unknown, _v: string, scope?: { eventId?: string }) => {
+      H.fetches += 1;
+      return scope?.eventId && scope.eventId !== 'e1' ? [] : [{ id: 'e1', starts_at: '2026-10-10T20:00:00Z' } as never];
+    },
     fetchEventHeadcounts: async () => new Map(),
   };
 });
@@ -58,5 +63,19 @@ describe('usePoEvent notFound (86ey9e9vc review round 2, finding 5)', () => {
     const { result } = renderHook(() => usePoEvent('e1'), { wrapper });
     await waitFor(() => expect(result.current.event).not.toBeNull());
     expect(result.current.notFound).toBe(false);
+  });
+
+  it('is served from the cached venue list without a request (opened from the Events tab)', async () => {
+    H.venueId = 'v1';
+    H.fetches = 0;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    client.setQueryData(poKeys.events('v1'), [{ id: 'e1', name: 'From list' }]);
+    const seeded = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => usePoEvent('e1'), { wrapper: seeded });
+    expect(result.current.event).toMatchObject({ id: 'e1', name: 'From list' });
+    expect(result.current.isLoading).toBe(false);
+    expect(H.fetches).toBe(0);
   });
 });

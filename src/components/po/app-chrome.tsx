@@ -5,7 +5,7 @@
  * and the `po` context every screen reads.
  *
  * Extracted from `app.tsx` (86eykm76k). Like `AppScreens`, this is not only a
- * file-size move: it reads `usePoGuestRequests()` (the open-requests badge) and
+ * file-size move: it reads `usePoOpenRequestCount()` (the open-requests badge) and
  * `usePoCanManageTemplates()`, and it owns the toast state. All three used to
  * live in the shell root, where every badge tick and every toast rebuilt the
  * root's whole element tree — including the door's. Here they re-render the
@@ -19,10 +19,9 @@
 import { useCallback, useEffect, useMemo, useState, type JSX, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTransientValue } from '@/lib/use-transient-value';
-import { usePoCanManageTemplates, usePoGuestRequests, usePoIsPlatformAdmin } from '@/features/po/hooks';
-import { isOpenGuestRequest } from '@/features/po/adapters';
+import { usePoCanManageTemplates, usePoIsPlatformAdmin, usePoOpenRequestCount } from '@/features/po/hooks';
 import { poKeys } from '@/features/po/keys';
-import { canSeeAnyRequests, type VenueRole } from '@/features/auth/roles';
+import { canSeeAnyRequests, canSeeRequestInbox, type VenueRole } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import { switchActiveVenueAction } from '@/features/venues/actions';
 import { PoProvider, type Nav, type PoApp } from './context';
@@ -195,11 +194,6 @@ export function AppShellChrome({
     [statsAccess, myVenues, activeVenueId, switchToVenue, nav, isMobile],
   );
 
-  // Open-requests count for the nav badge (desktop sidebar + mobile More). Reuses
-  // the venue-wide guest-requests query that Home already loads (shared React
-  // Query key → no extra polling); OPEN = pending only, the shared definition, so
-  // this badge matches Home's tile and the event-card badge exactly (T9).
-  const openRequestCount = (usePoGuestRequests().data ?? []).filter(isOpenGuestRequest).length;
   // Contacts desktop-nav gate (T10).
   const canManageTemplates = usePoCanManageTemplates();
   // PlusOne's own operator surface (P-04). Read HERE, beside the other chrome
@@ -208,6 +202,16 @@ export function AppShellChrome({
   // non-platform-admin typing /app/platform gets a "not available" screen with
   // no data behind it.
   const isPlatformAdmin = usePoIsPlatformAdmin();
+  // Open-requests count for the nav badge (desktop sidebar + mobile More): one
+  // `head` count of pending requests (Snelheid P1, perf audit finding 5) — was
+  // the full venue-wide inbox read with PII, filtered here. OPEN = pending only,
+  // the shared definition, so this badge matches Home's tile and the event-card
+  // badge (T9). Role-gated to who `guest_requests_select` lets see any row
+  // (admin/finance, or an organizer at this venue) plus a platform admin, whom
+  // `has_venue_role` lets read every venue (#49) even with `roles: []`; everyone
+  // else sends no query and reads 0, which is what RLS gave them before.
+  const canCountRequests = canSeeRequestInbox(roles) || canManageTemplates || isPlatformAdmin;
+  const openRequestCount = usePoOpenRequestCount(canCountRequests).data ?? 0;
 
   const currentKey =
     target.kind === 'tab' ? target.tab : target.kind === 'door' ? 'deur' : navKeyForScreen(target.name, target.props);
