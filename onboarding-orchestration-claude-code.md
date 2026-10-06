@@ -25,28 +25,28 @@
 
 ## 2. Volgorde en exit-criteria
 
-| # | Taak | ClickUp | Model | Wacht op | Exit-criterium |
-|---|---|---|---|---|---|
-| 0 | Spikes | geen (dit doc §9) | Opus | niets | §9 ingevuld; comments op D, E, A, F; Max' open besluiten uit §9 beantwoord |
-| 0a | QA-0 flow-screenshots + handoff-automatisering | zie ClickUp "QA-0" | Opus | 0b (P1 gaat voor: snelheid is de acute pijn) | gemerged; `pnpm qa:flows onboarding` geeft vier varianten met contact sheet; CI-job + PR-comment; native-shell-guard als vaste flow |
-| 0b | Snelheid P1 (quick wins) | z8uq9m2xyn | Opus | 0 | gemerged; prod-push (index + invites-policy); layout ≤ 2 roundtrips; geen `revalidatePath` meer in po-mutaties; terugkeer naar een tab zonder server-fetch |
-| 0c | Notificaties N1 (push bundelen) | z8uq9m2yvk | Opus | 0b | gemerged; prod-push; 30 aanvragen in 2 minuten geven 10 directe pushes en daarna één per uur met het aantal |
-| 0d | Crew-bug (bestaand account als crew) | z8uq9m2yvp | Opus | 0b | gemerged; `staff@` (bestaand account) is als crew toe te voegen aan een event van de andere seed-company en ziet alleen dat event |
-| 0e | Mail-infra F0 (Resend + team-invite mails) | z8uq9m2yvt | Opus | 0d; Max: Resend-key | gemerged; prod-push; team-invite naar een bestaand account en crew-toevoeging geven een echte mail (geen magic link meer); webhook idempotent |
-| 0f | Sentry-hygiene S1 | zie ClickUp "Sentry-hygiene S1" | Sonnet | 0b | gemerged; verwachte gebruikersfouten (42501, exists, validatie, already_handled, billing_*) komen niet meer in Sentry; Supabase-fouten hebben een leesbare titel en `code`-tag; EvalError-bron bekend |
-| 1 | Venue → Company | z8uq9m2vqc | Opus | 0 | gemerged; `pnpm e2e:layout` groen; geen "venue" meer zichtbaar in de UI; event met eigen locatie zichtbaar op de eventkaart |
-| 2 | Billing G | z8uq9m2vrz | Opus | 1 | gemerged; prod-push; onboarding zonder plan/betaalstap; Platform-tab kan trial verlengen en "always free" zetten; native toont alleen status en de neutrale zin (e2e-guard native-shell groen); Max' Stripe-stappen (§6) klaar vóór de env-vars live gaan |
-| 2b | Platform R | z8uq9m2ybj | Opus | 2 | gemerged; prod-push; invite-rij toont company-chip met Switch, events, status, activiteit; Overview toont status-tellingen, MRR/ARR, trial-funnel, gebruik; manager@ ziet niets |
-| 2c | Billing-mails B1 | z8uq9m2z19 | Opus | 0e, 2, 2b; copy gekozen | gemerged; prod-push; seed-trials op dag 7/12/14/21 krijgen elk precies één mail per run; Platform-tab toont de tijdlijn per company |
-| 3 | Onboarding A | z8uq9m2vg5 | Opus | 2 | gemerged; comped-invite werkt end-to-end; Places op het adresveld; één DPA-checkbox; nieuwe invite-mail in Mailpit en in prod gezien |
-| 4 | Check-in D | z8uq9m2vg6 | Opus | 0 (ontwerp), 1 | gemerged; groep-knop en per-persoon-knop; doorhost kan niet uitchecken tenzij de setting aan staat, ook niet via de API |
-| 5 | Event C + Dashboard B | z8uq9m2vg7 + z8uq9m2vg8 | Opus | 1 | één PR, twee taken; gemerged; test-handoff beantwoord |
-| 6 | Gastcommunicatie F | z8uq9m2vpy | Opus | 1, 2 (company-contact zit in settings), copy gekozen | gemerged; prod-push; een handmatig toegevoegde gast met e-mail krijgt binnen een minuut "You're on the list"; afmeldlink werkt; bounce-webhook idempotent |
-| 7 | Requests E | z8uq9m2vga | Opus | 6 | gemerged; prod-push; splitsen, inkorten, deels afwijzen met verplichte opmerking; statusmail via F |
-| 8 | Quota-aanvraag Q | z8uq9m2xyp | Opus | 7 | gemerged; prod-push; aanvrager ziet de beslissing op Home; akkoord met gast-gegevens zet de gast op de lijst |
-| 9 | Snelheid P2 | z8uq9m2xz2 | Opus | 8, of eerder als Max na P1 nog traagheid ziet | per PR gemerged; tab-wissel zonder server-fetch; 300-events-seed laadt alleen het venster |
-| 10 | Analytics PH (PostHog, plan in docs/posthog-implementation-plan.md) | nog aan te maken | Opus | 9; Max' go | PR 1 foundation + PR 2 instrumentation gemerged; cookie-banner op publieke routes; opt-out in Profile; subprocessor PostHog van C naar A; geen PII in events (lint-test) |
-| ∥ | Legal | z8uq9m2vh6 | Opus | niets (andere repo) | documenten op eenmanszaak; Google en Resend op de subprocessorlijst; `TERMS_VERSION` gebumpt als de tekst materieel wijzigt |
+| # | Taak | ClickUp | Model | Wacht op | Exit-criterium | Bewijs |
+|---|---|---|---|---|---|---|
+| 0 | Spikes | geen (dit doc §9) | Opus | niets | §9 ingevuld; comments op D, E, A, F; Max' open besluiten uit §9 beantwoord | — |
+| 0a | QA-0 flow-screenshots + handoff-automatisering | zie ClickUp "QA-0" | Opus | 0b (P1 gaat voor: snelheid is de acute pijn) | gemerged; `pnpm qa:flows onboarding` geeft vier varianten met contact sheet; CI-job + PR-comment; native-shell-guard als vaste flow | draft-PR van `claude/qa-0-flow-shots` → CI-job `flow-shots` → artifact `flow-contact-sheets` + sticky PR-comment |
+| 0b | Snelheid P1 (quick wins) | z8uq9m2xyn | Opus | 0 | gemerged; prod-push (index + invites-policy); layout ≤ 2 roundtrips; geen `revalidatePath` meer in po-mutaties; terugkeer naar een tab zonder server-fetch | — |
+| 0c | Notificaties N1 (push bundelen) | z8uq9m2yvk | Opus | 0b | gemerged; prod-push; 30 aanvragen in 2 minuten geven 10 directe pushes en daarna één per uur met het aantal | — |
+| 0d | Crew-bug (bestaand account als crew) | z8uq9m2yvp | Opus | 0b | gemerged; `staff@` (bestaand account) is als crew toe te voegen aan een event van de andere seed-company en ziet alleen dat event | — |
+| 0e | Mail-infra F0 (Resend + team-invite mails) | z8uq9m2yvt | Opus | 0d; Max: Resend-key | gemerged; prod-push; team-invite naar een bestaand account en crew-toevoeging geven een echte mail (geen magic link meer); webhook idempotent | — |
+| 0f | Sentry-hygiene S1 | zie ClickUp "Sentry-hygiene S1" | Sonnet | 0b | gemerged; verwachte gebruikersfouten (42501, exists, validatie, already_handled, billing_*) komen niet meer in Sentry; Supabase-fouten hebben een leesbare titel en `code`-tag; EvalError-bron bekend | — |
+| 1 | Venue → Company | z8uq9m2vqc | Opus | 0 | gemerged; `pnpm e2e:layout` groen; geen "venue" meer zichtbaar in de UI; event met eigen locatie zichtbaar op de eventkaart | — |
+| 2 | Billing G | z8uq9m2vrz | Opus | 1 | gemerged; prod-push; onboarding zonder plan/betaalstap; Platform-tab kan trial verlengen en "always free" zetten; native toont alleen status en de neutrale zin (e2e-guard native-shell groen); Max' Stripe-stappen (§6) klaar vóór de env-vars live gaan | — |
+| 2b | Platform R | z8uq9m2ybj | Opus | 2 | gemerged; prod-push; invite-rij toont company-chip met Switch, events, status, activiteit; Overview toont status-tellingen, MRR/ARR, trial-funnel, gebruik; manager@ ziet niets | — |
+| 2c | Billing-mails B1 | z8uq9m2z19 | Opus | 0e, 2, 2b; copy gekozen | gemerged; prod-push; seed-trials op dag 7/12/14/21 krijgen elk precies één mail per run; Platform-tab toont de tijdlijn per company | — |
+| 3 | Onboarding A | z8uq9m2vg5 | Opus | 2 | gemerged; comped-invite werkt end-to-end; Places op het adresveld; één DPA-checkbox; nieuwe invite-mail in Mailpit en in prod gezien | — |
+| 4 | Check-in D | z8uq9m2vg6 | Opus | 0 (ontwerp), 1 | gemerged; groep-knop en per-persoon-knop; doorhost kan niet uitchecken tenzij de setting aan staat, ook niet via de API | — |
+| 5 | Event C + Dashboard B | z8uq9m2vg7 + z8uq9m2vg8 | Opus | 1 | één PR, twee taken; gemerged; test-handoff beantwoord | — |
+| 6 | Gastcommunicatie F | z8uq9m2vpy | Opus | 1, 2 (company-contact zit in settings), copy gekozen | gemerged; prod-push; een handmatig toegevoegde gast met e-mail krijgt binnen een minuut "You're on the list"; afmeldlink werkt; bounce-webhook idempotent | — |
+| 7 | Requests E | z8uq9m2vga | Opus | 6 | gemerged; prod-push; splitsen, inkorten, deels afwijzen met verplichte opmerking; statusmail via F | — |
+| 8 | Quota-aanvraag Q | z8uq9m2xyp | Opus | 7 | gemerged; prod-push; aanvrager ziet de beslissing op Home; akkoord met gast-gegevens zet de gast op de lijst | — |
+| 9 | Snelheid P2 | z8uq9m2xz2 | Opus | 8, of eerder als Max na P1 nog traagheid ziet | per PR gemerged; tab-wissel zonder server-fetch; 300-events-seed laadt alleen het venster | — |
+| 10 | Analytics PH (PostHog, plan in docs/posthog-implementation-plan.md) | nog aan te maken | Opus | 9; Max' go | PR 1 foundation + PR 2 instrumentation gemerged; cookie-banner op publieke routes; opt-out in Profile; subprocessor PostHog van C naar A; geen PII in events (lint-test) | — |
+| ∥ | Legal | z8uq9m2vh6 | Opus | niets (andere repo) | documenten op eenmanszaak; Google en Resend op de subprocessorlijst; `TERMS_VERSION` gebumpt als de tekst materieel wijzigt | — |
 
 Taak 5 combineert C en B omdat ze dezelfde event- en dashboard-screens raken; de worker houdt beide ClickUp-taken bij (comment op allebei, zoals de skill voorschrijft).
 

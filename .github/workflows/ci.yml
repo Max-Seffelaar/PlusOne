@@ -196,3 +196,167 @@ jobs:
           name: layout-traces
           path: test-results/
           if-no-files-found: ignore
+
+  # QA-0 flow screenshots (onboarding-orchestration-claude-code.md §1). Walks the
+  # user flows in tests/flows/ on the four flow variants (desktop + phone browser,
+  # phone + iPad inside the simulated native shell), screenshots every step, turns
+  # the machine-answerable handoff questions into asserts, and publishes a contact
+  # sheet. Path-gated INSIDE the job: `select.mjs` maps the changed files to the
+  # flows that need them (registry: tests/flows/flows.mjs) — a README-only PR
+  # selects nothing and every later step is skipped. Not a required check.
+  flow-shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Only for the sticky PR comment, through the built-in GITHUB_TOKEN.
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select flows for the changed paths
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          node scripts/flow-shots/select.mjs --self-check
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$PR_BASE"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            base="$PUSH_BEFORE"
+          else
+            base=""
+          fi
+          if [ -n "$base" ]; then
+            node scripts/flow-shots/select.mjs --base "$base" --head HEAD
+          else
+            # New branch / no usable base: run every flow.
+            echo tests/flows/flows.mjs | node scripts/flow-shots/select.mjs
+          fi
+
+      - name: No flow-relevant change
+        if: steps.select.outputs.flows == ''
+        run: echo "QA-0 flow shots — no flow-relevant paths changed, no flows run." >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: pnpm/action-setup@v6
+        if: steps.select.outputs.flows != ''
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v7
+        if: steps.select.outputs.flows != ''
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      # Same stack setup as `layout-suite`, minus `pnpm dev:mfa`: the flows run on
+      # the plain seed (admin@ has no MFA factor there and MFA is optional), and
+      # dev:mfa re-applies the 20260615000000 onboarding RPCs, which brings back
+      # the dropped set_venue_plan(uuid,text,boolean) overload and breaks the
+      # wizard's plan/trial step on that stack.
+      - name: Install dependencies (shared session-setup script)
+        if: steps.select.outputs.flows != ''
+        run: node scripts/session-setup.mjs install
+
+      - name: Setup Supabase CLI
+        if: steps.select.outputs.flows != ''
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Start local Supabase stack
+        if: steps.select.outputs.flows != ''
+        run: supabase start
+
+      - name: Provision .env.local from the running stack
+        if: steps.select.outputs.flows != ''
+        run: node scripts/dev-env.mjs
+
+      - name: Install Playwright browser
+        if: steps.select.outputs.flows != ''
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run flows (pnpm qa:flows)
+        if: steps.select.outputs.flows != ''
+        run: pnpm qa:flows ${{ steps.select.outputs.flows }}
+
+      - name: Upload contact sheets
+        id: sheets
+        if: always() && steps.select.outputs.flows != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: flow-contact-sheets
+          path: |
+            flow-screenshots/*/contact-sheet.png
+            flow-screenshots/*/contact-sheet.html
+            flow-screenshots/index.html
+            flow-screenshots/summary.md
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload flow screenshots
+        id: shots
+        if: always() && steps.select.outputs.flows != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: flow-screenshots
+          path: flow-screenshots/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Write the job summary and the PR comment body
+        if: always() && steps.select.outputs.flows != ''
+        env:
+          FLOWS: ${{ steps.select.outputs.flows }}
+          SHEETS_URL: ${{ steps.sheets.outputs.artifact-url }}
+          SHOTS_URL: ${{ steps.shots.outputs.artifact-url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "<!-- qa-0-flow-shots -->"
+            echo "## QA-0 flow shots — \`${SHA:0:7}\`"
+            echo ""
+            echo "Flows: \`$FLOWS\` · [run]($RUN_URL)"
+            if [ -n "$SHEETS_URL" ]; then
+              echo "- **Contact sheets** (one PNG per flow, every step × variant + the assert table): [flow-contact-sheets]($SHEETS_URL)"
+              echo "- Every full-page screenshot + \`flow.json\`: [flow-screenshots]($SHOTS_URL)"
+            else
+              echo "- No screenshots were uploaded (the run did not get far enough to take any)."
+            fi
+            echo ""
+            if [ -f flow-screenshots/summary.md ]; then cat flow-screenshots/summary.md; fi
+            echo ""
+            echo "✅ = answered by an assert in the flow · – = not applicable to that variant · · = not reached. Handoff convention: CLAUDE.md \"Per-screen test handoff\"."
+          } > flow-comment.md
+          cat flow-comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Sticky: one comment per PR, edited on every run. Fork PRs get a read-only
+      # token, so a refused comment never fails the job — the summary above stays.
+      - name: Post or update the PR comment
+        if: always() && github.event_name == 'pull_request' && steps.select.outputs.flows != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- qa-0-flow-shots -->")) | .id' | head -n1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@flow-comment.md > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@flow-comment.md > /dev/null
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: failure() && steps.select.outputs.flows != ''
+        with:
+          name: flow-traces
+          path: test-results/flows/
+          if-no-files-found: ignore
