@@ -45,6 +45,7 @@
 | 7 | Requests E | z8uq9m2vga | Opus | 6 | gemerged; prod-push; splitsen, inkorten, deels afwijzen met verplichte opmerking; statusmail via F |
 | 8 | Quota-aanvraag Q | z8uq9m2xyp | Opus | 7 | gemerged; prod-push; aanvrager ziet de beslissing op Home; akkoord met gast-gegevens zet de gast op de lijst |
 | 9 | Snelheid P2 | z8uq9m2xz2 | Opus | 8, of eerder als Max na P1 nog traagheid ziet | per PR gemerged; tab-wissel zonder server-fetch; 300-events-seed laadt alleen het venster |
+| 10 | Analytics PH (PostHog, plan in docs/posthog-implementation-plan.md) | nog aan te maken | Opus | 9; Max' go | PR 1 foundation + PR 2 instrumentation gemerged; cookie-banner op publieke routes; opt-out in Profile; subprocessor PostHog van C naar A; geen PII in events (lint-test) |
 | ∥ | Legal | z8uq9m2vh6 | Opus | niets (andere repo) | documenten op eenmanszaak; Google en Resend op de subprocessorlijst; `TERMS_VERSION` gebumpt als de tekst materieel wijzigt |
 
 Taak 5 combineert C en B omdat ze dezelfde event- en dashboard-screens raken; de worker houdt beide ClickUp-taken bij (comment op allebei, zoals de skill voorschrijft).
@@ -60,7 +61,7 @@ De sequentiële regel uit §0 blijft de default, maar met twintig taken en ADE o
 | C | Billing G (2) · Check-in D (4) | B gemerged | G = billing/onboarding/platform-venues; D = door + check_ins-RLS + één toggle in Company settings. Twee reviewer-sessies. |
 | D | Platform R (2b) · Onboarding A (3) · Event C + Dashboard B (5) | C gemerged | R = platform-schermen + RPC's; A = invites/VenueStep/Places; C+B = event- en dashboard-screens. A raakt VenueStep, G heeft de wizard al vereenvoudigd. |
 | E | Billing-mails B1 (2c) · Gastcommunicatie F (6) | D gemerged | B1 = billing-templates + job + platform-tijdlijn; F = gastmail + settings + prefs. Beide op F0. |
-| F | Requests E (7) → Quota Q (8) → Snelheid P2 (9) | E gemerged | E en Q delen de request-RPC's; P2 raakt navigatie en RLS, als laatste. |
+| F | Requests E (7) → Quota Q (8) → Snelheid P2 (9) → Analytics PH (10) | E gemerged | E en Q delen de request-RPC's; P2 raakt navigatie en RLS; PostHog raakt root-layout, consent-copy, settings en de service worker en komt daarom na P2. Niet ADE-kritiek: Platform R levert de funnel-cijfers uit de eigen database. |
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
@@ -525,6 +526,7 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | Team-invite mail | Bestaand account krijgt "X invited you to join Y" en crew "X added you to Z" via Resend (taak 0e); geen magic-link-mail meer als uitnodiging; nieuwe accounts blijven via de Supabase-template | #20, #24 |
 | Notificaties | Push bundelen per company en per soort (>10 in 60 min → 24 uur één per uur met aantal). Teammail via Resend: aanvraag direct (gebundeld), quota direct, besluit naar aanvrager, dagelijkse samenvatting; voorkeuren per gebruiker, afmeldlink | nieuw |
 | Platform | Per invite: company-chip met Switch, events, status, activiteit. Overview: companies per status, MRR/ARR uit eigen DB × Stripe-prijzen (excl. kortingen/dunning, gelabeld), trial-funnel, gebruik 30 dagen. Direct na Billing G | #49 |
+| PostHog | Plan gemerged (PR #108, docs/posthog-implementation-plan.md). Bouw als laatste taak van golf F, niet vóór ADE; consent-gated, opt-out in Profile, subprocessor C → A bij de code | #49, legal |
 | Werkwijze | Sequentieel, geen orchestrator; dit document is de orchestrator | — |
 | Sentry | Alleen onverwachte fouten rapporteren; gebruikersfouten zijn breadcrumbs; Supabase-fouten met leesbare titel; Android-pushfouten horen bij het Capacitor-programma | — |
 | Testen | Elke UI-PR levert flow-screenshots per device (incl. native-shell) als CI-artifact en automatiseert de handoff-vragen die kunnen; Max beantwoordt alleen de rest (QA-0, vóór alle bouwtaken) | — |
