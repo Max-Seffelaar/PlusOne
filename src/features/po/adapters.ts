@@ -251,6 +251,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
     contactId: row.contact_id,
+    anonymized: row.anonymized_at != null,
     // Provenance (item J) rides on the ROW, not `extras`: both guest fetchers
     // flatten the same two embeds, so no caller has to resolve it a second time.
     source: row.source,
@@ -540,6 +541,10 @@ export interface PoContactProfile {
    *  contacts row (RLS) — the profile fell back to name-only (M3, K-8). Drives a
    *  plain "not visible to your role" note instead of the "Save as contact" CTA. */
   restricted: boolean;
+  /** A forgotten (anonymized) contact (#29, z8uq9m2x43): read-only — the
+   *  screen offers no edit, add-to-event or Regular. The DB refuses all three
+   *  anyway; this only keeps dead buttons off screen. */
+  forgotten: boolean;
   // Raw fields the edit / add-to-event sheets reuse (mirror PoContact), so the
   // profile can drive those writes without a second contacts read.
   phoneLast4: string | null;
@@ -700,6 +705,7 @@ export function toPoContactProfile(
     isContact,
     promoteGuestId: opts.promoteGuestId ?? null,
     restricted: opts.restricted ?? false,
+    forgotten: header.anonymized,
     phoneLast4: digits.length >= 4 ? digits.slice(-4) : null,
     birthdate: header.birthdate,
     preferredRole: header.preferredRole,

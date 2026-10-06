@@ -416,6 +416,9 @@ export const guests = {
     // Restricted: already a contact, but this role can't read the address book
     // (M3, K-8) — a plain note instead of a dead-end error or a promote CTA.
     restrictedNote: "This person is a saved contact. Full contact details aren't visible to your role. An admin, finance, or the event organizer can see more.",
+    // Forgotten (anonymized, #29 — on request or after the retention window):
+    // read-only, no edit / add-to-event / Regular (z8uq9m2x43).
+    forgottenNote: "This contact was forgotten. Their details are erased, so they can't be edited or added to an event.",
     promoteTitle: 'Save as contact',
     promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
     promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",

@@ -8,6 +8,29 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Forgotten contacts are read-only (z8uq9m2x43, B1 follow-up)
+
+Milestone **Now**. Max's B1 test-pass feedback: a forgotten contact must not be editable and must never be added to an
+event again. Audit of origin/main first: `contacts_update` RLS already froze anonymized rows for app roles, and every
+contact→guest path (`add_contact_to_event`, `add_contacts_to_event`, permanent sync, autolink, promote, mark-regular,
+import, landing capture, plus the `guests_contact_same_venue` table backstop) already refused or skipped anonymized
+contacts. The gaps were (a) the freeze lived only in RLS, so SECURITY DEFINER writers relied on each body filtering
+`anonymized_at is null`, and (b) an app role could INSERT a contact born anonymized (PII kept forever, since retention
+and forget skip anonymized rows).
+
+- **Migration `20261007100000_contacts_freeze_anonymized.sql`:** `guard_contact_anonymized()` BEFORE INSERT/UPDATE on
+  `contacts`, mirroring B1's `guard_platform_invite_update`: an anonymized row is frozen for every role (owner/DEFINER
+  included); the anonymize transition is owner-only and must null email/phone/birthdate/note with identity unchanged;
+  API roles (anon/authenticated/service_role) cannot insert an anonymized contact. No RPC signature changes.
+- **pgTAP `contacts_freeze_anonymized.test.sql` (33):** allowed + denied per role (admin, organizer, staff,
+  user_manager, owner, service_role), raw REST PATCH/INSERT, single add refused (P0002), bulk add skips (counted in
+  `skipped`), state asserted. `contacts.dedup.test.sql` I-fixture now nulls PII when anonymizing (as the job does).
+- **UI:** person profile of a forgotten contact shows a read-only note instead of Edit / Add to event and hides the
+  Regular star (`ContactProfileHeader.anonymized` → `PoContactProfile.forgotten`). Guests-tab bulk add-to-event drops
+  anonymized guest rows from the batch (`Guest.anonymized`). Contacts list + pickers already excluded anonymized rows.
+- Tests run: `pnpm db:test` 79 files / 1920 assertions PASS; `session-setup check` lint + type-check + Vitest 2785 PASS.
+
+---
 ## 2026-10-06 — Legal 1.1: certifications filled in, Resend becomes a guest-data subprocessor (guest confirmation e-mail)
 
 **What:** `docs/legal/` 1.0 → 1.1 (privacy policy, subprocessor list, DPA, ToS; Guest Terms unchanged). Certifications column completed from the vendors' trust pages (Supabase, Vercel, Resend, Attio, Slack). Resend moved from "planned" to section A for the guest confirmation e-mail (`86ey6bn05`), with matching text in DPA Annex 2, Privacy §4/§7/§8/§9 and ToS 5.6. README: backups 7 days and the apex sender confirmed, F3 closed, the 30-day notice e-mail template for venue admins added.

@@ -177,7 +177,10 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
   const [regularMsg, setRegularMsg] = useState<string | null>(null);
 
   const selectedPeople: BulkAddCandidate[] = useMemo(
-    () => guests.filter((g) => selected.has(g.id)).map((g) => ({ key: g.id, name: g.name, contactId: g.contactId ?? null, plus: g.plus })),
+    // z8uq9m2x43: a forgotten (anonymized) guest never goes onto another event —
+    // the DB refuses it anyway (guests_contact_same_venue), so keep it out of
+    // the batch instead of surfacing a per-row failure.
+    () => guests.filter((g) => selected.has(g.id) && !g.anonymized).map((g) => ({ key: g.id, name: g.name, contactId: g.contactId ?? null, plus: g.plus })),
     [guests, selected],
   );
 
