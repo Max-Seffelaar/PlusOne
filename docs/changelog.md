@@ -47,6 +47,34 @@ with one addition: the root `not-found.tsx` boundary also calls `getSessionUser`
 
 ---
 
+## 2026-10-06 — Onboarding programme okt 2026, wave 0: spikes (§9) + seed fix
+
+Docs + seed PR, milestone **Now** (unblocks the onboarding programme). Answers the six spike questions in
+`onboarding-orchestration-claude-code.md` §9 (9.1–9.6) and the Resend checklist in §6; no app code, no migration.
+
+- **Gate (taak 2):** the billing gate fires correctly (`billing_trial_expired` on a `trialing`, Stripe-less row past
+  14 days, measured through the real `createEvent` action). The prescribed repro could not trigger it: the primary seed
+  venue is `comped`, and manager@ is `user_manager` (not admin). Prod aggregate: 6 of 13 Stripe-less trials are already
+  past 14 days and therefore blocked.
+- **Check-in (taak 4):** there is no check-in RPC. `check_ins` upsert-on-id already works for a doorhost. The stale
+  guard goes in a BEFORE UPDATE trigger, which also pins the first-wins identity (an upsert would otherwise rewrite
+  `checked_by`). Uitchecken already exists as `venues/events.allow_uncheck`, so taak 4 makes that role-aware instead of
+  adding a new setting.
+- **Requests (taak 7):** shortening already exists (`approve_guest_request`). The `decide_guest_request` sketch adds
+  splitting over tiers, partial denial with a mandatory guest message, and `guests.guest_request_id`.
+- **Invite template (taak 3):** `{{ if eq .Data.kind "company" }}` renders, and metadata is HTML-escaped in both body
+  and subject. That escaping makes names unsafe in the subject line.
+- **Resend (0e/6):** app mail needs a separate Sending-access key. On the Free plan the login OTP shares the 100/day
+  quota.
+- **Places (taak 3):** server proxy design. It needs an extra migration, `20261009120100_places_throttle.sql`, and
+  costs ~€0 at 100 onboardings/month.
+- **Seed fix:** checked-in seed guest `cc..02` is now "Pim Scholten" and autolinks to Pim's own contact, so it is no
+  longer Sanne's guest row hung on Pim's contact. Comment and label changes only in `analytics`, `contacts.rls` and
+  `permanent` pgTAP. `supabase db reset` + `pnpm db:test`: 79 files / 1920 assertions, PASS.
+- **Flag:** `20261007100000` (reserved in §3 for taak 0b) is already taken on main by `contacts_freeze_anonymized`.
+
+---
+
 ## 2026-10-06 — Forgotten contacts are read-only (z8uq9m2x43, B1 follow-up)
 
 Milestone **Now**. Max's B1 test-pass feedback: a forgotten contact must not be editable and must never be added to an
