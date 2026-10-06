@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — QA-0 flow screenshots + handoff automation (onboarding programme task 0a)
+
+Milestone **Now** (every onboarding-programme UI task ships its proof through this). Spec: onboarding-orchestration
+§1 "Visueel bewijs per PR", §2 row 0a, §7 "Testen". ClickUp was offline; no task id.
+
+- **Harness:** `tests/flows/harness.ts` (Playwright fixtures `flow.shot` / `flow.check(n, …)` / `flow.skip`),
+  `tests/flows/playwright.config.ts` (extends the base config: same stack, dev server, dev-login). Four variants built
+  from the layout matrix (`tests/e2e/layout/matrix.ts`, not a second matrix): desktop-browser (laptop-1280-mouse),
+  phone-browser (phone-390-touch), phone-native and ipad-native (ipadpro-1024-touch). The native shell is simulated
+  the way the real one presents itself before any page script: a `window.Capacitor` that answers
+  `isNativePlatform()` plus the `androidBridge` that `@capacitor/core` derives the platform from once a plugin chunk
+  rebuilds the global. Every flow asserts the simulation is live, so a broken simulation fails loudly instead of
+  passing the native half.
+- **Flows:** `onboarding.flow.ts` (13 numbered asserts, ported from the seed script `scripts/flow-shots/onboarding.mjs`,
+  which is removed) and the fixed `native-shell-guard.flow.ts` (admin@ on the trialing seed venue: native Billing is
+  status + the neutral sentence, browser is the control with checkout).
+- **Runner + contact sheet:** `pnpm qa:flows [flow …]` → `scripts/flow-shots/run.mjs` → Playwright, then
+  `contact-sheet.mjs` (per flow an HTML + PNG with the assert table and one filmstrip per variant, plus
+  `flow-screenshots/summary.md`). The sheet is built even when an assert fails.
+- **CI:** job `flow-shots` beside `layout-suite` (not required). Path-gated inside the job: `select.mjs` maps the diff to
+  flows via the registry `tests/flows/flows.mjs` (shared harness/shell paths → all flows); `--self-check` runs first
+  and fails on a flow without a registry entry, a stale prefix, or a README-only diff that selects anything. Same
+  stack setup as `layout-suite` minus `dev:mfa`; uploads `flow-contact-sheets` + `flow-screenshots`, writes the step
+  summary and one sticky PR comment through `GITHUB_TOKEN` (`pull-requests: write`, `continue-on-error` for forks).
+- **Handoff convention** (✅ automatic / 👁 screenshot NN / 🖐 manual) documented in CLAUDE.md "Per-screen test
+  handoff", with onboarding as the example.
+- **Found on the first run (not fixed here, out of scope):** `pnpm dev:mfa` (`scripts/dev-mfa.mjs`
+  `ensureOnboardingRpcs`) re-applies `20260615000000_onboarding_venue_creation.sql`, which recreates the
+  `set_venue_plan(uuid,text,boolean)` and old `create_venue_with_owner` overloads that `20260713180000` dropped.
+  PostgREST then cannot choose a `set_venue_plan` candidate and the wizard's Plan/Trial step shows "Something went
+  wrong" — on every stack prepared with `pnpm db:fresh`, and in CI's `layout-suite` stack. Prod is unaffected (dev
+  tooling only). The flow job therefore runs on the plain seed.
+
+---
+
 ## 2026-10-06 — Forgotten contacts are read-only (z8uq9m2x43, B1 follow-up)
 
 Milestone **Now**. Max's B1 test-pass feedback: a forgotten contact must not be editable and must never be added to an
