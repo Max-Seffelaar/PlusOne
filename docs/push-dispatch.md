@@ -244,3 +244,37 @@ Decision #51 in `gastenlijst-app-spec.md`.
 Backoff: 2, 4, 8, 16 min. Tokens FCM reports as `UNREGISTERED`,
 `SENDER_ID_MISMATCH` or an invalid registration token are deleted immediately.
 Finished outbox rows are dropped after 30 days.
+
+## Bundling under load (N1, z8uq9m2yvk)
+
+Per company (venue) and per kind (`quota_request_created`, `guest_request_created`):
+more than 10 new requests in 60 minutes switches that pair to **bundling for 24 hours**.
+Each approver then gets at most one push per hour: "20 new requests" /
+"20 new quota requests". `quota_request_decided` is never bundled. Decision #52 in the spec;
+migration `20261007110000_notification_throttle.sql`.
+
+- A bundled row is `pending` with `collapse_key` set and `next_attempt_at = deliver_after`
+  (the end of its hourly slot, counted from the moment bundling began). Nothing claims it
+  earlier, and its insert does not kick the function.
+- **The hourly kick is the existing 2-minute sweep:** it wakes `push-dispatch` as soon as a
+  slot is due. No extra cron job.
+- `claim_push_outbox` hands a due slot out as one row per recipient (newest request's
+  payload + `count`); `complete_push_outbox` on that row settles every member of the slot.
+- A `push-dispatch` deployed before N1 still works against the new schema (same RPC shape):
+  it just words a digest like a single request until it is redeployed.
+
+```sql
+-- which venues are bundling right now
+select venue_id, kind, throttled_at, throttled_until
+from public.notification_throttle where throttled_until > now();
+
+-- slots waiting for their hour
+select collapse_key, recipient_user_id, count(*), min(deliver_after)
+from public.notification_outbox
+where status = 'pending' and collapse_key is not null
+group by 1, 2 order by 4;
+```
+
+Ending a bundling period early (support): `update public.notification_throttle set
+throttled_at = null, throttled_until = null where venue_id = '…';` from the SQL editor.
+Rows already in a slot still wait for that slot's end.

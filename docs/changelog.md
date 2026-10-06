@@ -8,6 +8,31 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Notificaties N1: push bundling under load (z8uq9m2yvk, onboarding okt 2026 taak 0c)
+
+Milestone **Now** (Joeri's onboarding walkthrough: a busy request link buried approvers in pushes). Rule (Max,
+2026-10-06): per company and per kind, more than 10 new requests in 60 minutes ⇒ 24 hours of at most one push per hour
+per approver, with the count; `quota_request_decided` never bundled. Spec decision #52.
+
+- **Migration `20261007110000_notification_throttle.sql`:** `notification_throttle` (venue, kind) — RLS on, no
+  policies, no grants (revoke first); `notification_outbox.collapse_key` + `deliver_after`; owner-only helper
+  `notification_bundle_slot()` (locks the throttle row, counts distinct requests in the window excluding a replayed
+  source, opens a 24-hour period on the 11th, returns the hourly slot). Both enqueue triggers call it for the
+  "created" kinds; the decision path is untouched. `notification_outbox_kick` no longer kicks for rows that are not
+  due. `claim_push_outbox` returns one row per due slot per recipient (count added to the payload, never split over
+  claims); `complete_push_outbox` settles the whole slot. Signatures and return shape unchanged (expand–contract).
+- **"Hourly kick":** no new schedule — the existing 2-minute `plusone-push-outbox-sweep` wakes the function when a
+  slot is due.
+- **push-dispatch:** digest copy (`20 new requests` / `20 new quota requests`) when the claimed payload carries a
+  count ≥ 2; data map gains `count`. **`payload.ts`:** optional `count` (a bad count is dropped, never the tap).
+- **Tests:** pgTAP `notification_outbox_throttle.test.sql` (32: grants, threshold on the seed event — 30 requests ⇒
+  10 direct + 20 on one collapse_key per approver, per company, per kind, decision never bundled, 60-minute window,
+  replay dedupe, 24-hour end, slot claim with `p_limit 1`, complete + retry of a slot); existing
+  `push_outbox`/`push_dispatch` suites green unchanged. Vitest: digest send + copy in `push-dispatch.test.ts`,
+  `payload.test.ts`.
+- **Ops:** after merge, prod-push the migration, then redeploy `push-dispatch` (`docs/push-dispatch.md` "Bundling
+  under load"). Until the redeploy a digest is worded as a single request.
+
 ## 2026-10-06 — Forgotten contacts are read-only (z8uq9m2x43, B1 follow-up)
 
 Milestone **Now**. Max's B1 test-pass feedback: a forgotten contact must not be editable and must never be added to an

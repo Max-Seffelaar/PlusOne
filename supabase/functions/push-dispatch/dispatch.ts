@@ -69,10 +69,31 @@ const BATCH_SIZE = 200;
 // ── copy ─────────────────────────────────────────────────────────────────────
 // English (the app's only locale). Generic by design: no guest or member names
 // travel through Google/Apple; the app resolves details after the tap.
+
+/**
+ * The request count of a bundled slot (N1, 20261007110000): claim_push_outbox
+ * adds `count` when it hands out an hourly digest. Absent, or below 2, means
+ * a single request.
+ */
+export function digestCount(payload: Record<string, unknown>): number | null {
+  const n = typeof payload.count === 'number' ? payload.count : Number(payload.count);
+  return Number.isInteger(n) && n >= 2 ? n : null;
+}
+
 export function notificationFor(
   kind: string,
   payload: Record<string, unknown>
 ): { title: string; body: string } | null {
+  const count = digestCount(payload);
+  if (count !== null) {
+    // Bundled (quota_request_decided never is): one hourly push with the count.
+    if (kind === 'guest_request_created') {
+      return { title: `${count} new requests`, body: 'Guest requests are rolling in. We bundle them hourly for now.' };
+    }
+    if (kind === 'quota_request_created') {
+      return { title: `${count} new quota requests`, body: 'Your team wants extra spots. We bundle these hourly for now.' };
+    }
+  }
   switch (kind) {
     case 'quota_request_created':
       return { title: 'New quota request', body: 'A team member asked for extra guest list spots.' };

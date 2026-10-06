@@ -1040,8 +1040,10 @@ export type Database = {
       notification_outbox: {
         Row: {
           attempts: number
+          collapse_key: string | null
           created_at: string
           dedupe_key: string
+          deliver_after: string | null
           id: string
           kind: string
           last_error: string | null
@@ -1056,8 +1058,10 @@ export type Database = {
         }
         Insert: {
           attempts?: number
+          collapse_key?: string | null
           created_at?: string
           dedupe_key: string
+          deliver_after?: string | null
           id?: string
           kind: string
           last_error?: string | null
@@ -1072,8 +1076,10 @@ export type Database = {
         }
         Update: {
           attempts?: number
+          collapse_key?: string | null
           created_at?: string
           dedupe_key?: string
+          deliver_after?: string | null
           id?: string
           kind?: string
           last_error?: string | null
@@ -1089,6 +1095,38 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "notification_outbox_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_throttle: {
+        Row: {
+          kind: string
+          throttled_at: string | null
+          throttled_until: string | null
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          kind: string
+          throttled_at?: string | null
+          throttled_until?: string | null
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          kind?: string
+          throttled_at?: string | null
+          throttled_until?: string | null
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_throttle_venue_id_fkey"
             columns: ["venue_id"]
             isOneToOne: false
             referencedRelation: "venues"
@@ -2208,6 +2246,13 @@ export type Database = {
       mark_onboarding_complete: {
         Args: { p_venue_id: string }
         Returns: undefined
+      }
+      notification_bundle_slot: {
+        Args: { p_kind: string; p_source: string; p_venue: string }
+        Returns: {
+          collapse_key: string
+          deliver_after: string
+        }[]
       }
       organizes_event_at_venue: {
         Args: { p_venue_id: string }
