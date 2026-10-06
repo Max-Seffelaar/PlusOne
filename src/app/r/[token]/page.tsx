@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { createHash } from 'node:crypto';
 import { createClient } from '@/lib/supabase/server';
 import { landingClientIpHash } from '@/features/requests/ip-hash';
+import { publicRpcTrustHeaders } from '@/features/requests/rpc-trust';
 import { toRequestStatusView } from '@/features/requests/status-view';
 import { RequestStatus } from '@/components/po/request-status';
 
@@ -32,7 +33,7 @@ export default async function RequestStatusPage({
   params: Promise<{ token: string }>;
 }): Promise<JSX.Element> {
   const { token } = await params;
-  const supabase = await createClient();
+  const supabase = await createClient({ headers: publicRpcTrustHeaders() });
 
   const tokenHash = createHash('sha256').update(token).digest('hex');
   const { data } = await supabase.rpc('get_request_status', {

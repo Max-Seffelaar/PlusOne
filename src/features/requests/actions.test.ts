@@ -219,3 +219,35 @@ describe('approveGuestRequest — partial approval + message', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 });
+
+// 20261006160000: the DB honours p_ip_hash only for a caller that presents the
+// trust secret, so the submit client must carry it — and must not invent one.
+describe('submitGuestRequest — public-RPC trust header', () => {
+  it('builds the RPC client with the x-plusone-throttle-trust header when the secret is set', async () => {
+    vi.stubEnv('PUBLIC_RPC_TRUST_SECRET', 'test-trust-secret');
+    const rpc = vi.fn(async () => ({ data: { status: 'ok', auto_approved: false }, error: null }));
+    (createClient as Mock).mockClear().mockResolvedValue({ rpc });
+    mockHost('plusone.example');
+    (verifyTurnstileToken as Mock).mockResolvedValue(true);
+
+    await submitGuestRequest({ ...BASE, turnstileToken: 'good-token' });
+
+    expect(createClient).toHaveBeenCalledWith({
+      headers: { 'x-plusone-throttle-trust': 'test-trust-secret' },
+    });
+    vi.unstubAllEnvs();
+  });
+
+  it('sends no trust header when the secret is unset', async () => {
+    vi.stubEnv('PUBLIC_RPC_TRUST_SECRET', '');
+    const rpc = vi.fn(async () => ({ data: { status: 'ok', auto_approved: false }, error: null }));
+    (createClient as Mock).mockClear().mockResolvedValue({ rpc });
+    mockHost('plusone.example');
+    (verifyTurnstileToken as Mock).mockResolvedValue(true);
+
+    await submitGuestRequest({ ...BASE, turnstileToken: 'good-token' });
+
+    expect(createClient).toHaveBeenCalledWith({ headers: undefined });
+    vi.unstubAllEnvs();
+  });
+});

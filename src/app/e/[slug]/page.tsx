@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { submitGuestRequest } from '@/features/requests/actions';
 import { landingClientIpHash } from '@/features/requests/ip-hash';
+import { publicRpcTrustHeaders } from '@/features/requests/rpc-trust';
 import { LandingForm, LandingClosed, type LandingEvent } from '@/components/po/landing';
 
 export const metadata: Metadata = {
@@ -41,7 +42,7 @@ export default async function LandingPage({
   params: Promise<{ slug: string }>;
 }): Promise<JSX.Element> {
   const { slug } = await params;
-  const supabase = await createClient();
+  const supabase = await createClient({ headers: publicRpcTrustHeaders() });
 
   // One salted IP hash feeds both the landing resolve (C4: now throttled — a
   // slug oracle otherwise) and the pageview counter.

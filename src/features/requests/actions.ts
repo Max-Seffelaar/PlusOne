@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { landingClientIpHash, landingClientIpForVerify } from './ip-hash';
+import { publicRpcTrustHeaders } from './rpc-trust';
 import { verifyTurnstileToken } from './turnstile';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import {
@@ -78,7 +79,8 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   }
 
   const ipHash = await landingClientIpHash();
-  const supabase = await createClient();
+  // The trust header lets the DB honour ipHash as this server's claim (see rpc-trust.ts).
+  const supabase = await createClient({ headers: publicRpcTrustHeaders() });
 
   // Bearer token for the /r/[token] status page. Generated here, shown once to
   // the requester; the DB stores only its sha256 (same stance as ip_hash).

@@ -34,6 +34,10 @@ export const PROD_REQUIRED_ENV = [
     why: 'landingIpSalt() throws in production without it. It runs during render — not at submit — so /e/[slug], /i/[token] and /r/[token] all 500 on first view: landing, invite and status links go down together (86ey9e9my, 86eykdzf1).',
   },
   {
+    name: 'PUBLIC_RPC_TRUST_SECRET',
+    why: 'Once public_throttle_trusted_callers holds its sha256 (20261006160000), the DB honours a landing/status/invite IP hash only from a caller that presents this secret. A build without it sends no header: every guest of every venue lands in ONE shared throttle bucket per surface, and /e/[slug], /r/[token], /i/[token] and request submission start rate-limiting each other within minutes.',
+  },
+  {
     name: 'NEXT_PUBLIC_SUPABASE_URL',
     why: 'Every data read and write goes through this client; the app is non-functional without it.',
   },

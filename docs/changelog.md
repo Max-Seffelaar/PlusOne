@@ -8,6 +8,27 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Fix: public throttle binds raw-PostgREST callers (NULL / rotating `p_ip_hash`)
+
+Branch `claude/reverent-shamir-1961c3`, milestone **Now** (raised from ≥5: exploitable beyond slug probing).
+Found in the independent review of PR #379. Every anon RPC throttled on `'<prefix>:' || p_ip_hash`, with
+`p_ip_hash` caller-supplied: a raw `/rest/v1/rpc/...` call with `p_ip_hash => null` skipped the throttle
+(NULL key = allow, since `20260706102000`), and a fresh random string per call got a fresh bucket. Turnstile
+lives in the server action, so a raw caller skipped it too: unbounded `submit_guest_request` (pending-queue
+flood, junk contacts, an auto-approve link's cap filled with fake guests) and inflatable pageview funnels.
+Fix (`20261006160000_public_throttle_bind_raw_callers.sql`), all inside `consume_public_throttle` so the five
+RPC bodies are not redefined (PR #379 redefines `get_landing_event` in parallel): a NULL key lands in the
+shared `anon:~untrusted` bucket; with a row in the new owner-only `public_throttle_trusted_callers` (sha256 of
+`PUBLIC_RPC_TRUST_SECRET`), a `req`/`pv`/`st`/`if`/`slug` key is honoured only when the request carries the
+secret as `x-plusone-throttle-trust`, else it lands in `<prefix>:~untrusted` with that surface's budget. The
+app sends the header from the four call sites (`src/features/requests/rpc-trust.ts`); the production build
+requires the env var. Option 3 as written (key = request IP from headers) was rejected because the app calls
+from Vercel, so PostgREST sees a shared egress IP. Guards: `consume_public_throttle` joined the canonical
+set; `tests/unit/public-throttle-prefixes.test.ts` fails CI for a `p_*`-keyed throttle prefix outside the
+bound list and for an RPC call site without the header; pgTAP `public_throttle_raw_callers.test.sql` (16).
+**Enforcement is off until the prod rollout in `docs/landing-rate-limit-hardening.md` §5 runs** (env → deploy
+→ insert hash; reverse order takes the public funnel down). Until then only the NULL-key half is live.
+
 ## 2026-10-05 — Fix: contact profile dead-ends on a system-added (auto-approved) guest
 
 Branch `claude/fix-contact-profile-null-actor`, milestone Now, no ClickUp task (direct ask from Max).
