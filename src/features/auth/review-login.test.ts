@@ -71,6 +71,11 @@ describe('renderReviewForm', () => {
     expect(html).not.toMatch(/<script/i);
   });
 
+  it('pins the document referrer policy to same-origin, so the POST carries a real Origin (not "null")', () => {
+    expect(renderReviewForm(null)).toContain('<meta name="referrer" content="same-origin">');
+    expect(renderReviewForm('code')).toContain('<meta name="referrer" content="same-origin">');
+  });
+
   it('shows the generic error for a failed attempt', () => {
     expect(renderReviewForm('code')).toContain('role="alert"');
   });

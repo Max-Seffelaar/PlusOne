@@ -156,6 +156,7 @@ export function renderReviewForm(error: ReviewFormError): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="same-origin">
 <title>${escapeHtml(copy.reviewTitle)}</title>
 <style>
   :root { color-scheme: dark; }

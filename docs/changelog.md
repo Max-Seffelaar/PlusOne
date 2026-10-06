@@ -108,6 +108,18 @@ system-only actor: no non-string id reaches `.in()`; all three fail on the old c
 with Playwright: before, 400 + not-found; after, profile renders with "Sign-up link" and Edit shows
 "Forget this person". No migration.
 
+## 2026-10-05 — Review login: form POST no longer refused for `Origin: null` (86ey6bfug)
+
+**Bug (prod, 19:24 UTC, Chrome):** submitting the right code on `/auth/review-login` returned an empty 404; no `generate_link` call ever reached Supabase. The request carried `origin: null`, `sec-fetch-site: same-origin`.
+
+**Root cause:** the GET form page was served with `Referrer-Policy: no-referrer` (the route's own `NO_STORE` headers). WHATWG Fetch, "append a request Origin header": for a non-GET/HEAD request whose referrer policy is `no-referrer`, the serialized origin is the literal `null`, even same-origin. The POST's Origin gate refused it as cross-site, so the review login never worked for a real browser or webview. Unit tests only covered an absent Origin and a real foreign origin. Local `next dev` hid it: there, `next.config.js`'s `strict-origin-when-cross-origin` wins over the route header (`send-response.js` only appends a header that is not already present), while on Vercel the route's `no-referrer` reaches the browser (checked with curl on prod).
+
+**Fix:** the form page now runs under `Referrer-Policy: same-origin`, set both as the response header (`FORM_HEADERS`) and as `<meta name="referrer" content="same-origin">` in `renderReviewForm`. The meta wins over whichever header reaches the browser, so the local/Vercel difference no longer matters. 404s and redirects keep `no-referrer`. The Origin gate stays strict: `null` is still refused (a sandboxed iframe or data: page sends it), and there is no `sec-fetch-site` exception.
+
+**Verified:** route + form unit tests (header + meta on GET and on the error render; `Origin: null` → 404, also with `sec-fetch-site: same-origin`; matching Origin → `generateLink`). Chromium against a local `next dev`, with the GET header forced to `no-referrer` to mimic Vercel: old page (meta stripped) → POST `Origin: null` → 404; new page → POST `Origin: http://localhost:…` → past the gate. lint, type-check, `CI=1 pnpm test` (2668) green. Not run: a real device/webview, prod after deploy.
+
+---
+
 ## 2026-10-05 — Legal v0.3 A2: Guest Terms EN v0.3 + Dutch version (z8uq9m2hm2)
 
 Branch `claude/z8uq9m2hm2-guest-terms`, milestone Now. Text only; no code, no migration.
