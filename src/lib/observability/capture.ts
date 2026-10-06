@@ -7,7 +7,10 @@ type CaptureContext = { source: 'query' | 'mutation'; key?: string };
 function isExpected(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') return true;
   // Offline fetch failures: the door/outbox handles these by design.
-  if (typeof navigator !== 'undefined' && !navigator.onLine && isNetworkNoise(error)) return true;
+  // Offline, any TypeError is a failed fetch; online a TypeError may be a real bug.
+  if (typeof navigator !== 'undefined' && !navigator.onLine && (error instanceof TypeError || isNetworkNoise(error))) {
+    return true;
+  }
   return false;
 }
 
@@ -15,7 +18,6 @@ function isExpected(error: unknown): boolean {
 const NETWORK_MESSAGES = /^(Load failed|Failed to fetch|NetworkError when attempting to fetch resource\.?)$/;
 
 function isNetworkNoise(error: unknown): boolean {
-  if (error instanceof TypeError) return true; // offline fetch (pre-existing rule)
   if (!(error instanceof Error)) return false;
   return error.name === 'AuthRetryableFetchError' || NETWORK_MESSAGES.test(error.message);
 }

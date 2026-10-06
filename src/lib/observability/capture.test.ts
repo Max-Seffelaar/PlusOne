@@ -56,6 +56,16 @@ describe('expected user errors → breadcrumb, not exception', () => {
     expect(addBreadcrumb).not.toHaveBeenCalled();
   });
 
+  it.each(['23502', '23514'])('MutationError %s (schema drift) is still reported', (code) => {
+    captureUnexpectedError({ ok: false, code, message: 'Some details are missing or invalid.' }, ctx);
+    expect(captureException).toHaveBeenCalledOnce();
+  });
+
+  it('the rethrown "Some details are missing or invalid." copy is still reported', () => {
+    captureUnexpectedError(new Error('Some details are missing or invalid.'), ctx);
+    expect(captureException).toHaveBeenCalledOnce();
+  });
+
   it('an unrelated Error is still reported', () => {
     captureUnexpectedError(new Error('boom'), ctx);
     expect(captureException).toHaveBeenCalledOnce();
@@ -98,6 +108,18 @@ describe('network noise', () => {
     captureUnexpectedError(new TypeError('Failed to fetch'), ctx);
     const [, opts] = captureException.mock.calls[0];
     expect(opts.tags).toEqual({ capture_source: 'mutation', network: 'true' });
+  });
+
+  it('online TypeError with bug text is reported without the network tag', () => {
+    captureUnexpectedError(new TypeError("Cannot read properties of undefined (reading 'id')"), ctx);
+    expect(captureException).toHaveBeenCalledOnce();
+    expect(captureException.mock.calls[0][1].tags).toEqual({ capture_source: 'mutation' });
+  });
+
+  it('offline TypeError (any text) is dropped', () => {
+    online = false;
+    captureUnexpectedError(new TypeError('anything'), ctx);
+    expect(captureException).not.toHaveBeenCalled();
   });
 
   it('AuthRetryableFetchError online is tagged too', () => {

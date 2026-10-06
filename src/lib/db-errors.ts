@@ -94,8 +94,8 @@ const EXPECTED_CODES = new Set<string>([
   LINK_FULL,
   INSUFFICIENT_PRIVILEGE,
   UNIQUE_VIOLATION,
-  NOT_NULL_VIOLATION,
-  CHECK_VIOLATION,
+  // 23502/23514 are deliberately NOT expected: input is Zod-validated first, so a
+  // NOT NULL/CHECK violation reaching the DB means schema drift — a bug.
   'unauthorized',
   'invalid',
   'invalid_input',
@@ -114,7 +114,6 @@ const EXPECTED_CODES = new Set<string>([
 const EXPECTED_MESSAGES: readonly (string | RegExp)[] = [
   INSUFFICIENT_PRIVILEGE_MESSAGE,
   'This already exists.',
-  'Some details are missing or invalid.',
   'Check the details you entered.',
   'Your session expired. Log in again.',
   /^Couldn't save this change \(no access/,
