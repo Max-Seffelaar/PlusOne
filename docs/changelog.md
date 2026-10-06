@@ -8,6 +8,24 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Legal v0.3 D: legal documents published as Version 1.0, consent re-prompt (z8uq9m2hm7)
+
+The lawyer approved the v0.3 texts (Max, 2026-10-06) and wave D published them. No migration.
+
+- **Docs (PR #392, merged):** `docs/legal/*.md` became Version 1.0 / 2026-10-06 (banners and brackets removed,
+  Max's subprocessor values in, Privacy §7 guest-mail sentence deleted, README open-items pruned). Certification cells
+  Anthropic-only; Supabase, Vercel, Resend, Attio and Slack show "—" until verified (1.0.x edit).
+- **Site (Plus-One.io PR #8, merged):** `/legal` renders the six documents (Terms, Privacy, DPA, Subprocessors, Guest Terms
+  EN + NL switch) from `src/lib/legal-docs.generated.ts`, produced by `scripts/gen-legal.mjs` from this repo's
+  `docs/legal/`. The generator refuses drafting markers and never rewords. Anchors: `#terms`, `#privacy`, `#dpa`,
+  `#subprocessors`, `#guest-terms`, `#guest-terms-nl`, `#guests` (Privacy §4). To change a text: edit `docs/legal/`,
+  re-run the script in Plus-One.io, bump `TERMS_VERSION` here when it is a material change.
+- **App (this PR):** `TERMS_VERSION` `2026-06-24` → `2026-10-06` — every signed-in user is re-prompted by the consent
+  gate (`/app` layout) at next load, and new venues record the new version; `GUEST_PRIVACY_URL` now ends in `#guests`
+  (guest section of the Privacy Policy) instead of `#privacy`; the `src/lib/legal.ts` go-live TODO (86ey1vbrj) is closed.
+  `landing.test.tsx` pins the new URL.
+- **Open:** guest confirmation mail (`86ey6bn05`) must bump Privacy + Subprocessor List to v1.1 before it ships.
+
 ## 2026-10-06 — Legal v0.3 E1 manual QA follow-ups: platform-admin export, CSV formula hardening, door price (z8uq9m2hm6)
 
 Max ran the 15-question test handoff for E1 (#384) against the local stack. All 15 pass after three follow-up PRs,
