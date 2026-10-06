@@ -153,11 +153,11 @@ The authorized Subprocessors, including entity, purpose, data location and trans
 
 | Subprocessor | Purpose | Location of Guest Data |
 |---|---|---|
-| Supabase, Inc. | Database, authentication, realtime infrastructure | EU — Ireland (AWS `eu-west-1`) |
+| Supabase Pte. Ltd. (Singapore) | Database, authentication, realtime infrastructure | EU — Ireland (AWS `eu-west-1`) |
 | Vercel, Inc. | Application hosting and delivery | EU — Frankfurt, Germany (`fra1`) |
 | Functional Software, Inc. (Sentry) | Error monitoring (scrubbed reports; internal user ID only, no guest personal data by design) | EU — Germany |
-| Cloudflare, Inc. (Turnstile) | Bot protection on public guest request pages | Cloudflare global network; the requester's IP address and browser signals during the check; nothing stored |
-| Anthropic, PBC | Engineering and support tooling; incidental access to production data during support requests and incident response (typically schema, logs and aggregates; guest rows only for a specific case); inputs are not used for model training | US (transfer safeguard as recorded in the Subprocessor List) |
+| Cloudflare, Inc. (USA) (Turnstile) | Bot protection on public guest request pages | Cloudflare global network; the requester's IP address and browser signals during the check; nothing stored |
+| Anthropic Ireland, Limited (EEA customers; parent Anthropic, PBC) | Engineering and support tooling; incidental access to production data during support requests and incident response (typically schema, logs and aggregates; guest rows only for a specific case); no training on customer data by default | US (transfer safeguard as recorded in the Subprocessor List) |
 
 Stripe, Google Workspace and Resend (login and invitation e-mail to team members, transported by Amazon SES in Ireland) process only PlusOne's own controller-side data (billing, correspondence, authentication mail) and no Guest Data; they are listed in the Subprocessor List for transparency. Firebase Cloud Messaging / Apple Push Notification service (push) and a guest confirmation e-mail are planned items that may involve Guest Data and are subject to the notice in clause 7.2 before activation.
 

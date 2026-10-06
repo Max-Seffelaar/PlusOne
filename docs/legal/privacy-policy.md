@@ -119,7 +119,7 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 ## 7. How we use your contact details
 
 - **Transactional messages only.** We e-mail account holders for login codes, invitations and essential service messages (for example a security notice or a change to these terms). We do not send account holders marketing without a separate, explicit opt-in that you can withdraw at any time.
-- **Guests are never contacted by PlusOne.** The venue may contact you about your request or, if you opted in, about its upcoming nights. [Under consideration, not scheduled: an optional confirmation e-mail to a requester about the venue's decision, sent on the venue's behalf. The current product sends guests no messages at all; this policy and the Subprocessor List will be updated before that changes.]
+- **Guests are never contacted by PlusOne.** The venue may contact you about your request or, if you opted in, about its upcoming nights.
 - **Venue owners and prospects** may hear from us about the product and our commercial relationship; you can opt out at any time by replying or by e-mailing privacy@plus-one.io.
 
 ## 8. Who receives personal data
