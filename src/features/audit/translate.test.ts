@@ -28,6 +28,18 @@ function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
 }
 
 describe('describeAuditEntry', () => {
+  it('names a data export (legal v0.3 E1) instead of "changed the venue settings"', () => {
+    const venue = describeAuditEntry(
+      row({ entity_type: 'venues', entity_id: 'v1', action: 'export', event_id: null, event_name: null,
+            diff: { scope: 'venue', rows: { guests: 3, contacts: 2, requests: 1, door: 2 } } }),
+    );
+    expect(venue.text).toBe('exported the venue data');
+    expect(venue.entity).toBe('the venue');
+    const event = describeAuditEntry(row({ entity_type: 'venues', action: 'export', diff: { scope: 'event' } }));
+    expect(event.text).toBe('exported the event data');
+    expect(event.entity).toBe('FRENZY');
+  });
+
   it('translates a tier change to the hero sentence (#15)', () => {
     const line = describeAuditEntry(
       row({

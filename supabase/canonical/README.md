@@ -23,7 +23,7 @@ Covered functions:
 - `submit_guest_request.sql` — newest source: `20260918160000_status_token_mirror_hardening.sql`
 - `approve_guest_request.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
 - `get_request_status.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
-- `consume_public_throttle.sql` — newest source: `20261006160000_public_throttle_bind_raw_callers.sql`
+- `consume_public_throttle.sql` — newest source: `20261006170000_public_throttle_bind_raw_callers.sql`
   (added 2026-10-06: not redefined often, but it now carries the trusted-caller
   check every anon RPC's throttle depends on — a silent revert reopens the bypass)
 

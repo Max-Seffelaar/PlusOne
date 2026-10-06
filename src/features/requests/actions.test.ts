@@ -220,7 +220,7 @@ describe('approveGuestRequest — partial approval + message', () => {
   });
 });
 
-// 20261006160000: the DB honours p_ip_hash only for a caller that presents the
+// 20261006170000: the DB honours p_ip_hash only for a caller that presents the
 // trust secret, so the submit client must carry it — and must not invent one.
 describe('submitGuestRequest — public-RPC trust header', () => {
   it('builds the RPC client with the x-plusone-throttle-trust header when the secret is set', async () => {

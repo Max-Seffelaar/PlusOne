@@ -35,7 +35,7 @@ export const PROD_REQUIRED_ENV = [
   },
   {
     name: 'PUBLIC_RPC_TRUST_SECRET',
-    why: 'Once public_throttle_trusted_callers holds its sha256 (20261006160000), the DB honours a landing/status/invite IP hash only from a caller that presents this secret. A build without it sends no header: every guest of every venue lands in ONE shared throttle bucket per surface, and /e/[slug], /r/[token], /i/[token] and request submission start rate-limiting each other within minutes.',
+    why: 'Once public_throttle_trusted_callers holds its sha256 (20261006170000), the DB honours a landing/status/invite IP hash only from a caller that presents this secret. A build without it sends no header: every guest of every venue lands in ONE shared throttle bucket per surface, and /e/[slug], /r/[token], /i/[token] and request submission start rate-limiting each other within minutes.',
   },
   {
     name: 'NEXT_PUBLIC_SUPABASE_URL',

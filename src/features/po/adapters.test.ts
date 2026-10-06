@@ -1002,6 +1002,7 @@ describe('toPoGuestRequest', () => {
     decision_reason: null,
     request_link_id: null,
     decided_via: 'manual',
+    marketing_opt_in: false,
     viaLabel: null,
     viaStandard: false,
   };
@@ -1023,8 +1024,13 @@ describe('toPoGuestRequest', () => {
       viaLabel: null,
       viaStandard: false,
       denyReason: null,
+      marketingOptIn: false,
       flag: undefined,
     });
+  });
+
+  it('carries the "Keep me posted" opt-in (legal v0.3 decision 2)', () => {
+    expect(toPoGuestRequest({ ...base, marketing_opt_in: true }, now).marketingOptIn).toBe(true);
   });
 
   it('carries the default-link flag so the inbox can say "Standard link" (z8uq9m0hw4)', () => {

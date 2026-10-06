@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20261006160000_public_throttle_bind_raw_callers.sql:93.
+-- Newest source: supabase/migrations/20261006170000_public_throttle_bind_raw_callers.sql:93.
 
 create or replace function public.consume_public_throttle(
   p_key        text,

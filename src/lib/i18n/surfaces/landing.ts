@@ -24,7 +24,7 @@ export const landing = {
   formTitle: 'Get yourself on the list',
   // 86eyke279: e-mail + phone are required now, so the sub no longer promises
   // that "the rest" is a bonus — it says what we need and why.
-  formSub: 'Name, email and phone. The organizer needs a way to reach you once your spot is confirmed.',
+  formSub: 'Name, email and phone, so {venue} can reach you once your spot is confirmed.',
   closesBanner: 'Sign-ups close {closes}',
 
   nameLabel: 'Name',
@@ -60,7 +60,18 @@ export const landing = {
 
   submit: 'Request my spot',
   submitting: 'Sending…',
-  privacyNote: 'Your details go only to the organizer of this event and are anonymized automatically after the retention period. No account needed.',
+  // Legal v0.3 B2 (decision 11): the venue is named, never "the organizer of this
+  // event". `venueFallback` only fills {venue} when the public read carries no name.
+  venueFallback: 'the organizer',
+  privacyNote: 'Your details go to {venue} and are anonymized automatically after its retention period.',
+  privacyHow: 'How your details are used',
+  // Two links: the PlusOne Guest Terms and the venue's privacy notice (both open
+  // via the kit's openExternal). Split so the link text keeps its own element.
+  acceptPre: 'By sending this request you accept the ',
+  acceptTermsLink: 'PlusOne Guest Terms',
+  acceptMid: " and {venue}'s ",
+  acceptPrivacyLink: 'privacy notice',
+  acceptPost: '.',
 
   // ── Validation ───────────────────────────────────────────────────────────
   nameError: 'Add your name so we can save your spot.',
@@ -75,7 +86,7 @@ export const landing = {
   // Missing-vs-malformed are deliberately different messages (86eyke279): an
   // empty field is not a typo, and "check your email" reads as nonsense when
   // there is nothing to check.
-  emailRequired: 'Add your email so the organizer can reach you.',
+  emailRequired: 'Add your email so {venue} can reach you.',
   phoneRequired: 'Add your phone number so the door can find you.',
   // Cloudflare Turnstile permanently failed to load (86ey2czr6) — most often
   // an ad-blocker dropping the challenges.cloudflare.com script.

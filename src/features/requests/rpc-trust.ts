@@ -1,6 +1,6 @@
 import 'server-only';
 
-/** The request header consume_public_throttle reads (20261006160000). */
+/** The request header consume_public_throttle reads (20261006170000). */
 export const PUBLIC_RPC_TRUST_HEADER = 'x-plusone-throttle-trust';
 
 /**

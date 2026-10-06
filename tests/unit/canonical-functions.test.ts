@@ -32,7 +32,7 @@ const FUNCTIONS = [
   // submit_guest_request. The two now have to agree about what a status token
   // addresses; drift between them is a disclosure bug, not a cosmetic one.
   'get_request_status',
-  // 20261006160000 — the one throttle every anon RPC funnels through now
+  // 20261006170000 — the one throttle every anon RPC funnels through now
   // decides whether a caller-supplied key is honoured at all (trusted-caller
   // header). A silent revert to the old body re-opens the NULL-key and
   // rotating-key bypass, so it is pinned like the bodies it protects.

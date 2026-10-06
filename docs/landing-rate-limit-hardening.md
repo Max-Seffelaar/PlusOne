@@ -130,7 +130,7 @@ per call (nieuwe bucket per call). Turnstile draait in de server action, dus
 een raw caller sloeg die óók over.
 
 Fix (migratie
-[`20261006160000_public_throttle_bind_raw_callers.sql`](../supabase/migrations/20261006160000_public_throttle_bind_raw_callers.sql)),
+[`20261006170000_public_throttle_bind_raw_callers.sql`](../supabase/migrations/20261006170000_public_throttle_bind_raw_callers.sql)),
 volledig in `consume_public_throttle`:
 
 - Een NULL-key valt in één gedeelde bucket `anon:~untrusted` (direct live).

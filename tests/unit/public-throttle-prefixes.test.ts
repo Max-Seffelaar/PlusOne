@@ -1,5 +1,5 @@
 /**
- * Public-throttle caller binding guard (20261006160000).
+ * Public-throttle caller binding guard (20261006170000).
  *
  * consume_public_throttle only re-buckets an untrusted caller for key prefixes
  * it KNOWS embed a caller-supplied p_ip_hash ('req', 'pv', 'st', 'if', 'slug').

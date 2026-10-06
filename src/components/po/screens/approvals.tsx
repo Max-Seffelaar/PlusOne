@@ -37,7 +37,7 @@ import { buildApproveInput, type ApprovalDecision } from '@/features/requests/ap
 import type { PoLinkOption } from '@/features/po/queries';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
+import { Avatar, Btn, Empty, KeepMePostedBadge, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
 import { AssignSheet, DenySheet, ErrLine, EventPickerSheet, LinkPickerSheet, type DenyTarget } from './approvals-sheets';
 import { CreateLinkFlow } from './promotion/create-link-flow';
 import { soonestUpcoming } from './promotion/shared';
@@ -420,6 +420,9 @@ export function Aanvragen({
                     </div>
                   </div>
                   <ViaChip req={r} className="mb-[11px]" />
+                  {r.marketingOptIn && (
+                    <KeepMePostedBadge className="mb-[11px]" label={t.requests.keepMePostedBadge} title={t.requests.keepMePostedTitle} />
+                  )}
                   {r.flag && (
                     <div className="mb-[11px] inline-flex items-center gap-1.5 rounded-[7px] bg-acc-dim px-[9px] py-1 font-body text-[11.5px] font-bold text-acc">
                       <Icon name="warn" size={12} stroke="#B5A6FF" />
@@ -476,6 +479,9 @@ export function Aanvragen({
                           </div>
                         </div>
                         <ViaChip req={r} className="mb-[9px]" />
+                        {r.marketingOptIn && (
+                          <KeepMePostedBadge className="mb-[9px]" label={t.requests.keepMePostedBadge} title={t.requests.keepMePostedTitle} />
+                        )}
                         <div className="mb-[12px] flex items-start gap-[7px] rounded-[9px] bg-elev2 px-[11px] py-[8px] text-[12.5px] leading-[1.4] text-faint">
                           <Icon name="close" size={13} stroke="rgba(255,255,255,0.40)" className="mt-px shrink-0" />
                           <span>{r.denyReason ? fmt(t.requests.declinedReason, { reason: r.denyReason }) : t.requests.declined}</span>
@@ -528,6 +534,9 @@ export function Aanvragen({
                           </span>
                         </div>
                         <ViaChip req={r} className="mt-[9px]" />
+                        {r.marketingOptIn && (
+                          <KeepMePostedBadge className="mt-[9px]" label={t.requests.keepMePostedBadge} title={t.requests.keepMePostedTitle} />
+                        )}
                       </div>
                     ))}
                   </div>

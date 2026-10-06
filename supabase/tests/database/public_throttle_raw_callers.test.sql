@@ -1,5 +1,5 @@
 -- pgTAP — ATTACKER suite: raw-PostgREST callers vs the public throttle
--- (20261006160000; found in the independent review of PR #379).
+-- (20261006170000; found in the independent review of PR #379).
 --
 -- Every anon RPC throttles on '<prefix>:' || p_ip_hash with a caller-supplied
 -- p_ip_hash. Before this migration a raw caller passed NULL (key NULL =

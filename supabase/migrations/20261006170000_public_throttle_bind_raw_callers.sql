@@ -71,7 +71,7 @@ create table public.public_throttle_trusted_callers (
 
 comment on table public.public_throttle_trusted_callers is
   'sha256 of the server-only secret the app sends as x-plusone-throttle-trust '
-  '(20261006160000). Any row present = enforcement on: anon-RPC throttle keys '
+  '(20261006170000). Any row present = enforcement on: anon-RPC throttle keys '
   'built from a caller-supplied p_ip_hash are honoured only for a caller that '
   'presents a matching secret. No app-role grants.';
 
@@ -150,7 +150,7 @@ end;
 $$;
 
 comment on function public.consume_public_throttle(text, integer, integer) is
-  'Fixed-window throttle (20260706102000; caller binding 20261006160000). A NULL '
+  'Fixed-window throttle (20260706102000; caller binding 20261006170000). A NULL '
   'key lands in the shared anon:~untrusted bucket. With a row in '
   'public_throttle_trusted_callers, a req/pv/st/if/slug key is honoured only when '
   'the request carries a matching x-plusone-throttle-trust header, else it lands '
