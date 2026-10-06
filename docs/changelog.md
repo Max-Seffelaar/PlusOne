@@ -8,6 +8,12 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Onboarding programme okt 2026, wave A closed (orchestrator)
+
+Milestone **Now**. Parallel wave of five sessions, merged in order: #402 (spikes §9 + seed fix), #404 (Sentry hygiene S1), #405 (Notifications N1, prod: `20261007110000` + `push-dispatch` v2), #406 (QA-0 flow harness + `flow-shots` CI job), #408 (Snelheid P1: `/app` layout 16 → 6 Supabase calls in 2 waves, 1 GoTrue; prod-push of `20261007100100`/`20261007100200` pending with Max). High-risk PRs (#405, #408) each had one fresh-session reviewer round (`/code-review high` + `/security-review`); no `/code-review ultra`. All 13 trialing prod venues set to `comped` via the `docs/stripe-setup.md` §5 runbook. Process lessons (drafts, changelog conflicts blocking CI, `CI=1 pnpm test`, watcher instead of polling) and follow-ups are in `onboarding-orchestration-claude-code.md` §2b "Status golf A".
+
+---
+
 ## 2026-10-06 — Snelheid P1, quick wins (z8uq9m2xyn)
 
 Milestone **Now**. The behaviour-preserving half of `docs/perf-audit-2026-10.md` (findings 1, 2, 3, 4, 5, 7, 8 and the
