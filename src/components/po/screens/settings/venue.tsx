@@ -216,6 +216,10 @@ export function VenueSettings(): JSX.Element {
         <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName} />
         <Scroll bottom={24}>
           <Empty text={t.settings.venue.viewNoRights} />
+          {/* A platform admin switched in without a membership has roles [] and
+              lands here; the export still has to be reachable (#49, E1). The
+              card gates itself, so it renders nothing for anyone else. */}
+          <ExportDataCard />
         </Scroll>
       </div>
     );
