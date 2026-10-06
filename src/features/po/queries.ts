@@ -43,6 +43,7 @@ export type PoGuestRow = Pick<
   | 'note_acknowledged_at'
   | 'created_at'
   | 'contact_id'
+  | 'anonymized_at'
   | 'source'
 > &
   GuestSourceEmbedFlat;
@@ -166,7 +167,7 @@ export async function fetchGuests(client: Client, eventId: string): Promise<PoVe
     client
       .from('guests')
       .select(
-        `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, ${GUEST_SOURCE_SELECT}`,
+        `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, ${GUEST_SOURCE_SELECT}`,
       )
       .eq('event_id', eventId)
       .in('status', [...ON_LIST, 'refused'])
@@ -232,7 +233,7 @@ export async function fetchVenueGuestsWindow(
   let query = client
     .from('guests')
     .select(
-      `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, guest_tiers(name, color), ${GUEST_SOURCE_SELECT}`,
+      `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, guest_tiers(name, color), ${GUEST_SOURCE_SELECT}`,
       { count: 'exact' },
     )
     .eq('venue_id', args.venueId)
@@ -1292,6 +1293,9 @@ export interface ContactProfileHeader {
   isPermanent: boolean;
   source: Database['public']['Enums']['contact_source'];
   createdAt: string;
+  /** contacts.anonymized_at is set (forgotten on request or by retention, #29):
+   *  read-only — no edit, no add-to-event, no Regular (z8uq9m2x43). */
+  anonymized: boolean;
 }
 
 export interface ContactCheckIn {
@@ -1522,7 +1526,7 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
   const [{ data: c, error: cErr }, appearances] = await Promise.all([
     client
       .from('contacts')
-      .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent, source, created_at')
+      .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent, source, created_at, anonymized_at')
       .eq('id', contactId)
       .maybeSingle(),
     fetchContactAppearances(client, contactId),
@@ -1545,6 +1549,7 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
       isPermanent: c.is_permanent,
       source: c.source,
       createdAt: c.created_at,
+      anonymized: c.anonymized_at != null,
     },
     appearances,
     actorNames,
@@ -1609,6 +1614,7 @@ export async function fetchPersonProfile(
         isPermanent: false,
         source: 'guest_list',
         createdAt: g.created_at,
+        anonymized: false,
       },
       appearances,
       actorNames,

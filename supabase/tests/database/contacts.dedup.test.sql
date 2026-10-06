@@ -80,8 +80,10 @@ select throws_ok(
   '42501', null, 'H1 staff cannot bulk-import contacts');
 
 -- I. An anonymized contact frees its e-mail slot for a fresh insert.
-reset role;  -- superuser: only the owner/job may set anonymized_at
-update public.contacts set anonymized_at = now()
+reset role;  -- superuser: only the owner/job may set anonymized_at, and
+             -- (z8uq9m2x43) only together with nulling the PII, as the job does
+update public.contacts set anonymized_at = now(), email = null, phone = null,
+       birthdate = null, note = null
   where id = 'c0000000-0000-7000-8000-000000000001';
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is(
