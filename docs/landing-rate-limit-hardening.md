@@ -117,3 +117,63 @@ op een half afgeronde env-setup.
 Zonder deze twee env-vars blijft de widget onzichtbaar en draait de site
 door zoals nu (geen regressie) — dit is dus veilig te mergen vóórdat het
 Cloudflare-account bestaat.
+
+## Punt 5 — Raw-PostgREST callers binden aan de throttle — code + eenmalige prod-stap
+
+Gevonden in de onafhankelijke review van PR #379 (2026-10-05). Elke anon-RPC
+(`submit_guest_request`, `get_landing_event`, `record_link_pageview`,
+`get_request_status`, `get_influencer_stats`) throttlet op
+`'<prefix>:' || p_ip_hash`, en `p_ip_hash` komt van de aanroeper. Wie de
+publieke anon-key heeft kon `/rest/v1/rpc/...` direct aanroepen met
+`p_ip_hash => null` (NULL-key = geen throttle) of met een nieuwe random string
+per call (nieuwe bucket per call). Turnstile draait in de server action, dus
+een raw caller sloeg die óók over.
+
+Fix (migratie
+[`20261006170000_public_throttle_bind_raw_callers.sql`](../supabase/migrations/20261006170000_public_throttle_bind_raw_callers.sql)),
+volledig in `consume_public_throttle`:
+
+- Een NULL-key valt in één gedeelde bucket `anon:~untrusted` (direct live).
+- De app-server stuurt een server-only geheim mee als header
+  `x-plusone-throttle-trust` (`src/features/requests/rpc-trust.ts`). Staat de
+  sha256 daarvan in `public.public_throttle_trusted_callers`, dan telt een
+  `req`/`pv`/`st`/`if`/`slug`-key alleen per IP-hash voor een request dat het
+  geheim meestuurt. Alle andere callers delen één bucket per oppervlak
+  (`<prefix>:~untrusted`) met het budget van dat oppervlak; random keys roteren
+  levert niets meer op. Deur-WiFi (veel telefoons achter één NAT-IP) houdt
+  exact het oude budget: één hash, 15 min / 60.
+- Geen rij in de tabel = geen check (lokaal, CI, en prod tot stap 3 hieronder).
+
+**Wat Max moet doen — in deze volgorde (omgekeerd = publieke funnel plat):**
+
+1. Genereer het geheim lokaal: `openssl rand -hex 32`.
+2. Vercel → Project Settings → Environment Variables → `PUBLIC_RPC_TRUST_SECRET`
+   met scope **Production én Preview, dezelfde waarde**. Redeploy. De
+   productie-build weigert zonder deze var (`scripts/hooks/lib/required-env.mjs`),
+   dus zet hem **vóór** het mergen van deze PR.
+   Waarom Preview ook: er is geen staging, previews praten met de prod-database,
+   en die vertrouwt alleen geheimen waarvan de hash in
+   `public_throttle_trusted_callers` staat. Een preview zonder (bekend) geheim
+   deelt na stap 3 de `<prefix>:~untrusted`-buckets met raw callers — lege
+   landingspagina's en `rate_limited` bij testen, wat eruitziet als een bug in
+   de PR. Wil je toch een eigen Preview-geheim (bv. om het prod-geheim niet in
+   preview-builds te hebben), voeg dan in stap 3 een tweede rij toe met label
+   `vercel-preview-…`.
+3. Pas als die deploy live is: in de Supabase SQL-editor (prod) de hash
+   toevoegen. Bereken de hex-digest lokaal, zodat het geheim zelf nooit in
+   SQL-history belandt:
+   ```bash
+   printf '%s' "$SECRET" | sha256sum
+   ```
+   ```sql
+   insert into public.public_throttle_trusted_callers (secret_sha256, label)
+   values (decode('<64-hex-digest>', 'hex'), 'vercel-prod-2026-10');
+   ```
+4. Check: `/e/<een open slug>` laadt nog; een directe call zonder header
+   (`curl .../rest/v1/rpc/get_landing_event` met de anon-key en een random
+   `p_ip_hash`) geeft na 60 calls in 15 min een lege array.
+
+**Kill switch:** `delete from public.public_throttle_trusted_callers;` — direct
+terug naar het oude gedrag (behalve de NULL-key-fix).
+**Rotatie:** nieuwe rij toevoegen → nieuwe env-waarde deployen → oude rij
+verwijderen. Meerdere rijen tegelijk geldig is bedoeld.

@@ -2,7 +2,8 @@
  * K10 drift guard (full-app review 2026-07-07, ClickUp 86ey6xej7).
  *
  * `audit_trigger`, `run_privacy_retention`, `submit_guest_request`,
- * `approve_guest_request` and `get_request_status` are each redefined via
+ * `approve_guest_request`, `get_request_status` and `consume_public_throttle` are
+ * each redefined via
  * `create or replace function`
  * across many migrations, historically kept in sync only by a "keep this in
  * LOCKSTEP" comment — which has already regressed prod GDPR behaviour twice.
@@ -31,6 +32,11 @@ const FUNCTIONS = [
   // submit_guest_request. The two now have to agree about what a status token
   // addresses; drift between them is a disclosure bug, not a cosmetic one.
   'get_request_status',
+  // 20261006170000 — the one throttle every anon RPC funnels through now
+  // decides whether a caller-supplied key is honoured at all (trusted-caller
+  // header). A silent revert to the old body re-opens the NULL-key and
+  // rotating-key bypass, so it is pinned like the bodies it protects.
+  'consume_public_throttle',
 ] as const;
 
 /** Line-ending + trailing-whitespace normalization only — a real body change

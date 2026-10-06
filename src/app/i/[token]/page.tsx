@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { createHash } from 'node:crypto';
 import { createClient } from '@/lib/supabase/server';
 import { landingClientIpHash } from '@/features/requests/ip-hash';
+import { publicRpcTrustHeaders } from '@/features/requests/rpc-trust';
 import { InfluencerStats, type InfluencerStatsData, type InfluencerStatsEvent } from '@/components/po/influencer-stats';
 import { t } from '@/lib/i18n';
 
@@ -49,7 +50,7 @@ export default async function InfluencerStatsPage({
   params: Promise<{ token: string }>;
 }): Promise<JSX.Element> {
   const { token } = await params;
-  const supabase = await createClient();
+  const supabase = await createClient({ headers: publicRpcTrustHeaders() });
 
   const tokenHash = createHash('sha256').update(token).digest('hex');
   const { data } = await supabase.rpc('get_influencer_stats', {

@@ -1,6 +1,6 @@
 # Canonical function bodies (K10 drift guard)
 
-Five SECURITY DEFINER functions have been redefined via `create or replace
+Several SECURITY DEFINER functions have been redefined via `create or replace
 function` across many migrations, each time with a comment asking the author
 to "keep it in LOCKSTEP" with the sibling copy. That convention has already
 regressed prod GDPR behaviour twice (a contacts-anonymization sweep silently
@@ -12,7 +12,7 @@ byte-for-byte** `create or replace function ...` statement that is currently
 canonical — i.e. the one the newest migration actually defines. A guard test,
 `tests/unit/canonical-functions.test.ts`, scans every migration in
 `supabase/migrations/` (in filename/timestamp order), finds the LAST
-`create or replace function public.<name>` for each of the five functions
+`create or replace function public.<name>` for each of the functions
 below, and fails the suite (`pnpm vitest run`, part of the existing `pnpm
 test` step) if that body doesn't match the file here.
 
@@ -23,6 +23,9 @@ Covered functions:
 - `submit_guest_request.sql` — newest source: `20260918160000_status_token_mirror_hardening.sql`
 - `approve_guest_request.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
 - `get_request_status.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
+- `consume_public_throttle.sql` — newest source: `20261006170000_public_throttle_bind_raw_callers.sql`
+  (added 2026-10-06: not redefined often, but it now carries the trusted-caller
+  check every anon RPC's throttle depends on — a silent revert reopens the bypass)
 
 ## When you touch one of these functions
 
