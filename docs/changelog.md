@@ -8,6 +8,12 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Fix: Codemagic iOS uses the existing ASC integration name `Codemagic PlusOne` (z8uq9m0gvn)
+
+The iOS build failed with `App Store Connect integration "PlusOne ASC" does not exist`: the Developer Portal integration (key ID T3PQKHP262) is named `Codemagic PlusOne` and the `.p8` can't be re-uploaded under another name. `codemagic.yaml` (`integrations: app_store_connect:` + the error hint) and `docs/native/ios-release.md` now use that name; publishing keeps `auth: integration`. No guard test asserted the name.
+
+---
+
 ## 2026-10-06 — Fix: public throttle binds raw-PostgREST callers (NULL / rotating `p_ip_hash`)
 
 Branch `claude/reverent-shamir-1961c3`, milestone **Now** (raised from ≥5: exploitable beyond slug probing).
