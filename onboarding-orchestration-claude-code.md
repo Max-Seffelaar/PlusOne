@@ -63,6 +63,27 @@ De sequentiële regel uit §0 blijft de default, maar met twintig taken en ADE o
 | E | Billing-mails B1 (2c) · Gastcommunicatie F (6) | D gemerged | B1 = billing-templates + job + platform-tijdlijn; F = gastmail + settings + prefs. Beide op F0. |
 | F | Requests E (7) → Quota Q (8) → Snelheid P2 (9) → Analytics PH (10) | E gemerged | E en Q delen de request-RPC's; P2 raakt navigatie en RLS; PostHog raakt root-layout, consent-copy, settings en de service worker en komt daarom na P2. Niet ADE-kritiek: Platform R levert de funnel-cijfers uit de eigen database. |
 
+### Status golf A (orchestrator, 2026-10-06)
+
+| Taak | PR | Status | Prod |
+|---|---|---|---|
+| 0 Spikes (§9) + seed-fix | [#402](https://github.com/Max-Seffelaar/PlusOne/pull/402) | gemerged | n.v.t. (docs + seed) |
+| 0f Sentry-hygiene S1 | [#404](https://github.com/Max-Seffelaar/PlusOne/pull/404) | gemerged, na orchestrator-review (2 fixes: online-TypeError niet als netwerk taggen; 23502/23514 blijven gerapporteerd) | n.v.t.; Max checkt over een week in Sentry of de vier gebruikersfout-issues wegblijven |
+| 0c Notificaties N1 | [#405](https://github.com/Max-Seffelaar/PlusOne/pull/405) | gemerged, na reviewer-ronde (2 should-fix verwerkt: complete alleen eigen claim, lock_timeout 2s → directe push) | `20261007110000` op prod, `push-dispatch` v2 gedeployd (geverifieerd) |
+| 0a QA-0 | [#406](https://github.com/Max-Seffelaar/PlusOne/pull/406) | gemerged; `flow-shots`-job draait vanaf nu op elke UI-PR | n.v.t. |
+| 0b Snelheid P1 | [#408](https://github.com/Max-Seffelaar/PlusOne/pull/408) | in review (reviewer-sessie loopt), CI groen | na merge: Max prod-push `20261007100100` + `20261007100200` |
+| ∥ Legal | andere repo | niet gevolgd in deze sessie | — |
+
+Besluiten Max na de spikes (2026-10-06): geen gate-fix in taak 2; taak 4 kapt een te hoog deuraantal af op het maximum (niet weigeren); taak 7: een approver kiest voorlopig uit alle tiers van het event (besluit 18 heeft geen basis in het datamodel); taak 3 gebruikt de template-route voor de invite-mail (geen hook); de Places-key wordt beperkt op de Places API + quota + budget-alert (geen referrer-restrictie, server-key). Alle 13 trialing venues in prod staan sinds 2026-10-06 op `comped` (runbook `docs/stripe-setup.md` §5, 13 audit-rijen).
+
+Lessen golf A voor de volgende orchestrator:
+- Workers openen draft-PR's; Max ziet drafts niet makkelijk. De orchestrator zet een PR op ready-for-review zodra zijn oordeel "klaar" is en geeft de link.
+- GitHub draait geen CI op een PR met een merge-conflict. Bij parallelle PR's conflicteert `docs/changelog.md` na elke merge: de orchestrator merget `origin/main` in de resterende branches (beide entries houden) direct na elke merge.
+- `pnpm test` = vitest watch-mode: workers draaien `CI=1 pnpm test` in de voorgrond.
+- Een worker die "klaar" lijkt kan alleen lokaal gecommit hebben: controleer `git ls-remote` en de PR, niet de sessiestatus. De orchestrator wacht met een achtergrond-watcher op branch-pushes en PR-subscriptions, niet op Max.
+- ClickUp-ID's voor QA-0 en S1 stonden niet in de repo; zet taak-ID's in §2 vóór de golf start.
+- Follow-ups (geen golf-A-scope): `po/mutations.ts` gooit `new Error(res.message)` en verliest de MutationError-`code` (S1 matcht daarom op copy; een `MutationFailure extends Error { code }` maakt dat overbodig); `pnpm dev:mfa` brengt de gedropte `set_venue_plan(uuid,text,boolean)`-overload terug en breekt de plan-stap lokaal (QA-0-vondst); P1 liet `usePoEvents`-staleTime staan omdat guest-mutaties `poKeys.events` niet invalideren (P2).
+
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
 ## 2c. Orchestrator-prompt (copy-paste, één per golf)
@@ -88,17 +109,17 @@ Startcheck (rapporteer het resultaat in één blok aan Max vóór je workers spa
 
 Daarna, per worker uit het golf-blok:
 - Vul de worker-brief uit §4 in (algemeen blok + taakblok: taak-id, branch, model, toegewezen timestamps, Raakt/Verboden, deps) en spawn de sessie via create_session (permission_mode nooit 'plan'; model per brief). Lukt spawnen niet, geef Max de ingevulde brief om te plakken.
-- Geef elke worker de omgevingsregels mee: dependencies via `node scripts/session-setup.mjs install`; een remote container heeft na `pnpm stack` zijn eigen Supabase-stack, een worker op Max' laptop deelt de stack met anderen en reset dan nooit zonder het te melden; de volledige `pnpm test` precies één keer vlak voor de laatste push; geen zelfgeplande wake-ups.
+- Geef elke worker de omgevingsregels mee: dependencies via `node scripts/session-setup.mjs install`; een remote container heeft na `pnpm stack` zijn eigen Supabase-stack, een worker op Max' laptop deelt de stack met anderen en reset dan nooit zonder het te melden; de volledige suite precies één keer vlak voor de laatste push als `CI=1 pnpm test`, in de voorgrond (bare `pnpm test` is vitest in watch-mode en hangt in een sessie: golf A verloor er een worker door); vóór de push `origin/main` in de branch mergen (merge commit; `docs/changelog.md` conflicteert bij elke parallelle PR: beide entries houden, de eigen bovenaan); geen zelfgeplande wake-ups.
 - Volg de sessie. Grijp in (interrupt_session + send_message) als een worker buiten zijn scope-hek gaat, een verboden bestand aanraakt, een guard verzwakt, een timestamp verzint, of ClickUp-calls blijft doen terwijl de koppeling offline is.
 
 Per opgeleverde PR:
 - Lees de diff zelf, adversarieel: wat zou CI afkeuren, welke CLAUDE.md-regel wordt geschonden, waar is de scope overschreden, waar wordt een guard verzwakt, zit er PII in logs of URL's? Bevindingen gaan als review-comment op de PR (met de Claude Code-footer), niet als chat.
-- High-risk PR (gemarkeerd in het golf-blok): spawn de reviewer-sessie uit §5 en vraag Max om `/code-review ultra <PR#> --post`. Pas na een schone ronde gaat de PR naar Max.
+- High-risk PR (gemarkeerd in het golf-blok): spawn de reviewer-sessie uit §5 (fresh session: `/code-review high` + `/security-review` + aanvalsvragen, CLAUDE.md "Review gates"). Geen `/code-review ultra` (besluit Max 2026-10-06). Pas na een schone ronde wordt de PR gemerged.
 - Screenshots (vanaf golf B, zodra QA-0 gemerged is): elke UI-PR levert de flow-harness-output: contact sheet per device inclusief de native-shell-simulatie, link naar het CI-artifact in de PR-body, en het rapport met ✅/❌ per assert. Jij bekijkt de contact sheets zelf, stap voor stap op 390, 1280 en native-shell, en vergelijkt met het klaar-als uit de brief én met de contact sheets van de vorige golf (regressie). Een UI-PR zonder flow is niet klaar. In golf A geldt dit alleen voor QA-0 zelf; P1 levert de Network-screenshot uit het meetplan.
 - Oordeel aan Max in één regel per PR: "klaar voor je test-handoff" of "niet mergen, want …", plus de genummerde handoff-vragen (UI-PR's), gemarkeerd ✅ automatisch / 👁 screenshot NN (nummer uit de contact sheet) / 🖐 handmatig zodra QA-0 gemerged is. Max kijkt naar de contact sheet en beantwoordt alleen de 🖐-vragen.
 
 Harde regels:
-- Merge nooit zelf en vraag er niet om; Max merged na zijn test en doet de prod-push van migraties.
+- Mergen doet de orchestrator (besluit Max 2026-10-06, golf A): pas als de verplichte CI (`lint-and-test`) groen is op de huidige head, er geen conflict is, en bij high-risk na een schone reviewer-ronde. Controleer de merge daarna op GitHub. Max doet de prod-push van migraties (en Edge Function-deploys) vanuit de linked main-checkout; geef hem de exacte stappen en verifieer daarna via Supabase (schema_migrations, functieversie).
 - Één DB-eigenaar: CI blijft de merge-gate. Zeg in elk PR-oordeel voor een migratie-PR of de worker `pnpm db:test` lokaal groen had, en zo niet, waarom CI dat dan dekt.
 - Geen model-namen in commits, PR-titels of -bodies.
 - Elke wijziging aan dit document, de spec of CLAUDE.md gaat in een eigen kleine docs-PR van jou, nooit in een worker-PR.
@@ -131,12 +152,12 @@ SP  (geen taak)  Spikes wave 0                      Opus    branch claude/spikes
     Timestamps: 20261007100000_guests_venue_created_idx, 20261007100100_invites_select_initplan.
     Raakt: next.config.js (staleTimes), src/app/app/layout.tsx, src/lib/auth/{context,memberships,onboarding,guards}.ts, src/features/{guests,events,contacts,quotas,requests,venues}/actions.ts (alleen revalidatePath-regels), app-screens.tsx, app-chrome.tsx, app-client.tsx, src/features/po/hooks.ts + queries.ts, docs/perf-audit-2026-10.md (status per finding).
     Verboden: src/features/door/**, public/service-worker.js, middleware, RLS behalve invites_select, screens-copy, pushState-navigatie. Begint met meten (vóór/na-telling in de PR-body).
-    High-risk (layout/middleware = auth) → reviewer-sessie + ultra verplicht.
+    High-risk (layout/middleware = auth) → reviewer-sessie verplicht.
 0c  z8uq9m2yvk   Notificaties N1 push bundelen      Opus    branch claude/z8uq9m2yvk-push-bundling
     Timestamp: 20261007110000_notification_throttle.
     Raakt: de migratie, supabase/functions/push-dispatch/**, src/features/notifications/payload.ts, pgTAP + vitest.
     Verboden: UI, mail (taak 6), src/features/door/**.
-    High-risk (trigger + service-role-dispatch) → reviewer-sessie + ultra verplicht.
+    High-risk (trigger + service-role-dispatch) → reviewer-sessie verplicht.
 0f  n.n.b.       Sentry-hygiene S1                  Sonnet  branch claude/sentry-hygiene-s1
     Raakt: src/lib/observability/**, de twee error-handlers in PoLiveProvider.tsx, src/lib/db-errors.ts, minimale wijziging in src/features/po/mutations.ts (code doorgeven), sentry.*.config.ts (alleen netwerk-ruis), docs/runbook.md.
     Verboden: gedrag voor de gebruiker; fouten verbergen die een bug kunnen zijn; database.
@@ -153,12 +174,12 @@ GOLF B — parallel; wacht op golf A gemerged (P1 raakt events/actions.ts; QA-0 
 0d  z8uq9m2yvp   Crew-bug bestaand account          Opus    branch claude/z8uq9m2yvp-crew-existing-account
     Raakt: src/features/events/actions.ts (alleen inviteExternalCrew), src/components/po/screens/events/crew.tsx, i18n, events/actions.test.ts + crew.demo-refusal.test.tsx, gastenlijst-app-spec.md (#24).
     Verboden: invite-mail.ts, platform-invites, alles buiten crew; geen mail (komt uit 0e).
-    High-risk (service-role-lookup in een auth-pad) → reviewer-sessie + ultra verplicht.
+    High-risk (service-role-lookup in een auth-pad) → reviewer-sessie verplicht.
 0e  z8uq9m2yvt   Mail-infra F0 + team-invite mails  Opus    branch claude/z8uq9m2yvt-mail-infra
     Timestamp: 20261007130000_mail_log.
     Raakt: src/features/mail/** (nieuw), src/app/api/webhooks/resend/route.ts (nieuw), src/features/auth/invite-mail.ts (bestaand-account-tak), src/features/events/actions.ts (alleen de crew-mail-aanroep; rebase na 0d), .env.example, docs/mail-deliverability.md, docs/legal/README.md, tests.
     Verboden: gastmail, notificatie-voorkeuren, digest (taak 6); Supabase-templates (taak 3); src/features/door/**.
-    High-risk (webhook + service-role-verzending) → reviewer-sessie + ultra verplicht. Max vooraf: RESEND_API_KEY, RESEND_WEBHOOK_SECRET, copy voor drie team-mails.
+    High-risk (webhook + service-role-verzending) → reviewer-sessie verplicht. Max vooraf: RESEND_API_KEY, RESEND_WEBHOOK_SECRET, copy voor drie team-mails.
 1   z8uq9m2vqc   Venue → Company                    Opus    branch claude/z8uq9m2vqc-company-rename
     Timestamp: 20261007120000_event_location.
     Raakt: src/lib/i18n/**, screens (alleen strings), settings/venue*.tsx (Type-veld), events/edit.tsx (locatie), src/features/po/adapters.ts + queries.ts, src/features/events/actions.ts + schemas (location), database.types.ts, gastenlijst-app-spec.md, design-system.md, copy-deck.md.
@@ -176,12 +197,12 @@ GOLF C — parallel; wacht op golf B gemerged. Twee reviewer-sessies.
     Timestamps: 20261008120000_single_plan_pro, 20261008120100_billing_interval, 20261008120200_platform_trial_override.
     Raakt: src/features/billing/**, src/features/onboarding/** (PlanStep/BetalingStep weg), src/lib/auth/onboarding.ts, settings/billing.tsx + settings.tsx, platform-venues.tsx (+ hooks/mutations voor trial/always free), kit.tsx (BillingLockNote), i18n settings + platform, docs/stripe-setup.md, .env.example, gastenlijst-app-spec.md (#32), tests incl. billing.native.test.tsx, native-store-tax.test.tsx, stripe-*.test.ts, pgTAP stripe_billing + platform_billing; nieuwe e2e native-shell-guard in e2e:smoke.
     Verboden: src/features/platform/invite-actions.ts (comped-invite is taak 3), src/features/door/**, screens buiten settings/platform. Native blijft PR #387: geen prijs, knop, URL of copy-link.
-    High-risk (billing, service-role-RPC's, platform-RPC's) → reviewer-sessie + ultra verplicht. Max vooraf: Stripe-dashboard (product Pro, lookup keys pro_monthly/pro_yearly, BTW, portal, dunning, webhook); env-vars pas ná de merge.
+    High-risk (billing, service-role-RPC's, platform-RPC's) → reviewer-sessie verplicht. Max vooraf: Stripe-dashboard (product Pro, lookup keys pro_monthly/pro_yearly, BTW, portal, dunning, webhook); env-vars pas ná de merge.
 4   z8uq9m2vg6   Check-in D                         Opus    branch claude/z8uq9m2vg6-checkin-group
     Timestamps: 20261010120000_checkin_absolute_count_guard, 20261010120100_door_checkout_permission.
     Raakt: src/features/door/** (model, outbox, components, offline), de twee migraties, settings/venue*.tsx (toggle), i18n door + settings, pgTAP check_ins_*, door-render-isolation.test.tsx (blijft groen).
     Verboden: alles buiten door/settings; geen server action voor check-in of undo (outbox, #25).
-    High-risk (RLS op check_ins) → reviewer-sessie + ultra verplicht. Ontwerp uit spike 2 (§9).
+    High-risk (RLS op check_ins) → reviewer-sessie verplicht. Ontwerp uit spike 2 (§9).
 
 Exit: beide gemerged en geprod-pusht; Platform-tab kan trial verlengen en "always free" zetten; native-shell-guard groen; doorhost kan niet uitchecken zonder de setting, ook niet via de API.
 ```
@@ -195,12 +216,12 @@ GOLF D — parallel; wacht op golf C gemerged (set_venue_comped, listPrices, bil
     Timestamp: 20261008130000_platform_overview_rpcs.
     Raakt: platform.tsx, platform-venues.tsx, nieuw platform-overview.tsx, routes.ts + nav-map.ts, src/features/po/ (platform hooks/queries/adapters), billing/provider.ts (alleen listPrices gebruiken), i18n platform, platform-*.visibility.test.tsx, pgTAP platform_overview, tests/e2e/layout (scherm toevoegen); dagelijkse digest via de mail-infra uit 0e.
     Verboden: billing-actions, onboarding, door, alles wat gast-rijen leest (alleen aggregaten).
-    High-risk (SECURITY DEFINER-aggregaten over alle venues) → reviewer-sessie + ultra verplicht.
+    High-risk (SECURITY DEFINER-aggregaten over alle venues) → reviewer-sessie verplicht.
 3   z8uq9m2vg5   Onboarding A                       Opus    branch claude/z8uq9m2vg5-onboarding
     Timestamp: 20261009120000_platform_invite_comped.
     Raakt: src/features/platform/invite-actions.ts + platform-screens (comped), src/features/auth/invite-mail.ts (metadata kind/invited_by/company), docs/email-templates/invite.html (nieuw), supabase/config.toml (invite-template), VenueStep.tsx (DPA-checkbox, Places), src/app/api/places/route.ts + src/lib/places/** (nieuw), events/edit.tsx (Places op de locatie), docs/legal/README.md, .env.example (GOOGLE_PLACES_API_KEY), gastenlijst-app-spec.md (#40).
     Verboden: src/features/billing/** behalve het aanroepen van set_venue_comped; door; requests. Spike 4 negatief → geen hook-route, template statisch, melden.
-    High-risk (invite-metadata, publieke proxy) → reviewer-sessie + ultra verplicht. Max vooraf: Google Cloud-project + Places-key, Supabase invite-expiry 7 dagen, template geplakt na de merge, copy.
+    High-risk (invite-metadata, publieke proxy) → reviewer-sessie verplicht. Max vooraf: Google Cloud-project + Places-key, Supabase invite-expiry 7 dagen, template geplakt na de merge, copy.
 5   z8uq9m2vg7 + z8uq9m2vg8   Event C + Dashboard B  Opus  branch claude/z8uq9m2vg7-event-screens
     Raakt: home.tsx, events/*.tsx, settings/quota.tsx, settings/team.tsx (invite-sheet exporteren), templates.tsx (terugknop-bug), i18n, bijbehorende tests, tests/flows.
     Verboden: src/features/**, migraties, door. Eén PR, beide taken bijgehouden.
@@ -217,12 +238,12 @@ GOLF E — parallel; wacht op golf D gemerged (mail-infra, platform-schermen, se
     Timestamp: 20261008140000_billing_mail_types.
     Raakt: src/features/mail/templates/billing-*.tsx (nieuw), src/features/billing/mail-schedule.ts (nieuw, puur + tests), de geplande job, src/features/billing/stripe-webhook.ts (payment_failed/canceled → mail), Platform R-schermen (tijdlijn + Overview-telling), i18n platform, pgTAP + vitest.
     Verboden: checkout/portal-code, onboarding, gastmail.
-    High-risk (service-role-job + webhook) → reviewer-sessie + ultra verplicht. Max vooraf: copy voor zeven templates, dagen bevestigd, Stripe-dunning-mails uit.
+    High-risk (service-role-job + webhook) → reviewer-sessie verplicht. Max vooraf: copy voor zeven templates, dagen bevestigd, Stripe-dunning-mails uit.
 6   z8uq9m2vpy   Gastcommunicatie F                 Opus    branch claude/z8uq9m2vpy-guest-mail
     Timestamps: 20261013120000_guest_mail_types, 20261013120100_company_contact_channels, 20261013120200_guest_mail_optout, 20261013120300_notification_prefs.
     Raakt: src/features/mail/** (types, templates, queue), src/app/u/[token]/route.ts (nieuw), guests/contacts/events/requests-actions (mail-hooks), settings/venue*.tsx (contact), events/* (checkbox Send confirmation, Send reminder), Profile (notification prefs), i18n, docs/legal/README.md, gastenlijst-app-spec.md (#10), tests.
     Verboden: src/features/door/** (de deur stuurt nooit mail en wacht nooit op mail), billing.
-    High-risk (publieke afmeld-route, service-role-verzending, prefs-RLS) → reviewer-sessie + ultra verplicht. Max vooraf: copy gekozen.
+    High-risk (publieke afmeld-route, service-role-verzending, prefs-RLS) → reviewer-sessie verplicht. Max vooraf: copy gekozen.
 
 Exit: beide gemerged en geprod-pusht; een handmatig toegevoegde gast met e-mail krijgt binnen een minuut "You're on the list"; afmeldlink werkt; billing-tijdlijn zichtbaar in Platform.
 ```
@@ -235,13 +256,13 @@ GOLF F — sequentieel: 7 → 8 → 9 → 10. Wacht op golf E gemerged.
 7   z8uq9m2vga   Requests E                         Opus    branch claude/z8uq9m2vga-request-split
     Timestamp: 20261015120000_request_decision_split. Ontwerp uit spike 3 (§9).
     Raakt: de migratie, src/features/requests/**, src/features/po/ (requests hooks/mutations/adapters), de approve-sheet, de statusmail-aanroep uit taak 6, pgTAP guest_requests_decide, gastenlijst-app-spec.md.
-    Verboden: door, billing, onboarding. High-risk (SECURITY DEFINER met quota-math) → reviewer-sessie + ultra.
+    Verboden: door, billing, onboarding. High-risk (SECURITY DEFINER met quota-math) → reviewer-sessie.
 8   z8uq9m2xyp   Quota-aanvraag Q                   Opus    branch claude/z8uq9m2xyp-quota-flow
     Timestamp: 20261016120000_quota_request_guest_payload. Wacht op 7.
     Raakt: de migratie, src/features/quotas/**, src/features/po/ (quota hooks/mutations/adapters + Updates-kaart), home.tsx, quota-formulier en beslis-sheet, i18n, pgTAP quota_requests_*, gastenlijst-app-spec.md.
-    Verboden: guest_requests (taak 7), door, billing, mail (bestaande push volstaat). High-risk → reviewer-sessie + ultra.
+    Verboden: guest_requests (taak 7), door, billing, mail (bestaande push volstaat). High-risk → reviewer-sessie.
 9   z8uq9m2xz2   Snelheid P2                        Opus    per punt een PR; timestamps 20261017120000_rls_set_based_helpers, 20261017120100_check_ins_update_policy_merge. Wacht op 8, of eerder op aanwijzing van Max.
-    High-risk per PR (middleware getClaims, RLS, service worker) → reviewer-sessie + ultra per PR. Max vooraf voor getClaims: asymmetrische JWT-signing-keys.
+    High-risk per PR (middleware getClaims, RLS, service worker) → reviewer-sessie per PR. Max vooraf voor getClaims: asymmetrische JWT-signing-keys.
 10  n.n.b.       Analytics PH (PostHog)             Opus    drie PR's volgens docs/posthog-implementation-plan.md (foundation, instrumentation, docs). Wacht op 9 en Max' go.
     Max vooraf: PostHog-project + key; cookie-banner-copy; subprocessor C → A in de legal-ronde.
 
@@ -252,8 +273,8 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 
 | Taak | Bestand | Inhoud |
 |---|---|---|
-| 0b | `20261007100000_guests_venue_created_idx.sql` | index `guests(venue_id, created_at desc, id desc)` |
-| 0b | `20261007100100_invites_select_initplan.sql` | `invites_select` met `(select auth.uid())` (advisor auth_rls_initplan) |
+| 0b | `20261007100100_guests_venue_created_idx.sql` (was `…100000`, dat slot bleek bezet door `contacts_freeze_anonymized`) | index `guests(venue_id, created_at desc, id desc)` |
+| 0b | `20261007100200_invites_select_initplan.sql` | `invites_select` met `(select auth.uid())` (advisor auth_rls_initplan) |
 | 0c | `20261007110000_notification_throttle.sql` | `notification_throttle`, `notification_outbox.collapse_key` + `deliver_after`, trigger-telling (>10 in 60 min → 24 uur per uur bundelen) |
 | 1 | `20261007120000_event_location.sql` | `events.location_name text`, `events.location_address text` (nullable, expand-only); geen RLS-wijziging |
 | 2 | `20261008120000_single_plan_pro.sql` | `update subscriptions set plan_id = 'pro'`; `create_venue_with_owner` zet `plan_id = 'pro'`; `set_venue_plan` blijft bestaan maar accepteert alleen `pro` |
@@ -262,8 +283,9 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 2b | `20261008130000_platform_overview_rpcs.sql` | `platform_invite_overview()` + companies per invite; `platform_subscription_counts()`, `platform_usage_30d()`, trial-funnel-RPC; alle SECURITY DEFINER met `is_platform_admin()` binnenin |
 | 2c | `20261008140000_billing_mail_types.sql` | zeven `mail_log.type`-waarden, unique `(venue_id, type)` voor trial-mails, `subscriptions.billing_mails_paused`, RPC `platform_billing_mail_timeline` |
 | 3 | `20261009120000_platform_invite_comped.sql` | `platform_invites.comped boolean not null default false`; `create_venue_with_owner` roept `set_venue_comped` aan als de invite comped is |
+| 3 | `20261009120100_places_throttle.sql` | throttle-wrapper voor de Places-proxy + grant + pgTAP allowed/denied (spike 9.6) |
 | 4 | `20261010120000_checkin_absolute_count_guard.sql` | check `plus_ones_arrived <= guest.plus_ones` (trigger); stale-guard op `client_timestamp` in de check-in-RPC |
-| 4 | `20261010120100_door_checkout_permission.sql` | `venues.settings->'door'->>'doorhost_can_check_out'` gelezen in de DELETE/UPDATE-policy op `check_ins` (of in de undo-RPC); pgTAP allowed/denied per rol |
+| 4 | ~~`20261010120100_door_checkout_permission.sql`~~ | **Vervalt (spike 9.2):** uitchecken bestaat al als `venues.allow_uncheck` + `events.allow_uncheck` + RESTRICTIVE policy `check_ins_void_requires_uncheck`; taak 4 maakt die rolafhankelijk binnen `20261010120000` of een `…120100`-slot met die inhoud. |
 | 0e | `20261007130000_mail_log.sql` | `mail_log` (append-only, type + ontvanger-hash + status + provider-id, geen inhoud), `resend_webhook_events`-ledger, grant matrix |
 | 6 | `20261013120000_guest_mail_types.sql` | nieuwe `mail_log.type`-waarden voor gastmail; geen nieuwe tabel |
 | 6 | `20261013120100_company_contact_channels.sql` | `venues.contact_email` (verplicht vóór eerste live event, afgedwongen in de publish-actie, niet als NOT NULL), `venues.contact_channels jsonb` |
@@ -609,10 +631,7 @@ Klaar als: zie de taakbeschrijving (Network-screenshot tab-wissel; 300-events-se
 
 ## 5. Reviewer-gate (taken 0b, 0c, 0d, 0e, 2, 2b, 2c, 3, 4, 6, 7, 8, 9)
 
-Twee lagen, allebei vóór de merge:
-
-1. **`/code-review ultra <PR#> --post`** (Max start het; het is gebruikersgestuurd en wordt apart afgerekend). De multi-agent cloud-review leest de hele PR en post de bevindingen als één comment op de PR. De bouwer verwerkt blokkerende punten in dezelfde branch; de volgende sessie leest de comment en neemt open punten over in dit document.
-2. **De security-sessie hieronder** voor de aanvalsvragen die specifiek zijn voor wat er veranderde. Ultra vindt bugs en vereenvoudigingen; de aanvalsvragen per taak vindt hij niet vanzelf.
+Eén laag vóór de merge, precies zoals CLAUDE.md "Review gates" het vraagt: **de fresh reviewer-sessie hieronder** (`/code-review high` + `/security-review` + de aanvalsvragen die specifiek zijn voor wat er veranderde). Geen `/code-review ultra` (besluit Max 2026-10-06, golf A: niet nodig, CLAUDE.md vraagt het niet). Niet-high-risk PR's: blokkerende CI is de vloer, plus de eigen diff-lezing van de orchestrator. De bouwer verwerkt blokkerende en should-fix-punten in dezelfde branch en resolvet de threads; daarna merget de orchestrator.
 
 ### Reviewer-brief (fresh session)
 
