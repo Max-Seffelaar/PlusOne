@@ -90,6 +90,7 @@ returns table (collapse_key text, deliver_after timestamptz)
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '2s'
 as $$
 declare
   v_at timestamptz;
@@ -102,10 +103,23 @@ begin
     return;
   end if;
 
-  insert into public.notification_throttle as t (venue_id, kind)
-  values (p_venue, p_kind)
-  on conflict (venue_id, kind) do update set updated_at = now()
-  returning t.throttled_at, t.throttled_until into v_at, v_until;
+  -- Take the (venue, kind) lock without writing a tuple on every request:
+  -- create the row once, then lock it. A wait longer than lock_timeout (the
+  -- function attribute below) degrades to a direct push instead of failing
+  -- the request (#50: broken push plumbing never costs the request).
+  begin
+    insert into public.notification_throttle (venue_id, kind)
+    values (p_venue, p_kind)
+    on conflict (venue_id, kind) do nothing;
+
+    select t.throttled_at, t.throttled_until into v_at, v_until
+    from public.notification_throttle t
+    where t.venue_id = p_venue and t.kind = p_kind
+    for update;
+  exception when lock_not_available then
+    return query select null::text, null::timestamptz;
+    return;
+  end;
 
   if v_until is null or v_until <= now() then
     select count(distinct o.source_id)::integer into v_recent
@@ -279,7 +293,7 @@ revoke execute on function public.notification_outbox_kick() from public, anon, 
 -- ── Claim: one row per due slot per recipient ───────────────────────────────
 -- Same signature and return shape as 20260925120100. A due row that belongs
 -- to a slot pulls in every other due member of that slot for that recipient
--- (even beyond p_limit), so a slot is never split over two pushes. The slot
+-- (even beyond p_limit), so a slot is never split within one claim. The slot
 -- is returned once: the newest member's id and payload, plus "count" (the
 -- number of requests in it). complete_push_outbox() on that id settles the
 -- whole slot.
@@ -379,12 +393,13 @@ declare
   v_status text;
   v_key text;
   v_recipient uuid;
+  v_locked_at timestamptz;
 begin
   if p_outcome not in ('sent', 'skipped', 'retry', 'failed') then
     raise exception 'invalid outcome' using errcode = '22023';
   end if;
 
-  select o.collapse_key, o.recipient_user_id into v_key, v_recipient
+  select o.collapse_key, o.recipient_user_id, o.locked_at into v_key, v_recipient, v_locked_at
   from public.notification_outbox o
   where o.id = p_id and o.status = 'sending';
   if not found then
@@ -410,7 +425,10 @@ begin
     and (o.id = p_id
          or (v_key is not null
              and o.collapse_key = v_key
-             and o.recipient_user_id = v_recipient));
+             and o.recipient_user_id = v_recipient
+             -- Only this claim's members (one now() per claim): a slot
+             -- member another invocation holds is that invocation's to settle.
+             and o.locked_at = v_locked_at));
 
   select o.status into v_status
   from public.notification_outbox o

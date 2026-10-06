@@ -44,7 +44,7 @@ returns int language sql as $fn$
     and (collapse_key is not null) = p_bundled;
 $fn$;
 
-select plan(32);
+select plan(35);
 
 select set_config('request.jwt.claims', '{}', true);
 
@@ -277,6 +277,36 @@ select is((select (count(*) || '/' || max(payload ->> 'count'))
 
 reset role;
 select set_config('request.jwt.claims', '{}', true);
+
+-- A sending member of the same slot held by ANOTHER claim (different
+-- locked_at) is that claim's to settle, never this one's.
+reset role;
+select set_config('request.jwt.claims', '{}', true);
+update public.notification_outbox
+set status = 'sending', locked_at = now() - interval '1 minute'
+where id = (select id from public.notification_outbox
+            where source_id = '9c010000-0000-7000-8000-000000000011'
+              and recipient_user_id = '44444444-4444-4444-8444-444444444444');
+-- (F7's claim still holds the other 19; all claims in this one test
+-- transaction share now(), so the "other" claim is simulated by its locked_at.)
+select set_config('pgtap.rep', (
+  select max(id::text) from public.notification_outbox
+  where source_id::text like '9c01%' and collapse_key is not null
+    and recipient_user_id = '44444444-4444-4444-8444-444444444444'
+    and status = 'sending' and locked_at = now()), true);
+select pg_temp.as_service();
+select is(public.complete_push_outbox(current_setting('pgtap.rep')::uuid, 'sent', null), 'sent',
+  'F8 a claim completes its own slot members');
+reset role;
+select set_config('request.jwt.claims', '{}', true);
+select is((select count(*)::int from public.notification_outbox
+           where source_id::text like '9c01%' and collapse_key is not null
+             and recipient_user_id = '44444444-4444-4444-8444-444444444444' and status = 'sent'),
+  19, 'F8b …all 19 of them');
+select is((select status from public.notification_outbox
+           where source_id = '9c010000-0000-7000-8000-000000000011'
+             and recipient_user_id = '44444444-4444-4444-8444-444444444444'),
+  'sending', 'F9 …but leaves a member another claim holds (other locked_at) untouched');
 
 select * from finish();
 rollback;

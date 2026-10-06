@@ -277,4 +277,22 @@ group by 1, 2 order by 4;
 
 Ending a bundling period early (support): `update public.notification_throttle set
 throttled_at = null, throttled_until = null where venue_id = '…';` from the SQL editor.
-Rows already in a slot still wait for that slot's end.
+This only ends bundling once the last 60 minutes hold ≤ 10 requests of that kind: the
+window counts bundled rows too, so a still-busy venue re-enters on its next request with a
+new anchor (new slots), while the old slot's rows still wait for the old slot end, and the
+approver can get two digests within one hour. To flush the waiting slots now as well:
+
+```sql
+update public.notification_outbox
+set next_attempt_at = now()
+where status = 'pending' and collapse_key like 'digest:%:<venue_id>:%';
+```
+
+Known edge (accepted): a request transaction that starts just before a slot end and commits
+just after that slot was claimed lands in the already-claimed slot and goes out later on its
+own (count 1, single-request copy): a second push in that hour. The window is milliseconds
+against a 2-minute sweep.
+
+A `complete_push_outbox` only settles the slot members of its own claim (same `locked_at`).
+Under a > 200-row backlog two concurrent claims can each take part of one slot; the approver
+then gets two digests with partial counts, never a re-send.

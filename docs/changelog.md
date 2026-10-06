@@ -19,8 +19,8 @@ per approver, with the count; `quota_request_decided` never bundled. Spec decisi
   `notification_bundle_slot()` (locks the throttle row, counts distinct requests in the window excluding a replayed
   source, opens a 24-hour period on the 11th, returns the hourly slot). Both enqueue triggers call it for the
   "created" kinds; the decision path is untouched. `notification_outbox_kick` no longer kicks for rows that are not
-  due. `claim_push_outbox` returns one row per due slot per recipient (count added to the payload, never split over
-  claims); `complete_push_outbox` settles the whole slot. Signatures and return shape unchanged (expand–contract).
+  due. `claim_push_outbox` returns one row per due slot per recipient (count added to the payload, never split within
+  one claim); `complete_push_outbox` settles the slot members of that claim (same `locked_at`). Signatures and return shape unchanged (expand–contract).
 - **"Hourly kick":** no new schedule — the existing 2-minute `plusone-push-outbox-sweep` wakes the function when a
   slot is due.
 - **push-dispatch:** digest copy (`20 new requests` / `20 new quota requests`) when the claimed payload carries a
@@ -30,6 +30,11 @@ per approver, with the count; `quota_request_decided` never bundled. Spec decisi
   replay dedupe, 24-hour end, slot claim with `p_limit 1`, complete + retry of a slot); existing
   `push_outbox`/`push_dispatch` suites green unchanged. Vitest: digest send + copy in `push-dispatch.test.ts`,
   `payload.test.ts`.
+- **Review round (fresh session):** `complete_push_outbox` scoped to its own claim (`locked_at`), so a slot cut by
+  a concurrent claim can never be re-queued by the other invocation's retry; `notification_bundle_slot` takes its lock
+  with `on conflict do nothing` + `select … for update` under `lock_timeout = '2s'` and degrades to a direct push on
+  `lock_not_available`, so a lock wait never fails the request (#50); kick assertions added to `push_dispatch.test.sql`;
+  runbook: clearing a throttle only ends bundling once the hour is quiet, plus a flush query and the orphan-slot note.
 - **Ops:** after merge, prod-push the migration, then redeploy `push-dispatch` (`docs/push-dispatch.md` "Bundling
   under load"). Until the redeploy a digest is worded as a single request.
 
