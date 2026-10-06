@@ -55,7 +55,7 @@ line there opens one form. All of them also live under **Policy and programs →
 
 5. [ ] 🟧 **Content rating — answers**
    - Do: answer every topic exactly as in the table in `play-review-notes.md` §4. The one to
-     decide: the alcohol question ("reference only" = **Yes**, every follow-up **No**).
+     check: the alcohol question is **No** (no alcohol words left in UI copy, #365).
    - Check: the **Summary** page shows the ratings (PEGI/ESRB/…) before you submit.
 
 6. [ ] **Content rating — submit**
@@ -106,8 +106,10 @@ line there opens one form. All of them also live under **Policy and programs →
 14. [ ] **Open the main store listing**
     - Where: Grow users → Store presence → **Main store listing** (Dashboard: "Set up your
       store listing").
-    - Check: default language at the top says **Dutch – nl-NL**. If not: Store settings →
-      change it before you paste anything.
+    - Check: default language at the top says **English (United Kingdom) – en-GB** (what we
+      set on 2026-10-06; Dutch is a translation). If not: Store settings → change it before
+      you paste anything. The step order below still lists NL first; paste each language into
+      its own tab regardless.
 
 15. [ ] **App name (NL)**
     - Do: `PlusOne`.
@@ -272,6 +274,7 @@ line there opens one form. All of them also live under **Policy and programs →
 
 42. [ ] **After the review: close the review window**
     - Do: once approved (or rejected), run
-      `node scripts/seed-demo-venue.mjs --prod --end-review` from the linked main checkout
-      (`docs/review-login.md`).
+      `node scripts/seed-demo-venue.mjs --prod --end-review` with the prod env-var method
+      (`docs/review-login.md` → "Prod scripts from Max's checkout"; never paste script
+      error output, it can contain headers).
     - Check: the script reports the global sign-out; the demo account has no live sessions.

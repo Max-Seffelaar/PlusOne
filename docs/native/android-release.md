@@ -74,7 +74,18 @@ Windows (Android Studio's bundled JDK), in a folder **outside** the repo:
   (`android/.gitignore`); `tests/unit/codemagic-android-release.test.ts` fails CI if one
   is ever tracked.
 
+> **As built (2026-10-06):** the upload keystore was **regenerated on 2026-10-06, before any
+> upload to Play**, so the first AAB registers it as the upload key (Codemagic reference
+> `plusone_upload_key`, alias `plusone-upload`). Nothing signed by an older keystore ever
+> reached Play.
+
 ## 3. Google Cloud service account (what Codemagic uses to talk to Play)
+
+> **As built (2026-10-06):** the service account is
+> `codemagic-play-publisher@plus-one-509616.iam.gserviceaccount.com` in Cloud project
+> `plus-one-509616` (organisation `plus-one.io`). The org policy constraints that block
+> key creation (`iam.disableServiceAccountKeyCreation` and its siblings) are overridden to
+> `enforce: false` on **that project only**, not org-wide.
 
 1. <https://console.cloud.google.com> → pick (or create) a project, e.g. the PlusOne
    Firebase project → **APIs & Services → Library** → enable **Google Play Android

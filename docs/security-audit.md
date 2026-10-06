@@ -541,7 +541,7 @@ applied). Each file is self-contained (own `pg_temp` login helpers) and rolls ba
 ## 10. How to re-verify
 
 ```bash
-# from the linked main checkout (not a worktree) after merge, or locally after db:fresh
+# from the `supabase link`-ed checkout (not a worktree) after merge, or locally after db:fresh
 supabase db reset           # applies 20260623140200 + seed
 supabase test db            # expect Files=28, Tests=583, Result: PASS
 ```

@@ -50,13 +50,13 @@ that's fine — we're proving the *data* is recoverable.
 ### Method B — logical dump → scratch project (always available)
 
 Proves the recovery path end-to-end with no prod risk and no compute surprise.
-Run from the **linked main checkout** (`…/PlusOne Guestlist`), never a worktree.
+Run from the **`supabase link`-ed checkout** (never a worktree; see CLAUDE.md "Env & prod-push").
 
 1. Create a fresh **scratch Supabase project** (free tier is fine), same region
    `eu-west-1`. Note its connection string (Project Settings → Database).
 2. Dump prod (schema + data + roles):
    ```bash
-   # from the linked main checkout, which is `supabase link`-ed to prod
+   # from the `supabase link`-ed checkout, which is `supabase link`-ed to prod
    supabase db dump --linked -f drill-schema.sql          # schema + roles
    supabase db dump --linked --data-only -f drill-data.sql # data
    ```
