@@ -244,3 +244,55 @@ Decision #51 in `gastenlijst-app-spec.md`.
 Backoff: 2, 4, 8, 16 min. Tokens FCM reports as `UNREGISTERED`,
 `SENDER_ID_MISMATCH` or an invalid registration token are deleted immediately.
 Finished outbox rows are dropped after 30 days.
+
+## Bundling under load (N1, z8uq9m2yvk)
+
+Per company (venue) and per kind (`quota_request_created`, `guest_request_created`):
+more than 10 new requests in 60 minutes switches that pair to **bundling for 24 hours**.
+Each approver then gets at most one push per hour: "20 new requests" /
+"20 new quota requests". `quota_request_decided` is never bundled. Decision #52 in the spec;
+migration `20261007110000_notification_throttle.sql`.
+
+- A bundled row is `pending` with `collapse_key` set and `next_attempt_at = deliver_after`
+  (the end of its hourly slot, counted from the moment bundling began). Nothing claims it
+  earlier, and its insert does not kick the function.
+- **The hourly kick is the existing 2-minute sweep:** it wakes `push-dispatch` as soon as a
+  slot is due. No extra cron job.
+- `claim_push_outbox` hands a due slot out as one row per recipient (newest request's
+  payload + `count`); `complete_push_outbox` on that row settles every member of the slot.
+- A `push-dispatch` deployed before N1 still works against the new schema (same RPC shape):
+  it just words a digest like a single request until it is redeployed.
+
+```sql
+-- which venues are bundling right now
+select venue_id, kind, throttled_at, throttled_until
+from public.notification_throttle where throttled_until > now();
+
+-- slots waiting for their hour
+select collapse_key, recipient_user_id, count(*), min(deliver_after)
+from public.notification_outbox
+where status = 'pending' and collapse_key is not null
+group by 1, 2 order by 4;
+```
+
+Ending a bundling period early (support): `update public.notification_throttle set
+throttled_at = null, throttled_until = null where venue_id = '…';` from the SQL editor.
+This only ends bundling once the last 60 minutes hold ≤ 10 requests of that kind: the
+window counts bundled rows too, so a still-busy venue re-enters on its next request with a
+new anchor (new slots), while the old slot's rows still wait for the old slot end, and the
+approver can get two digests within one hour. To flush the waiting slots now as well:
+
+```sql
+update public.notification_outbox
+set next_attempt_at = now()
+where status = 'pending' and collapse_key like 'digest:%:<venue_id>:%';
+```
+
+Known edge (accepted): a request transaction that starts just before a slot end and commits
+just after that slot was claimed lands in the already-claimed slot and goes out later on its
+own (count 1, single-request copy): a second push in that hour. The window is milliseconds
+against a 2-minute sweep.
+
+A `complete_push_outbox` only settles the slot members of its own claim (same `locked_at`).
+Under a > 200-row backlog two concurrent claims can each take part of one slot; the approver
+then gets two digests with partial counts, never a re-send.
