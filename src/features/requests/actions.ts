@@ -1,7 +1,6 @@
 'use server';
 
 import { createHash, randomBytes } from 'node:crypto';
-import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { landingClientIpHash, landingClientIpForVerify } from './ip-hash';
@@ -159,7 +158,7 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
 export async function approveGuestRequest(input: ApproveGuestRequestInput): Promise<ActionResult> {
   const parsed = approveGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { requestId, tierId, eventId, plusOnes, message } = parsed.data;
+  const { requestId, tierId, plusOnes, message } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -175,10 +174,6 @@ export async function approveGuestRequest(input: ApproveGuestRequestInput): Prom
   });
   if (error) return mapMutationError(error);
 
-  if (eventId) {
-    revalidatePath(`/events/${eventId}/requests`);
-    revalidatePath(`/events/${eventId}/guests`);
-  }
   return { ok: true };
 }
 
@@ -186,7 +181,7 @@ export async function approveGuestRequest(input: ApproveGuestRequestInput): Prom
 export async function denyGuestRequest(input: DenyGuestRequestInput): Promise<ActionResult> {
   const parsed = denyGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { requestId, reason, eventId } = parsed.data;
+  const { requestId, reason } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -210,6 +205,5 @@ export async function denyGuestRequest(input: DenyGuestRequestInput): Promise<Ac
     .eq('status', 'pending');
   if (error) return mapMutationError(error);
 
-  if (eventId) revalidatePath(`/events/${eventId}/requests`);
   return { ok: true };
 }

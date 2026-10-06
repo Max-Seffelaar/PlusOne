@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
 import type { VenueRole } from '@/features/auth/roles';
@@ -66,6 +65,5 @@ export async function setDefaultQuotaAction(
     return { ok: false, error: "Couldn't save the allowance (no access)." };
   }
 
-  revalidatePath('/admin/venue');
   return { ok: true, message: 'Allowance saved.' };
 }

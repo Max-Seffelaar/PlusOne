@@ -252,7 +252,10 @@ export async function updateVenueSettingsAction(
     return { ok: false, error: "Couldn't save the settings." };
   }
 
-  revalidatePath('/admin/venue');
+  // The /app layout renders the active venue's name in the shell header, so a
+  // rename re-renders it. (Was '/admin/venue', a dead route whose only effect
+  // was exactly this layout re-render — Snelheid P1 makes it explicit.)
+  revalidatePath('/app', 'layout');
   return { ok: true, message: 'Settings saved.' };
 }
 
@@ -317,7 +320,10 @@ export async function updateMemberRolesAction(
     return { ok: false, error: "Couldn't change the roles (no access)." };
   }
 
-  revalidatePath('/admin/team');
+  // Only the caller's OWN roles reach the /app layout (role label, access set);
+  // another member's change is picked up by po's own React Query keys. (Was
+  // '/admin/team', a dead route that re-rendered the layout on every change.)
+  if (userId === user.id) revalidatePath('/app', 'layout');
   return { ok: true, message: 'Roles updated.' };
 }
 
@@ -371,7 +377,9 @@ export async function removeMemberAction(
     return { ok: false, error: "Couldn't remove the member (no access, or MFA required)." };
   }
 
-  revalidatePath('/admin/team');
+  // Same rule as updateMemberRolesAction: only removing YOURSELF changes what
+  // the /app layout renders (your access set).
+  if (userId === user.id) revalidatePath('/app', 'layout');
   return { ok: true, message: 'Access to this venue revoked.' };
 }
 

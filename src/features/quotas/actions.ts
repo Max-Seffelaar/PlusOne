@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
@@ -59,8 +58,6 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
   } as Database['public']['Tables']['quota_requests']['Insert']);
   if (error) return mapMutationError(error);
 
-  revalidatePath(`/events/${eventId}/guests`);
-  revalidatePath(`/events/${eventId}/quota-requests`);
   return { ok: true };
 }
 
@@ -70,7 +67,8 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
  * exactly the four granted columns. RLS turns a row the caller may not decide
  * (already decided, other venue, not an admin) into UPDATE 0, not an error, so
  * the deny asks for the updated id back and treats zero rows as a refusal.
- * eventId is only used to revalidate the right paths.
+ * eventId is accepted for caller compatibility only (it used to pick the
+ * paths to revalidate; po invalidates its own React Query keys instead).
  */
 export async function decideQuotaRequest(
   input: DecideQuotaRequestInput & { eventId?: string }
@@ -104,9 +102,5 @@ export async function decideQuotaRequest(
     if (!data || data.length === 0) return NOT_DECIDABLE;
   }
 
-  if (input.eventId) {
-    revalidatePath(`/events/${input.eventId}/guests`);
-    revalidatePath(`/events/${input.eventId}/quota-requests`);
-  }
   return { ok: true };
 }
