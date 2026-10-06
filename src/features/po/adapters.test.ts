@@ -233,6 +233,7 @@ describe('toPoGuest', () => {
     note_acknowledged_at: null,
     created_at: '2024-11-28T12:00:00Z',
     contact_id: 'c1',
+    anonymized_at: null,
     source: 'app',
     addedByName: 'Max Seffelaar',
     linkLabel: null,
@@ -257,6 +258,11 @@ describe('toPoGuest', () => {
       contactId: 'c1',
     });
     expect(g.addedAt).toBe('28 Nov');
+  });
+
+  it('z8uq9m2x43: flags an anonymized guest row (kept out of bulk add-to-event)', () => {
+    expect(toPoGuest(row, { role: 'VIP' }).anonymized).toBe(false);
+    expect(toPoGuest({ ...row, anonymized_at: '2026-10-06T10:00:00Z' }, { role: 'VIP' }).anonymized).toBe(true);
   });
 
   it('marks the note acknowledged once note_acknowledged_at is set', () => {
@@ -534,6 +540,7 @@ describe('toPoContactProfile', () => {
     isPermanent: true,
     source: 'manual',
     createdAt: '2024-11-03T12:00:00Z',
+    anonymized: false,
   };
   // Two events: a VIP they attended (Dec) and a refused one with no tier (Nov).
   const appearances: ContactAppearance[] = [
@@ -589,6 +596,11 @@ describe('toPoContactProfile', () => {
     },
   ];
   const actorNames = { 'u-max': 'Max', 'u-door': 'Sanne' };
+
+  it('z8uq9m2x43: forgotten follows contacts.anonymized_at', () => {
+    expect(toPoContactProfile(header, appearances, actorNames).forgotten).toBe(false);
+    expect(toPoContactProfile({ ...header, anonymized: true }, appearances, actorNames).forgotten).toBe(true);
+  });
 
   it('maps the header, derives the stat strip, and formats the dates (Amsterdam)', () => {
     const v = toPoContactProfile(header, appearances, actorNames);

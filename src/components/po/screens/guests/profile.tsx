@@ -386,8 +386,9 @@ export function ContactProfile({
         title={title}
         right={
           // Only a saved contact can be made "Regular" (the flag lives on the
-          // contact) — and never for a door-only viewer (G4).
-          p.isContact && !doorOnly ? (
+          // contact) — never for a door-only viewer (G4), never for a forgotten
+          // one (z8uq9m2x43: the row is frozen in the DB).
+          p.isContact && !doorOnly && !p.forgotten ? (
             <button
               type="button"
               onClick={onStar}
@@ -442,7 +443,12 @@ export function ContactProfile({
             only). Hiding the CTA for staff would kill the still-working e-mail/phone
             path too (their only edit affordance for a name-only guest); the
             name-only-specific denial gets a targeted hint instead (profile-sheets.tsx). */}
-        {doorOnly ? null : p.isContact ? (
+        {doorOnly ? null : p.isContact && p.forgotten ? (
+          // z8uq9m2x43: a forgotten contact is read-only — "we do not know who
+          // they are". contacts_guard_anonymized + guests_contact_same_venue
+          // refuse the edit / add in the DB; this only keeps dead buttons away.
+          <Note icon="shield">{t.guests.contactProfile.forgottenNote}</Note>
+        ) : p.isContact ? (
           <>
             <div className="mb-4 flex gap-2">
               <Btn kind="ghost" full onClick={() => setEditing(true)}>
@@ -562,7 +568,7 @@ export function ContactProfile({
         )}
       </Scroll>
 
-      {editing && (
+      {editing && !p.forgotten && (
         <ContactEditSheet
           contact={contact}
           onClose={() => setEditing(false)}
@@ -577,8 +583,8 @@ export function ContactProfile({
         />
       )}
       {forgetting && <ForgetConfirmSheet contact={contact} onClose={() => setForgetting(false)} />}
-      {confirmStar && <PermanentConfirmSheet contact={contact} onClose={() => setConfirmStar(false)} />}
-      {adding && (
+      {confirmStar && !p.forgotten && <PermanentConfirmSheet contact={contact} onClose={() => setConfirmStar(false)} />}
+      {adding && !p.forgotten && (
         <AddToEventSheet
           contact={contact}
           upcoming={upcoming}

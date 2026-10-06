@@ -72,6 +72,9 @@ export interface Guest {
   inBy?: string;
   /** Linked address-book contact (live data); absent in the mock. */
   contactId?: string | null;
+  /** guests.anonymized_at is set (AVG erasure, #29) — the row is "Guest #n" and
+   *  never goes onto another event (z8uq9m2x43). */
+  anonymized?: boolean;
   /** Where the name came from (guests.source). Rendered through
    *  `guestSourceLabel` (src/features/po/format.ts) — never read raw in a screen. */
   source?: GuestSource;
