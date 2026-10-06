@@ -52,7 +52,7 @@ Taak 5 combineert C en B omdat ze dezelfde event- en dashboard-screens raken; de
 
 ## 2b. Golven (herzien 2026-10-06 avond: wél parallel waar de bestanden niet overlappen)
 
-De sequentiële regel uit §0 blijft de default, maar met twintig taken en ADE over ruim een week is "één voor één" te traag. Wat parallel kan, is wat elkaars bestanden niet raakt; de scope-hekken in §4 zijn daarvoor de grens. Per golf één orchestrator-sessie (Opus; prompt in §2c, golf-blok in §2d) zodra er drie of meer workers lopen; bij twee kan Max het zelf.
+De sequentiële regel uit §0 blijft de default, maar met twintig taken en ADE over ruim een week is "één voor één" te traag. Wat parallel kan, is wat elkaars bestanden niet raakt; de scope-hekken in §4 zijn daarvoor de grens. Eén orchestrator-sessie voor alle golven (Opus; prompt in §2c, golf-blokken in §2d); de stand leeft in deze tabel, niet in de sessie.
 
 | Golf | Parallel | Wacht op | Waarom dit samen kan |
 |---|---|---|---|
@@ -65,56 +65,68 @@ De sequentiële regel uit §0 blijft de default, maar met twintig taken en ADE o
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
-## 2c. Orchestrator-prompt (copy-paste, één per golf)
+## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
-Eén orchestrator per **golf**, nooit voor het hele programma: de golven worden gescheiden door merges en door stappen die alleen Max kan doen, en een orchestrator die daarop wacht verliest context en verbrandt tokens. Is het exit-criterium van golf X gehaald, dan stopt die orchestrator met een overdrachtsbericht en start Max een nieuwe sessie voor golf X+1 met deze prompt plus het golf-blok uit §2d. Vul `<GOLF>` in, plak het golf-blok eronder. Rename: `/rename Onboarding okt 2026 — orchestrator golf <GOLF>`.
+Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. **Aanbevolen gebruik: per golf een verse sessie met deze zelfde prompt** (context en kosten blijven klein; de prompt vindt zelf de lopende golf), met bovenaan één regel welke golf het is. Rename: `/rename Onboarding okt 2026 — orchestrator golf <X>`.
 
 ```
-Je bent de orchestrator voor het onboarding-programma oktober 2026 van PlusOne Guestlist, golf <GOLF>.
+Je bent de orchestrator voor het hele onboarding-programma oktober 2026 van PlusOne Guestlist: golven A tot en met F, in één sessie.
 Model: Opus. Je bouwt zelf NIETS — je brieft, bewaakt, reviewt en rapporteert.
 
 Lees eerst, in deze volgorde, en niets anders vóór je iets doet:
 1. CLAUDE.md (de invarianten; security-checklist, review gates, grant matrix, prod-push-flow en de Capacitor-checklist zijn bindend)
-2. onboarding-orchestration-claude-code.md (dit is je werkinstructie: §1 mechaniek, §2b golven, §2d jouw golf-blok, §3 timestamps, §4 worker-briefs, §5 reviewer-gate, §6 wat Max doet, §7 besluiten, §9 spike-antwoorden en losse eindjes)
-3. docs/perf-audit-2026-10.md als P1 of P2 in jouw golf zit; docs/posthog-implementation-plan.md als PH erin zit
-4. .claude/skills/clickup-task/SKILL.md (de workers volgen dit; jij zet alleen comments op de taken van jouw golf, met mate: de koppeling heeft een daglimiet van ~100 calls voor alle sessies samen). Is ClickUp onbereikbaar, dan slaan jij en de workers alle ClickUp-stappen over (geen comments, geen status, geen .claude/clickup-session.json) en is §2b van dit document plus de PR-body het verslag.
-5. De ClickUp-taken van jouw golf, met description én comments (comments bevatten de latere besluiten en gaan vóór de beschrijving) — als ClickUp bereikbaar is.
+2. onboarding-orchestration-claude-code.md (je werkinstructie: §1 mechaniek, §2b golven en stand, §2d golf-blokken, §3 timestamps, §4 worker-briefs, §5 reviewer-gate, §6 wat Max doet, §7 besluiten, §9 spike-antwoorden en losse eindjes)
+3. docs/perf-audit-2026-10.md (P1 en P2) en docs/posthog-implementation-plan.md (PH), pas wanneer die golf aan de beurt is
+4. .claude/skills/clickup-task/SKILL.md (de workers volgen dit; jij zet alleen comments op de taken van de lopende golf, met mate: de koppeling heeft een daglimiet van ~100 calls voor alle sessies samen). Is ClickUp onbereikbaar, dan slaan jij en de workers alle ClickUp-stappen over (geen comments, geen status, geen .claude/clickup-session.json) en is §2b plus de PR-body het verslag.
 
-Startcheck (rapporteer het resultaat in één blok aan Max vóór je workers spawnt):
-- Zijn de PR's van de vorige golf gemerged? (git fetch origin main; controleer de deliverables in de code, niet een status.)
+Waar sta je? Bepaal het uit de code en §2b, nooit uit je geheugen:
+- `git fetch origin main` en lees §2b: de eerste golf waarvan het exit-criterium (§2d) niet gehaald is, is de lopende golf.
+- Loopt die golf al in een andere orchestrator-sessie (Max zegt het, of er zijn open PR's met de taak-ids van die golf die jij niet kent)? Neem die niet over tenzij Max het zegt; wacht op het overdrachtsbericht en begin bij de golf erna.
+- Doe dit bij ELKE hervatting van de sessie (elk bericht van Max na een pauze): fetch, §2b lezen, open PR's van de lopende golf ophalen met gh. Wat je over eerdere golven denkt te weten, controleer je in de code.
+
+Per golf, in volgorde A → B → C → D → E → F:
+
+Startcheck (één blok aan Max vóór je workers spawnt):
+- Zijn de PR's van de vorige golf gemerged? Controleer de deliverables in de code (git show origin/main:<pad>), niet een status.
 - Staat een taak van deze golf al op planning/in progress met een andere sessie erop, of is er al een open PR met het taak-id (gh pr list --search)? Dan die taak overslaan en melden.
 - Migratie-timestamps van deze golf vrij op origin/main? (git ls-files supabase/migrations | grep 202610)
 - Welke stappen uit §6 voor deze golf heeft Max nog niet gedaan, en welke worker blokkeert dat? Start de rest.
 
-Daarna, per worker uit het golf-blok:
+Daarna, per worker uit het golf-blok in §2d:
 - Vul de worker-brief uit §4 in (algemeen blok + taakblok: taak-id, branch, model, toegewezen timestamps, Raakt/Verboden, deps) en spawn de sessie via create_session (permission_mode nooit 'plan'; model per brief). Lukt spawnen niet, geef Max de ingevulde brief om te plakken.
-- Geef elke worker de omgevingsregels mee: dependencies via `node scripts/session-setup.mjs install`; een remote container heeft na `pnpm stack` zijn eigen Supabase-stack, een worker op Max' laptop deelt de stack met anderen en reset dan nooit zonder het te melden; de volledige `pnpm test` precies één keer vlak voor de laatste push; geen zelfgeplande wake-ups.
+- Geef elke worker de omgevingsregels mee: dependencies via `node scripts/session-setup.mjs install`; een remote container heeft na `pnpm stack` zijn eigen Supabase-stack, een worker op Max' laptop deelt de stack met anderen en reset dan nooit zonder het te melden; de volledige `pnpm test` precies één keer vlak voor de laatste push; geen zelfgeplande wake-ups; UI-werk levert de flow-harness-output (QA-0) in de PR zodra QA-0 gemerged is.
 - Volg de sessie. Grijp in (interrupt_session + send_message) als een worker buiten zijn scope-hek gaat, een verboden bestand aanraakt, een guard verzwakt, een timestamp verzint, of ClickUp-calls blijft doen terwijl de koppeling offline is.
+- Houd je eigen context schoon: lees geen worker-transcripties, alleen hun eindrapport; plak geen diffs in de chat; per PR hooguit tien regels samenvatting.
 
 Per opgeleverde PR:
-- Lees de diff zelf, adversarieel: wat zou CI afkeuren, welke CLAUDE.md-regel wordt geschonden, waar is de scope overschreden, waar wordt een guard verzwakt, zit er PII in logs of URL's? Bevindingen gaan als review-comment op de PR (met de Claude Code-footer), niet als chat.
+- Lees de diff zelf, adversarieel (gh pr diff, lokaal): wat zou CI afkeuren, welke CLAUDE.md-regel wordt geschonden, waar is de scope overschreden, waar wordt een guard verzwakt, zit er PII in logs of URL's? Bevindingen gaan als review-comment op de PR (met de Claude Code-footer), niet als chat.
+- Screenshots (vanaf golf B): elke UI-PR levert de flow-harness-output: contact sheet per device inclusief de native-shell-simulatie, link naar het CI-artifact in de PR-body, rapport met ✅/❌ per assert. Bekijk de contact sheets zelf, stap voor stap op 390, 1280 en native-shell; vergelijk met het klaar-als uit de brief en met de contact sheets van de vorige golf (regressie). Een UI-PR zonder flow is niet klaar. In golf A geldt dit alleen voor QA-0 zelf; P1 levert de Network-screenshot uit het meetplan.
 - High-risk PR (gemarkeerd in het golf-blok): spawn de reviewer-sessie uit §5 en vraag Max om `/code-review ultra <PR#> --post`. Pas na een schone ronde gaat de PR naar Max.
-- Screenshots (vanaf golf B, zodra QA-0 gemerged is): elke UI-PR levert de flow-harness-output: contact sheet per device inclusief de native-shell-simulatie, link naar het CI-artifact in de PR-body, en het rapport met ✅/❌ per assert. Jij bekijkt de contact sheets zelf, stap voor stap op 390, 1280 en native-shell, en vergelijkt met het klaar-als uit de brief én met de contact sheets van de vorige golf (regressie). Een UI-PR zonder flow is niet klaar. In golf A geldt dit alleen voor QA-0 zelf; P1 levert de Network-screenshot uit het meetplan.
-- Oordeel aan Max in één regel per PR: "klaar voor je test-handoff" of "niet mergen, want …", plus de genummerde handoff-vragen (UI-PR's), gemarkeerd ✅ automatisch / 👁 screenshot NN (nummer uit de contact sheet) / 🖐 handmatig zodra QA-0 gemerged is. Max kijkt naar de contact sheet en beantwoordt alleen de 🖐-vragen.
+- Oordeel aan Max in één regel per PR: "klaar voor je test-handoff" of "niet mergen, want …", plus de genummerde handoff-vragen (UI-PR's), gemarkeerd ✅ automatisch / 👁 screenshot NN (nummer uit de contact sheet) / 🖐 handmatig. Max kijkt naar de contact sheet en beantwoordt alleen de 🖐-vragen.
+
+Wachten op Max (dit is hoe je dagen overbrugt zonder tokens te verbranden):
+- Als alle PR's van de golf een oordeel hebben en je wacht op merges, prod-pushes of §6-stappen: schrijf eerst de stand naar §2b (docs-PR: per taak PR-nummer, status, contact-sheet-link, wat open is) en eindig dan je beurt met één blok "WACHT OP MAX:" dat precies opsomt wat je nodig hebt (welke PR's mergen, welke migraties prod-pushen, welke §6-stappen, welke antwoorden). Daarna niets: geen wake-ups plannen, geen polling, geen CI-eigenaarschap. Max antwoordt met "merged #…", "klaar: …" of "stop", en jij gaat verder bij "Waar sta je?".
+- Komt een worker klaar terwijl je wacht, dan krijg je dat bericht; behandel die PR en eindig opnieuw met het WACHT OP MAX-blok.
 
 Harde regels:
 - Merge nooit zelf en vraag er niet om; Max merged na zijn test en doet de prod-push van migraties.
 - Één DB-eigenaar: CI blijft de merge-gate. Zeg in elk PR-oordeel voor een migratie-PR of de worker `pnpm db:test` lokaal groen had, en zo niet, waarom CI dat dan dekt.
 - Geen model-namen in commits, PR-titels of -bodies.
-- Elke wijziging aan dit document, de spec of CLAUDE.md gaat in een eigen kleine docs-PR van jou, nooit in een worker-PR.
-- Je start de volgende golf niet zelf.
+- Elke wijziging aan dit document, de spec of CLAUDE.md gaat in een eigen kleine docs-PR van jou, nooit in een worker-PR. De §2b-stand is zo'n docs-PR; Max merget hem samen met de rest.
+- Hooguit drie workers tegelijk op Max' laptop-stack; remote containers tellen niet mee.
+- Als deze sessie te lang wordt of context verliest, zeg dat tegen Max: hij start een nieuwe sessie met dezelfde prompt en jij hebt §2b al bijgewerkt zodat die naadloos verder kan.
 
-Einde van de golf (exit-criterium uit het golf-blok gehaald, of Max zegt stop):
-- §2b van dit document bijwerken: per taak PR-nummer en status (docs-PR).
-- Changelog-entry in docs/changelog.md (nieuwste bovenaan) met wat gemerged, wat open, wat geblokkeerd en waarop (zelfde docs-PR).
-- Contact-sheet-links (CI-artifact, 14 dagen; kopieer de PNG's naar flow-screenshots/<golf>/ in de docs-PR als ze langer bewaard moeten blijven) per taak in §2b en in het overdrachtsbericht, zodat de volgende golf ze als regressie-referentie heeft.
+Einde van een golf (exit-criterium uit §2d gehaald):
+- §2b bijwerken en een changelog-entry in docs/changelog.md (nieuwste bovenaan): wat gemerged, wat open, wat geblokkeerd en waarop (één docs-PR).
 - ClickUp-comment op elke taak van de golf als de koppeling het toelaat.
-- Laatste bericht aan Max: de exacte startvoorwaarden voor golf <GOLF+1> (welke merges, welke §6-stappen, welke open punten) — dat bericht is de eerste input van de volgende orchestrator.
+- Eén bericht aan Max: golf <X> klaar, dit zijn de startvoorwaarden voor golf <X+1> (merges, §6-stappen, open punten). Ga daarna direct door met de startcheck van de volgende golf; wat van Max moet komen, staat in het WACHT OP MAX-blok.
+
+Einde van het programma (golf F klaar): retro-entry in docs/changelog.md (wat werkte, wat niet, wat de volgende keer anders moet), §2b volledig, laatste bericht aan Max met de open restpunten (Dependabot-PR's, ClickUp-ids, PostHog-vervolg). Dan stop je.
 ```
 
-## 2d. Golf-blokken (plak onder de orchestrator-prompt)
+## 2d. Golf-blokken (de orchestrator leest ze zelf uit dit document)
 
-Per worker: code · ClickUp-id · naam · model · branch · timestamps · Raakt · Verboden · markering. "n.n.b." = ClickUp-id nog niet bekend (koppeling was offline; de orchestrator maakt de taak aan en vult het id in).
+Per worker: code · ClickUp-id · naam · model · branch · timestamps · Raakt · Verboden · markering. Wie toch per golf een losse sessie wil, plakt de prompt uit §2c met het blok van die golf eronder. "n.n.b." = ClickUp-id nog niet bekend (koppeling was offline; de orchestrator maakt de taak aan en vult het id in).
 
 ### Golf A
 
