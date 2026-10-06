@@ -43,6 +43,23 @@ describe('csvField — formula-injection guard', () => {
     );
   });
 
+  // Dutch Excel splits a .csv on `;`: an unquoted `Jan;=HYPERLINK(...)` would
+  // put a live formula in the second cell. Quoting keeps it one text cell.
+  it('quotes a field with a semicolon so a locale split cannot start a formula', () => {
+    expect(csvField('Jan;=HYPERLINK("https://evil.example","x")')).toBe(
+      `"Jan;=HYPERLINK(""https://evil.example"",""x"")"`,
+    );
+    expect(csvField('a;b')).toBe('"a;b"');
+  });
+
+  it('quotes a field with a TAB mid-field', () => {
+    expect(csvField('Jan\t=1+1')).toBe('"Jan\t=1+1"');
+  });
+
+  it('guards a formula behind leading spaces', () => {
+    expect(csvField('  =1+1')).toBe(`'  =1+1`);
+  });
+
   it('does not touch the characters mid-field', () => {
     expect(csvField('a=b')).toBe('a=b');
     expect(csvField('Anne-Marie')).toBe('Anne-Marie');
