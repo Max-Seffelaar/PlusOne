@@ -9,10 +9,11 @@
 // these fields is free text a guest typed into a public form, so a request with
 // the name `=HYPERLINK("https://evil.example","click")` must not become a live
 // formula on the venue admin's laptop. Any STRING cell starting with one of
-// those characters gets a leading apostrophe, which spreadsheets render as
-// "text" and hide. Trade-off, accepted on purpose: E.164 phone numbers start
-// with "+", so they arrive as '+31612345678 — visible as +31612345678 in Excel,
-// but with the apostrophe in a plain-text viewer. Numbers and booleans are
+// those characters gets a leading apostrophe, so it is read as text. Opening a
+// .csv does NOT hide that apostrophe (hiding it is a typed-in-cell convention):
+// it stays visible in Excel, LibreOffice and Sheets alike. Trade-off, accepted
+// on purpose: E.164 phone numbers start with "+", so they arrive as
+// '+31612345678. Do not drop the guard to "fix" that. Numbers and booleans are
 // written as-is (they are ours, not user input) and are never prefixed.
 
 export type CsvValue = string | number | boolean | null | undefined;

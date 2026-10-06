@@ -23,7 +23,7 @@ import { EXPORT_MAX_ROWS, EXPORT_PAGE_SIZE } from './schemas';
 
 type Client = SupabaseClient<Database>;
 
-export type ExportTable = 'guests' | 'contacts' | 'requests' | 'door';
+export type ExportTable = 'guests' | 'contacts' | 'requests' | 'door' | 'events' | 'tiers' | 'links';
 
 export class ExportTooLargeError extends Error {
   constructor(readonly table: ExportTable) {
@@ -102,7 +102,7 @@ export async function collectVenueExport(
   eventId: string | null,
 ): Promise<ExportFiles> {
   // ── Lookups: events, tiers, request links (venue- or event-scoped) ─────────
-  const events = await pageAll('guests', (from, to) => {
+  const events = await pageAll('events', (from, to) => {
     let q = client.from('events').select('id, name, starts_at').eq('venue_id', venueId);
     if (eventId) q = q.eq('id', eventId);
     return q.order('id').range(from, to);
@@ -110,14 +110,14 @@ export async function collectVenueExport(
   const eventById = new Map(events.map((e) => [e.id, e]));
   const eventName = (id: string): string => eventById.get(id)?.name ?? '';
 
-  const tiers = await pageAll('guests', (from, to) => {
+  const tiers = await pageAll('tiers', (from, to) => {
     let q = client.from('guest_tiers').select('id, name').eq('venue_id', venueId);
     if (eventId) q = q.eq('event_id', eventId);
     return q.order('id').range(from, to);
   });
   const tierName = new Map(tiers.map((t) => [t.id, t.name]));
 
-  const links = await pageAll('requests', (from, to) => {
+  const links = await pageAll('links', (from, to) => {
     let q = client.from('request_links').select('id, label, slug').eq('venue_id', venueId);
     if (eventId) q = q.eq('event_id', eventId);
     return q.order('id').range(from, to);
@@ -202,7 +202,10 @@ export async function collectVenueExport(
     if (error) throw error;
     for (const p of data ?? []) actorName.set(p.id, p.full_name);
   }
-  const actor = (id: string | null): string => (id ? (actorName.get(id) ?? id) : '');
+  // No uuid fallback: an id whose profile is unreadable (a former team member,
+  // can_view_profile denies after their membership went, #24) is still a
+  // personal identifier and tells the venue nothing. Leave the cell empty.
+  const actor = (id: string | null): string => (id ? (actorName.get(id) ?? '') : '');
 
   // ── Build rows ──────────────────────────────────────────────────────────────
   const lastSeen = new Map<string, { at: string; name: string }>();
