@@ -36,7 +36,7 @@ begin
 end;
 $fn$;
 
-select plan(30);
+select plan(32);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the seed)
@@ -88,6 +88,12 @@ insert into public.guest_requests
 select has_function('public', 'log_venue_export',
   array['uuid', 'integer', 'integer', 'integer', 'integer', 'uuid'],
   'log_venue_export exists');
+
+select is(
+  (select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'log_venue_export'),
+  1,
+  'exactly one log_venue_export overload (the draft signature is dropped)');
 
 select is(
   (select p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -305,6 +311,20 @@ select is(
     where admin_id = '11111111-1111-4111-8111-111111111111'),
   0,
   'a venue admin''s own exports write no platform_access_log row');
+
+-- A platform admin who IS a real admin member of the venue exports as that
+-- admin: no platform_access_log row.
+insert into public.venue_memberships (venue_id, user_id, roles) values
+  ('aa000000-0000-7000-8000-000000000002', '9e000000-0000-4000-8000-0000000000e1', '{admin}');
+select pg_temp.login('9e000000-0000-4000-8000-0000000000e1');
+select public.log_venue_export('aa000000-0000-7000-8000-000000000002', 0, 0, 0, 0);
+reset role;
+select is(
+  (select count(*)::int from public.platform_access_log
+    where admin_id = '9e000000-0000-4000-8000-0000000000e1'
+      and venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  0,
+  'a platform admin with a real admin membership writes no platform_access_log row');
 
 select * from finish();
 rollback;

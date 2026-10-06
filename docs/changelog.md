@@ -36,7 +36,10 @@ locally; a platform admin's export now also writes `platform_access_log` (reason
 when they are no admin member; `p_event_id` moved last with `default null` so the generated
 type is `p_event_id?: string`; no raw user uuid in the CSV for an unreadable (former) actor;
 lookup tables named in `ExportTooLargeError`; pgTAP counts scoped to the test transaction
-(26 → 30 asserts). pgTAP 77 files / 1869 green locally. Open: measure an export near the
+(26 → 30 asserts). Round 2: `drop function if exists` for the draft signature (a dev stack that
+ran the earlier draft kept two overloads → PostgREST PGRST203 on event exports; reproduced
+locally, fixed), pgTAP pins one overload + the platform-admin-with-membership branch (32).
+pgTAP 77 files / 1871 green locally. Open: measure an export near the
 50 000 cap on a preview deployment (Vercel duration/payload) before trusting the constant. Not done: the plan's e2e smoke (admin downloads, file has the seed
 guest) — Vitest covers the content against a fake client instead.
 

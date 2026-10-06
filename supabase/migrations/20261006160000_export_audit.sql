@@ -52,6 +52,13 @@
 -- 1. log_venue_export
 -- ---------------------------------------------------------------------------
 
+-- An earlier draft of this same (never-released) migration had p_event_id
+-- second. `create or replace` with a different parameter list ADDS an
+-- overload, and two overloads with the same parameter names make PostgREST
+-- refuse event-scope calls (PGRST203). Drop the draft signature so the file is
+-- idempotent on any dev stack that ran it; a no-op everywhere else.
+drop function if exists public.log_venue_export(uuid, uuid, integer, integer, integer, integer);
+
 create or replace function public.log_venue_export(
   p_venue_id uuid,
   p_guests integer,
