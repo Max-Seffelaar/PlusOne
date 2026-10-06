@@ -17,9 +17,22 @@ the door and the scale track; this document does not repeat it.
 | 4 | `AppScreens` reads no query; single-event read for event detail. `usePoEvents` staleTime NOT raised: guest writes don't invalidate the events list (`mutations.ts` `invalidateAfterAdd`), so the premise "writes already invalidate" is false for headcounts. Windowing stays P2. |
 | 5 | Badge = role-gated `head` count. The full list on Home/Aanvragen (and the `.in()` link labels) stays P2. |
 | 7 | Done (module-scope preload, browser-only). |
-| 8 | Index + `count: 'estimated'` done. "Map event names with `select` instead of waiting" not done: it needs the `useVenueGuests` call site in `screens/guests/index.tsx` (outside the P1 fence). |
+| 8 | Index done; count stays `exact` (review: `estimated` read ~3x too low past 1000 guests; with the index `exact` is ~0.47 s at 30k, was 1.0 s). "Map event names with `select` instead of waiting" not done: it needs the `useVenueGuests` call site in `screens/guests/index.tsx`. |
 | Advisor `auth_rls_initplan` | Done (`invites_select`); the advisor matched the policy text, the old form was already an initplan. |
 | 6, 9–14, other advisors | P2. |
+
+P2 follow-ups from the P1 review (PR #408), not built in P1:
+
+- **Own organizer scope:** the removed `revalidateEvent` calls re-rendered the `/app` layout, which derives the crew
+  access set (`organizerVenues`). When an admin changes their OWN organizer scope (`assignOrganizer`,
+  `removeOrganizer`, `inviteExternalCrew`), the venue switcher stays stale until a reload. Fix: `if (userId ===
+  user.id) revalidatePath('/app', 'layout')` (same rule as the venue member actions) and allow that one call in
+  `tests/unit/no-dead-revalidate-path.test.ts`.
+- **Single-event headcounts:** `usePoEvent`'s cache-miss path calls `venue_event_headcounts` with `p_since =
+  starts_at`, which aggregates every event after that one (the oldest event's recap is close to full history) and
+  runs as a second sequential round-trip. Fix: a `p_event_id` filter on the RPC (SECURITY INVOKER) or a direct count.
+- **`usePoEvents` staleTime:** raise to minutes only after the guest mutation hooks invalidate `poKeys.events`
+  (`mutations.ts` `invalidateAfterAdd` and the edit/remove paths), so the Events-card headcounts can't go stale.
 
 ## The four root causes
 

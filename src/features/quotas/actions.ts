@@ -67,12 +67,8 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
  * exactly the four granted columns. RLS turns a row the caller may not decide
  * (already decided, other venue, not an admin) into UPDATE 0, not an error, so
  * the deny asks for the updated id back and treats zero rows as a refusal.
- * eventId is accepted for caller compatibility only (it used to pick the
- * paths to revalidate; po invalidates its own React Query keys instead).
  */
-export async function decideQuotaRequest(
-  input: DecideQuotaRequestInput & { eventId?: string }
-): Promise<ActionResult> {
+export async function decideQuotaRequest(input: DecideQuotaRequestInput): Promise<ActionResult> {
   const parsed = decideQuotaRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
   const { requestId, decision, reason } = parsed.data;

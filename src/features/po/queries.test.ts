@@ -244,8 +244,7 @@ describe('fetchVenueGuestsWindow (86ey9e8hz)', () => {
 
     const { rows, total } = await fetchVenueGuestsWindow(client, { venueId: 'venue-1' });
 
-    // Snelheid P1: exact below PostgREST's max-rows, planner estimate above it.
-    expect(capture.opts).toEqual({ count: 'estimated' });
+    expect(capture.opts).toEqual({ count: 'exact' });
     expect(capture.range).toEqual([0, VENUE_GUESTS_WINDOW - 1]); // one page, never fetchAllRanged
     expect(capture.ilike).toBeUndefined(); // no search term → no filter
     expect(total).toBe(4200); // the count, not the page length
@@ -262,17 +261,6 @@ describe('fetchVenueGuestsWindow (86ey9e8hz)', () => {
     await fetchVenueGuestsWindow(client, { venueId: 'venue-1', search: '  Bob  ' });
 
     expect(capture.ilike).toEqual({ col: 'full_name', pat: '%Bob%' });
-  });
-
-  it('never reports fewer guests than the window already holds (estimate clamp)', async () => {
-    const capture: WindowCapture = {};
-    const row = { id: 'g1', full_name: 'Ann', plus_ones: 0, status: 'approved', tier_id: null, note: null, note_priority: false, note_acknowledged_at: null, created_at: '2026-07-01T00:00:00Z', contact_id: null, anonymized_at: null, event_id: 'e1', guest_tiers: null };
-    const client = makeVenueGuestsClient(
-      { data: [row, { ...row, id: 'g2' }, { ...row, id: 'g3' }], error: null, count: 1 },
-      capture,
-    );
-    const { total } = await fetchVenueGuestsWindow(client, { venueId: 'venue-1' });
-    expect(total).toBe(3);
   });
 
   it('handles the to-many embed shape (array) and a null count', async () => {

@@ -198,9 +198,7 @@ export async function updateGuest(input: UpdateGuestInput): Promise<ActionResult
   const { error, count } = await supabase
     .from('guests')
     .update(patch, { count: 'exact' })
-    .eq('id', guestId)
-    .select('event_id')
-    .maybeSingle();
+    .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
   return { ok: true };
@@ -221,9 +219,7 @@ export async function changeGuestTier(input: ChangeTierInput): Promise<ActionRes
   const { error, count } = await supabase
     .from('guests')
     .update({ tier_id: tierId }, { count: 'exact' })
-    .eq('id', guestId)
-    .select('event_id')
-    .maybeSingle();
+    .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
   return { ok: true };
@@ -269,9 +265,7 @@ export async function removeGuest(guestId: string): Promise<ActionResult> {
   const { error, count } = await supabase
     .from('guests')
     .update({ status: 'removed' }, { count: 'exact' })
-    .eq('id', guestId)
-    .select('event_id')
-    .maybeSingle();
+    .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
   return { ok: true };

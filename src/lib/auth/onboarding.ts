@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getSessionUser } from './context';
-import { getMyMembershipsWithVenueState, getOrganizerVenues } from './memberships';
+import { getMyMemberships, getMyVenueOnboardingStates, getOrganizerVenues } from './memberships';
 
 // Self-service onboarding (#40). A new owner is provisioned invite-only and has
 // ZERO memberships on first login; the flow lets them create their first venue,
@@ -35,9 +35,9 @@ export async function getOnboardingState(): Promise<OnboardingState> {
   const user = await getSessionUser();
   if (!user) return { step: 'venue', venueId: null };
 
-  // Both reads are per-request cached (Snelheid P1): the `/app` layout fetches
-  // them in parallel anyway, so this gate adds no round-trip of its own.
-  const memberships = await getMyMembershipsWithVenueState();
+  // All three reads are per-request cached (Snelheid P1): the `/app` layout
+  // fetches them in one parallel wave, so this gate adds no round-trip.
+  const [memberships, venueStates] = await Promise.all([getMyMemberships(), getMyVenueOnboardingStates()]);
 
   if (memberships.length === 0) {
     // An event organizer has no venue membership but already has access to their
@@ -47,14 +47,12 @@ export async function getOnboardingState(): Promise<OnboardingState> {
     return { step: 'venue', venueId: null };
   }
 
-  const inOnboarding = memberships.find((m) => {
-    const onboarding = (m.venueSettings as { onboarding?: OnboardingFlags } | null)?.onboarding;
+  const inOnboarding = venueStates.find((v) => {
+    const onboarding = (v.settings as { onboarding?: OnboardingFlags } | null)?.onboarding;
     return onboarding !== undefined && onboarding.completed !== true;
   });
 
   if (!inOnboarding) return { step: 'done', venueId: null };
 
-  const hasPlan = Boolean(inOnboarding.planId);
-
-  return { step: hasPlan ? 'team' : 'plan', venueId: inOnboarding.venueId };
+  return { step: inOnboarding.planId ? 'team' : 'plan', venueId: inOnboarding.venueId };
 }

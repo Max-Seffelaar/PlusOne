@@ -196,21 +196,22 @@ export function AppShellChrome({
 
   // Contacts desktop-nav gate (T10).
   const canManageTemplates = usePoCanManageTemplates();
-  // Open-requests count for the nav badge (desktop sidebar + mobile More): one
-  // `head` count of pending requests (Snelheid P1, perf audit finding 5) — was
-  // the full venue-wide inbox read with PII, filtered here. OPEN = pending only,
-  // the shared definition, so this badge matches Home's tile and the event-card
-  // badge (T9). Role-gated to who `guest_requests_select` lets see any row
-  // (admin/finance, or an organizer at this venue); everyone else sends no query
-  // and reads 0, which is what RLS gave them before.
-  const canCountRequests = canSeeRequestInbox(roles) || canManageTemplates;
-  const openRequestCount = usePoOpenRequestCount(canCountRequests).data ?? 0;
   // PlusOne's own operator surface (P-04). Read HERE, beside the other chrome
   // reads, never in the shell root — a refetch must not be able to reach the
   // door subtree (86eykm76k). Visibility only: RLS is the boundary, so a
   // non-platform-admin typing /app/platform gets a "not available" screen with
   // no data behind it.
   const isPlatformAdmin = usePoIsPlatformAdmin();
+  // Open-requests count for the nav badge (desktop sidebar + mobile More): one
+  // `head` count of pending requests (Snelheid P1, perf audit finding 5) — was
+  // the full venue-wide inbox read with PII, filtered here. OPEN = pending only,
+  // the shared definition, so this badge matches Home's tile and the event-card
+  // badge (T9). Role-gated to who `guest_requests_select` lets see any row
+  // (admin/finance, or an organizer at this venue) plus a platform admin, whom
+  // `has_venue_role` lets read every venue (#49) even with `roles: []`; everyone
+  // else sends no query and reads 0, which is what RLS gave them before.
+  const canCountRequests = canSeeRequestInbox(roles) || canManageTemplates || isPlatformAdmin;
+  const openRequestCount = usePoOpenRequestCount(canCountRequests).data ?? 0;
 
   const currentKey =
     target.kind === 'tab' ? target.tab : target.kind === 'door' ? 'deur' : navKeyForScreen(target.name, target.props);

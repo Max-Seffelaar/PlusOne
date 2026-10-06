@@ -16,8 +16,8 @@ logging in the server client, removed again): one `/app` document load made **16
 waves, 9 of them GoTrue `getUser`** (plus the middleware's own), 3 `venue_memberships` reads. The audit's chain held,
 with one addition: the root `not-found.tsx` boundary also calls `getSessionUser` on every request.
 
-- **Layout chain (finding 2):** `getSessionUser`, `getAuthContext`, a new `getMyProfile`, `getMyMemberships` (now
-  `getMyMembershipsWithVenueState`, venue `settings` + `subscriptions(plan_id)` embedded for the onboarding gate) and
+- **Layout chain (finding 2):** `getSessionUser`, `getAuthContext`, a new `getMyProfile`, `getMyMemberships`, a new
+  `getMyVenueOnboardingStates` (venue `settings` + `subscriptions(plan_id)` for the onboarding gate) and
   `getOrganizerVenues` are React `cache()`d per request; MFA factors come from `user.factors` (what `listFactors()`
   returns, minus its extra `getUser`). `src/app/app/layout.tsx` fetches everything after the session check in one
   `Promise.all`; the gates still decide in the same order (login → demo window → onboarding → consent → MFA). After:
@@ -31,14 +31,18 @@ with one addition: the root `not-found.tsx` boundary also calls `getSessionUser`
 - **AppScreens / event detail (finding 4):** the screen switch reads no query any more; `lijst` mounts the guest list
   from the URL's event id (no events → guests waterfall). `usePoEvent` is a single-event read keyed under the venue's
   events prefix, seeded from the cached list. `usePoEvents` staleTime NOT raised: guest writes do not invalidate the
-  events list, so a longer staleTime would leave Events headcounts stale (needs `mutations.ts`, outside the fence).
+  events list, so a longer staleTime would leave Events headcounts stale (P2, see the perf audit).
 - **Nav badge (finding 5):** one `head` count of pending requests (`fetchOpenRequestCount({ venueId })`), only for
   admin/finance/organizer-at-venue; staff and doorhost send no query. Home and Aanvragen keep the full list (P2).
 - **Shell preload (finding 7):** `app-client.tsx` starts `import('./app')` at module evaluation in the browser; still
   `ssr: false`.
 - **Guest window (finding 8):** index `guests(venue_id, created_at desc, id desc)` (migration
-  `20261007100100_guests_venue_created_idx.sql`); `count: 'estimated'` (exact up to PostgREST max-rows, planner
-  estimate beyond) clamped to the rows shown.
+  `20261007100100_guests_venue_created_idx.sql`). The count stays `exact`: review measured `estimated` ~3x too low
+  past 1000 guests, and with the index `exact` costs ~0.47 s at 30k guests (was 1.0 s).
+- **Review round (PR #408):** the onboarding embed is its own cached read (`getMyVenueOnboardingStates`), so an error
+  in it can never empty the membership list; still one parallel wave. A pinned guest list reads its event through
+  `usePoEvent` and disables Add guest / Paste a list until it has loaded. The badge gate includes platform admins.
+  `updateGuest`/`changeGuestTier`/`removeGuest` no longer return the row (one round-trip less).
 - **Advisor:** `20261007100200_invites_select_initplan.sql` rewrites the e-mail arm to `(select auth.jwt()) ->> 'email'`
   (same semantics; the advisor's check is textual). pgTAP `snelheid_p1.test.sql` (11): index shape, policy shape,
   allowed/denied per role incl. case-insensitive invitee and no e-mail claim.

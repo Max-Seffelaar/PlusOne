@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // getOnboardingState now derives the step from the per-request cached
-// membership read (venue settings + plan embedded) instead of its own
-// venue_memberships + venues reads (Snelheid P1). These cases pin that the
+// membership list plus a separate cached onboarding-state read (venue settings
+// + plan), both in the layout's one parallel wave (Snelheid P1). These cases pin that the
 // derivation is unchanged: no access → 'venue', crew-only → 'done',
 // in-onboarding venue → 'plan'/'team', seeded/invited/completed → 'done'.
 
@@ -16,11 +16,15 @@ const H = vi.hoisted(() => ({
     planId: string | null;
   }>,
   organizerVenues: [] as Array<{ venueId: string }>,
+  // The onboarding embed failed (it degrades to []); the membership list is unaffected.
+  statesError: false,
 }));
 
 vi.mock('./context', () => ({ getSessionUser: async () => H.user }));
 vi.mock('./memberships', () => ({
-  getMyMembershipsWithVenueState: async () => H.memberships,
+  getMyMemberships: async () => H.memberships.map(({ venueId, venueName, roles }) => ({ venueId, venueName, roles })),
+  getMyVenueOnboardingStates: async () =>
+    H.statesError ? [] : H.memberships.map((m) => ({ venueId: m.venueId, settings: m.venueSettings, planId: m.planId })),
   getOrganizerVenues: async () => H.organizerVenues,
 }));
 
@@ -34,6 +38,7 @@ beforeEach(() => {
   H.user = { id: 'u1' };
   H.memberships = [];
   H.organizerVenues = [];
+  H.statesError = false;
 });
 
 describe('getOnboardingState', () => {
@@ -69,5 +74,11 @@ describe('getOnboardingState', () => {
   it('unfinished onboarding with a plan → team step', async () => {
     H.memberships = [member('v1', { onboarding: {} }, 'pro')];
     expect(await getOnboardingState()).toEqual({ step: 'team', venueId: 'v1' });
+  });
+
+  it('a failed onboarding embed never sends an existing member to onboarding', async () => {
+    H.memberships = [member('v1', { onboarding: { completed: false } })];
+    H.statesError = true;
+    expect(await getOnboardingState()).toEqual({ step: 'done', venueId: null });
   });
 });

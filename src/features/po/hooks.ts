@@ -356,7 +356,6 @@ export function usePoDoorCandidates() {
   return { ...query, data: query.data ?? EMPTY_DOOR_CANDIDATES, hasData: query.data !== undefined };
 }
 
-/** A single event by id, read from the venue's events list (no extra round-trip). */
 /**
  * One event of the active venue, with its on-list + present headcounts — the
  * event-detail read (Snelheid P1, perf audit finding 4). Was a `.find()` over

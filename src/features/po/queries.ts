@@ -240,13 +240,11 @@ export async function fetchVenueGuestsWindow(
     .from('guests')
     .select(
       `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, guest_tiers(name, color), ${GUEST_SOURCE_SELECT}`,
-      // 'estimated' (Snelheid P1, perf audit finding 8): PostgREST counts
-      // exactly up to its max-rows (1000 on Supabase) and switches to the
-      // planner's estimate beyond that — `exact` made every window read count
-      // the venue's whole guest history under per-row RLS. Small venues keep the
-      // exact "of N"; past 1000 it is an estimate, clamped below so it never
-      // reads less than the rows already shown.
-      { count: 'estimated' },
+      // Exact on purpose (Snelheid P1 review): `estimated` read ~3x too low past
+      // PostgREST's max-rows because the planner can't see the status/RLS
+      // selectivity. guests_venue_created_idx keeps this count at ~0.5 s for
+      // 30k guests (was 1.0 s without it).
+      { count: 'exact' },
     )
     .eq('venue_id', args.venueId)
     .in('status', [...ON_LIST, 'refused'])
@@ -269,7 +267,7 @@ export async function fetchVenueGuestsWindow(
       return { ...flattenGuestSource(g), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
     },
   );
-  return { rows, total: Math.max(count ?? 0, rows.length) };
+  return { rows, total: count ?? rows.length };
 }
 
 export interface ExistingEventGuest {
