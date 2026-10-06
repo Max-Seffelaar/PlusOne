@@ -2119,6 +2119,7 @@ export type Database = {
           event_name: string
           spots_left: number
           starts_at: string
+          venue_name: string
           via_label: string
         }[]
       }
