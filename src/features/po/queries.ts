@@ -114,13 +114,19 @@ export type PoVenueGuestRow = PoGuestRow & Pick<Tables['guests']['Row'], 'event_
  * full history (Events tab's "Past" view, stats); pass it from a poll that only
  * cares about recent + upcoming events so its cost doesn't grow with venue age.
  */
-export async function fetchEvents(client: Client, venueId: string, sinceIso?: string): Promise<PoEventRow[]> {
+export async function fetchEvents(
+  client: Client,
+  venueId: string,
+  scope: { sinceIso?: string; eventId?: string } = {},
+): Promise<PoEventRow[]> {
   let query = client
     .from('events')
     .select('id, name, starts_at, ends_at, status, cancelled_at, list_locked, venues(name)')
     .eq('venue_id', venueId)
     .order('starts_at', { ascending: false });
-  if (sinceIso) query = query.gte('starts_at', sinceIso);
+  if (scope.sinceIso) query = query.gte('starts_at', scope.sinceIso);
+  // One event (Snelheid P1): the event-detail read, same row shape as the list.
+  if (scope.eventId) query = query.eq('id', scope.eventId);
   const { data, error } = await query;
   if (error) throw error;
 
@@ -234,7 +240,13 @@ export async function fetchVenueGuestsWindow(
     .from('guests')
     .select(
       `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, guest_tiers(name, color), ${GUEST_SOURCE_SELECT}`,
-      { count: 'exact' },
+      // 'estimated' (Snelheid P1, perf audit finding 8): PostgREST counts
+      // exactly up to its max-rows (1000 on Supabase) and switches to the
+      // planner's estimate beyond that — `exact` made every window read count
+      // the venue's whole guest history under per-row RLS. Small venues keep the
+      // exact "of N"; past 1000 it is an estimate, clamped below so it never
+      // reads less than the rows already shown.
+      { count: 'estimated' },
     )
     .eq('venue_id', args.venueId)
     .in('status', [...ON_LIST, 'refused'])
@@ -257,7 +269,7 @@ export async function fetchVenueGuestsWindow(
       return { ...flattenGuestSource(g), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
     },
   );
-  return { rows, total: count ?? rows.length };
+  return { rows, total: Math.max(count ?? 0, rows.length) };
 }
 
 export interface ExistingEventGuest {
@@ -468,13 +480,27 @@ export async function fetchRecentCheckins(
   }));
 }
 
-/** Count of open (pending) guest requests for an event — the "Aandacht nodig" nudge. */
-export async function fetchOpenRequestCount(client: Client, eventId: string): Promise<number> {
-  const { count, error } = await client
-    .from('guest_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('event_id', eventId)
-    .eq('status', 'pending');
+/**
+ * Count of open (pending) guest requests — one `head` count, no rows.
+ *  · `{ eventId }`: the event-detail "Aandacht nodig" nudge.
+ *  · `{ venueId }`: the nav badge (Snelheid P1, perf audit finding 5). Same
+ *    definition the badge used to compute client-side from the full inbox read
+ *    (`fetchGuestRequests` + `isOpenGuestRequest`): pending, not anonymized —
+ *    without downloading twelve months of requests (with e-mail and phone) and
+ *    their link labels just to count them.
+ * RLS keeps both role-relative (admin/finance venue-wide, an organizer only
+ * their own events).
+ */
+export async function fetchOpenRequestCount(
+  client: Client,
+  scope: { eventId: string } | { venueId: string },
+): Promise<number> {
+  let query = client.from('guest_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending');
+  query =
+    'eventId' in scope
+      ? query.eq('event_id', scope.eventId)
+      : query.eq('venue_id', scope.venueId).is('anonymized_at', null);
+  const { count, error } = await query;
   if (error) throw error;
 
   return count ?? 0;

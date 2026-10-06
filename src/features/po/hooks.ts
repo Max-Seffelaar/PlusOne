@@ -264,7 +264,7 @@ export function usePoHomeEvents() {
       // venue-scoped fetch of the caller's own organizer rows (86ey9tkav),
       // not an N+1 per card, so the board can gate Edit/Lock per event.
       const [rows, heads, organizerIds] = await Promise.all([
-        fetchEvents(client, venueId, sinceIso),
+        fetchEvents(client, venueId, { sinceIso }),
         fetchEventHeadcounts(client, venueId, sinceIso),
         isAdmin || !userId ? Promise.resolve(new Set<string>()) : fetchOrganizerEventIds(client, venueId, userId),
       ]);
@@ -313,7 +313,7 @@ export function usePoHomeStats(eventId: string | null) {
     queryFn: async () => {
       const client = createClient();
       const [openRequests, quota] = await Promise.all([
-        fetchOpenRequestCount(client, eventId ?? ''),
+        fetchOpenRequestCount(client, { eventId: eventId ?? '' }),
         fetchEventQuota(client, eventId ?? ''),
       ]);
       return { openRequests, quota };
@@ -357,23 +357,51 @@ export function usePoDoorCandidates() {
 }
 
 /** A single event by id, read from the venue's events list (no extra round-trip). */
+/**
+ * One event of the active venue, with its on-list + present headcounts — the
+ * event-detail read (Snelheid P1, perf audit finding 4). Was a `.find()` over
+ * `usePoEvents()`, i.e. the venue's FULL history (every event, and a headcount
+ * aggregate over every guest and check-in it ever had) just to show one event.
+ *
+ * Seeded from the venue list when that is already cached (opening an event from
+ * the Events tab): no request until the seed goes stale. Otherwise one event row,
+ * then `venue_event_headcounts` windowed to that event's start (the RPC has no
+ * single-event filter; SECURITY INVOKER, so the counts stay role-relative exactly
+ * like the list's). Keyed under the venue's events prefix, so every write that
+ * invalidates `poKeys.events(venueId)` refreshes it too.
+ */
 export function usePoEvent(eventId: string) {
-  const { data, isLoading, isError, error, isSuccess } = usePoEvents();
+  const { venueId } = usePoIdentity();
+  const qc = useQueryClient();
+  const listKey = poKeys.events(venueId ?? '');
+  const { data, isLoading, isError, error, isSuccess } = useQuery<PoEvent | null>({
+    queryKey: [...listKey, 'one', eventId],
+    enabled: !!venueId && !!eventId,
+    notifyOnChangeProps: ['data', 'isLoading', 'isError', 'error', 'isSuccess'],
+    initialData: () => qc.getQueryData<PoEvent[]>(listKey)?.find((e) => e.id === eventId),
+    initialDataUpdatedAt: () => qc.getQueryState(listKey)?.dataUpdatedAt,
+    queryFn: async () => {
+      if (!venueId || !eventId) return null;
+      const client = createClient();
+      const [row] = await fetchEvents(client, venueId, { eventId });
+      if (!row) return null;
+      const heads = await fetchEventHeadcounts(client, venueId, row.starts_at);
+      const c = heads.get(row.id) ?? { registered: 0, present: 0 };
+      return toPoEvent(row, { guests: c.registered, inside: c.present });
+    },
+  });
   return {
-    event: data.find((e) => e.id === eventId) ?? null,
+    event: data ?? null,
     isLoading,
     isError,
     error,
     // Gate on the query's own `isSuccess`, not `!isLoading` (86ey9e9vc review
-    // round 2, finding 5 — the exact Blocker-2 trap): with `enabled: !!venueId`
-    // and no venueId yet resolved (a brand-new session, or `resolveActiveVenueId`
-    // catching an error to null), the query is `status: 'pending'`,
-    // `fetchStatus: 'idle'` — `isLoading = isPending && isFetching` is FALSE
-    // for a disabled query, same as for a settled one. `data` is never
-    // undefined (usePoEvents' stable-empty-array fallback), so `!isLoading`
-    // alone can no longer tell "never ran" apart from "ran, id not in it".
-    /** List loaded but this id isn't visible (deleted / out of scope). */
-    notFound: isSuccess && !data.some((e) => e.id === eventId),
+    // round 2, finding 5): with `enabled: !!venueId` and no venueId yet resolved
+    // the query is `pending` + `idle`, and `isLoading` is FALSE for a disabled
+    // query, same as for a settled one — so `!isLoading` alone can't tell "never
+    // ran" apart from "ran, id not visible".
+    /** Loaded but this id isn't visible (deleted / out of scope). */
+    notFound: isSuccess && !data,
   };
 }
 
@@ -396,7 +424,7 @@ export function usePoEventDetail(eventId: string) {
       const client = createClient();
       const [recent, openRequests, openQuotaRequests] = await Promise.all([
         fetchRecentCheckins(client, eventId, 3),
-        fetchOpenRequestCount(client, eventId),
+        fetchOpenRequestCount(client, { eventId }),
         fetchOpenQuotaRequestCount(client, eventId),
       ]);
       return { recent, openRequests, openQuotaRequests };
@@ -885,6 +913,25 @@ export function usePoGuestRequests() {
       const rows = await fetchGuestRequests(createClient(), venueId ?? '');
       return rows.map((r) => toPoGuestRequest(r));
     },
+  });
+}
+
+/**
+ * The nav badge's open-requests count (Snelheid P1, perf audit finding 5): one
+ * `head` count of pending guest requests for the active venue. Only runs when
+ * `enabled` — the chrome passes the role gate (admin/finance, or an organizer
+ * at this venue: exactly who `guest_requests_select` lets see any row), so
+ * staff and doorhost never send the query; for them RLS returned nothing
+ * anyway, so their badge reads 0 as before. Keyed under the requests prefix,
+ * so every request mutation that invalidates `[...all,'requests']` refreshes
+ * it too.
+ */
+export function usePoOpenRequestCount(enabled: boolean) {
+  const { venueId } = usePoIdentity();
+  return useQuery<number>({
+    queryKey: [...poKeys.requests(venueId ?? ''), 'open-count'],
+    enabled: enabled && !!venueId,
+    queryFn: () => fetchOpenRequestCount(createClient(), { venueId: venueId ?? '' }),
   });
 }
 

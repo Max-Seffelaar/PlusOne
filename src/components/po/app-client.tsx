@@ -36,7 +36,18 @@ export function AppBootScreen(): JSX.Element {
   );
 }
 
-const PlusOneAppLazy = dynamic(() => import('./app').then((m) => m.PlusOneApp), {
+// Preload the shell chunk the moment this module evaluates in the browser
+// (Snelheid P1, perf audit 2026-10 finding 7). `next/dynamic` with `ssr: false`
+// renders no preload hint, so the biggest chunk used to be requested only after
+// hydration had mounted the boot screen — a download chain on every cold load.
+// Same specifier as the loader below, so both share one module promise and one
+// request. Browser-only: the server never imports the shell (the `ssr: false`
+// rule above stays intact), and a failed preload is left to the loader, which
+// retries the same import and surfaces the error through its own boundary.
+const loadShell = () => import('./app');
+if (typeof window !== 'undefined') void loadShell().catch(() => {});
+
+const PlusOneAppLazy = dynamic(() => loadShell().then((m) => m.PlusOneApp), {
   ssr: false,
   loading: () => <AppBootScreen />,
 });
