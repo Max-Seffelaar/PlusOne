@@ -45,6 +45,8 @@ export const poKeys = {
   // refreshes every variant after a star/import/add write.
   contacts: (venueId: string, search = '') => [...poKeys.all, 'contacts', venueId, search] as const,
   contactKeys: (venueId: string) => [...poKeys.all, 'contact-keys', venueId] as const,
+  /** Contact ids opted in to venue updates (legal v0.3 decision 2). */
+  contactOptIns: (venueId: string) => [...poKeys.all, 'contact-opt-ins', venueId] as const,
   /** A single contact's full profile (header + cross-event appearances + timeline). */
   contactProfile: (contactId: string) => [...poKeys.all, 'contact-profile', contactId] as const,
   /** The event ids at a venue the caller organizes (event_organizers) — gates

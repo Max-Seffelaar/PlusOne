@@ -1077,6 +1077,23 @@ export function Loading({ text = t.shared.kit.loading, className }: { text?: str
   );
 }
 
+/**
+ * "Keep me posted ✓" (legal v0.3 decision 2): the guest asked the venue for
+ * updates. Display only — PlusOne sends nothing (rule 10). One badge for the
+ * request card, the contacts list and the contact detail. `title` says where
+ * the consent comes from (hover / long-press, screen readers).
+ */
+export function KeepMePostedBadge({ label, title, className }: { label: string; title: string; className?: string }): JSX.Element {
+  return (
+    <span title={title} aria-label={title} className={cn('inline-flex', className)}>
+      <MiniChip className="border-transparent bg-acc-dim text-acc">
+        <Icon name="mail" size={11} />
+        {label}
+      </MiniChip>
+    </span>
+  );
+}
+
 export function MiniChip({
   children,
   className,
@@ -1324,6 +1341,34 @@ export function openExternal(url: string): void {
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * Save a server-built file (base64) on the device: a Blob + a `download`
+ * anchor, never `target="_blank"` or `window.open`. Browser/PWA only — the
+ * native webview cannot save a blob download, so callers check
+ * `isNativeShell()` first and point to the web app instead (same seam as
+ * billing read-only). Returns false when it could not start the download.
+ */
+export function downloadFile(base64: string, filename: string, mime: string): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined' || isNativeShell()) return false;
+  try {
+    const bin = window.atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

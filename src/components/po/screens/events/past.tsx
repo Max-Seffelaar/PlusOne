@@ -16,6 +16,7 @@ import { TierPill } from '../guests/_shared';
 import { col, ScreenState } from './shared';
 import { EventStatsPanel } from './stats-panel';
 import { SaveAsTemplate } from './save-as-template';
+import { ExportEventButton } from '../settings/export';
 
 // ── PAST EVENT recap (pushed) ────────────────────────────────────────────────────
 const RECAP_CAP = 8;
@@ -190,9 +191,9 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
           <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev.id })}>
             {t.events.recapGuestList}
           </Btn>
-          <Btn kind="quiet" full icon="dl">
-            {t.events.exportLabel}
-          </Btn>
+          {/* Was a dead button until legal v0.3 E1 — now the real per-event export
+              (admin only; null otherwise, so "Guest list" takes the full row). */}
+          <ExportEventButton eventId={ev.id} />
         </div>
         {id && canManage && <SaveAsTemplate eventId={id} />}
         </div>

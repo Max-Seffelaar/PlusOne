@@ -227,6 +227,13 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
     }
 
     case 'venues': {
+      // Legal v0.3 E1: a data export (log_venue_export) — the one audited read.
+      if (action === 'export') {
+        return {
+          text: row.event_id ? 'exported the event data' : 'exported the venue data',
+          entity: row.event_id ? (row.event_name ?? 'the event') : 'the venue',
+        };
+      }
       // Venue-wide "allow check-out" default (#3 / S1.1).
       if (after && 'allow_uncheck' in after) {
         return {

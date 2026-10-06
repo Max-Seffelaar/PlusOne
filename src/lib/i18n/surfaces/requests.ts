@@ -132,4 +132,8 @@ export const requests = {
   declineBusy: 'Working…',
   declineConfirm: 'Confirm decline',
   denyConfirm: 'Confirm deny',
+  // Legal v0.3 decision 2: the guest ticked "Keep me posted" on the request form.
+  // Display only — PlusOne sends nothing (rule 10).
+  keepMePostedBadge: 'Keep me posted ✓',
+  keepMePostedTitle: 'This guest wants venue updates',
 } as const;
