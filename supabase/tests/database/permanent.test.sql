@@ -2,7 +2,9 @@
 -- removal" (run: supabase test db).
 -- Seed: event ee..01 (venue aa..01, open) with tiers Regular dd..01, VIP dd..02
 -- (alias 'vip'), VIP+fles dd..03 (max 10). Permanent contacts c0..01 Sanne
--- (preferred vip) and c0..02 Anouk (preferred all_access). Everything rolls back.
+-- (preferred vip) and c0..02 Anouk (preferred all_access) — neither has a guest
+-- row on ee..01 before the sync (the checked-in seed guest cc..02 is Pim, linked
+-- to the ordinary contact c0..03). Everything rolls back.
 
 begin;
 
