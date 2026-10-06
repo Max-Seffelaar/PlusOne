@@ -28,6 +28,7 @@ import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
 import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
+import { ExportEventRow } from '../settings/export';
 import { SaveAsTemplate } from './save-as-template';
 import { ScheduleFields } from './schedule-fields';
 import { TemplatePicker } from './template-picker';
@@ -548,6 +549,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </>
         )}
         {!isNew && writable && <SaveAsTemplate eventId={editId} onDraftChange={setTplDraft} />}
+        {/* Per-event data export (legal v0.3 E1) — also here because the gear is
+            where admins look for event actions (manual QA). Self-gated: admin
+            or platform admin only, null otherwise. */}
+        {!isNew && <ExportEventRow eventId={editId} />}
 
         {!isNew && isAdmin && (
           <>
