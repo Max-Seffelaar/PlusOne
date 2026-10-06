@@ -33,11 +33,17 @@ vi.mock('@/lib/auth/memberships', () => ({
   getReportingVenues: () => {
     throw new PastGate();
   },
-  getMyMemberships: vi.fn(),
-  getOrganizerVenues: vi.fn(),
+  // Fetched in the layout's parallel wave BEFORE the gate decides (Snelheid P1),
+  // so they must resolve; only the gate's order is under test here.
+  getMyMemberships: vi.fn(async () => []),
+  getOrganizerVenues: vi.fn(async () => []),
   getPlatformAdminVenue: vi.fn(),
 }));
-vi.mock('@/lib/auth/context', () => ({ getSessionUser: async () => H.user }));
+vi.mock('@/lib/auth/context', () => ({
+  getSessionUser: async () => H.user,
+  getMyProfile: async () => null,
+  getAuthContext: async () => null,
+}));
 vi.mock('@/lib/auth/active-venue', () => ({ resolveActiveVenueId: vi.fn(), getActiveVenueCookieValue: vi.fn() }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('@/lib/ua', () => ({ isMobileUA: () => false }));

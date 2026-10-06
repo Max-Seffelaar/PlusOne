@@ -8,6 +8,49 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Snelheid P1, quick wins (z8uq9m2xyn)
+
+Milestone **Now**. The behaviour-preserving half of `docs/perf-audit-2026-10.md` (findings 1, 2, 3, 4, 5, 7, 8 and the
+`invites_select` advisor); the rest stays in Snelheid P2. Measured locally before changing anything (temporary fetch
+logging in the server client, removed again): one `/app` document load made **16 Supabase calls in 13 sequential
+waves, 9 of them GoTrue `getUser`** (plus the middleware's own), 3 `venue_memberships` reads. The audit's chain held,
+with one addition: the root `not-found.tsx` boundary also calls `getSessionUser` on every request.
+
+- **Layout chain (finding 2):** `getSessionUser`, `getAuthContext`, a new `getMyProfile`, `getMyMemberships`, a new
+  `getMyVenueOnboardingStates` (venue `settings` + `subscriptions(plan_id)` for the onboarding gate) and
+  `getOrganizerVenues` are React `cache()`d per request; MFA factors come from `user.factors` (what `listFactors()`
+  returns, minus its extra `getUser`). `src/app/app/layout.tsx` fetches everything after the session check in one
+  `Promise.all`; the gates still decide in the same order (login → demo window → onboarding → consent → MFA). After:
+  **5 calls, 2 waves, 1 GoTrue, 1 memberships read**.
+- **Dead `revalidatePath` (finding 3):** removed from the guest, event, contact, quota and request actions (they named
+  `/events/*` and `/admin/*`; their only effect was a full layout re-render in every action response). Venue actions
+  keep layout revalidations only where the layout's own output changes (switch, create, rename, your own roles).
+  Guard: `tests/unit/no-dead-revalidate-path.test.ts`.
+- **Router cache (finding 1):** `experimental.staleTimes.dynamic: 300`. Browser check (manager@, Home → Events →
+  Guests → Home → Events): revisiting Events fired an RSC fetch before, none after.
+- **AppScreens / event detail (finding 4):** the screen switch reads no query any more; `lijst` mounts the guest list
+  from the URL's event id (no events → guests waterfall). `usePoEvent` is a single-event read keyed under the venue's
+  events prefix, seeded from the cached list. `usePoEvents` staleTime NOT raised: guest writes do not invalidate the
+  events list, so a longer staleTime would leave Events headcounts stale (P2, see the perf audit).
+- **Nav badge (finding 5):** one `head` count of pending requests (`fetchOpenRequestCount({ venueId })`), only for
+  admin/finance/organizer-at-venue; staff and doorhost send no query. Home and Aanvragen keep the full list (P2).
+- **Shell preload (finding 7):** `app-client.tsx` starts `import('./app')` at module evaluation in the browser; still
+  `ssr: false`.
+- **Guest window (finding 8):** index `guests(venue_id, created_at desc, id desc)` (migration
+  `20261007100100_guests_venue_created_idx.sql`). The count stays `exact`: review measured `estimated` ~3x too low
+  past 1000 guests, and with the index `exact` costs ~0.47 s at 30k guests (was 1.0 s).
+- **Review round (PR #408):** the onboarding embed is its own cached read (`getMyVenueOnboardingStates`), so an error
+  in it can never empty the membership list; still one parallel wave. A pinned guest list reads its event through
+  `usePoEvent` and disables Add guest / Paste a list until it has loaded. The badge gate includes platform admins.
+  `updateGuest`/`changeGuestTier`/`removeGuest` no longer return the row (one round-trip less).
+- **Advisor:** `20261007100200_invites_select_initplan.sql` rewrites the e-mail arm to `(select auth.jwt()) ->> 'email'`
+  (same semantics; the advisor's check is textual). pgTAP `snelheid_p1.test.sql` (11): index shape, policy shape,
+  allowed/denied per role incl. case-insensitive invitee and no e-mail claim.
+- Tests run locally: `pnpm db:test` 80 files / 1931 assertions PASS (after `supabase migration up`, no reset); unit
+  suites listed in the PR. Vercel P75 rows of the measurement plan: Max measures after deploy.
+
+---
+
 ## 2026-10-06 — QA-0 flow screenshots + handoff automation (onboarding programme task 0a)
 
 Milestone **Now** (every onboarding-programme UI task ships its proof through this). Spec: onboarding-orchestration
@@ -111,6 +154,8 @@ Docs + seed PR, milestone **Now** (unblocks the onboarding programme). Answers t
   longer Sanne's guest row hung on Pim's contact. Comment and label changes only in `analytics`, `contacts.rls` and
   `permanent` pgTAP. `supabase db reset` + `pnpm db:test`: 79 files / 1920 assertions, PASS.
 - **Flag:** `20261007100000` (reserved in §3 for taak 0b) is already taken on main by `contacts_freeze_anonymized`.
+
+---
 
 ## 2026-10-06 — Forgotten contacts are read-only (z8uq9m2x43, B1 follow-up)
 

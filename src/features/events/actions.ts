@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
@@ -74,16 +73,6 @@ export type ActionResult = { ok: true } | MutationError;
 export type CreateEventResult = { ok: true; eventId: string } | MutationError;
 export type CreateTemplateResult = { ok: true; templateId: string } | MutationError;
 
-const listPath = '/events';
-const managePath = (id: string) => `/events/${id}`;
-const guestsPath = (id: string) => `/events/${id}/guests`;
-
-function revalidateEvent(id: string): void {
-  revalidatePath(listPath);
-  revalidatePath(managePath(id));
-  revalidatePath(guestsPath(id));
-}
-
 // ── Event CRUD ──────────────────────────────────────────────────────────────
 
 /** Create an event (admin only — RLS events_insert_admin). Slug auto-generated. */
@@ -120,7 +109,6 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
       .single();
 
     if (!error && data) {
-      revalidatePath(listPath);
       return { ok: true, eventId: data.id };
     }
     if (error?.code === '23505') continue; // slug clash → new suffix
@@ -148,7 +136,6 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
 
   const { error } = await supabase.from('events').update(patch).eq('id', eventId);
   if (error) return mapMutationError(error);
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -174,7 +161,6 @@ export async function setEventCancelled(input: SetCancelledInput): Promise<Actio
     .eq('id', eventId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -196,7 +182,6 @@ export async function setLandingActive(input: SetLandingActiveInput): Promise<Ac
     .eq('id', eventId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -226,7 +211,6 @@ export async function setListLock(input: SetLockInput): Promise<ActionResult> {
     .eq('id', eventId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -250,7 +234,6 @@ export async function setAutoLock(input: SetAutoLockInput): Promise<ActionResult
     .eq('id', eventId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -279,7 +262,6 @@ export async function setEventAllowUncheck(input: SetAllowUncheckInput): Promise
     .eq('id', eventId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -313,7 +295,6 @@ export async function createTier(input: CreateTierInput): Promise<ActionResult> 
     }
     return mapMutationError(error);
   }
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -355,7 +336,6 @@ export async function updateTier(input: UpdateTierInput): Promise<ActionResult> 
   // returns no error and no row. Now that the tier sheet edits every field
   // (z8uq9m0hw3), a silent no-op must surface as a failure, not "saved".
   if (!data) return notFound();
-  revalidateEvent(data.event_id);
   return { ok: true };
 }
 
@@ -369,13 +349,6 @@ export async function deleteTier(input: DeleteTierInput): Promise<ActionResult> 
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  // Capture event_id for revalidation before the row is gone.
-  const { data: tier } = await supabase
-    .from('guest_tiers')
-    .select('event_id')
-    .eq('id', tierId)
-    .maybeSingle();
-
   const { error } = await supabase.from('guest_tiers').delete().eq('id', tierId);
   if (error) {
     if (error.code === '23503') {
@@ -387,7 +360,6 @@ export async function deleteTier(input: DeleteTierInput): Promise<ActionResult> 
     }
     return mapMutationError(error);
   }
-  if (tier?.event_id) revalidateEvent(tier.event_id);
   return { ok: true };
 }
 
@@ -437,7 +409,6 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
     const { error: qErr } = await upsertCrewQuota(supabase, eventId, userId, quota);
     if (qErr) return mapMutationError(qErr);
   }
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -544,7 +515,6 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
       const { error: qErr } = await upsertCrewQuota(supabase, eventId, crewUserId, quota);
       if (qErr) return mapMutationError(qErr);
     }
-    revalidateEvent(eventId);
   }
   return { ok: true };
 }
@@ -571,7 +541,6 @@ export async function setEventDefaultMemberQuota(
     .update({ default_member_quota: quota })
     .eq('id', eventId);
   if (error) return mapMutationError(error);
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -587,7 +556,6 @@ export async function setEventUserQuota(input: SetEventUserQuotaInput): Promise<
 
   const { error } = await upsertCrewQuota(supabase, eventId, userId, quota);
   if (error) return mapMutationError(error);
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -669,7 +637,6 @@ export async function removeOrganizer(input: RemoveOrganizerInput): Promise<Acti
   if (!count) {
     return { ok: false, code: 'noop', message: "Couldn't remove the organizer (no access)." };
   }
-  revalidateEvent(eventId);
   return { ok: true };
 }
 
@@ -870,7 +837,6 @@ export async function createEventFromTemplate(
     p_ends_at: endsAt ?? undefined,
   });
   if (error) return mapMutationError(error);
-  revalidatePath(listPath);
   return { ok: true, eventId: data as string };
 }
 

@@ -5,20 +5,23 @@
  * chunks it reaches.
  *
  * Extracted from `app.tsx` (86eykm76k) for one structural reason beyond file
- * size: this component reads `usePoEvents()`, and it must sit BESIDE the door
- * branch rather than above it. When the venue's event list refetches, only this
- * subtree re-renders — the door subtree is a sibling `children` element the
- * shell root never rebuilt, so React has nothing to reconcile there. Keeping
- * `usePoEvents` in the shell root is what used to force the door's twelve
- * hand-maintained memos.
+ * size: it must sit BESIDE the door branch rather than above it. It used to read
+ * `usePoEvents()` here; when the venue's event list refetched, only this subtree
+ * re-rendered — the door subtree is a sibling `children` element the shell root
+ * never rebuilt. Keeping `usePoEvents` in the shell root is what used to force
+ * the door's twelve hand-maintained memos.
+ *
+ * Since Snelheid P1 (perf audit 2026-10 finding 4) the switch reads no query at
+ * all: the venue's full event history (events + every guest/check-in headcount
+ * it ever had) was loaded on every non-door screen just so `lijst` could wait
+ * for its event row. The guest list mounts straight from the URL's event id
+ * now; screens that need the event list read it themselves.
  *
  * It is only ever mounted when the active target is NOT a door URL, so nothing
  * here runs at all while the doorhost is on the Deur tab.
  */
 import { type JSX, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import { usePoEvents } from '@/features/po/hooks';
-import type { PoEvent } from '@/lib/po/types';
 import { Top } from './kit';
 import type { Nav, ScreenName, ScreenProps } from './context';
 import type { ParsedTarget } from './routes';
@@ -119,14 +122,14 @@ function Loading({ onBack }: { onBack: () => void }): JSX.Element {
   );
 }
 
-function screenFor(name: ScreenName, p: ScreenProps, nav: Nav, ev: (id?: string) => PoEvent | undefined): ReactNode {
+function screenFor(name: ScreenName, p: ScreenProps, nav: Nav): ReactNode {
   switch (name) {
     case 'event':
       return <EventView id={p.id} />;
-    case 'lijst': {
-      const e = ev(p.id);
-      return e ? <GuestsTab pinnedEventId={e.id} /> : <Loading onBack={nav.back} />;
-    }
+    case 'lijst':
+      // Pinned straight from the URL (no wait on the venue's event list): the
+      // guest list reads its own event's guests/tiers by id.
+      return p.id ? <GuestsTab pinnedEventId={p.id} /> : <Loading onBack={nav.back} />;
     case 'guest':
       // Tapping a guest opens the unified person profile (linked → cross-event,
       // name-only → this one event), with the originating event pinned on top.
@@ -196,15 +199,9 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav, ev: (id?: string)
 }
 
 export function AppScreens({ target, nav }: { target: ParsedTarget; nav: Nav }): JSX.Element {
-  // The one live read this half of the shell needs: `lijst` waits for its event
-  // row to resolve before mounting the guest list. Deliberately read HERE and
-  // not in the shell root — see the module comment.
-  const { data: events } = usePoEvents();
-  const ev = (id?: string): PoEvent | undefined => events.find((e) => e.id === id);
-
   let screen: ReactNode;
   if (target.kind === 'screen') {
-    screen = screenFor(target.name, target.props, nav, ev);
+    screen = screenFor(target.name, target.props, nav);
   } else if (target.kind === 'tab') {
     switch (target.tab) {
       case 'start':

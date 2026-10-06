@@ -20,7 +20,7 @@ import {
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { normalizeContactName } from '@/features/guests/contact-match';
-import { usePoContactNameMatches, usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePoPermanentContacts, usePoCanManageTemplates } from '@/features/po/hooks';
+import { usePoContactNameMatches, usePoEvent, usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePoPermanentContacts, usePoCanManageTemplates } from '@/features/po/hooks';
 import {
   usePoAddGuestsBulk,
   usePoUpdateGuest,
@@ -133,7 +133,13 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
   }, [allMode, guests, dq, regularsOnly, permanentIds]);
   const loading = active.isLoading || (allMode && eventsLoading);
 
-  const scopeEvent = events.find((e) => e.id === scope) ?? null;
+  // Pinned (pushed from an event, Snelheid P1): read that ONE event — seeded from
+  // the cached venue list, otherwise a single row — instead of waiting for the
+  // venue's whole event list. Until it has loaded, the add/paste/tier actions
+  // stay disabled, so a fast tap can't fall through to the all-events picker.
+  const pinned = usePoEvent(pinnedEventId ?? '');
+  const scopeEvent = pinnedEventId ? pinned.event : events.find((e) => e.id === scope) ?? null;
+  const pinWaiting = !!pinnedEventId && !scopeEvent;
   const upcoming = useMemo(() => events.filter((e) => e.when === 'upcoming'), [events]);
   // Total is the venue-wide match count (from the server) in all-events mode, the
   // loaded event size in single-event mode — the "of N" in the subtitle.
@@ -157,10 +163,12 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
     setPickTarget(target);
   };
   const addGuestClick = (): void => {
+    if (pinWaiting) return;
     if (scopeEvent) nav.push('quickadd', { id: scopeEvent.id });
     else openPicker('quickadd');
   };
   const pasteListClick = (): void => {
+    if (pinWaiting) return;
     if (scopeEvent) nav.push('bulk', { id: scopeEvent.id });
     else openPicker('bulk');
   };
@@ -231,7 +239,7 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
         onBack={pinnedEventId ? (nav.canGoBack ? nav.back : undefined) : undefined}
         title={t.guests.list.title}
         sub={scopeEvent ? `${scopeEvent.name} · ${countSub}` : countSub}
-        right={<IconBtn name="plus" ariaLabel={t.guests.list.addGuest} onClick={addGuestClick} />}
+        right={<IconBtn name="plus" ariaLabel={t.guests.list.addGuest} onClick={addGuestClick} disabled={pinWaiting} />}
       />
       {/* Pinned mode (pushed from an event): single fixed scope, no chip row —
           mirrors the old standalone `Lijst`'s UI exactly. */}
@@ -261,12 +269,12 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
               <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
             </div>
             <div className="flex flex-wrap gap-2 pb-3 md:ml-auto md:flex-nowrap md:pb-0">
-              <Btn sm kind="primary" icon="plus" onClick={addGuestClick}>
+              <Btn sm kind="primary" icon="plus" onClick={addGuestClick} disabled={pinWaiting}>
                 {t.guests.list.addGuest}
               </Btn>
               {/* Item N: a labelled button, always there — on "All events" it
                   routes through the same event picker "Add guest" uses. */}
-              <Btn sm kind="ghost" icon="paste" onClick={pasteListClick}>
+              <Btn sm kind="ghost" icon="paste" onClick={pasteListClick} disabled={pinWaiting}>
                 {t.guests.list.pasteList}
               </Btn>
               {scopeEvent && (
@@ -289,7 +297,7 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
           </div>
         </div>
       )}
-      {hasSelection && !scopeEvent && (
+      {hasSelection && !scopeEvent && !pinnedEventId && (
         <div className="flex-none px-4 pb-2 text-[11.5px] text-faint">{t.guests.multiSelect.changeTierAllScope}</div>
       )}
       {loading ? (

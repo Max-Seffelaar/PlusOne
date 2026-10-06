@@ -40,6 +40,7 @@ vi.mock('@/features/po/hooks', () => ({
   usePoIsDoorOrganizer: () => false,
   usePoEvents: () => ({ data: [] }),
   usePoGuestRequests: () => ({ data: [] }),
+  usePoOpenRequestCount: () => ({ data: 0 }),
   // P-04: the chrome reads this for the Platform nav entry.
   usePoIsPlatformAdmin: () => false,
   usePoDoorCandidates: () => ({ data: [], isLoading: false, isSuccess: true, isFetching: false, refetch: () => {} }),

@@ -79,6 +79,24 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Client router cache for dynamic routes (Snelheid P1, perf audit 2026-10
+  // finding 1). Every po tab tap is a `router.push` to a dynamic `/app/...`
+  // URL whose page renders nothing (all screen data is React Query); without
+  // this, each revisit paid middleware + GoTrue + a function invocation for an
+  // empty RSC payload. 300 s: a tab visited in the last five minutes comes from
+  // the client cache. Freshness of the layout is unaffected where it matters —
+  // a server action that calls revalidatePath (venue switch, consent, profile
+  // name) and router.refresh() both bypass/clear this cache, and sign-out is a
+  // full page load. The setting is app-wide, not /app-only: the one visible
+  // side effect is the server-rendered `/door` picker, which a client-side
+  // return within five minutes shows from cache (an event created meanwhile
+  // appears after up to 5 min). P2's pushState tab navigation is the scoped fix.
+  // Data reads stay RLS-bound either way.
+  experimental: {
+    staleTimes: {
+      dynamic: 300,
+    },
+  },
   // The desktop "(app)" dashboard shell was retired — there is one responsive
   // surface now (po `/app`). Its old routes fold into /app. /eventday followed
   // in the T9 fold: the Event-dag cockpit is now the desktop Deur tab inside /app.
