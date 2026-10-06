@@ -16,7 +16,7 @@
 - **Workers:** aparte Claude Code-sessies. Voorkeur: de orchestrator spawnt ze zelf via Claude Code Remote (`create_session` met `source_url` = de repo, `prompt` = de ingevulde worker-brief uit §5, `permission_mode` **nooit** `plan` — dat blokkeert op een goedkeuring die niemand geeft). Fallback: Max plakt de brief zelf in een nieuwe sessie. Beide werken; in het eerste geval kan de orchestrator ook `get_session`/`list_events` gebruiken om voortgang te zien.
 - **Per worker:** één ClickUp-taak, branch `claude/<taskid>-<slug>`, PR-titel met de taak-id, `clickup-task`-skill van pickup tot end-of-session-comment. De worker zet zijn eigen ClickUp-status; de orchestrator zet alleen comments op de epic.
 - **Merges zijn van Max.** Branch protection staat aan; de orchestrator merged niet en vraagt er ook niet om — hij levert per PR een oordeel ("klaar voor jouw test-handoff" / "niet mergen, want …") en de test-handoff-vragen.
-- **Wat een remote container níét kan:** geen Supabase CLI, geen Docker → geen `db:test`, geen `db reset`, geen e2e. Voor N2 en S3 betekent dat: de worker schrijft pgTAP en migraties, maar **CI is de DB-gate**, niet de lokale stack. De worker zegt dat expliciet in de PR-body. Wil Max lokaal draaien, dan geldt de één-DB-eigenaar-regel uit CLAUDE.md: één sessie tegelijk reset.
+- **Wat een remote container níét vanzelf kan:** de Supabase-stack staat niet aan bij sessiestart (kost gigabytes en minuten). `pnpm stack` (= `node scripts/session-setup.mjs stack`, sinds 2026-10-05) start dockerd, installeert de gepinde Supabase CLI, draait `supabase start` + dev-env — eerste keer circa 5 minuten, daarna idempotent. Dan draaien `db:test`, `db:test:concurrency` en `e2e:smoke` ook in de container; `e2e:layout` vraagt `pnpm stack --dev-mfa`, en daarna faalt `db:test` tot een `supabase db reset` (dev-mfa maakt admin@ platform-admin). CI blijft de merge-gate; de lokale run vangt pgTAP-fouten vóór de push. De één-DB-eigenaar-regel uit CLAUDE.md geldt per container: elke container heeft zijn eigen stack, maar wie Max' laptop-stack deelt, reset niet zonder afspraak.
 - **Migratie-timestamps worden door de orchestrator vooraf toegewezen** (niet door workers gekozen), zodat parallelle PR's nooit botsen. Golf 1 reserveert:
   - N2: `20260925120000_push_tokens_outbox.sql`, `20260925120100_push_dispatch_wiring.sql`, `20260925120200_push_tokens_revoke_on_logout.sql`
   - S3: geen migratie (route + seedscript); als er tóch een nodig blijkt: `20260925130000_*`.
@@ -74,7 +74,7 @@ Per opgeleverde PR:
 
 Harde regels:
 - Merge nooit zelf en vraag er niet om; Max merged na zijn test.
-- Één DB-eigenaar: remote containers hebben geen Supabase-stack — CI is de DB-gate. Zeg dat in elk PR-oordeel voor N2/S3.
+- Één DB-eigenaar: elke remote container heeft (na `pnpm stack`) zijn eigen stack; CI blijft de merge-gate. Zeg in elk PR-oordeel voor N2/S3 of de worker `pnpm db:test` lokaal groen had.
 - Geen model-namen in commits, PR-titels of -bodies.
 - Elke wijziging aan het plandoc of CLAUDE.md gaat in een eigen kleine PR van jou, nooit in een worker-PR.
 
@@ -175,7 +175,7 @@ Scope-hek (van de orchestrator, bindend):
 
 Regels die hier extra tellen:
 - CLAUDE.md is bindend: de Capacitor-checklist per scherm, de security-checklist per route/action, de grant matrix per nieuwe tabel, geen bare JSX.Element, Engelse UI-copy via src/lib/i18n/en.ts.
-- Deze container heeft geen Supabase-stack: db:test/db reset/e2e draaien hier niet. Schrijf de pgTAP/migraties, laat CI ze draaien, en zeg in de PR-body precies wat je NIET lokaal kon draaien.
+- Migratie of pgTAP in je diff (high-risk)? Draai `pnpm stack` en daarna `pnpm db:test` vóór je laatste push, zet de staart van de output in de PR-body, en zeg wat je NIET lokaal kon draaien.
 - Verzwak nooit een guard, test of config om iets groen te krijgen. De weigering is het signaal.
 - Geen model-namen in commits/PR. Conventional commits, kleine commits per logische stap.
 - Token-discipline (les golf 3, 2026-09-28):
