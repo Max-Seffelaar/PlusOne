@@ -24,6 +24,100 @@ details are used" both land there). Links go through the kit's `ExternalLink`/`o
 Gotcha: the pre-existing footer in `landing-frame.tsx` still uses `target="_blank"` (not B2's file).
 Not run here (no supabase/docker): pgTAP, `db:reset`, e2e/layout suites.
 
+## 2026-10-05 — Fix: contact profile dead-ends on a system-added (auto-approved) guest
+
+Branch `claude/fix-contact-profile-null-actor`, milestone Now, no ClickUp task (direct ask from Max).
+A request auto-approved through a request link (e.g. `/e/launch-night-jayden`) inserts the guest with
+`guests.added_by` NULL ("the system decided", #4/#15) and the autolink trigger creates a contact
+(`source = guest_request`). Opening that contact sent `GET user_profiles?id=in.(null)` → 400 `22P02`;
+`fetchActorNames` threw, `usePoPersonProfile` failed and the profile rendered "This contact isn't
+available", so the venue couldn't reach Edit → "Forget this person" for it. Root cause:
+`ContactAppearance.addedBy` was typed `string` while the column is nullable, and `actorIds()` added it
+unfiltered. Fix (`src/features/po/queries.ts`, `adapters.ts`, `screens/guests/profile.tsx`): `addedBy`
+is `string | null` through the raw row, the domain type and the adapter; `actorIds()` skips a null
+`addedBy`; `fetchActorNames` drops null/empty ids and dedupes, and skips the read on an empty list.
+The timeline item gets `viaSignUpLink` and the screen names the actor "Sign-up link" (new
+`contactProfile.actorSignUpLink`, same wording as the Events card's `source.signUpLink`) instead of
+falling back to "Door". `checked_by`/`refused_by` are NOT NULL in the schema and stay `string`; the other
+`user_profiles .in('id', …)` lookups (door, recent check-ins, quota requests, access log) read NOT NULL
+columns or already filter, so they're unchanged. Tests: `queries.test.ts` (contact path, guest path,
+system-only actor: no non-string id reaches `.in()`; all three fail on the old code) and
+`adapters.test.ts` (null actor → `addedByName` null, `viaSignUpLink` true). Verified on a local stack
+with Playwright: before, 400 + not-found; after, profile renders with "Sign-up link" and Edit shows
+"Forget this person". No migration.
+
+## 2026-10-05 — Legal v0.3 A2: Guest Terms EN v0.3 + Dutch version (z8uq9m2hm2)
+
+Branch `claude/z8uq9m2hm2-guest-terms`, milestone Now. Text only; no code, no migration.
+`docs/legal/guest-terms.md` → v0.3 (2026-10-05, same date as A1) per `legal-v03-plan-claude-code.md`
+§3 A2 and decisions 9–11: the §5 liability cap and the indirect-damage exclusion are gone (6:237 sub f
+BW), leaving the as-is availability sentences, "PlusOne is not responsible for the event, the guest
+list decisions or admission. Those are the Venue's." and the intent/gross-negligence carve-out
+(consumer wording kept, deliberately different from ToS 14.4); §3 opens with acceptance by sending
+the request form (6:234 BW, mirrors the B2 acceptance line on `/e/[slug]`); §4 retention reads "the
+period chosen by the Venue, at most 60 months after the event"; §1 heading drops "organizer"; the
+entity paragraph and `support@plus-one.io` use A1's exact wording; §6 adds the language clause
+(Dutch prevails, `[lawyer: confirm this wording]`, D9). New `docs/legal/guest-terms.nl.md`: full
+Dutch version, je-vorm, same six sections and numbering, "Venue" kept as the defined term. Section
+numbering unchanged on purpose: decision 2, D3 and the privacy policy cite Guest Terms §4/§6.
+`docs/legal/README.md` deliberately untouched (A1, PR #377, rewrites it); the two Guest Terms table
+rows are in the PR body for the orchestrator to add after #377 merges. Checks run here: lint,
+type-check, unit suite (`CI=true pnpm test`); pgTAP/e2e not applicable (no code).
+## 2026-10-05 — Legal v0.3 B1: retention + forget_contact cover guest_requests; platform_invites sweep (z8uq9m2hm3)
+
+Branch `claude/z8uq9m2hm3-retention-requests`, milestone Now, high-risk (retention /
+SECURITY DEFINER). Migration `20261006120000_retention_requests_complete.sql`:
+- `run_privacy_retention()` step 2 also nulls `guest_requests.dedupe_key` + `birthdate`;
+  step 2c nulls them on every already-anonymized request (backfill). With the fingerprint
+  gone an anonymized `pending` request no longer occupies the partial dedup index, so the
+  dedup leak 2b documents is closed at the source (2b stays as backstop).
+- New step 8: `platform_invites` idle >24 months (`greatest(created_at, last_sent_at,
+  revoked_at)` — the table has no `updated_at`) → email + note null, new
+  `anonymized_at` stamped; step 8b scrubs email/note from their audit diffs through the new
+  owner-only `redact_anonymized_platform_invite_audit_pii()`. Return gains
+  `platform_invites_anonymized` (DROP + CREATE, EXECUTE re-revoked; pg_cron calls by name).
+- `platform_invites.email` nullable only on anonymized rows (CHECK);
+  `guard_platform_invite_update` admits the anonymize transition only from the job's owner
+  role and freezes anonymized rows. Resend action treats an address-less invite as revoked.
+- `forget_contact()` also scrubs the venue's requests matching the contact's e-mail
+  (lower) or phone digits — same scrub as retention, mirrors deleted, one `anonymize`
+  audit row each; returns `requests_anonymized`. Another venue's request with the same
+  e-mail is untouched.
+- Canonical `run_privacy_retention.sql` + README updated; `database.types.ts` hand-edited
+  (no local stack). pgTAP: privacy (29→40), contacts.privacy (8→14), platform_invites
+  (51→53), landing G7/G9/G11 moved to the new contract. Not run locally (no Supabase
+  stack/docker in the build container) — CI is the first run.
+- Review round (review 5418338014): `platform_invites_insert` pins `anonymized_at is null`
+  (no pre-anonymized insert, pgTAP F3); Platform tab reads `email: string | null` and
+  renders an anonymized invite frozen (no Resend/Revoke); forget-path `anonymize` rows carry
+  the admin as `actor_id`; `redact_anonymized_request_audit_pii(p_request_ids uuid[] default
+  null)` is scoped to the erased ids on the forget path (nightly job unscoped);
+  `usePoForgetContact` also invalidates `poKeys.requests`; spec #49 records the 24-month
+  `platform_invites` retention.
+- Decision Max (2026-10-05): in `forget_contact`, phone is a fallback key only. A request
+  is erased on an e-mail match, or on a phone match when the request has no e-mail or the
+  contact's own. Keys come from `contacts.email_norm/phone_norm`; pgTAP E8 pins that a
+  shared phone with another e-mail stays. Not changed: digits-only normalisation, so a
+  `06…` contact never meets a `+316…` request (same on every contact path).
+
+## 2026-10-05 — Legal v0.3 B3: platform_access_log + prod-data rule (z8uq9m2hm5)
+
+Branch `claude/z8uq9m2hm5-platform-access-log`, milestone Now, high-risk (grant matrix).
+Light variant of decision 3 (heavy, DB-enforced support sessions = z8uq9m0vyk, ≥25).
+Migration `20261006130000_platform_access_log.sql`: append-only table
+(`id, admin_id → auth.users default auth.uid(), venue_id → venues on delete cascade,
+reason ≤500, created_at`), RLS on, `revoke all` then `grant select, insert` to
+authenticated; insert only `is_platform_admin() and admin_id = auth.uid()`, select only
+`is_platform_admin()`, no update/delete; a BEFORE INSERT trigger server-stamps
+`created_at`. `switchActiveVenueAction` writes the row whenever a platform admin enters a venue they
+hold no real membership at — crew scope does not exempt them (review round 1: crew is
+self-grantable and unaudited for a platform admin) — through the user-scoped client,
+before the cookie, and fails closed (throws → shell shows "couldn't switch, try again"). Platform tab
+→ Access log (`/app/platform/access`, `?venue=` filter), read-only, windowed. pgTAP
+`platform_access_log.test.sql` (24) + `tables.test.sql` table list. CLAUDE.md §Platform
+admins: reads sentence updated + decision-8 prod-data rule. Not run here (no Supabase
+stack in the container): `pnpm db:test`, `db reset`, e2e/layout — CI is the proof.
+Not done (scope fence): `docs/legal/README.md` "Keep in sync" line (A1 owns docs/legal).
 ## 2026-10-05 — Legal v0.3 A1: docs text v0.3 (z8uq9m2hm1)
 
 Branch `claude/z8uq9m2hm1-legal-v03-docs`, milestone Now. Text only; no code, no migration.
@@ -38,6 +132,33 @@ incl. Guest Terms row, questions 3/4/6/7/8 ticked, follow-ups mapped to B1/B2/B3
 checklist items. One line at N5 in `capacitor-plan-claude-code.md` (D12); dated note in
 `docs/mail-deliverability.md` (sender domain). Reviewer wording for ToS 7.8/16.2 was not in the
 repo: written from plan decisions 12 and 14. `guest-terms.md` untouched (A2).
+
+## 2026-10-05 — Home event card: layout keys on card width, not viewport (86ey6bfyj)
+
+Branch `claude/86ey6bfyj-home-event-card-tablet`, milestone Now (blocks the Play store
+screenshots). Store shots at `play-tablet-7-inch` (792 CSS, bottom tabs) and
+`apple-ipad-13-inch` (1032 CSS, sidebar) showed the Home event card's name/meta column
+squeezed to ~100px: names wrapped per word, the LIVE/UPCOMING pill sat on the name, and the
+stats overlapped the venue/date line. Root cause: the shared card
+(`src/components/po/event-row.tsx`, also the door picker) went single-row at viewport `md:`,
+but its stats + actions need ~650px of fixed width, and the card itself is only ~700px at
+those widths. The row shape now keys on the card's own width (a CSS container query —
+`[container-type:inline-size]` + `[@container(min-width:860px)]:`, Tailwind 3 arbitrary
+variants, no plugin): under 860px the info block (name + pill, meta) sits on top and stats +
+actions share a row below that wraps when it doesn't fit; from 860px (1280+ desktop) it is
+the old single row. Phone is unchanged (stats row, then a full-width actions row). Name gets
+`break-words`, the pill is `shrink-0`; nothing is absolutely positioned. Count/action sizes
+and the `hitRing4` touch rings are untouched.
+
+Guard: the layout suite (`pnpm e2e:layout`) gets an `event-card` check on every screen ×
+device that renders `.evcard` (Home must render ≥1): no two of the `data-ev-part`
+name/chip/meta/counts/actions boxes may intersect, a missing part hook fails, and the
+name/meta column must be ≥160px (`EV_INFO_MIN`). Store seed: the seed event is renamed
+"Launch Night" in `scripts/store-screenshot-seed.mjs` (name only, service_role; seed.sql
+untouched). Verified here: lint, type-check, unit suite, and the real card rendered
+server-side and laid out in Chromium at 390/594/768/792/1024/1032/1280/1366/1440 — no
+overlaps, info column ≥291px everywhere. Not run here (no docker/supabase CLI): the layout
+suite itself — CI's `layout-suite` job runs it on the PR.
 
 ## 2026-10-05 — Store screenshot seed: refusal reason set on insert, not update (86ey6bfyj)
 
@@ -77,6 +198,17 @@ iOS and Android.**
 - Tests: `capacitor-provider.test.ts` — iOS gates (no FCM flag / no plist / web →
   unsupported), nothing before opt-in, rotation, APNs-token rejection, invalidate on
   unregister (+ failure / hang bounds), Android never calls invalidate.
+
+## 2026-10-05 — Auth mail sender is noreply@plus-one.io via Resend (86ey6b3hv)
+
+Branch `claude/86ey6b3hv-mail-sender-plus-one`, milestone Now. Docs only.
+`docs/mail-deliverability.md` rewritten to the live state: Supabase custom SMTP
+(`smtp.resend.com:465`) sends `PlusOne <noreply@plus-one.io>` from the apex domain
+(decision: stays apex); `info@theoperators.nl` retired. Documents the TransIP DNS table
+(DKIM, `rsend.`/`send.` return-path CNAMEs to Resend-managed hosts, DMARC, exactly one apex SPF — a duplicate `v=spf1 ~all` is an open item, still to be deleted at TransIP), the Site URL rule (`https://app.plus-one.io`, no trailing slash — it
+produced `//auth/confirm`), the `550 The plus-one.io domain is not verified` → OTP 500
+diagnosis (Supabase → Logs → Auth, filter `/otp` 500), and that the SMTP API key lives only
+in Supabase + the password manager. No other runbook referenced the old sender.
 
 ## 2026-10-05 — Play checklist: screenshot sizes + delete-account URL match what shipped (86ey6bfyj)
 
@@ -969,6 +1101,7 @@ the outbox (`src/features/door`) and the cockpit are unchanged.
   (no Supabase/Docker) — CI.
 
 ---
+
 ## 2026-09-25 — Fase 17 S2: Icons, splash, store listing drafts (86ey6bft8)
 
 Golf 3 of Fase 17, depends on N3 (merged). Draft PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)`. No migration.
@@ -1500,6 +1633,7 @@ Because Next merges `viewport` per key, `cover` also reaches `/e`, `/r`, `/i`.
 Those pages don't pad for safe areas; the impact is landscape iPhone only.
 
 ---
+
 ## 2026-09-24 — Legal v0.2: privacy policy + subprocessor list rewritten against `main` (z8uq9m0w3t)
 
 Branch `claude/z8uq9m0w3t-privacy-policy-v02`. Docs-only, Fase 17 wave 1 (L1 is a hard
@@ -2392,6 +2526,7 @@ magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destina
 stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
 https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
 ---
+
 ## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
 
 Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
@@ -3078,6 +3213,7 @@ The control that actually stopped #291 was blocking CI plus branch protection.
 
 **Not done here:** #291/#292 were left untouched — they share `package.json` and
 `pnpm-lock.yaml` with this branch and want a rebase after it lands.
+
 ## 2026-09-18 — `main` back to green: the core-flow e2e race the ADE round exposed (z8uq9m0g0j)
 
 Branch `fix/z8uq9m0g0j-core-flow-e2e`. Milestone: **Now** — `main` was red, which blocks
@@ -3446,6 +3582,7 @@ E2/E4/E5 fail `have: false, want: true` while E1/E3/E6–E9 stay green.
 merge; the schema deploy happens centrally once the app deploy is unblocked.
 
 ---
+
 ## 2026-09-17 — ADE UX round planned: 15 items from Joeri's feedback, verified in code, plus a docker-free screenshot harness
 
 Branch `claude/wonderful-hopper-ji35cw` (plan-only PR, no app code). Source: Fathom call
@@ -3650,6 +3787,7 @@ reader hits the explanation exactly where they'd look, without a schema change f
 **Verification:** `pnpm lint` clean (pre-existing warnings only, unrelated file), `pnpm
 type-check` clean, `pnpm vitest run` — 115 files / 1188 tests green. No RLS/pgTAP change, so no
 `supabase db reset` was needed for this PR.
+
 ## 2026-08-19 — PR #276 visual-QA response: phone accepted a non-number, approve screen hid the e-mail (86eyke279)
 
 Branch `feat/86eyke279-landing-contact-required`, same PR/task as the two entries below —
@@ -3920,6 +4058,7 @@ in de policy, óf de directe insert-grant voor `authenticated` helemaal weg.
 verse sessie (SECURITY DEFINER op een publiek anoniem schrijfpad = high-risk). Niet zelf
 gemerged. Typegeneratie (`src/lib/database.types.ts`) is **niet** nodig: de signatuur van de
 RPC is ongewijzigd, alleen de body.
+
 ## 2026-08-19 — Stripe webhook: a malformed `client_reference_id` no longer retries forever (86ey9e9re)
 
 Branch `fix/86ey9e9re-stripe-webhook-uuid-guard`. Milestone: Now (a stuck webhook queue hides
@@ -4265,6 +4404,7 @@ and this round adds no migration and touches no RLS/auth/`service_role`/PII surf
 **Not changed, deliberately:** `src/components/po/app.tsx` (two sister branches are editing it),
 the wake-lock decision (still not built, reasoning above), and the stated resume-only limit — a
 continuously-visible wall display still produces no hidden→visible edge and is still not covered.
+
 ## 2026-08-19 (later) — Code-review round on the `onblocked` fix: the wipe guard now covers the open path too (86ey9e9wc)
 
 Branch `fix/86ey9e9wc-idb-open-onblocked`, PR #283. A fresh-session `/code-review` left four
@@ -4390,6 +4530,7 @@ time, confirming a true hang rather than a slow settle. The fourth (a busy tab t
 inside the grace period still gets its connection, no false alarm) passes both ways by design.
 
 **Review posture:** door surface = high-risk, so this does not self-merge.
+
 ## 2026-08-19 — Lazy-Sentry import guard: the rule now matches its own documented contract
 
 Branch `fix/sentry-lazy-import-guard-regex`. Milestone: Now (a CI guard that is wrong about what
@@ -4844,6 +4985,7 @@ this was found).
 Related: `86eykdzf1` closed as investigated-but-unprovable — Vercel retains 7 days and
 Sentry held nothing, so the five-week question can no longer be answered from telemetry.
 A live probe did confirm `/e/[slug]` is healthy now.
+
 ## 2026-08-19 — Stats dead-code follow-up: EventPicker/StatCard removed (86eykhqty)
 
 Branch `chore/86eykhqty-stats-dead-code`. Milestone: Now (codebase hygiene, no behavior
@@ -4876,6 +5018,7 @@ untouched to avoid scope creep.
   test files / 1188 tests passed (note: `pnpm test` is watch-mode `vitest`, not `vitest run`
   — ran the latter directly to get a terminating result). `pnpm build` — compiles and
   generates all 15 static/dynamic routes cleanly.
+
 ## 2026-08-19 — `contactEventCounts` no longer 414s at 210+ contacts: wrong Kong URI-length comment fixed (86eykknf8)
 
 Branch `fix/86eykknf8-chunkids-uri-limit`. Flagged during a fresh-session `/code-review`
@@ -4936,6 +5079,7 @@ this task's scope was `contactEventCounts` specifically — flagging for a separ
 task rather than fixing here.
 
 Not touched: `src/components/po/app.tsx` (other sessions working on it), no migrations.
+
 ## 2026-08-19 — Door: the implicit single-event choice is pinned, so a second live event no longer unmounts the door mid-shift (86eykm7qp)
 
 Branch `fix/86eykm7qp-door-candidate-pin`. Milestone: Now. No migration, no schema change,
@@ -5122,6 +5266,7 @@ unrelated `datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run`
 (no Docker → no local Supabase stack, and Playwright needs a dev server). Door offline
 invariant #25 is untouched — the release, like the pin, goes through `replaceDoorState` on raw
 history, never `router.replace`.
+
 ## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
 
 Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
@@ -5295,6 +5440,7 @@ ok 7 - no membership row at the crew venue: selecting it grants no roles
 
 The last one is the security half: writing the cookie for a crew venue grants no roles, so no
 role-gated action opens up and RLS still decides every read.
+
 ## 2026-08-19 — pgTAP: a plan/run mismatch is now a red build (86eykjgrb)
 
 Branch `fix/86eykjgrb-pgtap-plan-mismatch`. Two test files had been printing
@@ -5767,6 +5913,7 @@ the PostgREST layer (unknown column → every door insert rejected) rather than 
 fix is `supabase migration repair --status reverted <version> --local` followed by `migration up`.
 Both occurrences coincided with another session resetting the shared local stack — the concrete cost
 of the one-DB-owner rule being broken mid-test.
+
 ## 2026-08-12 — Landing rate-limit hardening: throttle cleanup + Turnstile (86ey2czr6)
 
 Branch `claude/clickup-task-fix-6dec47`. Rate-limit hardening sweep, milestone: before the
@@ -9621,6 +9768,7 @@ traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
   the plan's `plusone-guestlist`); the `next.config.js` fallback was corrected to
   match. Env from the Vercel integration wins on prod either way; the fallback
   only matters tokenless.
+
 ## 2026-07-09 — Prod-ready 9/7 task 05: Supabase Pro + restore drill + runbook
 
 Backups moved from "hope" to "tested plan" (ClickUp `86ey7q72b`). Max upgraded the

@@ -46,9 +46,12 @@ select tables_are(
     -- Fase 17 N2 (86ey6bfbe): device push registrations (owner-only RLS), the
     -- push outbox and the dispatch function's single-use invocation tokens
     -- (both RLS on, no policies, no app-role grants).
-    'push_tokens', 'notification_outbox', 'push_dispatch_tokens'
+    'push_tokens', 'notification_outbox', 'push_dispatch_tokens',
+    -- Legal v0.3 B3 (z8uq9m2hm5): append-only log of platform admins switching
+    -- into a venue they hold no membership at. Platform admins only.
+    'platform_access_log'
   ],
-  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links + billing)' 
+  'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----

@@ -1096,10 +1096,43 @@ export type Database = {
           },
         ]
       }
+      platform_access_log: {
+        Row: {
+          admin_id: string
+          created_at: string
+          id: string
+          reason: string | null
+          venue_id: string
+        }
+        Insert: {
+          admin_id?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          venue_id: string
+        }
+        Update: {
+          admin_id?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_access_log_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_invites: {
         Row: {
+          anonymized_at: string | null
           created_at: string
-          email: string
+          email: string | null
           id: string
           invited_by: string
           last_sent_at: string
@@ -1108,8 +1141,9 @@ export type Database = {
           revoked_by: string | null
         }
         Insert: {
+          anonymized_at?: string | null
           created_at?: string
-          email: string
+          email?: string | null
           id?: string
           invited_by: string
           last_sent_at?: string
@@ -1118,8 +1152,9 @@ export type Database = {
           revoked_by?: string | null
         }
         Update: {
+          anonymized_at?: string | null
           created_at?: string
-          email?: string
+          email?: string | null
           id?: string
           invited_by?: string
           last_sent_at?: string
@@ -2298,6 +2333,7 @@ export type Database = {
         Returns: {
           audit_rows_redacted: number
           guests_anonymized: number
+          platform_invites_anonymized: number
           refusals_redacted: number
           requests_anonymized: number
         }[]

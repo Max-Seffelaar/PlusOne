@@ -91,11 +91,47 @@ insert into public.refusals (id, guest_id, refused_by, reason) values
    '11111111-1111-4111-8111-111111111111', 'Echte Naam Drie was agressief bij de deur');
 
 -- Landing requests: one OLD (eligible), one RECENT (not).
-insert into public.guest_requests (id, event_id, full_name, email, phone, motivation) values
+-- Both carry the dedup fingerprint + birthdate the landing flow stores
+-- (z8uq9m2hm3): PII the job must clear too.
+insert into public.guest_requests
+  (id, event_id, full_name, email, phone, motivation, dedupe_key, birthdate) values
   ('ba000000-0000-7000-8000-0000000000f1', 'ee000000-0000-7000-8000-0000000000f1',
-   'Aanvrager Oud', 'oud@req.test', '+31600000010', 'Vrienden van de DJ'),
+   'Aanvrager Oud', 'oud@req.test', '+31600000010', 'Vrienden van de DJ',
+   'oud@req.test', '1999-05-05'),
   ('ba000000-0000-7000-8000-0000000000f2', 'ee000000-0000-7000-8000-0000000000f2',
-   'Aanvrager Recent', 'recent@req.test', null, 'Wil graag komen');
+   'Aanvrager Recent', 'recent@req.test', null, 'Wil graag komen',
+   'recent@req.test', '2000-06-06');
+
+-- Platform invites (z8uq9m2hm3, prospect PII, no venue). The 24-month clock
+-- runs from the last activity: greatest(created_at, last_sent_at, revoked_at).
+--   p1  created + last mailed 25 months ago, open      → swept
+--   p2  created 30 months ago, re-sent 2 months ago    → kept (recent contact)
+--   p3  created 26 months ago, revoked 1 month ago     → kept (recent activity)
+--   p4  created + last mailed 23 months ago            → kept (inside the window)
+--   p5  created 30 months ago, revoked 25 months ago   → swept (revoked note too)
+insert into public.platform_invites
+  (id, email, note, invited_by, created_at, last_sent_at, revoked_at, revoked_by) values
+  ('fa000000-0000-7000-8000-0000000000f1', 'prospect-oud@klant.test', 'via Lowlands',
+   '11111111-1111-4111-8111-111111111111',
+   now() - interval '25 months', now() - interval '25 months', null, null),
+  ('fa000000-0000-7000-8000-0000000000f2', 'prospect-resent@klant.test', null,
+   '11111111-1111-4111-8111-111111111111',
+   now() - interval '30 months', now() - interval '2 months', null, null),
+  ('fa000000-0000-7000-8000-0000000000f3', 'prospect-revoked-recent@klant.test', 'bounced',
+   '11111111-1111-4111-8111-111111111111',
+   now() - interval '26 months', now() - interval '26 months',
+   now() - interval '1 month', '11111111-1111-4111-8111-111111111111'),
+  ('fa000000-0000-7000-8000-0000000000f4', 'prospect-23m@klant.test', null,
+   '11111111-1111-4111-8111-111111111111',
+   now() - interval '23 months', now() - interval '23 months', null, null),
+  ('fa000000-0000-7000-8000-0000000000f5', 'prospect-revoked-oud@klant.test', 'wil niet',
+   '11111111-1111-4111-8111-111111111111',
+   now() - interval '30 months', now() - interval '30 months',
+   now() - interval '25 months', '11111111-1111-4111-8111-111111111111');
+-- A resend leaves an update diff behind as well (only the timestamp moves, so
+-- the address sits in the create diff; the anonymize update adds a second one).
+update public.platform_invites set last_sent_at = last_sent_at + interval '1 second'
+ where id = 'fa000000-0000-7000-8000-0000000000f1';
 
 -- Baseline statistics BEFORE the run (must be invariant afterwards).
 create temp table base as
@@ -105,7 +141,7 @@ create temp table base as
     public.tier_consumption('dd000000-0000-7000-8000-0000000000f1') as vip,
     public.tier_consumption('dd000000-0000-7000-8000-0000000000f2') as reg;
 
-select plan(29);
+select plan(40);
 
 -- Run the retention job and capture its summary.
 create temp table run1 as select * from public.run_privacy_retention();
@@ -167,6 +203,14 @@ select ok(
   and (select email from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000f2') = 'recent@req.test'
   and (select anonymized_at from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000f2') is null,
   'C2 RECENT landing request untouched');
+
+-- (a) z8uq9m2hm3 — the dedup fingerprint and birthdate go with the rest.
+select ok(
+  (select dedupe_key from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000f1') is null
+  and (select birthdate from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000f1') is null
+  and (select dedupe_key from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000f2') = 'recent@req.test'
+  and (select birthdate from public.guest_requests where id = 'ba000000-0000-7000-8000-0000000000f2') = '2000-06-06',
+  'C2b OLD request: dedupe_key + birthdate nulled; RECENT request keeps both');
 
 select ok(
   (select reason from public.refusals where id = 'bb000000-0000-7000-8000-0000000000f1') = '[verwijderd na bewaartermijn]'
@@ -270,6 +314,88 @@ select is(
 select is(
   pg_temp.audit_n('cc000000-0000-7000-8000-0000000000f1', 'anonymize'), 1,
   'G4 no duplicate anonymize entry on re-run');
+
+-- ---------------------------------------------------------------------------
+-- H. (b) z8uq9m2hm3 — an anonymized request no longer dedups anyone
+-- ---------------------------------------------------------------------------
+-- Before: the anonymized request stayed `pending` with dedupe_key
+-- 'oud@req.test', so a new submission with that address tripped the partial
+-- unique index and was silently swallowed on the dedup branch. Now it lands as
+-- a fresh request of its own. (After section G, so G's "second run touches
+-- nothing" stays about the original fixtures.)
+
+update public.events set landing_active = true
+ where id = 'ee000000-0000-7000-8000-0000000000f1';
+insert into public.request_links (id, event_id, venue_id, label, slug, auto_approve, active)
+values ('11100000-0000-7000-8000-0000000000f1', 'ee000000-0000-7000-8000-0000000000f1',
+        'aa000000-0000-7000-8000-0000000000f0', 'Priv link', 'priv-oud-link', false, true);
+
+select is(
+  public.submit_guest_request('priv-oud-link', 'Nieuwe Aanvrager', 'oud@req.test',
+    '+31600000010', 0, null, 'ip-priv-h1', false, null, 'tok-priv-h1') ->> 'status',
+  'ok', 'H1 a new submission with the anonymized request''s old address is accepted');
+
+select is(
+  (select count(*)::int from public.guest_requests
+    where event_id = 'ee000000-0000-7000-8000-0000000000f1'
+      and email = 'oud@req.test' and status = 'pending' and anonymized_at is null
+      and full_name = 'Nieuwe Aanvrager'),
+  1, 'H2 ...as a FRESH pending request — it was not deduped against the anonymized one');
+
+select is(
+  (select count(*)::int from public.guest_request_status_mirrors
+    where request_id = 'ba000000-0000-7000-8000-0000000000f1'),
+  0, 'H3 ...and nothing was mirrored onto the anonymized request');
+
+-- ---------------------------------------------------------------------------
+-- I. (d) z8uq9m2hm3 — platform_invites sweep: only rows idle > 24 months
+-- ---------------------------------------------------------------------------
+
+select is((select platform_invites_anonymized from run1), 2,
+  'I1 the first run anonymized exactly the two invites idle for more than 24 months');
+
+select ok(
+  (select email is null and note is null and anonymized_at is not null
+     from public.platform_invites where id = 'fa000000-0000-7000-8000-0000000000f1')
+  and (select email is null and note is null and anonymized_at is not null
+     from public.platform_invites where id = 'fa000000-0000-7000-8000-0000000000f5'),
+  'I2 the idle open invite and the long-revoked invite lost e-mail + note');
+
+select ok(
+  (select email = 'prospect-resent@klant.test' and anonymized_at is null
+     from public.platform_invites where id = 'fa000000-0000-7000-8000-0000000000f2')
+  and (select email = 'prospect-revoked-recent@klant.test' and note = 'bounced' and anonymized_at is null
+     from public.platform_invites where id = 'fa000000-0000-7000-8000-0000000000f3')
+  and (select email = 'prospect-23m@klant.test' and anonymized_at is null
+     from public.platform_invites where id = 'fa000000-0000-7000-8000-0000000000f4'),
+  'I3 a recent resend, a recent revoke and a 23-month-old invite are all KEPT');
+
+select is(
+  (select count(*)::int from public.audit_log
+    where entity_type = 'platform_invites'
+      and entity_id in ('fa000000-0000-7000-8000-0000000000f1', 'fa000000-0000-7000-8000-0000000000f5')
+      and (diff::text like '%prospect-%' or diff::text like '%Lowlands%' or diff::text like '%wil niet%')),
+  0, 'I4 no address or note survives in the swept invites'' audit diffs');
+
+select ok(
+  (select diff -> 'after' ? 'email' and diff -> 'after' ->> 'email' is null
+     from public.audit_log
+    where entity_type = 'platform_invites' and action = 'create'
+      and entity_id = 'fa000000-0000-7000-8000-0000000000f1')
+  and (select count(*)::int from public.audit_log
+        where entity_type = 'platform_invites'
+          and entity_id = 'fa000000-0000-7000-8000-0000000000f2'
+          and diff::text like '%prospect-resent@klant.test%') > 0,
+  'I5 diff structure kept (email key present, value null); a KEPT invite''s diffs are untouched');
+
+select is((select platform_invites_anonymized from run2), 0,
+  'I6 the second run sweeps no further invites (idempotent)');
+
+select throws_ok(
+  $$ update public.platform_invites set email = 'terug@klant.test', anonymized_at = null
+      where id = 'fa000000-0000-7000-8000-0000000000f1' $$,
+  '42501', null,
+  'I7 an anonymized invite is frozen — even the owner cannot restore the address');
 
 select * from finish();
 

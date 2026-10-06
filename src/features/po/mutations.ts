@@ -869,6 +869,9 @@ export function usePoForgetContact() {
       // lists above — without this the erased contact's real name lingers there
       // after a GDPR "forget" (C18).
       void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+      // forget_contact also anonymizes the person's landing requests
+      // (z8uq9m2hm3) — the Approvals inbox would otherwise keep their real name.
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.requests(venueId) });
     },
   });
 }

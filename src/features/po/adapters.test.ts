@@ -708,6 +708,17 @@ describe('toPoContactProfile', () => {
     expect(v.attendedCount).toBe(0); // the only check-in is voided
   });
 
+  it('a system-added appearance (added_by NULL, auto-approved request link) names the link, never a person', () => {
+    const autoApproved: ContactAppearance[] = [{ ...appearances[1], addedBy: null, refusals: [] }];
+    const v = toPoContactProfile(header, autoApproved, actorNames);
+    expect(v.events[0]).toMatchObject({ addedById: null, addedByName: null });
+    const added = v.timeline.find((it) => it.kind === 'added');
+    expect(added).toMatchObject({ who: '', viaSignUpLink: true });
+    // A person-added appearance keeps its resolved name and no link flag.
+    const byMax = toPoContactProfile(header, [appearances[0]], actorNames).timeline.find((it) => it.kind === 'added');
+    expect(byMax).toMatchObject({ who: 'Max', viaSignUpLink: false });
+  });
+
   it('handles a contact with no appearances (empty roster + timeline)', () => {
     const v = toPoContactProfile(header, [], {});
     expect(v).toMatchObject({ eventsCount: 0, attendedCount: 0, refusedCount: 0, plusOnesTotal: 0, events: [], timeline: [] });
