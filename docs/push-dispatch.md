@@ -26,7 +26,7 @@ Nothing breaks and nothing is sent. Local stacks and CI stay in this state.
 
 Push works end to end only after all five steps. Each one is harmless alone.
 
-0. **Schema — after the N5 merge, from the linked main checkout.**
+0. **Schema — after the N5 merge, from the `supabase link`-ed checkout.**
    `20260925160000_push_tokens_last_seen_server_stamp.sql` through the prod-push
    flow (CLAUDE.md "Env & prod-push"). The N5 client no longer sends
    `last_seen_at`; without this migration an active device's row would age into
@@ -40,20 +40,20 @@ Push works end to end only after all five steps. Each one is harmless alone.
    the app reports push as unsupported and never shows the ask.
 2. **FCM Edge secrets — Max.** Step 1 below (`FCM_PROJECT_ID`,
    `FCM_SERVICE_ACCOUNT_JSON`).
-3. **Deploy the function — Max, from the linked main checkout.** Step 2 below.
+3. **Deploy the function — Max, from the `supabase link`-ed checkout.** Step 2 below.
 4. **Vault URL, the on-switch — Max, SQL editor.** Step 3 below. Last on purpose:
    from this moment the triggers' rows are sent.
 
 From step 1 on, devices register tokens (rows appear in `push_tokens`) even
 while the pipeline still sleeps; nothing is sent until step 4.
 
-## Turning it on (prod) — once, from the linked main checkout
+## Turning it on (prod) — once, from the `supabase link`-ed checkout
 
 Order matters: function + FCM secrets first, the Vault URL last.
 
 ### 1. Edge Function secrets (FCM)
 
-Dashboard → Project Settings → Edge Functions → Secrets, or from the linked checkout:
+Dashboard → Project Settings → Edge Functions → Secrets, or from the `supabase link`-ed checkout:
 
 ```sh
 supabase secrets set FCM_PROJECT_ID=<firebase-project-id>

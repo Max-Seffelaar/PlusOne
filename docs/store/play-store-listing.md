@@ -5,30 +5,32 @@ Category: **Business** (Events isn't a Play category; Business is the closest fi
 Support URL: `https://www.plus-one.io`
 Privacy policy URL: `https://www.plus-one.io/legal#privacy`
 
-Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. No ticketing, no outbound invites (CLAUDE.md decision #36) — never claim either.
+Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content matches what the app does today: guest lists, guest limits, approvals, offline door check-in, push for approvals. No ticketing, no outbound invites (CLAUDE.md decision #36) — never claim either.
 
 ---
 
-## Dutch (primary)
+## Dutch
 
-**Short description** (≤80 chars, currently 63)
+> **Default listing language is English (en-GB)**, set in Play Console (2026-10-06); Dutch is the translation. The texts below are unchanged either way.
 
-> Gastenlijsten, quota en check-in aan de deur. Alles in PlusOne.
+**Short description** (≤80 chars, currently 72)
+
+> Gastenlijsten, gastenlimieten en check-in aan de deur. Alles in PlusOne.
 
 **Full description** (≤4000 chars)
 
 > Zet ze op de lijst. Wij doen de deur.
 >
-> PlusOne is de gastenlijst-app voor clubs, venues en events. Eén plek voor de gastenlijst, de quota per host en de check-in aan de deur — ook zonder verbinding.
+> PlusOne is de gastenlijst-app voor clubs, venues en events. Eén plek voor de gastenlijst, de gastenlimiet per host en de check-in aan de deur — ook zonder verbinding.
 >
 > **Gastenlijst, altijd actueel**
 > Voeg gasten toe met naam en +N, geef ze een tier (VIP, All Access, Artist, Pers, Crew, Gast), en zie in één oogopslag wie er onderweg is en wie al binnen is.
 >
-> **Quota die zichzelf bewaken**
-> Elke host krijgt een toegewezen aantal gasten per event. PlusOne rekent +N automatisch mee en blokkeert wie over zijn quotum gaat — de organisatie stelt de grenzen in, niet de host.
+> **Gastenlimieten die zichzelf bewaken**
+> Elke host krijgt een gastenlimiet per event. PlusOne rekent +N automatisch mee en sluit de lijst zodra de limiet is bereikt — de organisatie stelt de limieten in, niet de host.
 >
 > **Aanvragen, geregeld met één tik**
-> Gasten sturen een aanvraag, hosts vragen extra quotum — beide landen in de 'Requests'-tab. Goedkeuren of afwijzen kost één tik, met een pushmelding zodra er iets wacht.
+> Gasten sturen een aanvraag, hosts vragen een hogere gastenlimiet — beide landen in de 'Requests'-tab. Goedkeuren of afwijzen kost één tik, met een pushmelding zodra er iets wacht.
 >
 > **De deur werkt altijd**
 > Check-in blijft werken zonder internet: elke actie gaat in de wachtrij en synct zodra de verbinding terug is. Geen wifi aan de deur, geen probleem.
@@ -43,26 +45,26 @@ Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content mat
 
 ---
 
-## English
+## English (default, en-GB)
 
-**Short description** (≤80 chars, currently 61)
+**Short description** (≤80 chars, currently 67)
 
-> Guest lists, quotas and door check-in. Everything in PlusOne.
+> Guest lists, guest limits and door check-in. Everything in PlusOne.
 
 **Full description** (≤4000 chars)
 
 > Put them on the list. We run the door.
 >
-> PlusOne is the guest list app for clubs, venues and events. One place for the guest list, per-host quotas and door check-in — even offline.
+> PlusOne is the guest list app for clubs, venues and events. One place for the guest list, per-host guest limits and door check-in — even offline.
 >
 > **A guest list that stays current**
 > Add guests by name with a +N, assign a tier (VIP, All Access, Artist, Press, Crew, Guest), and see at a glance who's on the way and who's already in.
 >
-> **Quotas that enforce themselves**
-> Every host gets an assigned number of guests per event. PlusOne counts +N automatically and stops anyone going over their quota — the organization sets the limits, not the host.
+> **Guest limits that enforce themselves**
+> Every host gets a guest limit per event. PlusOne counts +N automatically and closes the list once the limit is reached — the organization sets the limits, not the host.
 >
 > **Approvals in one tap**
-> Guests send requests, hosts ask for more quota — both land in the Requests tab. Approve or decline in one tap, with a push notification the moment something's waiting.
+> Guests send requests, hosts ask for a higher guest limit — both land in the Requests tab. Approve or decline in one tap, with a push notification the moment something's waiting.
 >
 > **The door always works**
 > Check-in keeps working without a connection: every action queues and syncs the moment you're back online. No wifi at the door, no problem.
@@ -79,9 +81,9 @@ Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content mat
 
 ## What's new (initial release)
 
-**NL:** Eerste release van PlusOne voor Android: gastenlijst, quota, aanvragen en offline check-in aan de deur.
+**NL:** Eerste release van PlusOne voor Android: gastenlijst, gastenlimieten, aanvragen en offline check-in aan de deur.
 
-**EN:** First release of PlusOne for Android: guest lists, quotas, approvals and offline door check-in.
+**EN:** First release of PlusOne for Android: guest lists, guest limits, approvals and offline door check-in.
 
 ## Data safety form (Play Console) — question by question
 

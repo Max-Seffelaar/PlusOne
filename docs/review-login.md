@@ -210,9 +210,38 @@ review-code:
 > Demo account: full access to guest lists, approvals and the door check-in. Creating
 > venues, inviting people and changing the account e-mail are disabled for this account.
 
+## Prod-scripts vanuit Max' checkout (PowerShell-recept, enige plek)
+
+Max' werkcheckout is `C:\Users\Maxse\Documents\GitHub\PlusOne`; de `.env.local` daar
+wijst naar de **lokale stack**. Een prod-script met alleen `--prod` raakt dus
+`127.0.0.1`. Zet de prod-waarden daarom als env-vars in een **verse PowerShell-window**
+(env-vars winnen van `.env.local`); dit recept geldt voor elk script dat `--prod` kent
+(`seed-demo-venue.mjs`, `invite-link.mjs`). Andere runbooks verwijzen hiernaar.
+
+```powershell
+$env:NEXT_PUBLIC_SUPABASE_URL = "https://tolxwgqhppdcvnogdpel.supabase.co"
+$env:NEXT_PUBLIC_SUPABASE_ANON_KEY = "<de publieke anon/publishable key>"
+# service-role-key: kopieer hem in het klembord (Supabase → Settings → API) en typ dan
+# met de hand, zónder de key zelf in de opdracht te zetten:
+$env:SUPABASE_SERVICE_ROLE_KEY = (Get-Clipboard).Trim()
+Set-Clipboard -Value " "
+$env:SUPABASE_SERVICE_ROLE_KEY.Substring(0,6)    # controle: eerste 6 tekens
+node scripts/seed-demo-venue.mjs --prod
+```
+
+- De **eerste regel van de output** moet `target: tolxwgqhppdcvnogdpel.supabase.co`
+  zeggen. Staat daar `127.0.0.1`, stop dan: de env-vars zijn niet gezet.
+- **Sluit het venster daarna.** De key hoort alleen in dat proces te leven.
+- Valkuilen: `Read-Host -AsSecureString` + plakken legde in Windows PowerShell maar 1
+  teken vast; het opdrachtblok zelf kopiëren overschrijft het klembord (kopieer de key
+  pas daarna); een foutmelding kan de ruwe key (headers) bevatten, dus **plak
+  scriptfouten nooit** in een chat of ticket.
+- `supabase db push`/`db dump --linked` hebben dit niet nodig maar wél de
+  `supabase link`-ed checkout (nooit een worktree), zie CLAUDE.md "Env & prod-push".
+
 ## Eenmalig: seed de demo-venue
 
-Vanuit de **gelinkte main-checkout** (de `.env.local` daar wijst naar prod):
+Met de prod-env-var-methode uit "Prod-scripts vanuit Max' checkout" hieronder:
 
 ```bash
 node scripts/seed-demo-venue.mjs --prod
@@ -307,8 +336,13 @@ de code in." (plus de URL voor wie in een browser test).
    - `REVIEW_LOGIN_EXPIRES_AT` = einde van het reviewvenster, ISO met zone, hooguit 60
      dagen vooruit, bv. `2026-11-15T23:59:00+01:00`
 
-   Redeploy, want env-vars gelden pas na een nieuwe deploy.
-3. Draai het seedscript opnieuw (events naar voren, MFA-reset).
+   **Redeploy**, want env-vars gelden pas na een nieuwe deploy, en **wacht tot de deployment
+   Ready is** voor je test: tijdens de build is een 404 normaal. Test in een privévenster;
+   plak de code, typ hem niet. De code staat alleen in Vercel, de wachtwoordmanager, Play
+   "Sign-in details" en App Store Connect "App Review Information", nergens anders.
+   (De `Origin: null`-404 op de formulier-POST is gefixt in #381: de formulierpagina stuurt
+   nu `Referrer-Policy: same-origin`.)
+3. Draai het seedscript opnieuw (events naar voren, MFA-reset), via het recept hierboven.
 4. Zet in de review-notes, link eerst: "Tik op het loginscherm op *App review sign-in*
    en vul de code in", plus de code. De URL `https://app.plus-one.io/auth/review-login`
    alleen als terugval voor wie in een browser test.
@@ -322,7 +356,7 @@ eindigen de demo-sessies.
 in, ook die van een client die alleen de API gebruikt:
 
 ```bash
-node scripts/seed-demo-venue.mjs --prod --end-review
+node scripts/seed-demo-venue.mjs --prod --end-review   # via het PowerShell-recept hierboven
 ```
 
 Dat verwijdert eerst elke MFA-factor van de demo-user (admin-API, dezelfde sweep als de

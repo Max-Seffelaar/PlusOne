@@ -10,17 +10,9 @@ Facts used throughout: package `app.plusone.guestlist` · targetSdk 36 · develo
 account (no 12-tester rule, `docs/native/android-release.md` §9) · the app is a remote-URL
 shell that loads `https://app.plus-one.io`.
 
-> ⛔ **BLOCKER found while writing this, needs an app-code task before submission:** the
-> native app opens on `https://app.plus-one.io/login` (e-mail + one-time code). **Nothing in
-> the app links to `/auth/review-login`**, and the Android App Links claim only
-> `/auth/confirm` and `/auth/callback` (`android/app/src/main/AndroidManifest.xml`). If the
-> reviewer opens the review URL in Chrome, the session lands in **Chrome**, not in the app's
-> webview. So right now Google's reviewer **cannot sign in inside the installed app**. The
-> demo address has no mailbox, so the normal OTP login can't work either. Fix options for
-> that task (not built here, this PR is docs-only): (a) a small "App review sign-in" link on
-> `/login` that only shows while the review window is open, or (b) add
-> `/auth/review-login` to the App Link paths + `APP_LINK_HOST` allowlist. The steps below
-> describe the flow **as it should work once that task is merged**.
+> ✅ **Resolved (#367, 2026-10-05):** `/login` shows an "App review sign-in" link while the
+> review window is open, so the reviewer signs in inside the installed app's webview. The
+> steps below describe that flow.
 
 ---
 
@@ -41,11 +33,22 @@ Fields (Play asks for name, username, password and "any other information"):
 lives only in Vercel (Production env, Sensitive) and in this Play Console field. Generate a
 fresh one per submission (`docs/review-login.md` → "Per submissie").
 
+**Sign-in details field (≤500 chars).** Play's "Sign-in details" box is separate from the
+instructions text below. Fill it like this (code and date come from Vercel / the password
+manager; never type the real code into this repo):
+
+```text
+Open the app, tap "App review sign-in" under the sign-in form. Password: <review code,
+type the dashes too>. Tap Sign in, then "Agree & continue". You land in the "PlusOne
+Demo" venue (admin + door host, fake data). Valid until <date>. Creating venues, inviting
+people and changing the account e-mail are disabled on purpose for this account.
+```
+
 Text for "any other information" (English; Google's reviewers read English):
 
 ```text
 PlusOne is an invite-only business app for venue staff (clubs, event venues): guest lists,
-per-host quotas, approvals and door check-in. There is no public sign-up, so we provide a
+per-host guest limits, approvals and door check-in. There is no public sign-up, so we provide a
 demo venue with fake data.
 
 HOW TO SIGN IN
@@ -61,14 +64,14 @@ WHAT TO LOOK AT
 - Approvals + push notifications: a card "Know when a request comes in" appears in the
   app. Tap "Turn on", then "Allow" in the Android prompt (you can also do this later
   under Profile -> Push notifications). Open the "Requests" tab and approve or decline a
-  guest request or a quota request in one tap. New requests arrive as a push
+  guest request or a guest-limit request in one tap. New requests arrive as a push
   notification with a generic text ("New guest request"), never a guest's name.
 - Offline door check-in (works without internet): open the "Check-in" tab and pick the
   demo event. Turn on airplane mode. Check a guest in (tap the name, then "Check in"). The
   check-in appears straight away and is queued on the device. Turn airplane mode off.
   The queue syncs within seconds, and the check-in also shows on another device or in
   the guest list.
-- Guest list: open an event, add a guest with a +1 and see the host quota go down.
+- Guest list: open an event, add a guest with a +1 and see the host's remaining guest limit go down.
 
 DISABLED FOR THE DEMO ACCOUNT (on purpose, not a bug)
 Demo account: full access to guest lists, approvals and the door check-in. Creating
@@ -85,8 +88,8 @@ confirms the mailbox>). Guests on a venue's list are removed by that venue
 Notes for Max:
 - The "Demo account: …" sentence is the one `docs/review-login.md` says to paste. Keep it
   word for word so it matches what the reviewer sees in the app.
-- Step 1's "App review sign-in" label is the button the blocker task above has to add.
-  If that task picks another label or route, update step 1 here.
+- Step 1's "App review sign-in" label is the link from #367 (`/login`). If the label
+  changes, update step 1 here.
 - The "Check-in" and "Requests" tab names, the "Know when a request comes in" card and the
   "Turn on" button are what the English UI shows today (`src/lib/i18n/en.ts` `nav`,
   `push`). If they change before submission, update the text.
@@ -124,18 +127,17 @@ added it: tell the orchestrator. That's an app-code task (`tools:node="remove"`)
 | Violence / blood / fear | **No** to all | Business tool, no such content |
 | Sexuality / nudity | **No** | — |
 | Language (crude humour, profanity) | **No** | Copy deck has none |
-| Controlled substances: does the app **reference** alcohol, tobacco or drugs? | **Yes: reference only** *(Max's call, see note)* | Nightlife context: the tier-alias examples in the UI say "bottle" and "champagne" → VIP (`src/lib/i18n/surfaces/events.ts`, `guests.ts`, `templates.ts`). No depiction of use, no sale, no encouragement → answer **No** to every follow-up about use/sale/encouragement. |
+| Controlled substances: does the app **reference** alcohol, tobacco or drugs? | **No** *(2026-10-06)* | No alcohol, tobacco or drug words are left in UI copy: the tier-alias examples were made neutral in #365. Answer **No**; no follow-ups appear. |
 | Gambling (real or simulated) | **No** | — |
 | Can users interact or exchange content with each other? | **Yes**, limited | Team members of one venue see each other's guest entries and notes. An admin's decision message is shown to the guest on their status page. Not public, not open to strangers (invite-only). This adds the "Users Interact" note; it doesn't change the age rating. |
 | Shares the user's current physical location with other users? | **No** | No location at all |
 | Digital purchases | **No** | No billing UI in the native shell (`isNativeShell()`, Apple/Google store-tax decision) |
 | Unrestricted internet / web browser | **No** | The webview only loads `https://app.plus-one.io`. External links (terms, privacy) open in the system browser via `openExternal()`. |
 
-**Note on alcohol:** the brief assumed "no" here. The UI does name bottle service, so
-answering "No" would be inaccurate. The honest answer is "references only", which
-typically gives PEGI 12 / Teen-level ratings instead of PEGI 3 / Everyone. That's fine
-for an 18+ business app. If Max would rather have the lowest rating, the copy has to change
-(an app-code/copy task), not the answer.
+**Note on alcohol:** this answer was "Yes: reference only" while the UI examples said
+"bottle"/"champagne". #365 removed those words (`src/lib/i18n/surfaces/events.ts`,
+`guests.ts`, `templates.ts`), so the accurate answer is now **No**. If alcohol wording
+ever returns to the UI copy, re-answer the questionnaire in the same PR.
 
 ## 5. Target audience and content (App content → Target audience)
 

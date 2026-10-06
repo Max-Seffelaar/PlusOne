@@ -4,9 +4,9 @@ App name: **PlusOne**
 Category: **Business** (primary) — no "nightlife" category exists; Business is the closest fit for a venue-staff tool. Consider Utilities as a secondary if Apple requires one.
 Support URL: `https://www.plus-one.io`
 Privacy policy URL: `https://www.plus-one.io/legal#privacy`
-Age rating: 17+ recommended (nightclub/alcohol-venue context — set from the standard questionnaire in App Store Connect, not decided here).
+Age rating: every questionnaire answer is **No** (2026-10-06; no alcohol words are left in UI copy, #365) — the resulting rating is whatever App Store Connect computes from that.
 
-Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. No ticketing, no outbound invites (CLAUDE.md decision #36), no in-app billing/checkout (Apple IAP restriction, `src/lib/platform.ts` `isNativeShell()`) — never claim any of these.
+Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, guest limits, approvals, offline door check-in, push for approvals. No ticketing, no outbound invites (CLAUDE.md decision #36), no in-app billing/checkout (Apple IAP restriction, `src/lib/platform.ts` `isNativeShell()`) — never claim any of these.
 
 ---
 
@@ -16,24 +16,24 @@ Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, 
 
 > Gastenlijst en deurcheck-in
 
-**Promotional text** (≤170 chars, currently 148 — editable without a new build)
+**Promotional text** (≤170 chars, currently 155 — editable without a new build)
 
-> Zet ze op de lijst, wij doen de deur. Quota per host, aanvragen goedkeuren, offline check-in. Geen QR, geen screenshots, gewoon je naam aan de deur.
+> Zet ze op de lijst, wij doen de deur. Gastenlimiet per host, aanvragen goedkeuren, offline check-in. Geen QR, geen screenshots, gewoon je naam aan de deur.
 
 **Description**
 
 > Zet ze op de lijst. Wij doen de deur.
 >
-> PlusOne is de gastenlijst-app voor clubs, venues en events. Eén plek voor de gastenlijst, de quota per host en de check-in aan de deur — ook zonder verbinding.
+> PlusOne is de gastenlijst-app voor clubs, venues en events. Eén plek voor de gastenlijst, de gastenlimiet per host en de check-in aan de deur — ook zonder verbinding.
 >
 > Gastenlijst, altijd actueel
 > Voeg gasten toe met naam en +N, geef ze een tier (VIP, All Access, Artist, Pers, Crew, Gast), en zie in één oogopslag wie er onderweg is en wie al binnen is.
 >
-> Quota die zichzelf bewaken
-> Elke host krijgt een toegewezen aantal gasten per event. PlusOne rekent +N automatisch mee en blokkeert wie over zijn quotum gaat.
+> Gastenlimieten die zichzelf bewaken
+> Elke host krijgt een gastenlimiet per event. PlusOne rekent +N automatisch mee en sluit de lijst zodra de limiet is bereikt — de organisatie stelt de limieten in, niet de host.
 >
 > Aanvragen, geregeld met één tik
-> Gasten sturen een aanvraag, hosts vragen extra quotum — beide landen in de 'Requests'-tab, met een pushmelding zodra er iets wacht.
+> Gasten sturen een aanvraag, hosts vragen een hogere gastenlimiet — beide landen in de 'Requests'-tab, met een pushmelding zodra er iets wacht.
 >
 > De deur werkt altijd
 > Check-in blijft werken zonder internet: elke actie gaat in de wachtrij en synct zodra de verbinding terug is.
@@ -48,7 +48,7 @@ Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, 
 
 **Keywords** — App Store keyword fields are per-locale; the NL field can reuse the EN list below translated, but Apple weighs the app name/subtitle too, so keep this list tight:
 
-> gastenlijst,deur,check-in,venue,evenement,quotum,nachtclub,vip,portier
+> gastenlijst,gastenlimiet,deur,check-in,venue,evenement,nachtclub,vip,portier,deurlijst
 
 ---
 
@@ -58,24 +58,24 @@ Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, 
 
 > Guest lists, door check-in
 
-**Promotional text** (≤170 chars, currently 153 — editable without a new build)
+**Promotional text** (≤170 chars, currently 159 — editable without a new build)
 
-> Put them on the list, we run the door. Quotas per host, approvals in one tap, check-in that keeps working offline. No QR, no screenshots, just your name.
+> Put them on the list, we run the door. Guest limits per host, approvals in one tap, check-in that keeps working offline. No QR, no screenshots, just your name.
 
 **Description**
 
 > Put them on the list. We run the door.
 >
-> PlusOne is the guest list app for clubs, venues and events. One place for the guest list, per-host quotas and door check-in — even offline.
+> PlusOne is the guest list app for clubs, venues and events. One place for the guest list, per-host guest limits and door check-in — even offline.
 >
 > A guest list that stays current
 > Add guests by name with a +N, assign a tier (VIP, All Access, Artist, Press, Crew, Guest), and see at a glance who's on the way and who's already in.
 >
-> Quotas that enforce themselves
-> Every host gets an assigned number of guests per event. PlusOne counts +N automatically and stops anyone going over their quota.
+> Guest limits that enforce themselves
+> Every host gets a guest limit per event. PlusOne counts +N automatically and closes the list once the limit is reached — the organization sets the limits, not the host.
 >
 > Approvals in one tap
-> Guests send requests, hosts ask for more quota — both land in the Requests tab, with a push notification the moment something's waiting.
+> Guests send requests, hosts ask for a higher guest limit — both land in the Requests tab, with a push notification the moment something's waiting.
 >
 > The door always works
 > Check-in keeps working without a connection: every action queues and syncs the moment you're back online.
@@ -88,17 +88,17 @@ Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, 
 >
 > PlusOne is invite-only — accounts come from your organization.
 
-**Keywords** (≤100 chars, currently 81)
+**Keywords** (≤100 chars, currently 92)
 
-> guest list,door,check-in,venue,event,quota,nightclub,vip,bouncer,rsvp,event staff
+> guest list,guest limit,door,check-in,venue,event,nightclub,vip,bouncer,event staff,door list
 
 ---
 
 ## What's new (initial release)
 
-**NL:** Eerste release van PlusOne voor iOS: gastenlijst, quota, aanvragen en offline check-in aan de deur.
+**NL:** Eerste release van PlusOne voor iOS: gastenlijst, gastenlimieten, aanvragen en offline check-in aan de deur.
 
-**EN:** First release of PlusOne for iOS: guest lists, quotas, approvals and offline door check-in.
+**EN:** First release of PlusOne for iOS: guest lists, guest limits, approvals and offline door check-in.
 
 ## App Privacy (nutrition labels)
 
