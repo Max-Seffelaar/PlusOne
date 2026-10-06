@@ -47,6 +47,17 @@ with one addition: the root `not-found.tsx` boundary also calls `getSessionUser`
 
 ---
 
+---
+
+## 2026-10-06 — Sentry-hygiene S1 (onboarding programme task 0f)
+
+Milestone **Now**. Triage of 11 open Sentry issues in 14 days. Scope: client capture gate only; `tracesSampler` (PR #400) and all user behaviour untouched.
+
+- **`captureUnexpectedError`** now classifies before reporting: (1) known user-facing failures → `expected-error` breadcrumb; (2) Supabase `PostgrestError` objects → `Error` titled with the DB message, tag `db_code`, `hint` in extra (not `details`); (3) network noise (`Load failed`, `Failed to fetch`, `AuthRetryableFetchError`) dropped offline, tagged `network:true` online. Vitest `capture.test.ts` covers each category.
+- **`asExpectedMutationError`** in `src/lib/db-errors.ts`. Finding: `po/mutations.ts` rethrows `new Error(res.message)`, so the MutationError `code` never reaches the MutationCache — recognition therefore also matches the known (crafted, PII-free) user copy. Follow-up for the orchestrator: throw a `MutationFailure extends Error` with `code` from `throwOnError` (outside this task's scope-hek).
+- No change to `sentry.*.config.ts` or `PoLiveProvider` (its handlers already call the gate). Runbook gained "Sentry triage".
+
+---
 ## 2026-10-06 — Onboarding programme okt 2026, wave 0: spikes (§9) + seed fix
 
 Docs + seed PR, milestone **Now** (unblocks the onboarding programme). Answers the six spike questions in

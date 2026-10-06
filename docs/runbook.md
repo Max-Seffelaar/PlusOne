@@ -54,6 +54,26 @@ curl -s -o /dev/null -w '%{http_code}\n' "$APP/monitoring"
 `scripts/hooks/lib/required-env.mjs`. So this failure mode should not recur; the checks
 above are for confirming that, and for any environment the guard doesn't cover.
 
+## Sentry triage — what belongs in Sentry and what doesn't
+
+Rule: **an issue in Sentry means someone should look at it.** Expected user-facing failures are not issues.
+The gate is `captureUnexpectedError` (`src/lib/observability/capture.ts`, wired into the `/app` query and
+mutation caches in `PoLiveProvider`); everything else goes through it.
+
+| Failure | In Sentry as | Why |
+|---|---|---|
+| Known user-facing MutationError (`42501`, `23505`/`exists`, `invalid_input`, `already_handled`, quota `4500x`, `billing_*`, URL validation copy) | Breadcrumb (`expected-error`) on the next real event | The UI already told the user; it is a rule, not a bug. |
+| Unknown MutationError code (`unknown`, `invite`, …) | Issue | May be a bug. Add the code to `EXPECTED_CODES` in `src/lib/db-errors.ts` only once you have confirmed it is user-facing. |
+| Supabase `PostgrestError` (object) | Issue titled with the DB message, tag `db_code`, hint in extra (never `details`: can echo row values) | Previously "Object captured as exception with keys…", all grouped as one. A raw `42501` here is an RLS denial the UI should not have attempted — keep it visible. |
+| `Load failed` / `Failed to fetch` / `AuthRetryableFetchError` while `navigator.onLine === false` | Nothing | Door/outbox handle offline by design. |
+| Same errors while online | Issue with tag `network:true` | A real connectivity or CORS/CSP problem; filter on the tag when triaging. |
+| `AbortError` | Nothing | Cancelled request. |
+
+Triage a new issue: (1) title says `PostgrestError`? read `db_code` + `hint`, then the query key in extra;
+(2) `network:true` cluster on one release/browser? check CSP and the Supabase status; (3) a user-facing message
+showing up as an issue means it is missing from `EXPECTED_MESSAGES`/`EXPECTED_CODES` — add it with a test in
+`capture.test.ts`. Never filter on a hunch: read one stack first.
+
 ## Rollback = the default first move
 
 Vercel deploys are immutable and instant to promote. If anything broke right after
