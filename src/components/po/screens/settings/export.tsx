@@ -159,7 +159,10 @@ export function ExportEventButton({ eventId }: { eventId: string }): JSX.Element
   const { run, start, isPending } = useExportVenueData();
   if (!canExport || isNativeShell()) return null;
   return (
-    <div className="min-w-0 flex-1">
+    // `w-full`, not `flex-1`: the sibling "Guest list" Btn is `w-full` (basis
+    // 100%), and flex shrinks in proportion to basis — a basis-0 wrapper was
+    // squeezed to ~0 and the nowrap button overflowed (layout-suite, all devices).
+    <div className="w-full min-w-0">
       <Btn kind="quiet" full icon="dl" disabled={isPending} onClick={() => start({ eventId })}>
         {isPending ? t.settings.export.busy : t.events.exportLabel}
       </Btn>
