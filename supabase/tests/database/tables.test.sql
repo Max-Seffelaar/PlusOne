@@ -49,7 +49,10 @@ select tables_are(
     'push_tokens', 'notification_outbox', 'push_dispatch_tokens',
     -- Legal v0.3 B3 (z8uq9m2hm5): append-only log of platform admins switching
     -- into a venue they hold no membership at. Platform admins only.
-    'platform_access_log'
+    'platform_access_log',
+    -- 20261006170000 (raw-PostgREST throttle binding): sha256 of the app
+    -- server's trust secret. RLS on, no policies, no app-role grants.
+    'public_throttle_trusted_callers'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );
