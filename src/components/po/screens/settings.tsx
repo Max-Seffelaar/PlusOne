@@ -61,9 +61,13 @@ export function Meer(): JSX.Element {
   const showContactsRow = isMobile && showContacts;
   const showTeamRow = isMobile && caps.viewTeam;
   const insightsAny = showStatsRow || showPromoRow || caps.viewAudit || showRequestsRow;
-  const thisVenueAny =
-    canManageTemplates || caps.viewSettings || caps.viewQuota || showRegulars || showContactsRow || showImport;
   const isPlatformAdmin = usePoIsPlatformAdmin();
+  // A platform admin switched in without a membership (roles []) still needs
+  // Venue settings: that is where the data export lives (E1, #49). The screen
+  // itself stays read-only "no rights" for them, apart from the export card.
+  const showVenueSettingsRow = caps.viewSettings || isPlatformAdmin;
+  const thisVenueAny =
+    canManageTemplates || showVenueSettingsRow || caps.viewQuota || showRegulars || showContactsRow || showImport;
   const showPlatformRow = isMobile && isPlatformAdmin;
   const teamAny = showTeamRow || isAdmin || showPlatformRow;
   const profile = usePoProfile();
@@ -144,7 +148,7 @@ export function Meer(): JSX.Element {
         {canManageTemplates && (
           <Row icon="grid" title={t.settings.more.templatesTitle} sub={t.settings.more.templatesSub} onClick={() => nav.push('templates')} />
         )}
-        {caps.viewSettings && (
+        {showVenueSettingsRow && (
           <Row icon="cog" title={t.settings.more.venueSettingsTitle} sub={t.settings.more.venueSettingsSub} onClick={() => nav.push('venuesettings')} />
         )}
         {caps.viewQuota && (

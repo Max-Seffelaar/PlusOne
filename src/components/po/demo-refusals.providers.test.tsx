@@ -49,6 +49,7 @@ vi.mock('./shell', async (orig) => ({
 }));
 vi.mock('@/features/venues/actions', () => ({ createVenueAction: H.createVenueAction, switchActiveVenueAction: vi.fn() }));
 vi.mock('@/features/po/hooks', () => ({
+  usePoIsPlatformAdmin: () => false,
   usePoVenueSettings: () => ({
     data: {
       name: 'Venue A', retentionMonths: 12, defaultPersonalQuota: 0, allowUncheck: true, companyName: '',

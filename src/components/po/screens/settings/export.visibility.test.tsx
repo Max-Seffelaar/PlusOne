@@ -6,6 +6,8 @@
  *    the venue scope, then hands the ZIP to the kit's downloadFile;
  *  - finance / staff see neither the venue card nor the event row (the action
  *    and the audit RPC refuse them anyway — this pins the UI half);
+ *  - a platform admin in a venue they hold no membership at (roles []) DOES see
+ *    them — the server admits them and logs platform_access_log (#49);
  *  - the native shell shows "export from the web app" and never calls the
  *    action (the webview cannot save a blob download);
  *  - "too_large" surfaces the "export per event" copy.
@@ -19,6 +21,7 @@ import { t } from '@/lib/i18n';
 
 const H = vi.hoisted(() => ({
   roles: ['admin'] as string[],
+  platformAdmin: false,
   native: false,
   result: { ok: true, filename: 'x.zip', zipBase64: 'UEs=', counts: { guests: 3, contacts: 2, requests: 1, door: 0 } } as unknown,
   calls: [] as unknown[],
@@ -28,6 +31,7 @@ const H = vi.hoisted(() => ({
 vi.mock('@/features/po/PoLiveProvider', () => ({
   usePoIdentity: () => ({ roles: H.roles, venueId: '018f3a2e-0000-7000-8000-00000000000a' }),
 }));
+vi.mock('@/features/po/hooks', () => ({ usePoIsPlatformAdmin: () => H.platformAdmin }));
 vi.mock('@/lib/platform', () => ({ isNativeShell: () => H.native }));
 vi.mock('@/features/export/actions', () => ({
   exportVenueData: async (input: unknown) => {
@@ -53,6 +57,7 @@ function wrap(node: ReactNode) {
 afterEach(() => {
   cleanup();
   H.roles = ['admin'];
+  H.platformAdmin = false;
   H.native = false;
   H.calls = [];
   H.downloads = [];
@@ -77,6 +82,21 @@ describe('ExportDataCard', () => {
       </>,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('shows both entry points to a platform admin without a membership (roles [])', async () => {
+    H.roles = [];
+    H.platformAdmin = true;
+    wrap(
+      <>
+        <ExportDataCard />
+        <ExportEventRow eventId="018f3a2e-0000-7000-8000-0000000000e1" />
+      </>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: t.settings.export.everything }));
+    await waitFor(() => expect(H.downloads).toEqual(['x.zip']));
+    expect(H.calls).toEqual([{ venueId: '018f3a2e-0000-7000-8000-00000000000a', scope: 'venue' }]);
+    expect(screen.getByRole('button', { name: new RegExp(t.settings.export.eventOnly) })).toBeInTheDocument();
   });
 
   it('points to the web app in the native shell and never calls the action', () => {

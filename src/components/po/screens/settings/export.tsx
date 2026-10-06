@@ -4,7 +4,10 @@
 //   * <ExportDataCard/> in Venue settings: "Export everything" (venue scope);
 //   * <ExportEventRow/> on an event's detail screen: "Export this event".
 // Admin only — finance/staff/doorhost never see either (the server action and
-// the audit RPC refuse them anyway). Never behind the billing gate: ToS 6.2
+// the audit RPC refuse them anyway). A platform admin (#49) sees them too: in a
+// venue they switched into without a membership their `roles` are `[]`, but
+// `has_venue_role` admits them server-side and `log_venue_export` writes the
+// `platform_access_log` row — hiding the button only made that path unreachable. Never behind the billing gate: ToS 6.2
 // promises read access on a lapsed trial, and this is read access.
 // Native shell (#37): the webview cannot save a blob download, so both entry
 // points say "export from the web app" instead (same seam as billing).
@@ -14,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { isNativeShell } from '@/lib/platform';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { usePoIsPlatformAdmin } from '@/features/po/hooks';
 import { exportVenueData, type ExportVenueDataResult } from '@/features/export/actions';
 import { Icon } from '../../icon';
 import { Btn, Label, Note, downloadFile, press } from '../../kit';
@@ -68,7 +72,8 @@ function useExportVenueData() {
 
 function useCanExport(): boolean {
   const { roles } = usePoIdentity();
-  return roles.includes('admin');
+  const isPlatformAdmin = usePoIsPlatformAdmin();
+  return roles.includes('admin') || isPlatformAdmin;
 }
 
 /** Venue settings card: "Export everything". Renders nothing for non-admins. */
