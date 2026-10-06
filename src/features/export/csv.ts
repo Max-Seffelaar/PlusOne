@@ -40,10 +40,11 @@ export type CsvValue = string | number | boolean | null | undefined;
 // field like `"=1+1` cannot hide its formula behind a cell-opening quote.
 const FORMULA_START = /^[\s"\u200B\uFEFF]*[=+\-@\t\r]/u;
 /** A point where some reader starts a new cell or record (`,` `;` TAB `|` CR
- *  LF), followed — past whitespace and stray double quotes — by a
- *  formula character. `,` is included so the guard holds even for a reader that
- *  ignores quoting altogether. */
-const SPLIT_FORMULA = /([,;\t\r\n|][\s"\u200B\uFEFF]*)(?=[=+\-@])/gu;
+ *  LF, plus the rarer breaks VT FF NEL U+2028 U+2029 — cheap to cover even
+ *  though no mainstream spreadsheet is known to split on them), followed —
+ *  past whitespace and stray double quotes — by a formula character. `,` is
+ *  included so the guard holds even for a reader that ignores quoting. */
+const SPLIT_FORMULA = /([,;\t\r\n|\v\f\u0085\u2028\u2029][\s"\u200B\uFEFF]*)(?=[=+\-@])/gu;
 const NEEDS_QUOTES = /[",;|\t\r\n]/;
 
 /** One CSV cell: formula-guarded, then quoted when needed. */
