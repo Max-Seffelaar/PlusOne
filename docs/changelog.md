@@ -8,6 +8,45 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Legal v0.3 E1 manual QA follow-ups: platform-admin export, CSV formula hardening, door price (z8uq9m2hm6)
+
+Max ran the 15-question test handoff for E1 (#384) against the local stack. All 15 pass after three follow-up PRs,
+each independently reviewed (fresh code-review + adversarial security-review agents). No migration in any of them.
+
+- **#389** — a platform admin who switches into a venue **without a membership** gets `roles: []`
+  (`getPlatformAdminVenue`), which hid the export at three levels: the More → Venue settings row, the
+  `VenueSettings` screen ("no rights"), and the card. The server side was already right (`has_venue_role` admits
+  `is_platform_admin()`; `log_venue_export` writes `platform_access_log` reason `export`). Fix: `useCanExport` =
+  admin OR `usePoIsPlatformAdmin()`; the no-rights branch still mounts the self-gated `ExportDataCard`; the More row
+  shows for `caps.viewSettings || isPlatformAdmin`. Also: "Export this event" on the Edit event (gear) screen —
+  admins looked there, not on the detail screen.
+- **#391** — **CSV formula injection via a locale split** (security review; pre-existing in E1's `csv.ts`, live in
+  prod until merged). Dutch Excel opens a `.csv` with list separator `;` and honours a `"` only at a cell START, so
+  any field in a later column (public `full_name`, `motivation`, staff notes) split on its own `;` or line break:
+  `EventX,"Jan;=1+1;",…` yielded a clean `=1+1` cell. First fix (quote `;`/TAB) only protected column 1 — caught by
+  the re-review. Final: `SPLIT_FORMULA` puts an apostrophe after every in-field `,` `;` TAB `|` CR LF before
+  `= + - @` (past whitespace and stray quotes); `FORMULA_START` looks past all Unicode whitespace, ZWSP, BOM and a
+  leading `"`. Proof: a test reader that ignores quoting and splits on every separator, 13 payloads × every column,
+  red against the old `csv.ts`. Plus `export.reachability.test.tsx` pinning the two #389 gates (mutation-checked).
+- **#393** — guests.csv gains `door_price` (`door_price_cents` as `10.00`, never `€10,-`) and `currency` (`EUR`,
+  ISO 4217 — no currency column exists; billing is EUR-only, #32) after `tier`; empty for a tier without a price.
+  `SPLIT_FORMULA` also covers VT, FF, NEL, U+2028, U+2029. **guests.csv column order changed.**
+
+**Visible trade-off (accepted):** a formula-start character after a separator inside a field gets a visible `'`
+(note bullets `'- drinks`, `'@insta`, `€10,'-` in free text), like E.164 phones (`'+316…`). Nothing is lost.
+
+**Gotchas:** in this Windows setup, Python/bash heredoc edits turned `\u200B`/`\uFEFF` escapes in TS sources into
+invisible literal characters — write such escapes via a `.cjs` script using `String.fromCharCode(92)`, then grep
+for the escape text. `pnpm test` is `vitest` (watch mode) and hangs a non-interactive shell — use
+`pnpm vitest run`. Locally on Windows, `capacitor-native-shell`, `codemagic-*` and `pgtap-plan-run-gate` unit tests
+fail on `main` too (CI on Linux is green). The shared local stack was reset twice by another session during the QA
+pass (CLAUDE.md "One DB owner").
+
+**Not done, spun off as separate tasks:** seed links Sanne Mulder's guest row to Pim Scholten's contact (wrong
+`last_seen_event` in contacts.csv; pgTAP depends on those rows); a deep link to an event of another of your venues
+shows "no events" instead of offering a switch; phone-matched opt-in lets a request with someone's phone number
+switch their "Keep me posted" off (product/consent decision).
+
 ## 2026-10-06 — Fase 17 wave 4 wrap-up: Play/App Store prep, review login, prod config (86exxuvye)
 
 Docs-only wrap-up PR, milestone **Now** (gets venue #5 signed: store presence). Covers the merged wave-4 PRs:
