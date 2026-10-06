@@ -90,7 +90,10 @@ function seed(): void {
       { id: EVENT, venue_id: VENUE, name: 'Launch Night', starts_at: '2026-10-10T20:00:00+00:00' },
       { id: OTHER_EVENT, venue_id: OTHER, name: 'Elsewhere', starts_at: '2026-10-11T20:00:00+00:00' },
     ],
-    guest_tiers: [{ id: 't1', venue_id: VENUE, event_id: EVENT, name: 'VIP' }],
+    guest_tiers: [
+      { id: 't1', venue_id: VENUE, event_id: EVENT, name: 'VIP', door_price_cents: 1000 },
+      { id: 't2', venue_id: VENUE, event_id: EVENT, name: 'Regular', door_price_cents: null },
+    ],
     request_links: [{ id: 'l1', venue_id: VENUE, event_id: EVENT, label: 'Instagram', slug: 'ig' }],
     guests: [
       {
@@ -108,7 +111,7 @@ function seed(): void {
       },
       {
         id: 'g3', venue_id: VENUE, event_id: EVENT, full_name: 'Guest #4', email: null, phone: null,
-        plus_ones: 0, tier_id: 't1', status: 'invited', note: null, source: 'quick_add',
+        plus_ones: 0, tier_id: 't2', status: 'invited', note: null, source: 'quick_add',
         created_at: '2026-01-01T11:00:00+00:00', added_by: null, contact_id: null, check_ins: [],
       },
       {
@@ -227,6 +230,11 @@ describe('exportVenueData — content', () => {
     expect(guests).toContain('2026-10-10T21:00:00+00:00');
     expect(guests).toContain('Guest #4'); // anonymised rows come along as they are
     expect(guests).not.toContain('Leaked Elsewhere');
+    // Door price as a plain amount plus its own currency column (never "€10,-"),
+    // and both cells empty for a tier without a price.
+    expect(guests).toContain(',tier,door_price,currency,status,');
+    expect(guests).toContain(',VIP,10.00,EUR,checked_in,');
+    expect(guests).toContain(',Regular,,,invited,');
 
     const contacts = files.get('contacts.csv')!.split('\r\n');
     expect(contacts.find((l) => l.startsWith('"Bakker, Tom"'))).toMatch(/,true,2026-09-01T10:00:00\+00:00,Launch Night$/);

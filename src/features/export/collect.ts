@@ -68,6 +68,21 @@ export async function pageAll<T>(
   }
 }
 
+/** Every door price is in euros (Stripe/BTW are EUR-only, #32): no currency
+ *  column exists in the schema, so the export states it explicitly. */
+export const EXPORT_CURRENCY = 'EUR';
+
+/**
+ * A tier's door price as two cells: the amount with a dot and two decimals
+ * (`10.00`, never `€10,-`), and its ISO 4217 currency in its own column, so a
+ * spreadsheet or accounting import can read the number without parsing text.
+ * A tier without a price (null) leaves both cells empty; a free tier is 0.00.
+ */
+export function doorPrice(cents: number | null | undefined): [string, string] {
+  if (cents == null) return ['', ''];
+  return [(cents / 100).toFixed(2), EXPORT_CURRENCY];
+}
+
 /** First element of a PostgREST embed (to-one embeds may arrive as object or array). */
 function one<T>(v: T | T[] | null | undefined): T | null {
   if (v == null) return null;
@@ -75,7 +90,8 @@ function one<T>(v: T | T[] | null | undefined): T | null {
 }
 
 export const GUEST_HEADERS = [
-  'event_name', 'event_date', 'full_name', 'email', 'phone', 'plus_ones', 'tier', 'status',
+  'event_name', 'event_date', 'full_name', 'email', 'phone', 'plus_ones', 'tier', 'door_price',
+  'currency', 'status',
   'note', 'source', 'created_at', 'created_by', 'checked_in_at',
 ] as const;
 export const CONTACT_HEADERS = [
@@ -111,11 +127,12 @@ export async function collectVenueExport(
   const eventName = (id: string): string => eventById.get(id)?.name ?? '';
 
   const tiers = await pageAll('tiers', (from, to) => {
-    let q = client.from('guest_tiers').select('id, name').eq('venue_id', venueId);
+    let q = client.from('guest_tiers').select('id, name, door_price_cents').eq('venue_id', venueId);
     if (eventId) q = q.eq('event_id', eventId);
     return q.order('id').range(from, to);
   });
   const tierName = new Map(tiers.map((t) => [t.id, t.name]));
+  const tierPrice = new Map(tiers.map((t) => [t.id, t.door_price_cents]));
 
   const links = await pageAll('links', (from, to) => {
     let q = client.from('request_links').select('id, label, slug').eq('venue_id', venueId);
@@ -224,7 +241,7 @@ export async function collectVenueExport(
       .pop();
     return [
       ev?.name ?? '', ev?.starts_at ?? '', g.full_name, g.email, g.phone, g.plus_ones,
-      tierName.get(g.tier_id) ?? '', g.status, g.note, g.source, g.created_at, actor(g.added_by),
+      tierName.get(g.tier_id) ?? '', ...doorPrice(tierPrice.get(g.tier_id)), g.status, g.note, g.source, g.created_at, actor(g.added_by),
       active ?? null,
     ];
   });

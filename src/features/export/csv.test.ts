@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { csvField, toCsv } from './csv';
+import { doorPrice } from './collect';
 
 describe('csvField — RFC 4180 escaping', () => {
   it('leaves plain text alone', () => {
@@ -91,7 +92,8 @@ describe('toCsv', () => {
 // than any real one: it ignores quoting entirely and splits on every separator
 // any locale or import wizard might use. No resulting cell may start a formula.
 describe('toCsv — no formula cell under any separator', () => {
-  const hostileCells = (csv: string): string[] => csv.replace(/^\uFEFF/, '').split(/[,;\t|\r\n]/);
+  const hostileCells = (csv: string): string[] =>
+    csv.replace(/^\uFEFF/, '').split(/[,;\t|\r\n\v\f\u0085\u2028\u2029]/u);
   const startsFormula = (cell: string): boolean => /^[\s"\u200B\uFEFF]*[=+\-@]/u.test(cell);
 
   const payloads = [
@@ -108,6 +110,11 @@ describe('toCsv — no formula cell under any separator', () => {
     '=1+1',
     ' @x',
     '\u200B-1',
+    'x\u2028+1',
+    'x\u2029=1',
+    'x\u0085@a',
+    'x\v-1',
+    'x\f=1',
   ];
 
   it.each(payloads)('%j in every column of a row stays inert', (payload) => {
@@ -118,5 +125,19 @@ describe('toCsv — no formula cell under any separator', () => {
       const bad = hostileCells(csv).filter(startsFormula);
       expect(bad, `column ${col}`).toEqual([]);
     }
+  });
+});
+
+describe('doorPrice', () => {
+  it('writes the amount with a dot and two decimals, and the currency apart', () => {
+    expect(doorPrice(1000)).toEqual(['10.00', 'EUR']);
+    expect(doorPrice(1250)).toEqual(['12.50', 'EUR']);
+    expect(doorPrice(5)).toEqual(['0.05', 'EUR']);
+    expect(doorPrice(0)).toEqual(['0.00', 'EUR']);
+  });
+
+  it('leaves both cells empty when the tier has no price', () => {
+    expect(doorPrice(null)).toEqual(['', '']);
+    expect(doorPrice(undefined)).toEqual(['', '']);
   });
 });
