@@ -6,9 +6,9 @@
 
 **Eén voor één als default, parallel per golf waar bestanden niet overlappen (§2b, herzien 2026-10-06 avond).** Oorspronkelijke redenering: Max merget, test en doet de externe stappen (Stripe, Google, Resend, Supabase-template), dus hij is de bottleneck, niet de bouwcapaciteit. Parallel bouwen levert hier alleen merge-conflicten op (Venue → Company raakt elke string in elke screen; A en G zitten allebei in de onboarding-wizard; C en B in dezelfde event-screens) en botst met de één-DB-eigenaar-regel. Sequentieel vervalt dat allemaal. Een orchestrator die tussen twee sequentiële taken zit te wachten verbrandt alleen context. Daarom: Max plakt per taak de ingevulde worker-brief uit §4 in een nieuwe sessie, na de merge van de vorige. De reviewer-sessies (§5) blijven, want die zijn de review gate uit CLAUDE.md.
 
-**Wave 0 is een spike-sessie, geen bouwsessie.** Vijf vragen bepalen de bouw van D, E, A en F en zijn uit de code alleen niet te beantwoorden. Eén Fable-sessie beantwoordt ze, schrijft de antwoorden in §9 van dit document en als comment op de betreffende taak, en levert geen PR behalve dit document. Pas daarna start taak 1.
+**Wave 0 is een spike-sessie, geen bouwsessie.** Vijf vragen bepalen de bouw van D, E, A en F en zijn uit de code alleen niet te beantwoorden. Eén Opus-sessie beantwoordt ze, schrijft de antwoorden in §9 van dit document en als comment op de betreffende taak, en levert geen PR behalve dit document. Pas daarna start taak 1.
 
-**Model: spikes en reviews op Fable, bouw op Opus, de copy-sweep op Sonnet.** Zelfde routing als CLAUDE.md. Venue → Company is grotendeels mechanisch (strings), maar de event-locatie erin is een migratie plus adapter; daarom Opus met de instructie om de sweep zelf niet te "verbeteren".
+**Model: alles op Opus, de copy-sweep en Sentry-hygiene op Sonnet (besluit Max 2026-10-06: Fable kost te veel tokens voor orchestratie en review).** Wijkt daarmee af van de standaardrouting in CLAUDE.md; Fable alleen nog waar een worker-brief het expliciet vraagt voor een RPC-ontwerp. Venue → Company is grotendeels mechanisch (strings), maar de event-locatie erin is een migratie plus adapter; daarom Opus met de instructie om de sweep zelf niet te "verbeteren".
 
 ## 1. Mechaniek
 
@@ -27,7 +27,7 @@
 
 | # | Taak | ClickUp | Model | Wacht op | Exit-criterium |
 |---|---|---|---|---|---|
-| 0 | Spikes | geen (dit doc §9) | Fable | niets | §9 ingevuld; comments op D, E, A, F; Max' open besluiten uit §9 beantwoord |
+| 0 | Spikes | geen (dit doc §9) | Opus | niets | §9 ingevuld; comments op D, E, A, F; Max' open besluiten uit §9 beantwoord |
 | 0a | QA-0 flow-screenshots + handoff-automatisering | zie ClickUp "QA-0" | Opus | 0b (P1 gaat voor: snelheid is de acute pijn) | gemerged; `pnpm qa:flows onboarding` geeft vier varianten met contact sheet; CI-job + PR-comment; native-shell-guard als vaste flow |
 | 0b | Snelheid P1 (quick wins) | z8uq9m2xyn | Opus | 0 | gemerged; prod-push (index + invites-policy); layout ≤ 2 roundtrips; geen `revalidatePath` meer in po-mutaties; terugkeer naar een tab zonder server-fetch |
 | 0c | Notificaties N1 (push bundelen) | z8uq9m2yvk | Opus | 0b | gemerged; prod-push; 30 aanvragen in 2 minuten geven 10 directe pushes en daarna één per uur met het aantal |
@@ -42,16 +42,16 @@
 | 4 | Check-in D | z8uq9m2vg6 | Opus | 0 (ontwerp), 1 | gemerged; groep-knop en per-persoon-knop; doorhost kan niet uitchecken tenzij de setting aan staat, ook niet via de API |
 | 5 | Event C + Dashboard B | z8uq9m2vg7 + z8uq9m2vg8 | Opus | 1 | één PR, twee taken; gemerged; test-handoff beantwoord |
 | 6 | Gastcommunicatie F | z8uq9m2vpy | Opus | 1, 2 (company-contact zit in settings), copy gekozen | gemerged; prod-push; een handmatig toegevoegde gast met e-mail krijgt binnen een minuut "You're on the list"; afmeldlink werkt; bounce-webhook idempotent |
-| 7 | Requests E | z8uq9m2vga | Fable (RPC-ontwerp) → Opus | 6 | gemerged; prod-push; splitsen, inkorten, deels afwijzen met verplichte opmerking; statusmail via F |
-| 8 | Quota-aanvraag Q | z8uq9m2xyp | Fable (RPC-ontwerp) → Opus | 7 | gemerged; prod-push; aanvrager ziet de beslissing op Home; akkoord met gast-gegevens zet de gast op de lijst |
-| 9 | Snelheid P2 | z8uq9m2xz2 | Opus (RLS en middleware: Fable-ontwerp) | 8, of eerder als Max na P1 nog traagheid ziet | per PR gemerged; tab-wissel zonder server-fetch; 300-events-seed laadt alleen het venster |
-| ∥ | Legal | z8uq9m2vh6 | Fable | niets (andere repo) | documenten op eenmanszaak; Google en Resend op de subprocessorlijst; `TERMS_VERSION` gebumpt als de tekst materieel wijzigt |
+| 7 | Requests E | z8uq9m2vga | Opus | 6 | gemerged; prod-push; splitsen, inkorten, deels afwijzen met verplichte opmerking; statusmail via F |
+| 8 | Quota-aanvraag Q | z8uq9m2xyp | Opus | 7 | gemerged; prod-push; aanvrager ziet de beslissing op Home; akkoord met gast-gegevens zet de gast op de lijst |
+| 9 | Snelheid P2 | z8uq9m2xz2 | Opus | 8, of eerder als Max na P1 nog traagheid ziet | per PR gemerged; tab-wissel zonder server-fetch; 300-events-seed laadt alleen het venster |
+| ∥ | Legal | z8uq9m2vh6 | Opus | niets (andere repo) | documenten op eenmanszaak; Google en Resend op de subprocessorlijst; `TERMS_VERSION` gebumpt als de tekst materieel wijzigt |
 
 Taak 5 combineert C en B omdat ze dezelfde event- en dashboard-screens raken; de worker houdt beide ClickUp-taken bij (comment op allebei, zoals de skill voorschrijft).
 
 ## 2b. Golven (herzien 2026-10-06 avond: wél parallel waar de bestanden niet overlappen)
 
-De sequentiële regel uit §0 blijft de default, maar met twintig taken en ADE over ruim een week is "één voor één" te traag. Wat parallel kan, is wat elkaars bestanden niet raakt; de scope-hekken in §4 zijn daarvoor de grens. Per golf één orchestrator-sessie (Fable, prompt zoals in `capacitor-orchestration-claude-code.md` §3) zodra er drie of meer workers lopen; bij twee kan Max het zelf.
+De sequentiële regel uit §0 blijft de default, maar met twintig taken en ADE over ruim een week is "één voor één" te traag. Wat parallel kan, is wat elkaars bestanden niet raakt; de scope-hekken in §4 zijn daarvoor de grens. Per golf één orchestrator-sessie (Opus, prompt in §2c) zodra er drie of meer workers lopen; bij twee kan Max het zelf.
 
 | Golf | Parallel | Wacht op | Waarom dit samen kan |
 |---|---|---|---|
@@ -70,7 +70,7 @@ Eén orchestrator per **golf**, niet per onderwerp en niet voor het hele program
 
 ```
 Je bent de orchestrator voor het onboarding-programma oktober 2026 van PlusOne Guestlist, golf <GOLF>.
-Model: Fable. Je bouwt zelf NIETS — je brieft, bewaakt, reviewt en rapporteert.
+Model: Opus. Je bouwt zelf NIETS — je brieft, bewaakt, reviewt en rapporteert.
 
 Lees eerst, in deze volgorde, en niets anders vóór je iets doet:
 1. CLAUDE.md (invarianten, security-checklist, review gates, prod-push-flow)
@@ -410,7 +410,7 @@ Klaar als:
 Test-handoff: manager@ → Company settings → contact; event → gast toevoegen met e-mail → Mailpit/Resend; +N wijzigen; gast verwijderen met opmerking.
 ```
 
-### Taak 7 — Requests E (z8uq9m2vga, Fable voor de RPC, daarna Opus; SECURITY DEFINER → reviewer)
+### Taak 7 — Requests E (z8uq9m2vga, Opus; SECURITY DEFINER → reviewer)
 
 ```
 Scope-hek:
@@ -428,7 +428,7 @@ Klaar als:
 Test-handoff: manager@ → Requests → aanvraag +3 → 1 Backstage, 1 Guest, 1 afwijzen met opmerking.
 ```
 
-### Taak 8 — Quota-aanvraag Q (z8uq9m2xyp, Fable voor de RPC, daarna Opus; SECURITY DEFINER → reviewer)
+### Taak 8 — Quota-aanvraag Q (z8uq9m2xyp, Opus; SECURITY DEFINER → reviewer)
 
 ```
 Scope-hek:
@@ -465,7 +465,7 @@ Twee lagen, allebei vóór de merge:
 ### Reviewer-brief (fresh session)
 
 ```
-Je reviewt PR #<NR> ("<TITEL>") van PlusOne Guestlist als onafhankelijke, verse sessie. Model: Fable. Je hebt de PR niet gebouwd.
+Je reviewt PR #<NR> ("<TITEL>") van PlusOne Guestlist als onafhankelijke, verse sessie. Model: Opus. Je hebt de PR niet gebouwd.
 
 Lees CLAUDE.md (security-checklist, review gates, grant matrix, non-negotiables, de Capacitor-checklist) en de security-research-prompt in de PR-body. Voer uit:
 1. /code-review high op de PR.
@@ -531,14 +531,14 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 
 ## 8. Kosten en wanneer je afwijkt
 
-Zeven bouwsessies op Opus, één spike-sessie en vijf reviewer-sessies op Fable, een paar korte copy-sessies. Dat is minder dan het Capacitor-programma, omdat er geen orchestrator-sessies zijn. Wijk af als een taak te groot blijkt (splits in ClickUp, nooit in de PR), als Max' Stripe- of Google-stappen de volgorde ophouden (dan taak 4 of 5 naar voren halen; die hangen alleen van taak 1), of als een spike in §9 een ander ontwerp afdwingt (dan eerst dit document bijwerken, dan pas de brief plakken).
+Bouw-, spike-, reviewer- en orchestrator-sessies allemaal op Opus (Sonnet voor de sweep en S1), een paar korte copy-sessies. Eén orchestrator per golf (§2b) in plaats van per taak. Wijk af als een taak te groot blijkt (splits in ClickUp, nooit in de PR), als Max' Stripe- of Google-stappen de volgorde ophouden (dan taak 4 of 5 naar voren halen; die hangen alleen van taak 1), of als een spike in §9 een ander ontwerp afdwingt (dan eerst dit document bijwerken, dan pas de brief plakken).
 
-## 9. Wave 0 — spikes (Fable-sessie; vult deze sectie in)
+## 9. Wave 0 — spikes (Opus-sessie; vult deze sectie in)
 
 Prompt voor de spike-sessie:
 
 ```
-Je doet wave 0 van het onboarding-programma oktober 2026 voor PlusOne Guestlist. Model: Fable. Je bouwt niets en opent geen PR behalve een docs-PR op onboarding-orchestration-claude-code.md §9. Lees CLAUDE.md en dit document. Beantwoord de zes vragen hieronder uit de code en de lokale stack (pnpm stack / lokale stack, pnpm db:fresh), schrijf per vraag het antwoord plus consequentie in §9, en zet hetzelfde als comment op de genoemde ClickUp-taak.
+Je doet wave 0 van het onboarding-programma oktober 2026 voor PlusOne Guestlist. Model: Opus. Je bouwt niets en opent geen PR behalve een docs-PR op onboarding-orchestration-claude-code.md §9. Lees CLAUDE.md en dit document. Beantwoord de zes vragen hieronder uit de code en de lokale stack (pnpm stack / lokale stack, pnpm db:fresh), schrijf per vraag het antwoord plus consequentie in §9, en zet hetzelfde als comment op de genoemde ClickUp-taak.
 ```
 
 1. **Gate (taak 2).** Reproduceer lokaal: zet `subscriptions.created_at` van de seed-venue 15 dagen terug, log in als manager@, maak een event. Verwacht: `billing_trial_expired`. Vuurt de gate niet, zoek waarom (RLS op `subscriptions`? `maybeSingle()` null? pad via RPC dat de gate omzeilt?). Antwoord: ___
