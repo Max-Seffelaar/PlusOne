@@ -7,6 +7,20 @@ milestone Now) and Snelheid P2 (larger or high-risk items); the order is in
 `onboarding-orchestration-claude-code.md`. The earlier `perf-scale-audit-megaevent.md` still applies for
 the door and the scale track; this document does not repeat it.
 
+## Status (Snelheid P1, 2026-10-06, branch `claude/z8uq9m2xyn-snelheid-p1`)
+
+| Finding | P1 status |
+|---|---|
+| 1 | `staleTimes.dynamic: 300` done. `pushState` navigation stays P2. |
+| 2 | Done. Measured locally: 16 calls / 13 waves / 9 GoTrue before, 5 calls / 2 waves / 1 GoTrue after (layout; middleware's own getUser not counted). Extra finding: the root `not-found.tsx` also called `getSessionUser` per request, now shared through `cache()`. |
+| 3 | Done for guests, events, contacts, quotas, requests; venues keeps layout revalidations where the layout output changes. Guard test added. |
+| 4 | `AppScreens` reads no query; single-event read for event detail. `usePoEvents` staleTime NOT raised: guest writes don't invalidate the events list (`mutations.ts` `invalidateAfterAdd`), so the premise "writes already invalidate" is false for headcounts. Windowing stays P2. |
+| 5 | Badge = role-gated `head` count. The full list on Home/Aanvragen (and the `.in()` link labels) stays P2. |
+| 7 | Done (module-scope preload, browser-only). |
+| 8 | Index + `count: 'estimated'` done. "Map event names with `select` instead of waiting" not done: it needs the `useVenueGuests` call site in `screens/guests/index.tsx` (outside the P1 fence). |
+| Advisor `auth_rls_initplan` | Done (`invites_select`); the advisor matched the policy text, the old form was already an initplan. |
+| 6, 9–14, other advisors | P2. |
+
 ## The four root causes
 
 1. Every tab tap waits on a server round-trip before the UI moves.
