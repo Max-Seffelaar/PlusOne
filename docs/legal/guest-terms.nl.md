@@ -30,4 +30,4 @@ De aanvraag- en statuspagina's worden geleverd zoals ze zijn. PlusOne garandeert
 
 ## 6. Wijzigingen, taal, recht en contact
 
-Wij kunnen deze Gastvoorwaarden aanpassen; de actuele versie staat altijd op `https://plus-one.io/legal#guest-terms`. Deze Gastvoorwaarden zijn er in het Nederlands en in het Engels; bij verschil tussen de twee versies geldt de Nederlandse versie. [advocaat: formulering bevestigen] Nederlands recht is van toepassing. Vragen over PlusOne (niet over een evenement of een gastenlijst, die stel je aan de Venue): support@plus-one.io.
+Wij kunnen deze Gastvoorwaarden aanpassen; de actuele versie staat altijd op `https://plus-one.io/legal#guest-terms`. Deze Gastvoorwaarden zijn er in het Nederlands en in het Engels; bij verschil tussen de twee versies geldt de Nederlandse versie. Nederlands recht is van toepassing. Vragen over PlusOne (niet over een evenement of een gastenlijst, die stel je aan de Venue): support@plus-one.io.

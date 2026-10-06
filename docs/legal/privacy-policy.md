@@ -170,9 +170,9 @@ Some providers are established, or have parent companies, in the United States o
 | Error reports | 30 days in Sentry, then deleted automatically |
 | Rate-limit records (salted IP hashes) | At most 2 hours |
 | Billing and invoices | 7 years (Dutch fiscal retention obligation, Art. 52 AWR) |
-| Customer and prospect records (CRM, invitations) | For the duration of the (prospective) customer relationship, and [24 months] after the last contact |
+| Customer and prospect records (CRM, invitations) | For the duration of the (prospective) customer relationship, and 24 months after the last contact |
 | Platform invitations to prospects (e-mail address, note) | 24 months after the last contact, then erased |
-| Support correspondence | [2 years] after the last message |
+| Support correspondence | 2 years after the last message |
 
 **Guest data we process as processor**
 
@@ -181,7 +181,7 @@ Some providers are established, or have parent companies, in the United States o
 - The same job **rewrites the audit trail**: personal data inside historical before/after values is replaced, while the structure (who acted, when, what kind of change) is kept so the venue's accountability record stays intact.
 - Aggregate statistics (attendance, +1 totals, tier occupancy, promoter funnels) survive anonymization; they no longer relate to an identifiable person.
 - **Erasure on request.** A venue admin can erase a specific person **immediately**, without waiting for the retention period: one action anonymizes the address book entry, every guest list entry and guest request linked to it across the venue's events, the related refusals, and the personal data in the related audit history. Guests should address such requests to the venue; we assist as processor.
-- **End of contract.** When a venue stops using PlusOne it can export its guest data itself during the term and, on request, within [30 days] after the contract ends; after that we delete or anonymize it, unless the law requires longer storage.
+- **End of contract.** When a venue stops using PlusOne it can export its guest data itself during the term and, on request, within 30 days after the contract ends; after that we delete or anonymize it, unless the law requires longer storage.
 
 ## 11. Security and data breaches
 
@@ -193,7 +193,7 @@ Some providers are established, or have parent companies, in the United States o
 
 **11.4 Storage.** Production data lives in the EU (section 9), with automated backups managed by our database provider and retained for 7 days (they are not separately anonymized; anonymization propagates when a backup expires). Door devices keep a temporary local copy of one event's list so the door keeps working when the connection drops; section 12 explains what that copy contains and when it is wiped.
 
-**11.5 Data breaches.** If we discover a breach of security that affects personal data, we contain it, investigate it and record it. As processor we notify the affected venues **without undue delay and at the latest within [48 hours]** of becoming aware, with what we know at that point, so they can meet their own obligations. As controller we notify the Dutch supervisory authority within 72 hours where the GDPR requires it, and the people affected where the breach is likely to result in a high risk to them.
+**11.5 Data breaches.** If we discover a breach of security that affects personal data, we contain it, investigate it and record it. As processor we notify the affected venues **without undue delay and at the latest within 48 hours** of becoming aware, with what we know at that point, so they can meet their own obligations. As controller we notify the Dutch supervisory authority within 72 hours where the GDPR requires it, and the people affected where the breach is likely to result in a high risk to them.
 
 ## 12. Door devices and the native apps
 

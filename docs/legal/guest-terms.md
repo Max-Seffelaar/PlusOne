@@ -30,4 +30,4 @@ The request and status pages are provided as they are. PlusOne does not guarante
 
 ## 6. Changes, language, law and contact
 
-We may update these Guest Terms; the current version is always at `https://plus-one.io/legal#guest-terms`. These Guest Terms are available in English and in Dutch; if the two versions differ, the Dutch version prevails. [lawyer: confirm this wording] Dutch law applies. Questions about PlusOne (not about an event or a guest list, those go to the Venue): support@plus-one.io.
+We may update these Guest Terms; the current version is always at `https://plus-one.io/legal#guest-terms`. These Guest Terms are available in English and in Dutch; if the two versions differ, the Dutch version prevails. Dutch law applies. Questions about PlusOne (not about an event or a guest list, those go to the Venue): support@plus-one.io.
