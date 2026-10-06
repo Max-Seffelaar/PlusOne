@@ -7,11 +7,17 @@ import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 import { Btn } from '@/components/po/kit';
+import { useIsNativeShell } from '@/lib/use-native-shell';
 
 const STEPS = [
   { n: 1, title: 'Set up your venue', sub: 'Name, address, and data retention' },
   { n: 2, title: 'Pick a plan', sub: 'Scales with your venue' },
   { n: 3, title: 'Invite your team', sub: 'Hosts and managers, or do it later' },
+] as const;
+// Native shell: no plan step (store-tax seam, #32/#37 — see TrialStartStep).
+const NATIVE_STEPS = [
+  { n: 1, title: 'Set up your venue', sub: 'Name, address, and data retention' },
+  { n: 2, title: 'Invite your team', sub: 'Hosts and managers, or do it later' },
 ] as const;
 
 export function WelkomStep({
@@ -21,6 +27,7 @@ export function WelkomStep({
   owner: { name: string; email: string };
   onNext: () => void;
 }): JSX.Element {
+  const steps = useIsNativeShell() === true ? NATIVE_STEPS : STEPS;
   return (
     <div
       className="flex h-[100dvh] flex-col items-center justify-center overflow-y-auto px-6 py-10"
@@ -35,12 +42,12 @@ export function WelkomStep({
           Let&apos;s set up your venue
         </h1>
         <p className="mt-4 text-[16px] leading-[1.5] text-dim">
-          Logged in as <span className="text-text">{owner.email || owner.name}</span>. Three quick
+          Logged in as <span className="text-text">{owner.email || owner.name}</span>. {steps.length === 2 ? 'Two' : 'Three'} quick
           steps and you&apos;re ready to create your first event.
         </p>
 
         <div className="mt-8 flex flex-col gap-[10px]">
-          {STEPS.map((s) => (
+          {steps.map((s) => (
             <div
               key={s.n}
               className="flex items-center gap-[14px] rounded-[16px] border border-line bg-elev p-[14px]"

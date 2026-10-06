@@ -17,7 +17,9 @@ import { col, FormError } from './_shared';
 // Any member views the entitlement (RLS subscriptions_select_member); an ADMIN
 // in the BROWSER additionally gets the Stripe-hosted checkout and portal
 // redirects. The native shell stays read-only without even a link — store-tax
-// seam (#32/#37, isNativeShell).
+// seam (#32/#37, isNativeShell): status only, so no price, no payment method,
+// no "set up your payment" nudge and no pointer to the web (Apple 3.1.1/3.1.3,
+// Play payments policy). Guarded by billing.native.test.tsx.
 const SUB_STATUS: Record<PoSubscription['status'], { label: string; chip: string }> = {
   trialing: { label: t.settings.billing.statusTrialing, chip: 'bg-acc-dim text-acc' },
   active: { label: t.settings.billing.statusActive, chip: 'bg-acc-dim text-acc' },
@@ -95,10 +97,12 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
           </div>
           <MiniChip className={cn('border-transparent', st.chip)}>{st.label}</MiniChip>
         </div>
-        <div className="mb-4 flex items-end gap-1.5">
-          <span className="font-display text-[36px] font-extrabold leading-none text-text">{sub.priceLabel}</span>
-          {sub.priceLabel.startsWith('€') && <span className="pb-[5px] text-[14px] text-dim">/ {sub.period}</span>}
-        </div>
+        {!native && (
+          <div className="mb-4 flex items-end gap-1.5">
+            <span className="font-display text-[36px] font-extrabold leading-none text-text">{sub.priceLabel}</span>
+            {sub.priceLabel.startsWith('€') && <span className="pb-[5px] text-[14px] text-dim">/ {sub.period}</span>}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-[10px]">
           {([[t.settings.billing.fieldEvents, sub.events], [t.settings.billing.fieldVenue, sub.venueLabel], [t.settings.billing.fieldRenews, sub.renews], [t.settings.billing.fieldStatus, st.label]] as const).map(([k, val]) => (
             <div key={k}>
@@ -110,13 +114,17 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
       </div>
 
       {sub.status === 'past_due' && (
-        <Note icon="warn">{t.settings.billing.pastDueBanner}</Note>
+        <Note icon="warn">{native ? t.settings.billing.nativePastDue : t.settings.billing.pastDueBanner}</Note>
       )}
       {needsCheckout && sub.status === 'trialing' && daysLeft != null && (
         <Note icon={daysLeft >= 0 ? 'clock' : 'warn'}>
           {daysLeft >= 0
-            ? fmt(t.settings.billing.trialEndsIn, { days: String(Math.max(daysLeft, 0)) })
-            : t.settings.billing.trialEnded}
+            ? fmt(native ? t.settings.billing.nativeTrialEndsIn : t.settings.billing.trialEndsIn, {
+                days: String(Math.max(daysLeft, 0)),
+              })
+            : native
+              ? t.settings.billing.nativeTrialEnded
+              : t.settings.billing.trialEnded}
         </Note>
       )}
 
@@ -151,33 +159,37 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
       {native && (
         <div className="mb-[18px] mt-1 flex items-start gap-[7px] pl-0.5 text-[12px] text-faint">
           <Icon name="shield" size={13} className="text-ghost" />
-          <span className="leading-[1.45]">{t.settings.billing.manageOnWeb}</span>
+          <span className="leading-[1.45]">{t.settings.billing.nativeNoChanges}</span>
         </div>
       )}
 
-      <Label className="mb-[10px]">{t.settings.billing.paymentMethodLabel}</Label>
-      <div className="mb-2 flex items-center gap-[13px] rounded-[18px] border border-line bg-elev p-4">
-        <span className="flex h-[42px] w-[42px] items-center justify-center rounded-[12px] border border-line bg-elev2 text-acc">
-          <Icon name="card" size={20} />
-        </span>
-        <div className="flex-1">
-          <div className="text-[14.5px] font-semibold text-text">{t.settings.billing.paymentMethodTitle}</div>
-          <div className="mt-0.5 text-[12.5px] text-faint">{t.settings.billing.paymentMethodSub}</div>
-        </div>
-      </div>
-      <div className="mb-[18px] flex items-start gap-[7px] pl-0.5 text-[12px] text-faint">
-        <Icon name="shield" size={13} className="text-ghost" />
-        <span className="leading-[1.45]">{t.settings.billing.paymentNote}</span>
-      </div>
+      {!native && (
+        <>
+          <Label className="mb-[10px]">{t.settings.billing.paymentMethodLabel}</Label>
+          <div className="mb-2 flex items-center gap-[13px] rounded-[18px] border border-line bg-elev p-4">
+            <span className="flex h-[42px] w-[42px] items-center justify-center rounded-[12px] border border-line bg-elev2 text-acc">
+              <Icon name="card" size={20} />
+            </span>
+            <div className="flex-1">
+              <div className="text-[14.5px] font-semibold text-text">{t.settings.billing.paymentMethodTitle}</div>
+              <div className="mt-0.5 text-[12.5px] text-faint">{t.settings.billing.paymentMethodSub}</div>
+            </div>
+          </div>
+          <div className="mb-[18px] flex items-start gap-[7px] pl-0.5 text-[12px] text-faint">
+            <Icon name="shield" size={13} className="text-ghost" />
+            <span className="leading-[1.45]">{t.settings.billing.paymentNote}</span>
+          </div>
 
-      <Label className="mb-[10px]">{t.settings.billing.invoicesLabel}</Label>
-      <div className="rounded-[18px] border border-dashed border-line bg-elev p-5 text-center">
-        <div className="text-[13.5px] leading-[1.5] text-faint">
-          {sub.stripeLinked && !native
-            ? t.settings.billing.invoicesPortal
-            : t.settings.billing.invoicesSoon}
-        </div>
-      </div>
+          <Label className="mb-[10px]">{t.settings.billing.invoicesLabel}</Label>
+          <div className="rounded-[18px] border border-dashed border-line bg-elev p-5 text-center">
+            <div className="text-[13.5px] leading-[1.5] text-faint">
+              {sub.stripeLinked
+                ? t.settings.billing.invoicesPortal
+                : t.settings.billing.invoicesSoon}
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

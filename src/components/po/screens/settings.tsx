@@ -6,6 +6,7 @@
  *  re-exports of every section so `app.tsx` keeps importing from one place. */
 import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { isNativeShell } from '@/lib/platform';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { venueCapabilities } from '@/features/venues/access';
@@ -75,8 +76,9 @@ export function Meer(): JSX.Element {
   const venueEntry = venueEntryScreen(myVenues.length, caps.viewSettings);
   const entryOpensSettings = venueEntry === 'venuesettings';
   const planLabel = subQ.data?.plan ?? null;
+  // Native shell: plan name only, never a price (store-tax seam, #32/#37).
   const billingSub = subQ.data
-    ? subQ.data.priceLabel.startsWith('€')
+    ? subQ.data.priceLabel.startsWith('€') && !isNativeShell()
       ? `${subQ.data.plan} · ${subQ.data.priceLabel}/${subQ.data.period}`
       : subQ.data.plan
     : t.settings.more.billingDefault;

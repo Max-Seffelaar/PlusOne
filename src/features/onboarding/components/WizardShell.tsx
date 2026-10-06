@@ -10,13 +10,20 @@ import type { JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
+import { useIsNativeShell } from '@/lib/use-native-shell';
 
 const STEP_LABELS = ['Venue', 'Plan', 'Team'] as const;
+// Native shell: no Plan step (store-tax seam, #32/#37 — see TrialStartStep).
+const NATIVE_STEP_LABELS = ['Venue', 'Team'] as const;
 
 function StepDots({ current }: { current: 1 | 2 | 3 }): JSX.Element {
+  const native = useIsNativeShell() === true;
+  const labels: readonly string[] = native ? NATIVE_STEP_LABELS : STEP_LABELS;
+  // Native: Venue = 1, the trial hand-off and Team both sit on 2.
+  if (native && current === 3) current = 2;
   return (
     <div className="flex items-center gap-2">
-      {STEP_LABELS.map((label, i) => {
+      {labels.map((label, i) => {
         const n = i + 1;
         const active = n === current;
         const done = n < current;
@@ -42,7 +49,7 @@ function StepDots({ current }: { current: 1 | 2 | 3 }): JSX.Element {
             >
               {label}
             </span>
-            {i < STEP_LABELS.length - 1 && <span className="ml-1 h-px w-7 bg-line" />}
+            {i < labels.length - 1 && <span className="ml-1 h-px w-7 bg-line" />}
           </div>
         );
       })}
