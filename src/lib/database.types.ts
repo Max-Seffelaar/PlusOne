@@ -1948,6 +1948,13 @@ export type Database = {
         Args: { p_key: string; p_max: number; p_window_min: number }
         Returns: boolean
       }
+      contact_marketing_opt_ins: {
+        Args: { p_venue_id: string }
+        Returns: {
+          contact_id: string
+          opted_in_at: string
+        }[]
+      }
       create_event_from_template: {
         Args: {
           p_ends_at?: string
@@ -2119,6 +2126,7 @@ export type Database = {
           event_name: string
           spots_left: number
           starts_at: string
+          venue_name: string
           via_label: string
         }[]
       }
@@ -2184,6 +2192,17 @@ export type Database = {
           updated_at: string
           user_agent: string
         }[]
+      }
+      log_venue_export: {
+        Args: {
+          p_contacts: number
+          p_door: number
+          p_event_id?: string
+          p_guests: number
+          p_requests: number
+          p_venue_id: string
+        }
+        Returns: string
       }
       mark_guest_regular: { Args: { p_guest_id: string }; Returns: undefined }
       mark_onboarding_complete: {

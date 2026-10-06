@@ -31,6 +31,7 @@ import {
   fetchQuotaRequests,
   fetchContacts,
   fetchContactKeyRows,
+  fetchContactMarketingOptIns,
   fetchPersonProfile,
   fetchVenueMembers,
   fetchMemberQuotas,
@@ -1050,6 +1051,23 @@ export function usePoPermanentContacts() {
   const query = usePoContacts('');
   return { ...query, data: query.data?.filter((c) => c.vast) };
 }
+
+/** Contact ids opted in to venue updates (legal v0.3 decision 2), as a Set —
+ *  one venue-scoped query shared by the contacts list (badge + filter) and the
+ *  contact detail (badge). Display only: nothing is ever sent from PlusOne. */
+export function usePoContactOptIns() {
+  const { venueId } = usePoIdentity();
+  return useQuery<string[], Error, Set<string>>({
+    queryKey: poKeys.contactOptIns(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => (venueId ? fetchContactMarketingOptIns(createClient(), venueId) : []),
+    select: toIdSet,
+  });
+}
+
+// Module-level so React Query memoises the Set per data change (an inline
+// arrow would rebuild it on every render).
+const toIdSet = (ids: string[]): Set<string> => new Set(ids);
 
 /** Existing-contact dedup keys (e-mail + phone digits) for the import preview. */
 export function usePoContactKeys() {

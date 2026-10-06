@@ -301,6 +301,20 @@ export const settings = {
   },
 
   // Billing (Billing / BillingBody).
+  // Legal v0.3 E1 — self-service data export (admin only, never billing-gated).
+  export: {
+    title: 'Export data',
+    body: 'Download everything this venue holds about guests: the guest lists, contacts, requests and door activity, as four CSV files in one ZIP.',
+    everything: 'Export everything',
+    eventOnly: 'Export this event',
+    busy: 'Preparing export…',
+    done: 'Export ready: {guests} guests, {contacts} contacts, {requests} requests, {door} door entries.',
+    logged: 'Every export is recorded in the audit log.',
+    nativeOnly: 'Export from the web app at app.plus-one.io.',
+    errorTooLarge: 'This venue is too large to export in one go. Export per event instead, from the event menu.',
+    errorUnauthorized: 'Only a venue admin can export data.',
+    errorFailed: "Couldn't prepare the export. Try again in a moment.",
+  },
   billing: {
     title: 'Billing',
     loading: 'Loading…',

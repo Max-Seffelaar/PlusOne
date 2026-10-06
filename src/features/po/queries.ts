@@ -520,6 +520,7 @@ export type PoGuestRequestRow = Pick<
   | 'decision_reason'
   | 'request_link_id'
   | 'decided_via'
+  | 'marketing_opt_in'
 > & {
   /** Resolved link identity (influencer name ?? label); null for the default
    *  link, a legacy pre-links request, or an unreadable link (RLS). */
@@ -581,7 +582,7 @@ export async function fetchGuestRequests(
   const { data, error } = await client
     .from('guest_requests')
     .select(
-      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
+      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via, marketing_opt_in'
     )
     .eq('venue_id', venueId)
     // z8uq9m0hw6: an anonymized request (#29, past the retention window) is no
@@ -1240,6 +1241,20 @@ export async function fetchContacts(
   return rows.map((c) => ({ ...c, eventCount: counts.get(c.id) ?? 0 }));
 }
 
+/**
+ * Contact ids currently opted in to venue updates (legal v0.3 decision 2) —
+ * the SQL derivation `contact_marketing_opt_ins` (latest matching request
+ * decides), so the contacts screen and the data export can never disagree.
+ * SECURITY INVOKER: role-relative through contacts + guest_requests RLS
+ * (staff/doorhost get []). Ranged: the result can pass 1 000 rows.
+ */
+export async function fetchContactMarketingOptIns(client: Client, venueId: string): Promise<string[]> {
+  const rows = await fetchAllRanged<{ contact_id: string }>((from, to) =>
+    client.rpc('contact_marketing_opt_ins', { p_venue_id: venueId }).select('contact_id').range(from, to),
+  );
+  return rows.map((r) => r.contact_id);
+}
+
 /** Minimal e-mail/phone projection for the import dedup preview ("BESTAAT AL"). */
 export async function fetchContactKeyRows(
   client: Client,
@@ -1316,7 +1331,9 @@ export interface ContactAppearance {
   /** Per-event door note + priority (shown on the pinned event's task card). */
   note: string | null;
   notePriority: Database['public']['Enums']['note_priority'];
-  addedBy: string;
+  /** guests.added_by — NULL when the system added them (a request auto-approved
+   *  through a request link, #4/#15), so it is never a user id to resolve. */
+  addedBy: string | null;
   /** Where this appearance came from (app | landing | door | permanent) + the
    *  non-default request link behind a landing sign-up (item J). The actor NAME
    *  comes from the profile's shared `actorNames` map, keyed by `addedBy`. */
@@ -1382,7 +1399,7 @@ type ProfileAppearanceRaw = {
   tier_id: string | null;
   anonymized_at: string | null;
   created_at: string;
-  added_by: string;
+  added_by: string | null;
   note: string | null;
   note_priority: Database['public']['Enums']['note_priority'];
   source: Database['public']['Enums']['guest_source'];
@@ -1440,11 +1457,14 @@ function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
   };
 }
 
-/** Collect the distinct actor ids across appearances (added / checked / refused). */
+/** Collect the distinct actor ids across appearances (added / checked / refused).
+ *  A system-added appearance has no added_by; it must never reach `.in('id', …)`
+ *  as the literal "null" (PostgREST 400s on the uuid cast and the whole profile
+ *  falls to its not-found state). */
 function actorIds(appearances: ContactAppearance[]): string[] {
   const ids = new Set<string>();
   for (const a of appearances) {
-    ids.add(a.addedBy);
+    if (a.addedBy) ids.add(a.addedBy);
     for (const ci of a.checkIns) {
       ids.add(ci.checkedBy);
       if (ci.voidedBy) ids.add(ci.voidedBy);
@@ -1485,9 +1505,11 @@ async function fetchGuestAppearance(client: Client, guestId: string): Promise<Co
 
 /** Resolve a set of actor ids → display names in one round-trip (RLS-scoped;
  *  an unreadable actor simply drops out and the screen shows a fallback). */
-async function fetchActorNames(client: Client, ids: string[]): Promise<Record<string, string>> {
-  if (ids.length === 0) return {};
-  const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', ids);
+async function fetchActorNames(client: Client, ids: readonly (string | null | undefined)[]): Promise<Record<string, string>> {
+  // Defensive: drop empty/null ids so one system-added row can't 400 the read.
+  const clean = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  if (clean.length === 0) return {};
+  const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', clean);
   if (error) throw error;
   const names: Record<string, string> = {};
   for (const p of data ?? []) names[p.id] = p.full_name;

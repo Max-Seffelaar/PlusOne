@@ -142,7 +142,7 @@ Migratie `20261006130000_platform_access_log.sql`:
 - PR-body: security-research-prompt. Reviewer-sessie op Fable.
 
 ### E1 — export + marketing zichtbaar (Opus) — **spec**
-Doel: een venue-admin haalt zelf alles wat de venue aan persoonsgegevens heeft als CSV op, zonder tussenkomst van PlusOne. Milestone Now (DPA 11.2, ToS 9.5/16.5).
+Doel: een venue-admin haalt zelf alles wat de venue aan persoonsgegevens heeft als CSV op, zonder tussenkomst van PlusOne. Milestone Now (DPA 11.3, ToS 9.5/16.5).
 
 - **Wie:** rol `admin` (óf `finance`? nee: alleen admin — finance ziet namen maar export is een controller-handeling). Server action `exportVenueData` in `src/features/export/actions.ts`, Zod-input `{ venueId, scope: 'venue' | { eventId } }`, user-scoped client (RLS bevestigt eigendom), `getUser()` server-side.
 - **Wat:** één ZIP met vier CSV's, of vier losse downloads — kies ZIP via een kleine streaming-helper zonder nieuwe dependency als dat lukt, anders vier knoppen. Bestanden:
@@ -152,7 +152,7 @@ Doel: een venue-admin haalt zelf alles wat de venue aan persoonsgegevens heeft a
   - `door.csv`: event_name, guest_name, type (check_in/refusal), party_size, reason, acted_by, device_id, created_at.
   Geanonimiseerde rijen gaan mee zoals ze zijn (`Gast #n`), zodat de klant ziet dat ze bestaan maar geen PII meer krijgt.
 - **Schaal:** nooit `.in()` met alle event-ids; filter op `venue_id` (alle vier tabellen dragen die). Stream per tabel in pagina's van 1 000 rijen via range; geen in-memory array van het hele venue. Timeout-budget Vercel: bij >50 000 rijen in één tabel een foutmelding "export per event" in plaats van een halve file.
-- **Audit:** één `audit_log`-rij `export` per download (entity `venues`, diff `{scope, rows: {guests, contacts, requests, door}}`), via een kleine `SECURITY INVOKER` RPC `log_venue_export(...)`, geen trigger (er is geen row-mutatie). Dit is de ene bewuste uitzondering op "reads worden niet geaudit"; CLAUDE.md-regel 4 krijgt die zin. Migratie `20261006140000_export_audit.sql`, grant-matrix expliciet.
+- **Audit:** één `audit_log`-rij `export` per download (entity `venues`, diff `{scope, rows: {guests, contacts, requests, door}}`), via een kleine RPC `log_venue_export(...)`, geen trigger (er is geen row-mutatie). *Gebouwd als `SECURITY DEFINER` (#384): `authenticated` heeft geen INSERT op `audit_log`, en INVOKER zou een INSERT-grant + policy vergen waarmee elk lid audit-rijen kan vervalsen; de functie zet actor = `auth.uid()`, checkt admin-rol en event↔venue zelf, en schrijft voor een platform admin zonder membership ook een `platform_access_log`-rij (reden `export`).* Dit is de ene bewuste uitzondering op "reads worden niet geaudit"; CLAUDE.md-regel 4 krijgt die zin. Migratie `20261006160000_export_audit.sql` (gereserveerd als 140000; hernoemd omdat B2 met 150000 eerder mergde), grant-matrix expliciet.
 - **UI:** Settings → Venue → kaart "Export data" (admin only; `finance`/`staff` zien de kaart niet), knop "Export everything" + per-event export vanuit het event-detail-menu. Billing-gate (`gate.ts`): export is **nooit** geblokkeerd, ook niet bij soft block (ToS 6.2 belooft read access). Native shell: gewoon een download via `openExternal()`? Nee — Capacitor-webview kan geen blob-download; in `isNativeShell()` toont de kaart "Export from the web app at app.plus-one.io" (zelfde patroon als billing read-only).
 - **Marketing zichtbaar:** request-kaart in de inbox toont een badge "Keep me posted ✓" als `marketing_opt_in`; contact-detail toont dezelfde badge; contacts-lijst krijgt een filter "opted in to venue updates". Geen e-mailfunctie (regel 10).
 - **Tests:** Vitest op CSV-escaping (komma's, quotes, newlines in notes), op rol-gate (staff → 403), op de audit-rij; pgTAP op de RPC-grant. E2e-smoke: admin downloadt, bestand bevat de seed-gast.
@@ -174,7 +174,7 @@ Doel: een venue-admin haalt zelf alles wat de venue aan persoonsgegevens heeft a
 - `landing.tsx`/`landing.ts`: alleen B2.
 - `settings/venue.tsx`: B3 (venue-switch-log) en E1 (export-kaart). E1 wacht op B3 of werkt in een nieuwe `settings/export.tsx` die `venue.tsx` alleen importeert — voorkeur het laatste, dan parallel.
 - `run_privacy_retention` canonical + migraties: alleen B1.
-- Migratie-timestamps: B1 `20261006120000`, B3 `20261006130000`, E1 `20261006140000`.
+- Migratie-timestamps: B1 `20261006120000`, B3 `20261006130000`, B2 `20261006150000`, E1 `20261006160000` (oorspronkelijk 140000 gereserveerd; hernoemd zodat hij na de al-gemergde 150000 sorteert).
 
 ## 5. Review gates
 

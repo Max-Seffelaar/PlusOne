@@ -8,6 +8,106 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-05 — Legal v0.3 E1: self-service venue data export + marketing opt-in visible (z8uq9m2hm6)
+
+Branch `claude/z8uq9m2hm6-venue-export`, milestone Now (DPA 11.3, ToS 9.5/16.5), high-risk
+(SECURITY DEFINER RPC + grants). Migration `20261006160000_export_audit.sql`:
+`log_venue_export(venue, event, guests, contacts, requests, door)` writes one `audit_log`
+row (`export`, entity `venues`, diff `{scope, rows}`) — **SECURITY DEFINER, not INVOKER as the
+plan said**: `authenticated` has no INSERT on `audit_log` and must not get one (forged rows);
+actor = `auth.uid()`, admin only (`has_venue_role`), event must belong to the venue, counts
+0..50 000. Plus `contact_marketing_opt_ins(venue)` (INVOKER): a contact is opted in when the
+LATEST request with the same normalised e-mail/phone has `marketing_opt_in` — shared by the
+export and the contacts screen. pgTAP `export_audit.test.sql` (26). Server action
+`exportVenueData` (`src/features/export/`): Zod, `getUser()`, user-scoped client, four CSVs
+(RFC 4180, BOM, formula guard `= + - @ TAB CR` → `'`) in one ZIP (own writer, `node:zlib`,
+no dependency), paged 1 000 on `venue_id`, >50 000 rows in a table → "export per event";
+audit is fail-closed (no row, no file). UI: Venue settings → "Export data" card
+(`settings/export.tsx`, admin only, native shell → "export from the web app"), per-event
+row on the event screen and the formerly dead "Export" button on the past-event recap;
+"Keep me posted ✓" badge (kit `KeepMePostedBadge`) on request cards, contacts list and
+contact detail, plus an "Opted in to venue updates" filter. Audit feed names the export.
+Migration renamed `20261006140000` → `20261006160000` after B2 (#379) landed
+`20261006150000` on main (out-of-order for `db push`). Ran on a local stack (`pnpm stack`):
+fresh migrate + seed, `pnpm db:test` 77 files / 1865 assertions green (incl. `export_audit`
+26/26). Review round 1 (Fable): recap "Export" button squeezed to 42px in the flex row
+(wrapper `flex-1` next to a `w-full` Btn) → `w-full` wrapper, layout suite `pastevent` 23/23
+locally; a platform admin's export now also writes `platform_access_log` (reason `export`)
+when they are no admin member; `p_event_id` moved last with `default null` so the generated
+type is `p_event_id?: string`; no raw user uuid in the CSV for an unreadable (former) actor;
+lookup tables named in `ExportTooLargeError`; pgTAP counts scoped to the test transaction
+(26 → 30 asserts). Round 2: `drop function if exists` for the draft signature (a dev stack that
+ran the earlier draft kept two overloads → PostgREST PGRST203 on event exports; reproduced
+locally, fixed), pgTAP pins one overload + the platform-admin-with-membership branch (32).
+pgTAP 77 files / 1871 green locally. Open: measure an export near the
+50 000 cap on a preview deployment (Vercel duration/payload) before trusting the constant. Not done: the plan's e2e smoke (admin downloads, file has the seed
+guest) — Vitest covers the content against a fake client instead.
+
+## 2026-10-05 — Legal v0.3 B2: request page names the venue + Guest Terms accept line (z8uq9m2hm4)
+
+Branch `claude/z8uq9m2hm4-request-page-legal`, milestone Now. Decision 11 of
+`legal-v03-plan-claude-code.md`: `/e/[slug]` says the venue's name instead of "the organizer",
+and carries "By sending this request you accept the PlusOne Guest Terms and {venue}'s privacy
+notice." directly above the send button. `venues.name` was NOT in the public read, so
+`get_landing_event` gained exactly one column, `venue_name` (migration `20261006150000`, drop +
+recreate, grant matrix restated: anon/authenticated/service_role execute, nothing else; new
+pgTAP `landing_venue_name.test.sql`). New `GUEST_TERMS_URL` (env override
+`NEXT_PUBLIC_GUEST_TERMS_URL`) and `GUEST_PRIVACY_URL` (= `PRIVACY_URL` for now: the live site has no `#guests` anchor, wave D
+flips it; the venue has no privacy URL field, so "{venue}'s privacy notice" and "How your
+details are used" both land there). Links go through the kit's `ExternalLink`/`openExternal`. Copy via the catalogue
+(`{venue}` in `formSub`, `emailRequired`, `privacyNote`; `venueFallback` when no name).
+Gotcha: the pre-existing footer in `landing-frame.tsx` still uses `target="_blank"` (not B2's file).
+Not run here (no supabase/docker): pgTAP, `db:reset`, e2e/layout suites.
+
+## 2026-10-05 — session-setup `stack` mode: local Supabase stack in a cloud session
+
+Branch `claude/session-setup-stack-step`, milestone Now (no ClickUp task; Max's ask). Cloud
+sessions found pgTAP failures only in CI; now `pnpm stack` (= `node scripts/session-setup.mjs
+stack`) brings the local stack up inside the container so `pnpm db:test` runs before the push.
+
+- Opt-in and idempotent; never run by the SessionStart hook (gigabytes, minutes). Decisions in
+  `scripts/lib/stack-plan.mjs` (pure, unit-tested in `tests/unit/session-setup-stack.test.ts`),
+  execution in `session-setup.mjs`.
+- Cloud (`CLAUDE_CODE_REMOTE=true`, root): starts `dockerd` when `docker info` fails, installs the
+  pinned supabase CLI 2.119.0 (versioned release asset, sha256 from the release's checksums.txt,
+  extracted `--no-same-owner`), `supabase start`, `dev-env.mjs`. Laptop: never installs a binary
+  or starts a daemon — it reports what is missing and exits 1. `--start-docker` opts a
+  disposable root Linux box into the dockerd step (never the CLI install).
+- **dev-mfa is opt-in (`--dev-mfa`), against the brief:** measured here, a dev-mfa'd stack fails 6
+  pgTAP files (admin@ becomes a platform admin; pgTAP relies on it not being one). A `supabase
+  db reset` brings db:test back to 74 files / 1787 assertions green. The closing summary reads
+  admin@'s flag and says which state the stack is in. When it does run, dev-mfa gets the
+  stack's own URL + service key via env, so a prod-pointing `.env.local` can never be its target.
+- An existing `.env.local` is never touched (a non-local one is flagged).
+- Measured: from zero (no daemon, no CLI, no images) ≈ 5 min, mostly image pulls; cold with
+  cached images 35 s; a repeat run 5 s and restarts nothing.
+- Not covered: Playwright browsers. This container ships chromium build 1194, while
+  `@playwright/test` 1.60 wants 1223, so 5 of the 6 `e2e:smoke` specs could not launch a
+  browser (`api-health` passed against the stack). CI installs the browser in a separate step.
+
+---
+## 2026-10-05 — Fix: contact profile dead-ends on a system-added (auto-approved) guest
+
+Branch `claude/fix-contact-profile-null-actor`, milestone Now, no ClickUp task (direct ask from Max).
+A request auto-approved through a request link (e.g. `/e/launch-night-jayden`) inserts the guest with
+`guests.added_by` NULL ("the system decided", #4/#15) and the autolink trigger creates a contact
+(`source = guest_request`). Opening that contact sent `GET user_profiles?id=in.(null)` → 400 `22P02`;
+`fetchActorNames` threw, `usePoPersonProfile` failed and the profile rendered "This contact isn't
+available", so the venue couldn't reach Edit → "Forget this person" for it. Root cause:
+`ContactAppearance.addedBy` was typed `string` while the column is nullable, and `actorIds()` added it
+unfiltered. Fix (`src/features/po/queries.ts`, `adapters.ts`, `screens/guests/profile.tsx`): `addedBy`
+is `string | null` through the raw row, the domain type and the adapter; `actorIds()` skips a null
+`addedBy`; `fetchActorNames` drops null/empty ids and dedupes, and skips the read on an empty list.
+The timeline item gets `viaSignUpLink` and the screen names the actor "Sign-up link" (new
+`contactProfile.actorSignUpLink`, same wording as the Events card's `source.signUpLink`) instead of
+falling back to "Door". `checked_by`/`refused_by` are NOT NULL in the schema and stay `string`; the other
+`user_profiles .in('id', …)` lookups (door, recent check-ins, quota requests, access log) read NOT NULL
+columns or already filter, so they're unchanged. Tests: `queries.test.ts` (contact path, guest path,
+system-only actor: no non-string id reaches `.in()`; all three fail on the old code) and
+`adapters.test.ts` (null actor → `addedByName` null, `viaSignUpLink` true). Verified on a local stack
+with Playwright: before, 400 + not-found; after, profile renders with "Sign-up link" and Edit shows
+"Forget this person". No migration.
+
 ## 2026-10-05 — Review login: form POST no longer refused for `Origin: null` (86ey6bfug)
 
 **Bug (prod, 19:24 UTC, Chrome):** submitting the right code on `/auth/review-login` returned an empty 404; no `generate_link` call ever reached Supabase. The request carried `origin: null`, `sec-fetch-site: same-origin`.
