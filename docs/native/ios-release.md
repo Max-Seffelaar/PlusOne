@@ -21,7 +21,7 @@ Fixed values you will type more than once:
 |---|---|
 | Apple Team ID | `52ZZ6F5V5Y` |
 | Bundle ID (permanent, plan decision 13) | `app.plusone.guestlist` |
-| Codemagic API key name (must match `codemagic.yaml`) | `PlusOne ASC` |
+| Codemagic API key name (must match `codemagic.yaml`) | `Codemagic PlusOne` |
 
 ## What is secret and where it lives
 
@@ -129,11 +129,11 @@ Source: Codemagic, *iOS code signing* — <https://docs.codemagic.io/yaml-code-s
 Codemagic is already set up from S1a (`docs/native/android-release.md` step 4).
 
 1. **API key:** Codemagic → **Team settings** → **Team integrations** → **Developer
-   Portal** → **Manage keys** → **Add key** → name **`PlusOne ASC`** (exactly — the YAML
+   Portal** → **Manage keys** → **Add key** → name **`Codemagic PlusOne`** (exactly — the YAML
    refers to it), Issuer ID, Key ID, upload the `.p8` → **Save**.
 2. **Distribution certificate:** Team settings → **codemagic.yaml settings** → **Code
    signing identities** → **iOS certificates** → **Generate certificate** → type **Apple
-   Distribution** → key `PlusOne ASC` → reference name e.g. `plusone_distribution`. Codemagic
+   Distribution** → key `Codemagic PlusOne` → reference name e.g. `plusone_distribution`. Codemagic
    shows a password and offers a download: store both in the password manager (it's the
    only other copy), then delete the download.
 3. **Provisioning profile** (only after step 1 of this runbook, so it carries Push +

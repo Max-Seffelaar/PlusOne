@@ -203,7 +203,7 @@ workflows:
       # Team settings → Team integrations → Developer Portal: the App Store Connect
       # API key saved under exactly this name. The .p8 lives there and in the
       # password manager only.
-      app_store_connect: PlusOne ASC
+      app_store_connect: Codemagic PlusOne
     environment:
       ios_signing:
         # Codemagic fetches (or creates) the App Store distribution certificate and
@@ -306,7 +306,7 @@ workflows:
           # floor rule as Android's versionCode. App Store Connect refuses a build
           # number it has already seen for this version.
           APPS_JSON=$(app-store-connect apps list --bundle-id-identifier "$BUNDLE_ID" --strict-match-identifier --json) || {
-            echo "ERROR: could not list App Store Connect apps — check the 'PlusOne ASC' integration (docs/native/ios-release.md)." >&2
+            echo "ERROR: could not list App Store Connect apps — check the 'Codemagic PlusOne' integration (docs/native/ios-release.md)." >&2
             exit 1
           }
           APP_ID=$(printf '%s' "$APPS_JSON" | python3 -c 'import json,sys; a=json.load(sys.stdin); print(a[0]["id"] if len(a) == 1 else "")')
