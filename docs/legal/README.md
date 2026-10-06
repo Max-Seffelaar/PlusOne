@@ -5,7 +5,7 @@ English-language legal drafts for the paid product, grounded in the actual dataf
 | File | Version | What | Publishes to |
 |---|---|---|---|
 | `privacy-policy.md` | **1.1** (2026-10-06) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
-| `subprocessors.md` | **1.1** (2026-10-06) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
+| `subprocessors.md` | **1.2** (2026-10-06) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic, Resend guest mail, FCM/APNs push) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
 | `data-processing-agreement.md` | **1.1** (2026-10-06) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
 | `terms-of-service.md` | **1.1** (2026-10-06) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
 | `guest-terms.md` | **1.0** (2026-10-06) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
@@ -43,6 +43,8 @@ Still open after publication:
 - [x] **Certifications column** filled in 2026-10-06 from the vendors' trust pages: Supabase SOC 2 Type 2 + ISO/IEC 27001:2022; Vercel SOC 2 Type 2 + ISO/IEC 27001:2022; Resend SOC 2 Type II; Attio ISO/IEC 27001:2022; Slack SOC 2 Type II + ISO/IEC 27001/27017/27018.
 - [x] **Backups**: 7 days confirmed in the Supabase dashboard (Max, 2026-10-06).
 - [x] **Resend sender**: live SMTP sender is `noreply@plus-one.io` (apex) — confirmed by Max 2026-10-06 and recorded in `docs/mail-deliverability.md`; F3 `86ey6b3hv` closed.
+- [x] **Push (FCM/APNs) live** (1.2, 2026-10-06): moved from C to A and into DPA Annex 2. Same reasoning as Resend — no DPA customer yet on 2026-10-06, so no clause 7.2 notice.
+- [ ] **Marketing site:** the repo `Plus-One.io` (`plus-one.io/legal#subprocessors`) must publish the same 1.2 change (re-run `gen-legal.mjs` and deploy) — out of scope for this repo.
 - [ ] **Insurance**: AVB/BAV with cyber and data-breach cover before the first paying customer (plan §7.2); confidentiality agreement with Joeri (DPA §5).
 - **30-day subprocessor notice — template for future additions** (DPA 7.2 / list §E; not needed for Resend, see above):
 
@@ -95,11 +97,11 @@ These documents state facts about the system. If any of the following change, up
 - export (E1): `exportVenueData` (`src/features/export/`) — venue `admin` only (not finance/staff/doorhost), whole venue or one event, one ZIP with `guests.csv` / `contacts.csv` / `requests.csv` / `door.csv` (door incl. `device_id`; anonymised rows as they are), ≤50 000 rows per table (else "export per event"), never billing-gated, web only (native shell points to the web app); every download writes one `export` row to `audit_log` via `log_venue_export`, visible to the venue's admin/finance in Audit; `marketing_opt_in` on contacts = latest matching request decides (`contact_marketing_opt_ins`) — DPA 11.3, ToS 6.2/9.5/16.5, Privacy §10, Guest Terms §4 / Privacy §4.2 (opt-in visible to the venue)
 - `platform_access_log` (B3): what is logged (venue switch without real membership; data export without admin membership, reason `export`) and who can read it — DPA 4.4, ToS 10.3, Privacy §8
 - `GUEST_TERMS_URL` in `src/lib/legal.ts` (B2/D) and the Guest Terms acceptance line on `/e/[slug]`
-- Attio and Slack are manual today (subprocessors B); the moment either gets code (a sync, a webhook), re-check the row and the Privacy §8 summary in the same PR. PostHog and FCM/APNs stay in C until their code lands
+- Attio and Slack are manual today (subprocessors B); the moment either gets code (a sync, a webhook), re-check the row and the Privacy §8 summary in the same PR. PostHog stays in C until its code lands
 
 ## DPA Annex 2 delta
 
-Done in v0.3: Turnstile and Anthropic are in the DPA Annex 2 table, Resend/SES in the controller-side sentence, the planned FCM/APNs and guest-mail items carry the 30-day-notice hook, the list URL points at `https://plus-one.io/legal#subprocessors`, §8.1 has the SES and edge-network sentences, and §11 has the self-service export. Keep Annex 2 and `subprocessors.md` in step (see below).
+Done in v0.3: Turnstile and Anthropic are in the DPA Annex 2 table, Resend/SES in the controller-side sentence, the planned FCM/APNs and guest-mail items carry the 30-day-notice hook, the list URL points at `https://plus-one.io/legal#subprocessors`, §8.1 has the SES and edge-network sentences, and §11 has the self-service export. Since 1.1/1.2 Resend guest mail and FCM/APNs push are listed in Annex 2 as active (no notice: no DPA customer yet on 2026-10-06). Keep Annex 2 and `subprocessors.md` in step (see below).
 
 ## Stale statements noticed in other docs (out of scope here, for whoever owns them)
 

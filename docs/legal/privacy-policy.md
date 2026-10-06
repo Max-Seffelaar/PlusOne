@@ -134,7 +134,7 @@ Where we rely on legitimate interest you can object (section 13). We do not make
 - subscription billing (Stripe: SEPA Direct Debit and iDEAL; we never see or store your bank account number or card);
 - business e-mail and documents (Google Workspace), and our CRM and team messaging, which our team uses by hand with no automated link to the platform (Attio, Slack);
 - engineering and support tooling (Anthropic), with incidental access to production data during support requests and incident response;
-- and, once live, push notification delivery for the native app (Firebase Cloud Messaging / Apple Push Notification service).
+- and push notification delivery for the native app (Firebase Cloud Messaging / Apple Push Notification service).
 
 **Your venue.** For guest data, the venue's team sees what its roles allow: admins and finance the full picture, staff their own guests within their quota, door hosts the door view of one event.
 
