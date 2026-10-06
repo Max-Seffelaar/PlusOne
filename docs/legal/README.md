@@ -40,7 +40,7 @@ Closed at publication (2026-10-06): the `[…]` notice periods, retention and br
 
 Still open after publication:
 - [ ] **Guest confirmation e-mail** (`86ey6bn05`) is being built as a separate task. That task must update the Privacy Policy and the Subprocessor List to **v1.1** (section C → B, Privacy §7) **before it ships**; until then the policy says PlusOne never contacts guests.
-- [ ] **Certifications** in `subprocessors.md` that still read `[confirm]` (Supabase, Vercel, Resend, Attio, Slack): not published until Max confirms or removes them.
+- [ ] **Certifications column** (`subprocessors.md`): only Anthropic's are confirmed; the other rows show "—" until their certifications are verified (Supabase, Vercel, Resend, Attio, Slack). Add them as a 1.0.x edit.
 - [ ] **Backups**: confirm the Supabase plan really retains 7 days of backups (DPA 11.4/Annex 1.E/Annex 3, Privacy §11.4).
 - [ ] **Resend sender**: confirm the live SMTP sender is the apex `@plus-one.io` and close or reword F3 `86ey6b3hv` (`docs/mail-deliverability.md` still records the 2026-07-09 state).
 - [ ] **Insurance**: AVB/BAV with cyber and data-breach cover before the first paying customer (plan §7.2); confidentiality agreement with Joeri (DPA §5).
