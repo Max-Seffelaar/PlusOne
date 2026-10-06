@@ -529,7 +529,7 @@ export function ContactProfile({
                 key={it.key}
                 icon={TIMELINE_ICON[it.kind]}
                 label={timelineLabel(it)}
-                who={it.who || t.guests.contactProfile.actorDoor}
+                who={it.viaSignUpLink ? t.guests.contactProfile.actorSignUpLink : it.who || t.guests.contactProfile.actorDoor}
                 when={it.when}
                 accent={it.kind === 'checkin'}
                 last={i === p.timeline.length - 1}

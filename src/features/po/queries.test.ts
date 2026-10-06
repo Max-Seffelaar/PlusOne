@@ -7,6 +7,7 @@ import {
   fetchOrganizerEventIds,
   fetchOrganizesAtVenue,
   fetchOwnSessions,
+  fetchPersonProfile,
   fetchRequestLinks,
   fetchTiersWithUsage,
   fetchVenueGuestsWindow,
@@ -684,5 +685,98 @@ describe('fetchContacts → contactEventCounts chunking (86eykknf8)', () => {
       expect(ids.length).toBeLessThanOrEqual(120);
     }
     expect(inCalls.flat()).toHaveLength(121);
+  });
+});
+
+describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
+  // Regression: an auto-approved request-link guest has guests.added_by NULL.
+  // actorIds() used to push that null into `.in('id', …)`, PostgREST answered
+  // 400 22P02 (`invalid input syntax for type uuid: "null"`), and the whole
+  // profile — incl. "Forget contact" — fell to its not-found state.
+  const appearanceRow = (addedBy: string | null) => ({
+    id: 'g1',
+    event_id: 'e1',
+    plus_ones: 0,
+    status: 'approved',
+    tier_id: null,
+    anonymized_at: null,
+    created_at: '2026-10-01T10:00:00Z',
+    added_by: addedBy,
+    note: null,
+    note_priority: 'none',
+    source: 'landing',
+    request_links: null,
+    events: { name: 'Launch Night', starts_at: '2026-10-10T20:00:00Z', ends_at: null, list_locked: false, auto_lock_at: null, cancelled_at: null },
+    guest_tiers: null,
+    check_ins: [
+      { checked_at: '2026-10-10T21:00:00Z', checked_by: 'u-door', plus_ones_arrived: 0, voided_at: null, voided_by: null },
+    ],
+    refusals: [],
+  });
+
+  function makeClient(opts: { contact: unknown; guest: unknown; appearances: unknown[] }) {
+    const inCalls: unknown[][] = [];
+    const client = {
+      from: vi.fn((table: string) => {
+        // One self-returning chain per call; terminal = maybeSingle() or await.
+        const result =
+          table === 'contacts'
+            ? opts.contact
+            : table === 'user_profiles'
+              ? null
+              : opts.appearances;
+        const chain: Record<string, unknown> = {};
+        for (const m of ['select', 'eq', 'neq', 'order']) chain[m] = vi.fn(() => chain);
+        chain.in = vi.fn((_col: string, ids: unknown[]) => {
+          inCalls.push(ids);
+          if (ids.some((id) => typeof id !== 'string')) {
+            return { then: (r: (v: unknown) => void) => r({ data: null, error: { code: '22P02' } }) };
+          }
+          return { then: (r: (v: unknown) => void) => r({ data: ids.map((id) => ({ id, full_name: `Name ${String(id)}` })), error: null }) };
+        });
+        chain.maybeSingle = vi.fn(() => Promise.resolve({ data: table === 'guests' ? opts.guest : result, error: null }));
+        chain.then = (r: (v: unknown) => void) => r({ data: result, error: null });
+        return chain;
+      }),
+    } as never;
+    return { client, inCalls };
+  }
+
+  const contact = {
+    id: 'c1',
+    full_name: 'Jayden',
+    email: 'j@example.test',
+    phone: null,
+    birthdate: null,
+    preferred_role: null,
+    note: null,
+    is_permanent: false,
+    source: 'guest_request',
+    created_at: '2026-10-01T10:00:00Z',
+  };
+
+  it('contact path: resolves the profile and never sends null to .in()', async () => {
+    const { client, inCalls } = makeClient({ contact, guest: null, appearances: [appearanceRow(null)] });
+    const data = await fetchPersonProfile(client, { contactId: 'c1' });
+    expect(data.header?.id).toBe('c1');
+    expect(data.appearances[0].addedBy).toBeNull();
+    expect(inCalls).toEqual([['u-door']]);
+    expect(data.actorNames).toEqual({ 'u-door': 'Name u-door' });
+  });
+
+  it('guest path (name-only guest): same — no null actor id reaches .in()', async () => {
+    const guest = { id: 'g1', contact_id: null, full_name: 'Jayden', email: null, phone: null, note: null, created_at: '2026-10-01T10:00:00Z' };
+    const { client, inCalls } = makeClient({ contact: null, guest, appearances: [appearanceRow(null)] });
+    const data = await fetchPersonProfile(client, { guestId: 'g1' });
+    expect(data.header?.id).toBe('g1');
+    for (const ids of inCalls) expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+  });
+
+  it('skips the user_profiles read entirely when the only actor is the system', async () => {
+    const row = { ...appearanceRow(null), check_ins: [] };
+    const { client, inCalls } = makeClient({ contact, guest: null, appearances: [row] });
+    const data = await fetchPersonProfile(client, { contactId: 'c1' });
+    expect(inCalls).toEqual([]);
+    expect(data.actorNames).toEqual({});
   });
 });

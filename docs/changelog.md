@@ -35,6 +35,27 @@ stack`) brings the local stack up inside the container so `pnpm db:test` runs be
   browser (`api-health` passed against the stack). CI installs the browser in a separate step.
 
 ---
+## 2026-10-05 — Fix: contact profile dead-ends on a system-added (auto-approved) guest
+
+Branch `claude/fix-contact-profile-null-actor`, milestone Now, no ClickUp task (direct ask from Max).
+A request auto-approved through a request link (e.g. `/e/launch-night-jayden`) inserts the guest with
+`guests.added_by` NULL ("the system decided", #4/#15) and the autolink trigger creates a contact
+(`source = guest_request`). Opening that contact sent `GET user_profiles?id=in.(null)` → 400 `22P02`;
+`fetchActorNames` threw, `usePoPersonProfile` failed and the profile rendered "This contact isn't
+available", so the venue couldn't reach Edit → "Forget this person" for it. Root cause:
+`ContactAppearance.addedBy` was typed `string` while the column is nullable, and `actorIds()` added it
+unfiltered. Fix (`src/features/po/queries.ts`, `adapters.ts`, `screens/guests/profile.tsx`): `addedBy`
+is `string | null` through the raw row, the domain type and the adapter; `actorIds()` skips a null
+`addedBy`; `fetchActorNames` drops null/empty ids and dedupes, and skips the read on an empty list.
+The timeline item gets `viaSignUpLink` and the screen names the actor "Sign-up link" (new
+`contactProfile.actorSignUpLink`, same wording as the Events card's `source.signUpLink`) instead of
+falling back to "Door". `checked_by`/`refused_by` are NOT NULL in the schema and stay `string`; the other
+`user_profiles .in('id', …)` lookups (door, recent check-ins, quota requests, access log) read NOT NULL
+columns or already filter, so they're unchanged. Tests: `queries.test.ts` (contact path, guest path,
+system-only actor: no non-string id reaches `.in()`; all three fail on the old code) and
+`adapters.test.ts` (null actor → `addedByName` null, `viaSignUpLink` true). Verified on a local stack
+with Playwright: before, 400 + not-found; after, profile renders with "Sign-up link" and Edit shows
+"Forget this person". No migration.
 
 ## 2026-10-05 — Legal v0.3 A2: Guest Terms EN v0.3 + Dutch version (z8uq9m2hm2)
 
