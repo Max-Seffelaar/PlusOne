@@ -31,6 +31,13 @@ and forget skip anonymized rows).
 - Tests run: `pnpm db:test` 79 files / 1920 assertions PASS; `session-setup check` lint + type-check + Vitest 2785 PASS.
 
 ---
+## 2026-10-06 — Legal 1.1: certifications filled in, Resend becomes a guest-data subprocessor (guest confirmation e-mail)
+
+**What:** `docs/legal/` 1.0 → 1.1 (privacy policy, subprocessor list, DPA, ToS; Guest Terms unchanged). Certifications column completed from the vendors' trust pages (Supabase, Vercel, Resend, Attio, Slack). Resend moved from "planned" to section A for the guest confirmation e-mail (`86ey6bn05`), with matching text in DPA Annex 2, Privacy §4/§7/§8/§9 and ToS 5.6. README: backups 7 days and the apex sender confirmed, F3 closed, the 30-day notice e-mail template for venue admins added.
+
+**Why ahead of the feature:** a guest-facing e-mail makes Resend process Guest Data, so DPA 7.2 / list §E requires 30 days' notice before activation. Publishing 1.1 now starts that clock; the feature may ship no earlier than 30 days after Max sends the notice. Treated as a non-material terms change (no `TERMS_VERSION` bump) — the lawyer confirms.
+
+**Open:** Max sends the notice e-mail and records the date in the README; insurance (AVB/BAV) and the Joeri confidentiality agreement remain open.
 
 ## 2026-10-06 — Legal v0.3 D: legal documents published as Version 1.0, consent re-prompt (z8uq9m2hm7)
 

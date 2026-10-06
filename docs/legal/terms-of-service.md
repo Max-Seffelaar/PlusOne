@@ -1,6 +1,6 @@
 # PlusOne — Terms of Service (Venues and Organizers)
 
-**Last updated:** 2026-10-06 · **Version:** 1.0
+**Last updated:** 2026-10-06 · **Version:** 1.1
 
 These Terms of Service (the "**Terms**") govern the use of the PlusOne guest list platform (the "**Service**") provided by **The Operators**, a sole proprietorship (eenmanszaak) registered with the Dutch Chamber of Commerce under number 99992841, owner Max Merlijn Seffelaar, with registered address at Goirkestraat 74-14, 5048 GM Tilburg, the Netherlands ("**PlusOne**", "**we**", "**us**"). The Service is offered exclusively to businesses and professional organizations (B2B). By creating a venue, accepting an invitation to a venue, or otherwise using the Service, the Customer and its Users agree to these Terms.
 
@@ -85,7 +85,7 @@ Capitalized terms have the following meanings. The singular includes the plural.
 
 5.5. **Request Links.** The Customer decides who receives a Request Link and how it is distributed (for example, by staff or promoters). Requests submitted through a Request Link are approved or declined by the Customer's Users; PlusOne never approves a request on its own initiative. If the Customer enables automatic approval for a link, it does so at its own risk. Request Links can be paused, limited and deactivated by the Customer at any time.
 
-5.6. **Guest communication.** The Service does not send e-mail, SMS or messaging-app messages to Guests. The Customer is responsible for informing its Guests, including about the outcome of a request (the Service offers a status page for this purpose) and about its own privacy practices (section 9.3).
+5.6. **Guest communication.** The Service sends Guests no messages of its own. Where this function is available, the Service e-mails a Guest the Customer's decision on a request submitted through a Request Link, on the Customer's behalf and in the Customer's name; the Customer is responsible for the content of its decision message. The Service sends no other e-mail, SMS or messaging-app messages to Guests. The Customer remains responsible for informing its Guests, including about the outcome of a request (the Service also offers a status page for this purpose) and about its own privacy practices (section 9.3).
 
 ## 6. Trial
 

@@ -4,10 +4,10 @@ English-language legal drafts for the paid product, grounded in the actual dataf
 
 | File | Version | What | Publishes to |
 |---|---|---|---|
-| `privacy-policy.md` | **1.0** (2026-10-06) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
-| `subprocessors.md` | **1.0** (2026-10-06) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, guest mail, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
-| `data-processing-agreement.md` | **1.0** (2026-10-06) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
-| `terms-of-service.md` | **1.0** (2026-10-06) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
+| `privacy-policy.md` | **1.1** (2026-10-06) | Dual-role privacy policy, organized per audience (venue team · guests/requesters/promoters · website visitors), incl. door devices and the native apps | `https://plus-one.io/legal#privacy` (marketing site, repo `Plus-One.io`) + Drive `02_Legal/Privacy_AVG_GDPR` |
+| `subprocessors.md` | **1.1** (2026-10-06) | Subprocessor list: A guest-data (Supabase, Vercel, Sentry, Cloudflare Turnstile, Anthropic) · B controller-side (Resend/SES, Stripe, Google Workspace, Attio, Slack) · C planned (FCM/APNs, GA, PostHog) · D not subprocessors (Better Stack, stores, Codemagic, GitHub) · E 30-day notice | `https://plus-one.io/legal#subprocessors` + Drive |
+| `data-processing-agreement.md` | **1.1** (2026-10-06) | Art. 28 GDPR DPA with Annex 1 (processing details), Annex 2 (subprocessors — mirrors `subprocessors.md`), Annex 3 (TOMs) | Signed per customer; `https://plus-one.io/legal#dpa` + Drive |
+| `terms-of-service.md` | **1.1** (2026-10-06) | B2B Terms of Service | `https://plus-one.io/legal#terms` + Drive |
 | `guest-terms.md` | **1.0** (2026-10-06) | Short consumer terms for guests and requesters on the public request/status pages; acceptance by sending the request form, no liability cap | `https://plus-one.io/legal#guest-terms` + Drive |
 | `guest-terms.nl.md` | **1.0** (2026-10-06) | Dutch version of the Guest Terms, same numbering; the Dutch version prevails (D9, lawyer confirms wording) | `https://plus-one.io/legal#guest-terms` (Dutch tab) + Drive |
 
@@ -39,11 +39,16 @@ Decided and filled in for v0.3 (2026-10-05, `legal-v03-plan-claude-code.md` §7.
 Closed at publication (2026-10-06): the `[…]` notice periods, retention and breach/export values (draft values accepted by the lawyer), the Guest Terms wording notes, the Privacy §7 guest-mail sentence (removed; see below), the Anthropic, Supabase and Cloudflare entity and transfer-safeguard details and the Anthropic certifications, the Sentry IP setting, the Google Workspace region wording, the cap-fallback addendum and the mailboxes.
 
 Still open after publication:
-- [ ] **Guest confirmation e-mail** (`86ey6bn05`) is being built as a separate task. That task must update the Privacy Policy and the Subprocessor List to **v1.1** (section C → B, Privacy §7) **before it ships**; until then the policy says PlusOne never contacts guests.
-- [ ] **Certifications column** (`subprocessors.md`): only Anthropic's are confirmed; the other rows show "—" until their certifications are verified (Supabase, Vercel, Resend, Attio, Slack). Add them as a 1.0.x edit.
-- [ ] **Backups**: confirm the Supabase plan really retains 7 days of backups (DPA 11.4/Annex 1.E/Annex 3, Privacy §11.4).
-- [ ] **Resend sender**: confirm the live SMTP sender is the apex `@plus-one.io` and close or reword F3 `86ey6b3hv` (`docs/mail-deliverability.md` still records the 2026-07-09 state).
+- [x] **Guest confirmation e-mail** (`86ey6bn05`): the documents moved ahead of the feature on 2026-10-06 (v1.1: Resend in section A of the Subprocessor List, DPA Annex 2, Privacy §4/§7/§8/§9, ToS 5.6). Resend becomes a guest-data subprocessor, so DPA 7.2 / list §E applies: **Max e-mails every venue admin the 30-day notice (template below)** and the feature ships no earlier than 30 days after that e-mail. If the notice goes out later than 2026-10-06, change the date in the Resend rows (list A, DPA Annex 2).
+- [x] **Certifications column** filled in 2026-10-06 from the vendors' trust pages: Supabase SOC 2 Type 2 + ISO/IEC 27001:2022; Vercel SOC 2 Type 2 + ISO/IEC 27001:2022; Resend SOC 2 Type II; Attio ISO/IEC 27001:2022; Slack SOC 2 Type II + ISO/IEC 27001/27017/27018.
+- [x] **Backups**: 7 days confirmed in the Supabase dashboard (Max, 2026-10-06).
+- [x] **Resend sender**: live SMTP sender is `noreply@plus-one.io` (apex) — confirmed by Max 2026-10-06 and recorded in `docs/mail-deliverability.md`; F3 `86ey6b3hv` closed.
 - [ ] **Insurance**: AVB/BAV with cyber and data-breach cover before the first paying customer (plan §7.2); confidentiality agreement with Joeri (DPA §5).
+- [ ] **30-day subprocessor notice for Resend (guest mail)** — send to every venue admin, then record the send date here. Template:
+
+  > Subject: PlusOne — new subprocessor for guest e-mail (30-day notice)
+  >
+  > Hi, we're adding one capability to PlusOne: when you decide on a guest request, PlusOne can e-mail the guest your decision on your behalf. That e-mail is delivered by Resend (Amazon SES, Ireland, EU), which therefore becomes a subprocessor for guest data under our DPA (clause 7.2). The updated Subprocessor List (version 1.1) and Privacy Policy are at https://www.plus-one.io/legal. The feature goes live no earlier than 30 days from today. If you object on data-protection grounds, reply to this e-mail within 30 days. Nothing changes for you otherwise.
 
 ## Questions for Max / the lawyer
 
