@@ -20,7 +20,7 @@ import type { PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press, cardPress } from '../../kit';
+import { BillingLockNote, Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press, cardPress } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { useIsDemoVenue } from '../../app-shell-data';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
@@ -294,18 +294,7 @@ export function Gebruikers(): JSX.Element {
       />
       <Scroll bottom={24}>
         {caps.manageTeam && billingLock.blocked && (
-          <Note icon="warn">
-            {billingLock.reason === 'canceled'
-              ? t.settings.billing.blockedCanceled
-              : t.settings.billing.blockedTrial}{' '}
-            <button
-              type="button"
-              className="cursor-pointer font-bold text-acc underline underline-offset-2"
-              onClick={() => nav.push('billing')}
-            >
-              {t.settings.billing.blockedCta}
-            </button>
-          </Note>
+          <BillingLockNote reason={billingLock.reason} onOpenBilling={() => nav.push('billing')} />
         )}
         {(caps.manageTeam || caps.viewQuota) && (
           <div className="md:mb-[18px] md:flex md:gap-3">

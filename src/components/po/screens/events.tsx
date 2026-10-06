@@ -22,7 +22,7 @@ import { canManageGuests, canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, hitRingY4, press } from '../kit';
+import { BillingLockNote, Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Scroll, Top, cardPress, hitRingY4, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
 import { ExportEventRow } from './settings/export';
@@ -142,18 +142,7 @@ export function Events(): JSX.Element {
       )}
       {isAdmin && billingLock.blocked && (
         <div className="flex-none px-5">
-          <Note icon="warn">
-            {billingLock.reason === 'canceled'
-              ? t.settings.billing.blockedCanceled
-              : t.settings.billing.blockedTrial}{' '}
-            <button
-              type="button"
-              className="cursor-pointer font-bold text-acc underline underline-offset-2"
-              onClick={() => nav.push('billing')}
-            >
-              {t.settings.billing.blockedCta}
-            </button>
-          </Note>
+          <BillingLockNote reason={billingLock.reason} onOpenBilling={() => nav.push('billing')} />
         </div>
       )}
       <Scroll bottom={100}>

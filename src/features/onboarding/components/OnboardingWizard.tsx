@@ -1,15 +1,24 @@
 'use client';
 
-/** Client-side onboarding wizard (#40): Welkom → Venue → Plan → Team. The step is
- *  seeded from server-derived state so the flow is resumable; from there it is a
- *  local state machine. Welkom only shows when starting fresh (no venue yet). */
-import { type JSX, useState } from 'react';
+/** Client-side onboarding wizard (#40): Welkom → Venue → Plan → Betaling → Team.
+ *  The step is seeded from server-derived state so the flow is resumable; from
+ *  there it is a local state machine. Welkom only shows when starting fresh (no
+ *  venue yet).
+ *
+ *  Native shell (store-tax seam, #32/#37): an invite link opens the app (the
+ *  shell claims `/auth/confirm`), so a new owner can land here inside it. There
+ *  Plan + Betaling are replaced by TrialStartStep — no plan picker, price or
+ *  payment step. Until the platform is known (SSR + hydration) those two steps
+ *  render a neutral placeholder, so the native shell never paints them. */
+import { type JSX, useCallback, useState } from 'react';
 import { DEFAULT_PLAN_ID, type PlanId } from '@/features/billing/plans';
+import { useIsNativeShell } from '@/lib/use-native-shell';
 import { WelkomStep } from './steps/WelkomStep';
 import { VenueStep } from './steps/VenueStep';
 import { PlanStep } from './steps/PlanStep';
 import { BetalingStep } from './steps/BetalingStep';
 import { TeamStep } from './steps/TeamStep';
+import { TrialStartStep } from './steps/TrialStartStep';
 
 type WizardStep = 'welkom' | 'venue' | 'plan' | 'betaling' | 'team';
 
@@ -33,6 +42,8 @@ export function OnboardingWizard({
   );
   const [venueId, setVenueId] = useState<string | null>(initialVenueId);
   const [planId, setPlanId] = useState<PlanId>(DEFAULT_PLAN_ID);
+  const native = useIsNativeShell();
+  const toTeam = useCallback(() => setStep('team'), []);
 
   const venueStep = (
     <VenueStep
@@ -50,7 +61,13 @@ export function OnboardingWizard({
     case 'venue':
       return venueStep;
     case 'plan':
-      return venueId ? (
+    case 'betaling':
+      if (!venueId) return venueStep;
+      if (native === null) return <div className="h-[100dvh] bg-bg" aria-busy="true" />;
+      if (native) return <TrialStartStep venueId={venueId} onNext={toTeam} />;
+      return step === 'betaling' ? (
+        <BetalingStep planId={planId} onNext={toTeam} />
+      ) : (
         <PlanStep
           venueId={venueId}
           onNext={(pid) => {
@@ -58,11 +75,7 @@ export function OnboardingWizard({
             setStep('betaling');
           }}
         />
-      ) : (
-        venueStep
       );
-    case 'betaling':
-      return venueId ? <BetalingStep planId={planId} onNext={() => setStep('team')} /> : venueStep;
     case 'team':
       return venueId ? <TeamStep venueId={venueId} demoAccount={demoAccount} /> : venueStep;
     default:

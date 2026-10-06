@@ -344,7 +344,15 @@ export const settings = {
     redirecting: 'One sec…',
     trialEndsIn: 'Trial ends in {days} days. Set up your payment to keep things running.',
     trialEnded: 'Your trial has ended. Set up your payment to keep everything running.',
-    manageOnWeb: 'Manage your subscription on the web version of PLUSONE.',
+    // Native shell (store-tax, #32/#37): status only. No price, no payment
+    // instruction, no pointer to where to pay — Apple 3.1.1/3.1.3 and Play's
+    // payments policy count those as a call to action for an outside purchase.
+    nativeNoChanges: "Subscription changes aren't available in the app.",
+    nativeTrialEndsIn: 'Trial ends in {days} days.',
+    nativeTrialEnded: 'Your trial has ended.',
+    nativePastDue: 'This subscription is past due.',
+    nativeBlockedTrial: 'Your trial has ended. New events and team invites are paused. Everything already planned keeps running.',
+    nativeBlockedCanceled: 'The subscription is canceled. New events and team invites are paused. Your data and planned events stay untouched.',
     checkoutSuccess: "Payment set up. You're all good! ✨",
     checkoutCanceled: 'Checkout canceled. Nothing changed.',
     // Soft-block (fase 13 PR 3): growth actions lock, planned events keep running.
