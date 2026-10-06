@@ -17,7 +17,7 @@
 //   * NOT behind the billing gate (gate.ts): ToS 6.2 promises read access on a
 //     lapsed trial, and an export is exactly that;
 //   * audit: one `audit_log` row per download via `log_venue_export` (SECURITY
-//     DEFINER, see migration 20261006140000). Fail-closed: no audit row, no file;
+//     DEFINER, see migration 20261006160000). Fail-closed: no audit row, no file;
 //   * errors to the client are generic codes; details go to the server log
 //     without PII (no names, no ids beyond what the caller sent).
 

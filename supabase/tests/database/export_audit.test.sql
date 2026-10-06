@@ -1,5 +1,5 @@
 -- pgTAP — venue data export audit + opt-in derivation (legal v0.3 E1,
--- z8uq9m2hm6, migration 20261006140000).
+-- z8uq9m2hm6, migration 20261006160000).
 --
 -- Threat model (CLAUDE.md #1): the anon/auth key ships to the browser, so every
 -- claim has to hold against raw PostgREST calls. Footholds:
