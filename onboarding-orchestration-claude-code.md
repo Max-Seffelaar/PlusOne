@@ -490,7 +490,7 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | vóór taak 2 | Stripe-dashboard op de eenmanszaak: product Pro met prijzen `pro_monthly` en `pro_yearly` (jaar = 12 × maand × 0,8), test én live; BTW-tarief; Customer Portal (betaalmethode, facturen, wisselen maand/jaar, opzeggen per periode-einde); dunning; webhook-endpoint; branding. Checklist: ClickUp 86ey6bga8. Env-vars pas ná de merge van taak 2 zetten. |
 | vóór taak 2c | Copy kiezen voor de zeven billing-mails (trial dag 0/7/12/14/21, betaling mislukt, opgezegd); dagen in het schema bevestigen of aanpassen. Stripe-dashboard: eigen dunning-mails uit (wij sturen `billing_payment_failed`), facturen/bevestigingen aan. |
 | vóór taak 3 | Google Cloud-project (zelfde als Android), billing aan, Places API (New), key beperkt tot `app.plus-one.io` + Places → `GOOGLE_PLACES_API_KEY` in Vercel. Invite-mail-copy kiezen (copy-sessie met `docs/copy-prompt.md`, twee takken: company en team). Na de merge: template-HTML uit `docs/email-templates/invite.html` in Supabase → Authentication → Emails → Invite user plakken. |
-| vóór taak 0e | Resend: API-key aanmaken op het bestaande domein → `RESEND_API_KEY` in Vercel; webhook-endpoint `https://app.plus-one.io/api/webhooks/resend` → `RESEND_WEBHOOK_SECRET`. Copy kiezen voor de drie team-invite-mails (team join bestaand account, crew added, resend). |
+| vóór taak 0e | Resend (spike 9.5): **(1)** Dashboard → Billing: welk plan? Op Free (100/dag, 3.000/maand) deelt de login-OTP het quotum met alle app-mail; vóór 0e live gaat → **Pro** (≈ $20/maand, 50k/maand, geen daglimiet). **(2)** API Keys → nieuwe key, permissie **Sending access**, domein **`plus-one.io`** (niet de SMTP-key hergebruiken; die blijft alleen in Supabase) → `RESEND_API_KEY` in Vercel (Production, server-only). **(3)** Domains → `plus-one.io` staat op Verified in **hetzelfde** Resend-account als die key. **(4)** Webhooks → endpoint `https://app.plus-one.io/api/webhooks/resend`, events `email.delivered`, `email.bounced`, `email.complained` (+ `email.delivery_delayed`) → signing secret als `RESEND_WEBHOOK_SECRET`. Pas zetten ná de merge van 0e. **(5)** Bevestigen dat batch-verzending en webhooks in het plan zitten (volgens de prijspagina: alle plannen). Copy kiezen voor de drie team-invite-mails (team join bestaand account, crew added, resend). |
 | vóór taak 6 | Mail-copy kiezen: zes templates (on the list, +N gewijzigd, tijd/locatie gewijzigd, geannuleerd, verwijderd, reminder) plus de drie statusmails uit taak 7 (voorstel v1 staat als comment op z8uq9m2vga). |
 | vóór taak 0b | Supabase-dashboard: Auth DB connection strategy naar percentage. Vercel: checken of Fluid compute aan staat (cold starts). Voor P2 later: staan asymmetrische JWT-signing-keys aan? |
 | per taak | Test-handoff beantwoorden, reviewer-sessie starten bij 0b/2/3/4/6/7/8/9, mergen, prod-push van migraties vanuit de linked main-checkout. |
@@ -541,12 +541,288 @@ Prompt voor de spike-sessie:
 Je doet wave 0 van het onboarding-programma oktober 2026 voor PlusOne Guestlist. Model: Opus. Je bouwt niets en opent geen PR behalve een docs-PR op onboarding-orchestration-claude-code.md §9. Lees CLAUDE.md en dit document. Beantwoord de zes vragen hieronder uit de code en de lokale stack (pnpm stack / lokale stack, pnpm db:fresh), schrijf per vraag het antwoord plus consequentie in §9, en zet hetzelfde als comment op de genoemde ClickUp-taak.
 ```
 
-1. **Gate (taak 2).** Reproduceer lokaal: zet `subscriptions.created_at` van de seed-venue 15 dagen terug, log in als manager@, maak een event. Verwacht: `billing_trial_expired`. Vuurt de gate niet, zoek waarom (RLS op `subscriptions`? `maybeSingle()` null? pad via RPC dat de gate omzeilt?). Antwoord: ___
-2. **Absolute check-in-aantal (taak 4).** Bevestig dat de outbox één item per check-in-id kan upserten met een nieuw `plus_ones_arrived` en `client_timestamp`, en ontwerp de stale-guard in de bestaande check-in-RPC. Lever de SQL-schets voor `20261010120000`. Antwoord: ___
-3. **Request-splitsing (taak 7).** Lees `approve_guest_request` en het `guest_requests`-schema; ontwerp `decide_guest_request(jsonb)` met de quota-trigger erin: welke tabellen, welke audit-rijen, hoe stats het afgewezen deel tellen. Lever de SQL-schets voor `20261015120000`. Antwoord: ___
-4. **Invite-template-voorwaarde (taak 3).** Zet lokaal in `supabase/config.toml` een invite-template met `{{ if eq .Data.kind "company" }}` en verstuur een invite met `data: { kind: 'company', invited_by: 'Max' }`; bekijk Mailpit. Rendert de voorwaarde en de metadata? Controleer ook of HTML in `invited_by` ge-escaped wordt. Antwoord: ___
-5. **Resend-infra (taak 6).** Bevestig welk domein en welke afzender nu via SMTP lopen (docs/mail-deliverability.md, docs/legal/README.md), of een API-key los van de SMTP-credentials nodig is, en of de Resend batch-API en webhooks beschikbaar zijn op het huidige plan. Lever de lijst voor Max in §6. Antwoord: ___
-6. **Places-proxy (taak 3).** Ontwerp de server-route: Autocomplete (New) + Place Details met session tokens, field mask beperkt tot adrescomponenten, rate limit via de bestaande throttle-helper, foutpad zonder key. Schat de kosten bij 100 onboardings per maand. Antwoord: ___
+1. **Gate (taak 2).** Reproduceer lokaal: zet `subscriptions.created_at` van de seed-venue 15 dagen terug, log in als manager@, maak een event. Verwacht: `billing_trial_expired`. Vuurt de gate niet, zoek waarom (RLS op `subscriptions`? `maybeSingle()` null? pad via RPC dat de gate omzeilt?). Antwoord: zie 9.1 hieronder.
+2. **Absolute check-in-aantal (taak 4).** Bevestig dat de outbox één item per check-in-id kan upserten met een nieuw `plus_ones_arrived` en `client_timestamp`, en ontwerp de stale-guard in de bestaande check-in-RPC. Lever de SQL-schets voor `20261010120000`. Antwoord: zie 9.2 hieronder.
+3. **Request-splitsing (taak 7).** Lees `approve_guest_request` en het `guest_requests`-schema; ontwerp `decide_guest_request(jsonb)` met de quota-trigger erin: welke tabellen, welke audit-rijen, hoe stats het afgewezen deel tellen. Lever de SQL-schets voor `20261015120000`. Antwoord: zie 9.3 hieronder.
+4. **Invite-template-voorwaarde (taak 3).** Zet lokaal in `supabase/config.toml` een invite-template met `{{ if eq .Data.kind "company" }}` en verstuur een invite met `data: { kind: 'company', invited_by: 'Max' }`; bekijk Mailpit. Rendert de voorwaarde en de metadata? Controleer ook of HTML in `invited_by` ge-escaped wordt. Antwoord: zie 9.4 hieronder.
+5. **Resend-infra (taak 6).** Bevestig welk domein en welke afzender nu via SMTP lopen (docs/mail-deliverability.md, docs/legal/README.md), of een API-key los van de SMTP-credentials nodig is, en of de Resend batch-API en webhooks beschikbaar zijn op het huidige plan. Lever de lijst voor Max in §6. Antwoord: zie 9.5 hieronder.
+6. **Places-proxy (taak 3).** Ontwerp de server-route: Autocomplete (New) + Place Details met session tokens, field mask beperkt tot adrescomponenten, rate limit via de bestaande throttle-helper, foutpad zonder key. Schat de kosten bij 100 onboardings per maand. Antwoord: zie 9.6 hieronder.
+
+### 9.0 Spike-resultaten (wave 0, 2026-10-06, Opus)
+
+Lokale stack in een remote container: `node scripts/session-setup.mjs install`, `pnpm stack`, `pnpm db:fresh` (reset klaar 19:52 UTC), daarna aan het eind `supabase db reset` + `pnpm db:test` met de seed-fix (staart in de PR-body). Experimenten draaiden tussen die twee resets en zijn met de tweede weggegooid. ClickUp was offline (daglimiet): de antwoorden staan alleen hier, niet als comment op D, E, A en F. **De volgende sessie die ClickUp heeft, zet ze er alsnog op** (per vraag het blok hieronder).
+
+**Bevinding buiten de vragen (voor de orchestrator, §3):** `20261007100000` is op main al bezet door `20261007100000_contacts_freeze_anonymized.sql`. De reservering voor taak 0b (`20261007100000_guests_venue_created_idx.sql`) botst daarmee; 0b moet naar een vrije slot (bijv. `20261007100200` / `…100300`). Ik heb §3 niet aangepast (orchestrator-gebied).
+
+#### 9.1 Gate (taak 2)
+
+**Antwoord:** de gate werkt; de reproductie zoals voorgeschreven kán hem niet laten vuren, om twee redenen die in de seed zitten, niet in de code.
+
+Gemeten door de echte server action `createEvent` (`src/features/events/actions.ts`) met de sessie-cookies van de gebruiker aan te roepen (dev-login, daarna `POST /app` met de `Next-Action`-id):
+
+| # | Toestand `subscriptions` | Gebruiker | Resultaat |
+|---|---|---|---|
+| S1 | Club Vesper (seed): `comped`, `created_at` −15 d | admin@ | `ok: true` (event aangemaakt) |
+| S1 | idem | manager@ | `42501` "You don't have rights for this." |
+| S2 | Club Vesper: `trialing`, geen Stripe-sub, `created_at` −15 d | admin@ | `billing_trial_expired` |
+| S2 | idem | manager@ | `billing_trial_expired` |
+| S3 | De Marktzaal (seed, `trialing`): `created_at` −15 d | admin@ | `billing_trial_expired` |
+| S4 | idem + `stripe_subscription_id` gezet | admin@ | `ok: true` (Stripe's klok, bewust) |
+| S5 | `created_at` −2 d, `current_period_end` gisteren | admin@ | `ok: true` (gate leest `created_at`, niet `current_period_end`) |
+
+Waarom S1 niet vuurt: (a) de seed-venue Club Vesper is `comped` en comped blokkeert nooit (`billingBlockReason`, `src/features/billing/plans.ts`); alleen De Marktzaal is `trialing`, en daar is alleen admin@ lid. (b) manager@ is `user_manager`, geen admin, en `events_insert_admin` laat alleen admins events maken; de gate loopt vóór de insert, dus bij een niet-comped verlopen trial krijgt manager@ `billing_trial_expired` in plaats van 42501 (cosmetisch: hij mocht het toch niet). Geen van de verdachten speelt: `subscriptions_select_member` laat elk lid lezen (dus `maybeSingle()` is niet null voor een lid), en er is geen RPC die events aanmaakt buiten de gate (`create_event_from_template` zit achter `assertVenueBillingActive` in `createEventFromTemplate`). Het edit-scherm (`/app/events/new`) toont de knop ook bij een geblokkeerde venue (geen `useBillingBlocked` daar); de server weigert netjes.
+
+Prod (alleen aggregaten, geen rijen): 13 × `trialing` zonder Stripe-sub (plan `indie` 7, `premium` 3, `null` 3), waarvan **6 ouder dan 14 dagen → die zijn nu geblokkeerd** voor nieuwe events, invites en import. 4 × `comped`. Niemand heeft een `stripe_subscription_id`.
+
+**Consequentie voor taak 2:** geen gate-fix nodig. Wel: (1) de "Trial until <datum>"-override moet in `billingBlockReason` én in `toPoSubscription.trialEndsAt` dezelfde bron lezen (`coalesce(trial_ends_at, created_at + 14 d)`), anders lopen server en UI uiteen; (2) pgTAP/unit-test op een niet-comped seed-venue, want de primaire seed-venue is comped; (3) neem de 42501-volgorde mee (rolcheck vóór de billing-gate) als je de actie toch aanraakt; (4) Max: de 6 verlopen trials blokkeren nu al; het runbook (`docs/stripe-setup.md` §5, §9 los eindje 4) is daarmee urgent, niet "nu meteen als het uitkomt".
+
+#### 9.2 Absoluut check-in-aantal (taak 4)
+
+**Antwoord: ja, upsert op `check_ins.id` werkt vandaag al voor een doorhost**, zonder RPC. Er ís geen check-in-RPC: check-ins zijn een directe insert/update op `check_ins` (RLS `check_ins_insert` / `check_ins_update_door`, trigger `cap_check_in_arrivals`); de enige RPC is `check_out_guest`. De stale-guard hoort dus in een BEFORE UPDATE-trigger, niet in een RPC.
+
+Gemeten als door@ via PostgREST (`upsert(..., { onConflict: 'id' })`) op Juri (plus_ones 2):
+
+| Stap | Payload | Rij daarna | Audit |
+|---|---|---|---|
+| 1 eerste tik | arrived 0, ts 22:00:01 | 0, ts :01 | `check_in` |
+| 2 tweede tik | arrived 1, ts :05 | 1, ts :05 | `update` |
+| 3 replay van 2 | identiek | 1, ts :05 | geen rij (diff leeg) |
+| 4 oud item komt laat | arrived 0, ts :01 | **1, ts :01** | `update` (alleen ts) |
+| 5 boven max | arrived 5, ts :09 | 2 (afgekapt) | `update` |
+| ander device, ander id | insert | `23505 check_ins_guest_id_key` → `duplicate` (bestaand gedrag) | — |
+
+Dus: monotoon + cap houden het aantal al goed bij herordening (stap 4), maar een oud item zet `client_timestamp` terug en schrijft een zinloze audit-rij. "Boven maximum" wordt nu **afgekapt, niet geweigerd**. Twee echte gaten bij upsert: PostgREST zet in de ON CONFLICT-update **alle** meegestuurde kolommen, dus een "+1" van collega B op de rij van A zou `checked_by` naar B herschrijven (de actor-guard staat dat toe als B deur-rechten heeft) en daarmee de first-wins-identiteit (#11) en de instroom-bucket breken. Void en revive schrijven geen `client_timestamp`, dus een oude revive kan na een nieuwere void van een collega de gast weer binnenzetten.
+
+SQL-schets `20261010120000_checkin_absolute_count_guard.sql`:
+
+```sql
+-- Stale-guard + identity pin for the absolute-count upsert (taak 4).
+-- Runs BEFORE the cap trigger (name sorts first): a stale write must be dropped
+-- before any clamp/monotonic logic, and must not reach the audit trigger.
+create or replace function public.check_in_stale_guard()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  -- Client writes only (same discriminator as guard_check_in_actor_change):
+  -- check_out_guest / retention / seeds run as owner and are not outbox replays.
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  -- 1. Stale: an outbox item older than what the row already reflects is a
+  --    no-op. Returning OLD writes an identical row, so the audit trigger (diff
+  --    only) logs nothing and the client sees success = synced.
+  if new.client_timestamp is not null
+     and old.client_timestamp is not null
+     and new.client_timestamp < old.client_timestamp then
+    return old;
+  end if;
+  -- 2. First-wins identity (#11): an upsert re-sends checked_by/checked_at/
+  --    device_id/offline_synced/synced_by. Only a revive (voided -> active) may
+  --    move them; every other update keeps the original arrival.
+  if not (old.voided_at is not null and new.voided_at is null) then
+    new.checked_by     := old.checked_by;
+    new.checked_at     := old.checked_at;
+    new.device_id      := old.device_id;
+    new.offline_synced := old.offline_synced;
+    new.synced_by      := old.synced_by;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger check_ins_a_stale_guard
+  before update on public.check_ins
+  for each row execute function public.check_in_stale_guard();
+
+-- Cap: keep the clamp (see consequence 2); unchanged function, re-stated only
+-- if the worker decides to reject instead:
+--   if new.plus_ones_arrived > v_allotment then
+--     raise exception using errcode = '23514', message = 'More people than this guest may bring.';
+--   end if;
+```
+
+**Consequentie voor taak 4:** (1) brief §4 zegt "server-RPC negeert oudere client_timestamp": wordt "BEFORE UPDATE-trigger"; geen RPC, geen server action (#25 blijft). (2) Max-besluit nodig of de brief-eis "boven maximum geweigerd" blijft. Advies: **afkappen houden** (invariant `arrived ≤ plus_ones` staat al in de DB): een geweigerde offline-replay wordt `error`/dead-letter en verliest een echte deuractie wanneer een admin intussen `plus_ones` verlaagde. pgTAP toetst dan "nooit boven het maximum" in plaats van "geweigerd". (3) De outbox stuurt `client_timestamp` ook mee op void en revive (de payloads hebben het al, de gateway schrijft het niet), anders dekt de guard ze niet. (4) `check_in` en `check_in_topup` worden één soort (upsert op id); `dedup.ts hasOpenCheckIn` blokkeert dan niet meer de tweede tik maar coalesceert pending items met hetzelfde id (laatste wint = "twee tikken offline, online één rij"). Een "+1" op een gast die een ander device incheckte heeft het id van die rij nodig (uit de snapshot); zonder id blijft de bestaande top-up-by-guest_id. (5) **Uitchecken bestaat al als setting:** `venues.allow_uncheck` (default true) + `events.allow_uncheck` (override) + RESTRICTIVE policy `check_ins_void_requires_uncheck` (`20260622000000`), rol-agnostisch. Taak 4 moet die **rolafhankelijk** maken (doorhost/crew alleen met de setting aan; admin/user_manager altijd) in plaats van een nieuwe `venues.settings->'door'`-sleutel te introduceren; de `venues.settings`-route uit §3 (`20261010120100`) vervalt. Default moet dan naar false voor doorhosts (besluit "default false"), wat het gedrag voor bestaande venues verandert: noemen in de changelog. `check_out_guest` erft de policy automatisch (SECURITY INVOKER). (6) Besluit 17 (doorhost verhoogt `plus_ones` binnen het quotum van de toevoeger) is een `guests`-update: `enforce_guest_quota` rekent op `added_by`, dus dat klopt al; wel pgTAP voor doorhost-update van `plus_ones` (zit buiten `check_ins`).
+
+#### 9.3 Request-splitsing (taak 7)
+
+**Antwoord:** "inkorten" bestaat al: `approve_guest_request(p_request_id, p_tier_id, p_plus_ones, p_message)` (`20260919090000`) keurt goed voor minder plus-ones, slaat `approved_plus_ones` en `decision_message` op de request op, en maakt één `guests`-rij met source `landing`. Afwijzen is nu een directe UPDATE via RLS `guest_requests_decide` (deny-only, `20260919150000`) met interne `decision_reason`. Nieuw zijn alleen **splitsen over tiers** en **deels afwijzen met verplichte opmerking**. Quota hoeft niet "erin": de bestaande triggers vuren per geïnserte gast (capaciteit 45005 telt 1+plus_ones, link-max 45006 telt koppen, tier-max 45002 telt **rijen**, persoonlijk quotum wordt voor `landing` nooit belast, #31). Eén transactie, dus één mislukte rij rolt de hele beslissing terug.
+
+Tabellen: `guest_requests` (status, `approved_plus_ones` = goedgekeurde koppen − 1, `decision_message`, `decision_reason`), `guests` (één rij per toewijzing), plus één nieuwe kolom `guests.guest_request_id` zodat de splitsing herleidbaar is (deur kan groeperen, stats kunnen tellen). Audit: één `insert`-rij per gast (trigger op `guests`) + één `approve`/`deny`-rij op `guest_requests` met de diff (`approved_plus_ones`, `decision_message`, `decision_reason`). Stats voor het afgewezen deel: **geen nieuwe tabel**; afgewezen koppen = `(1 + plus_ones) − (1 + coalesce(approved_plus_ones, plus_ones))` voor approved en `1 + plus_ones` voor denied; uit te rekenen in `event_link_funnel` / een request-stats-RPC (SECURITY INVOKER, GROUP BY in SQL).
+
+SQL-schets `20261015120000_request_decision_split.sql`:
+
+```sql
+-- Expand: link guest rows to the request they came from (nullable, no rewrite).
+alter table public.guests
+  add column guest_request_id uuid references public.guest_requests (id) on delete restrict;
+create index guests_guest_request_id_idx on public.guests (guest_request_id)
+  where guest_request_id is not null;
+
+-- The guest-facing message becomes mandatory on any (partial) denial, so it must
+-- be allowed on a denied row too (today: approved only).
+alter table public.guest_requests drop constraint guest_requests_decision_message_check;
+alter table public.guest_requests add constraint guest_requests_decision_message_check check (
+  decision_message is null
+  or (status in ('approved', 'denied')
+      and char_length(decision_message) between 1 and 280
+      and decision_message ~ '[^[:space:]]')
+);
+-- get_request_status must then return decision_message for denied too (same PR).
+
+-- p_decision = {
+--   "allocations": [ { "tier_id": uuid, "heads": int>=1 }, ... ],  -- may be []
+--   "message": text,          -- to the guest; REQUIRED when heads < requested
+--   "reason":  text | null    -- internal (#43(f)); stays out of guest-facing output
+-- }
+create function public.decide_guest_request(p_request_id uuid, p_decision jsonb)
+returns uuid[]          -- created guest ids, [] on a full denial
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  ws         constant text := E' \t\n\r\f\x0B';
+  v_req      public.guest_requests;
+  v_event    uuid;
+  v_alloc    jsonb;
+  v_total    integer := 0;
+  v_req_tot  integer;
+  v_message  text := nullif(btrim(p_decision ->> 'message', ws), '');
+  v_reason   text := nullif(btrim(p_decision ->> 'reason', ws), '');
+  v_ids      uuid[] := '{}';
+  v_id       uuid;
+  v_first    boolean := true;
+begin
+  -- Same authz + lock dance as approve_guest_request (unlocked read, role check,
+  -- FOR UPDATE re-read, P0002 on moved/anonymized, 45003 when not pending).
+  select * into v_req from public.guest_requests where id = p_request_id;
+  if v_req.id is null or v_req.anonymized_at is not null then
+    raise exception using errcode = 'P0002', message = 'Request not found.';
+  end if;
+  if not (public.has_venue_role(public.event_venue(v_req.event_id), '{admin}')
+          or public.is_event_organizer(v_req.event_id)) then
+    raise exception using errcode = '42501', message = 'Only an admin or organizer may decide.';
+  end if;
+  v_event := v_req.event_id;
+  select * into v_req from public.guest_requests where id = p_request_id for update;
+  if v_req.event_id is distinct from v_event or v_req.anonymized_at is not null then
+    raise exception using errcode = 'P0002', message = 'Request not found.';
+  end if;
+  if v_req.status <> 'pending' then
+    raise exception using errcode = '45003', message = 'This request was already decided.';
+  end if;
+
+  v_req_tot := 1 + v_req.plus_ones;
+  for v_alloc in select * from jsonb_array_elements(coalesce(p_decision -> 'allocations', '[]'))
+  loop
+    if (v_alloc ->> 'heads')::int < 1 then
+      raise exception using errcode = '23514', message = 'Each part needs at least one person.';
+    end if;
+    -- Decision 18: approver picks the tier. No per-tier right exists today, so
+    -- "tiers he has rights to" = every tier of THIS event for admin/organizer.
+    if not exists (select 1 from public.guest_tiers t
+                   where t.id = (v_alloc ->> 'tier_id')::uuid and t.event_id = v_req.event_id) then
+      raise exception using errcode = '23514', message = 'Pick a valid tier for this event.';
+    end if;
+    v_total := v_total + (v_alloc ->> 'heads')::int;
+  end loop;
+  if v_total > v_req_tot then
+    raise exception using errcode = '23514', message = 'More people than requested.';
+  end if;
+  if v_total < v_req_tot and v_message is null then
+    raise exception using errcode = '23514', message = 'Add a message when you decline (part of) a request.';
+  end if;
+  if char_length(v_message) > 280 then
+    raise exception using errcode = '23514', message = 'Keep the message to 280 characters.';
+  end if;
+
+  if v_req.request_link_id is not null then  -- G1: serialize link-max
+    perform 1 from public.request_links rl where rl.id = v_req.request_link_id for update;
+  end if;
+
+  -- One guest row per allocation. The first carries the requester's contact
+  -- details; later parts carry the name only (autolink would otherwise try to
+  -- dedup the same e-mail/phone twice). Every row fires 45001/45002/45005/45006.
+  for v_alloc in select * from jsonb_array_elements(coalesce(p_decision -> 'allocations', '[]'))
+  loop
+    insert into public.guests
+      (event_id, tier_id, full_name, email, phone, plus_ones,
+       added_by, source, status, request_link_id, guest_request_id)
+    values
+      (v_req.event_id, (v_alloc ->> 'tier_id')::uuid, v_req.full_name,
+       case when v_first then v_req.email end, case when v_first then v_req.phone end,
+       (v_alloc ->> 'heads')::int - 1,
+       (select auth.uid()), 'landing', 'approved', v_req.request_link_id, v_req.id)
+    returning id into v_id;
+    v_ids := v_ids || v_id;
+    v_first := false;
+  end loop;
+
+  -- One UPDATE = one audit row with the whole decision in the diff.
+  update public.guest_requests
+     set status            = case when v_total > 0 then 'approved' else 'denied' end::public.request_status,
+         decided_by        = (select auth.uid()),
+         decided_at        = now(),
+         decided_via       = 'manual',
+         approved_plus_ones = case when v_total > 0 then v_total - 1 end,
+         decision_message  = v_message,
+         decision_reason   = v_reason
+   where id = p_request_id;
+  return v_ids;
+end;
+$$;
+revoke execute on function public.decide_guest_request(uuid, jsonb) from public, anon, authenticated, service_role;
+grant execute on function public.decide_guest_request(uuid, jsonb) to authenticated;
+```
+
+**Consequentie voor taak 7:** (1) nieuwe functienaam, dus geen overload-probleem (PGRST203) met de gedeployde `approve_guest_request`; die blijft bestaan (expand–contract) en kan later een wrapper worden. (2) De `decision_message`-CHECK verruimen is een gedragswijziging van #43(f) (bericht ook bij afwijzen, naar de gast): spec-update + `get_request_status` laat het bericht bij `denied` zien, de interne `decision_reason` nooit. De `guard`-trigger op `guest_requests` (client mag counts/message niet schrijven) blijft ongewijzigd geldig, want de RPC is SECURITY DEFINER. (3) Splitsen = meerdere tier-entries (45002 telt rijen) en twee deurregels met dezelfde naam; de deur/gastenlijst moet `guest_request_id` groeperen of een "deel 2/2"-label tonen. (4) Besluit 18 "tiers waar hij rechten op heeft": er bestaat geen tier-recht in het datamodel; nu = alle tiers van het event. Een echt tier-recht is een eigen besluit. (5) Retentie (`run_privacy_retention`) moet `decision_message` ook op denied rijen wissen (nu alleen approved). (6) Statusmail via F leest `status` + `approved_plus_ones` + `decision_message`; HTML-escapen (kolomcomment zegt het al).
+
+#### 9.4 Invite-template-voorwaarde (taak 3)
+
+**Antwoord: ja, alles rendert, en HTML wordt ge-escaped.** Lokaal getest met een tijdelijke blok in `supabase/templates/invite.html` (via `[auth.email.template.invite]` in `config.toml`), GoTrue herstart, `auth.admin.inviteUserByEmail(email, { data })`, uitgelezen via de Mailpit-API. Daarna teruggezet (niet in de PR).
+
+| `data` | Gerenderd |
+|---|---|
+| `{ kind: 'company', invited_by: 'Max', company: 'Club Vesper' }` | `[COMPANY-BRANCH by Max for Club Vesper]` |
+| `{ kind: 'team', invited_by: 'Max' }` | `[TEAM-BRANCH by Max]` |
+| `{ full_name: 'spike' }` (geen kind) en geen `data` | `[TEAM-BRANCH by ]`: geen fout, ontbrekende sleutel = lege string, else-tak |
+| `invited_by: '<b>Max</b><script>alert(1)</script>"&\''`, `company: '<a href="https://evil.test">Win</a>'` | `&lt;b&gt;Max&lt;/b&gt;&lt;script&gt;…&#34;&amp;&#39;` en `&lt;a href=&#34;…&#34;&gt;Win&lt;/a&gt;`: volledig ge-escaped (Go `html/template`) |
+
+Ook het **onderwerp** ondersteunt de voorwaarde (`subject = "{{ if eq .Data.kind \"company\" }}{{ .Data.invited_by }} invited you to set up {{ .Data.company }}{{ else }}…{{ end }}"`), maar wordt óók HTML-ge-escaped: `Max & <Joeri>` / `Club "Vesper"` kwam aan als `Max &amp; &lt;Joeri&gt; invited you to set up Club &#34;Vesper&#34;`. Een onderwerpregel is platte tekst, dus dat staat er letterlijk zo in de inbox.
+
+**Consequentie voor taak 3:** de template-route werkt; geen hook-route nodig. (1) Gebruik metadata alleen in de body, of in het onderwerp alleen met een vaste tekst per tak (geen namen; "&" in "Bar & Grill" breekt anders zichtbaar). (2) Zet `kind` als eerste vergelijking en laat de else-tak de veilige standaardtekst zijn: een invite zonder metadata (resend van een oud pad) valt dan netjes terug. (3) Securityreview-punt: `data` overschrijft `raw_user_meta_data` van een bestaand onbevestigd account (F5 in `invite-mail.ts`), en gebruikers kunnen hun eigen `user_metadata` later wijzigen. `kind`/`invited_by`/`company` zijn alleen weergave op verzendmoment en mogen nergens als autorisatie gelezen worden (comped komt uit `platform_invites.comped`, niet uit metadata). Platform-invites geven nu bewust géén `data` mee (`seedName: false`); voor `kind`/`invited_by` moet dat een expliciete, minimale payload worden zonder `full_name`. (4) Prod: het template staat in het Supabase-dashboard, niet in `config.toml`; Max plakt het na de merge (§6 staat al zo).
+
+#### 9.5 Resend-infra (taak 6, en 0e)
+
+**Antwoord:** Prod-auth-mail loopt via Resend als Supabase custom SMTP: host `smtp.resend.com:465`, afzender **`PlusOne <noreply@plus-one.io>`**, domein de apex **`plus-one.io`**, geverifieerd (SPF/DKIM/DMARC `p=none`), regio eu-west-1 (`docs/mail-deliverability.md`; bevestigd in `docs/legal/README.md`, F3 gesloten). Resend staat sinds subprocessorlijst 1.1 al in sectie A (gastdata), dus juridisch is gastmail gedekt.
+
+API-key: **ja, een aparte key.** Het SMTP-wachtwoord ís een Resend API-key, maar `docs/mail-deliverability.md` § Secret handling zegt dat die alleen in Supabase en de wachtwoordmanager staat en nooit in Vercel. Voor app-verzending (0e, 6, 2c) dus een tweede key met **Sending access, beperkt tot `plus-one.io`**, in Vercel als `RESEND_API_KEY` (server-only, secret-grep-guard uitbreiden). Losse rotatie; een gelekte app-key raakt de login-OTP niet. Die doc-regel moet in taak 0e worden bijgewerkt ("twee keys, elk met eigen plek").
+
+Plan: niet uit de code te halen. Volgens Resend's prijspagina (okt 2026) hebben alle plannen batch-verzending (`POST /emails/batch`, max 100 per call), webhooks en API-key-permissies; Free = 3.000 mails/maand, **100/dag**, 1 domein, 1 webhook-endpoint; Pro ≈ $20/maand, 50.000/maand, geen daglimiet. **Kritiek:** login-OTP's tellen mee in hetzelfde account. Op Free gaat met gastmail (taak 6), team-mails (0e) en billing-mails (2c) de daglimiet van 100 al bij één drukke avond op, en dan faalt óók de login (zelfde account, zelfde quotum). Dat raakt de deur.
+
+**Consequentie voor taak 6 en 0e:** (1) verzendcode verwacht een daglimiet-fout van Resend (429 / `daily_quota_exceeded`) en logt die in `mail_log` als `failed`, nooit retry-storm. (2) Batch-API per event voor "You're on the list"-golven; idempotency-key per `mail_log`-rij. (3) Afzender gastmail volgens §9 eindje 13: `"{Company} via PlusOne" <noreply@plus-one.io>` + `reply_to` company-contact; geen nieuw domein, dus geen DNS-werk. (4) Webhook: één endpoint (Free-limiet), signature via Svix-headers, idempotent via `resend_webhook_events` (zoals Stripe). Checklist voor Max staat in §6, rij "vóór taak 0e".
+
+#### 9.6 Places-proxy (taak 3)
+
+**Antwoord (ontwerp):**
+
+- **Route** `src/app/api/places/route.ts`, `runtime = 'nodejs'`, twee acties op één route met Zod-discriminated union: `{ op: 'autocomplete', input, sessionToken }` en `{ op: 'details', placeId, sessionToken }`. Valt automatisch achter de middleware-auth (alleen `/api/webhooks/` is vrijgesteld); in de route toch `supabase.auth.getUser()` (checklist), anders 401.
+- **Autocomplete (New):** `POST https://places.googleapis.com/v1/places:autocomplete` met header `X-Goog-Api-Key` (server-only `GOOGLE_PLACES_API_KEY`) en `X-Goog-FieldMask: suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat`; body `{ input, sessionToken, languageCode: 'en', includedRegionCodes: ['nl','be','de'] }` (lijst = productbesluit). Antwoord naar de client: alleen `placeId`, `mainText`, `secondaryText`.
+- **Place Details (New):** `GET https://places.googleapis.com/v1/places/{placeId}?sessionToken=…` met `X-Goog-FieldMask: addressComponents,formattedAddress` (eventueel `location`): allemaal **Essentials**-SKU. **Niet** `displayName` vragen: dat is de duurdere Pro-SKU. De naam ("vult naam + adres") komt gratis uit de gekozen autocomplete-suggestie (`structuredFormat.mainText`). De route mapt `addressComponents` naar `address_line` / `postal_code` / `city` / `country` (bestaande `venues`-velden) en geeft alleen die terug.
+- **Session token:** client maakt per invoerveld-focus een UUIDv4 (`crypto.randomUUID()` met fallback, webview-safe), stuurt hem bij elke autocomplete-call mee en bij de ene details-call; daarna een nieuwe. Debounce 250 ms, minimaal 3 tekens.
+- **Rate limit:** `consume_public_throttle` is intern (execute ingetrokken voor alle app-rollen); het patroon is een eigen SECURITY DEFINER-wrapper zoals `consume_platform_invite_throttle`: `consume_places_throttle()` → `consume_public_throttle('plc:' || auth.uid(), 10, 120)` (120 calls / 10 min per gebruiker), `auth.uid()` null → 42501. Server-afgeleide sleutel, dus geen `p_ip_hash`-prefix en niet in de prefix-lijst van `public-throttle-prefixes.test.ts`. Dit vraagt een extra migratie: taak 3 krijgt slot `20261009120100_places_throttle.sql`. Throttled → 429 `{ ok:false }`, client toont gewoon het tekstveld.
+- **Foutpad zonder key:** `GOOGLE_PLACES_API_KEY` ontbreekt → route geeft `200 { enabled: false }` (geen 500, geen Sentry-event), client rendert het gewone tekstveld; Google-fout/timeout (3 s `AbortSignal.timeout`) → `{ ok:false }`, generieke melding, details alleen in serverlog, nooit de invoertekst loggen (kan een adres = PII zijn). Key nooit in `NEXT_PUBLIC_*`; secret-grep-guard krijgt `GOOGLE_PLACES_API_KEY` erbij.
+- **Capacitor:** alleen `fetch` naar de eigen origin, geen Google-JS-SDK, geen popup: werkt in de webview.
+
+**Kosten bij 100 onboardings/maand:** ~100 sessies op VenueStep + ~100 in Company settings/event-locatie ≈ 200–300 sessies, elk ~6–10 autocomplete-calls (debounced) + 1 details-call ≈ 2.000–3.000 Autocomplete-requests + 200–300 Details-Essentials. Volgens Google's sessiebilling worden per sessie hooguit de eerste 12 autocomplete-calls los geteld plus de afsluitende Essentials-details. Met de maandelijkse gratis tegoeden per SKU (Essentials ≈ 10.000 calls/maand) is dat **€0**; zonder gratis tegoed ruwweg 3.000 × ~$2,8/1000 + 300 × ~$5/1000 ≈ **$10/maand**. Exacte prijzen en gratis caps checkt Max bij het aanmaken van de key (niet geverifieerd in deze sessie). Zet in Google Cloud een budget-alert (€10) en een quotum per minuut op de key.
+
+**Consequentie voor taak 3:** (1) extra migratie `20261009120100_places_throttle.sql` (wrapper + grant + pgTAP allowed/denied); (2) "met key vult één selectie naam + adres": naam uit de suggestie, niet uit Details (prijs); (3) Google moet op de subprocessorlijst (staat al in de legal-taak); (4) de key-restrictie "`app.plus-one.io` + Places" uit §6 werkt niet voor een server-key (HTTP-referrer-restricties gelden alleen voor browser-calls): Max beperkt de key op **API (Places API (New))** en eventueel op Vercel-egress-IP's niet (die wisselen); dus API-restrictie + quota + budget-alert, geen referrer.
+
+**Niet geverifieerd in deze sessie:** het actuele Resend-plan van het account (dashboard), de exacte Google-prijzen/gratis caps, en of het prod-dashboardtemplate dezelfde Go-templating gebruikt als de lokale GoTrue (zelfde GoTrue, dus verwacht ja; Max ziet het bij de eerste test-invite in prod).
+
 
 Losse eindjes, beantwoord door Max op 2026-10-06 (avond):
 
@@ -575,7 +851,7 @@ Losse eindjes, beantwoord door Max op 2026-10-06 (avond):
 
 Open besluiten voor Max (uit een andere sessie, 2026-10-06), vóór wave 0 te beantwoorden:
 
-- **Seed-data (Sanne/Pim-verwisseling):** de fix raakt drie pgTAP-bestanden en vereist een `supabase db reset` lokaal. Aanbeveling: gewoon doen in wave 0; lokale testdata is per definitie weggooibaar. **Antwoord (Max, 2026-10-06): ja, reset mag.** Wave 0 fixt de seed en de drie pgTAP-bestanden in de docs-PR van §9.
+- **Seed-data (Sanne/Pim-verwisseling):** de fix raakt drie pgTAP-bestanden en vereist een `supabase db reset` lokaal. Aanbeveling: gewoon doen in wave 0; lokale testdata is per definitie weggooibaar. **Antwoord (Max, 2026-10-06): ja, reset mag.** Wave 0 fixt de seed en de drie pgTAP-bestanden in de docs-PR van §9. **Gedaan (wave 0):** de ingecheckte seed-gast `cc..02` heet nu "Pim Scholten" met Pims telefoonnummer, zodat de autolink-trigger hem aan Pims eigen contact `c0..03` koppelt; de handmatige `update … set contact_id` die Sanne aan Pim hing is weg. Aantallen, tiers en check-ins zijn ongewijzigd, dus in `analytics`, `contacts.rls` en `permanent` veranderen alleen comments en assert-labels. Sanne en Anouk (permanent) staan vóór de permanent-sync op geen enkele lijst.
 - **Deep link naar een event van een andere company:** automatisch wisselen van company, of een scherm "Dit event hoort bij {company}. Switch?" Aanbeveling: uitleggen + knop, nooit stil wisselen (platform-access-log en audit willen een bewuste actie). **Antwoord (Max, 2026-10-06): uitleg + knop "Switch to {company}".** Hoort bij taak 5 (event-screens): een deep link naar een event van een andere company waar de gebruiker lid van is toont die kaart; geen lid → het bestaande "niet gevonden"-pad, zonder te verraden dat het event bestaat.
 - **Telefoon-gematchte opt-in:** mag een gast met een matchend telefoonnummer de "Keep me posted" van een bestaand contact uitzetten? Aanbeveling: nee, alleen via de afmeldlink uit taak 6 of door het team; een telefoonnummer is geen bewijs van identiteit. **Antwoord (Max, 2026-10-06): ja, een matchend telefoonnummer mag de voorkeur uitzetten.** Geaccepteerd restrisico: wie het nummer van een contact kent, kan diens updates uitzetten; het kan alleen uit, nooit aan, en de wijziging landt in de audit log met bron "guest request". Hoort bij taak 6 (opt-out) en wordt in de spec als beslissing opgenomen.
 - **Poort 7000:** werkproces, geen code. CLAUDE.md "Een poort is een checkout" dekt het: vóór een test `git branch --show-current` in de map die de poort serveert. Antwoord: ___

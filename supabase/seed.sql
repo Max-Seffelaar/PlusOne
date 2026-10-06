@@ -139,8 +139,8 @@ insert into public.quota_requests (event_id, user_id, requested_extra) values
 -- Club Vesper (auto-sync candidates), one ordinary contact, and one at the
 -- second venue for cross-venue isolation tests. MUST be seeded BEFORE the guests:
 -- the S2.1 auto-contact trigger (guests_autolink_contact) creates a contact for
--- any guest with an e-mail/phone, so inserting Sanne the contact first lets the
--- matching Sanne guest dedup-LINK to her (instead of the guest auto-creating a
+-- any guest with an e-mail/phone, so inserting Pim the contact first lets the
+-- matching Pim guest dedup-LINK to him (instead of the guest auto-creating a
 -- contact that then collides with this fixed-id row).
 -- ---------------------------------------------------------------------------
 
@@ -178,9 +178,12 @@ values
    'dd000000-0000-7000-8000-000000000003', 'Juri Braakman', null, '+31612345678', 2,
    'Tafel bij de DJ-booth reserveren', 'high',
    '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
-  -- Checked in (see check_ins below)
+  -- Checked in (see check_ins below). Pim's phone matches the ordinary contact
+  -- c0..03, so the autolink trigger links this guest to Pim's OWN contact — the
+  -- "X× op een lijst" reuse stat is non-zero in dev without pre-placing a
+  -- permanent contact (Sanne/Anouk stay off the list until the permanent sync).
   ('cc000000-0000-7000-8000-000000000002', 'ee000000-0000-7000-8000-000000000001',
-   'dd000000-0000-7000-8000-000000000002', 'Sanne Mulder', null, '+31687654321', 1,
+   'dd000000-0000-7000-8000-000000000002', 'Pim Scholten', null, '+31622222222', 1,
    null, 'none', '11111111-1111-4111-8111-111111111111', 'app', 'checked_in'),
   ('cc000000-0000-7000-8000-000000000003', 'ee000000-0000-7000-8000-000000000001',
    'dd000000-0000-7000-8000-000000000001', 'Daan Visser', null, null, 0,
@@ -273,13 +276,6 @@ values
   ('bb000000-0000-7000-8000-000000000003', 'ee000000-0000-7000-8000-000000000001',
    'Kevin de Lange', 'denied',
    '11111111-1111-4111-8111-111111111111', now(), 'Lijst zit vol voor deze avond');
-
--- Link the ordinary (non-permanent) contact to an existing guest so the
--- "X× op een lijst" reuse stat is non-zero in dev, without pre-placing a
--- permanent contact (which would shadow the permanent-sync flow).
-update public.guests
-  set contact_id = 'c0000000-0000-7000-8000-000000000003'
-  where id = 'cc000000-0000-7000-8000-000000000002';
 
 -- ---------------------------------------------------------------------------
 -- Requests-epic F1 (86ey21vjt): one influencer + an auto-approve request link
