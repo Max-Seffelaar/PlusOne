@@ -797,6 +797,39 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
   );
 }
 
+// ── BillingLockNote ──────────────────────────────────────────────────────────
+/**
+ * The soft-block banner (#32: lapsed trial / canceled) shown above growth
+ * actions. In the browser it tells the admin to set up payment and links to
+ * Billing; in the native shell (store-tax seam, `isNativeShell()`) it only
+ * states the lock — no payment instruction and no link to the read-only
+ * Billing screen, which has nothing to act on there.
+ */
+export function BillingLockNote({
+  reason,
+  onOpenBilling,
+}: {
+  reason: 'canceled' | 'trial_expired' | null;
+  onOpenBilling: () => void;
+}): JSX.Element {
+  const b = t.settings.billing;
+  if (isNativeShell()) {
+    return <Note icon="warn">{reason === 'canceled' ? b.nativeBlockedCanceled : b.nativeBlockedTrial}</Note>;
+  }
+  return (
+    <Note icon="warn">
+      {reason === 'canceled' ? b.blockedCanceled : b.blockedTrial}{' '}
+      <button
+        type="button"
+        className="cursor-pointer font-bold text-acc underline underline-offset-2"
+        onClick={onOpenBilling}
+      >
+        {b.blockedCta}
+      </button>
+    </Note>
+  );
+}
+
 // ── RefusedAction ────────────────────────────────────────────────────────────
 /**
  * An action this viewer can see but may not use, with the reason shown upfront

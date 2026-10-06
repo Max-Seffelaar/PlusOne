@@ -37,7 +37,7 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { BackBtn, Btn, Empty, Note, Scroll, hitRingY2, press } from '../kit';
+import { BillingLockNote, BackBtn, Btn, Empty, Scroll, hitRingY2, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 import { HomeHeaderActions } from './home-header-actions';
@@ -440,18 +440,7 @@ export function Home(): JSX.Element {
           </div>
 
           {isAdmin && billingLock.blocked && (
-            <Note icon="warn">
-              {billingLock.reason === 'canceled'
-                ? t.settings.billing.blockedCanceled
-                : t.settings.billing.blockedTrial}{' '}
-              <button
-                type="button"
-                className="cursor-pointer font-bold text-acc underline underline-offset-2"
-                onClick={() => nav.push('billing')}
-              >
-                {t.settings.billing.blockedCta}
-              </button>
-            </Note>
+            <BillingLockNote reason={billingLock.reason} onOpenBilling={() => nav.push('billing')} />
           )}
 
           {/* pulse strip — Requests / Quota tiles deep-link into the inbox. Role-hide

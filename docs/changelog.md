@@ -8,6 +8,37 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-06 — Store-tax: no plan, price or payment screen in the native shell
+
+Branch `claude/admiring-mendel-td9njx`, milestone Now (store submission, Fase 17 S5). Gap found
+while explaining the first-login flow: the native shell claims `/auth/confirm`
+(`APP_LINK_PATHS`), so an invitee with the app installed runs the **onboarding wizard inside
+the shell** — and its Plan step (prices, "Continue to payment") and Betaling step ("Set up your
+payment", iDEAL/SEPA, "complete it in your browser") had no `isNativeShell()` guard. That is the
+call-to-action-for-an-outside-purchase Apple 3.1.1/3.1.3 and Play's payments policy reject, and it
+contradicted `docs/store/play-review-notes.md` ("no billing UI in the native shell").
+
+- **Onboarding:** in the shell Plan + Betaling are replaced by `TrialStartStep` — it silently
+  calls the same `setVenuePlanAction` with `DEFAULT_PLAN_ID` (the onboarding state needs a plan
+  to move past `plan`) and goes on to Team. Welkom lists two steps, the step dots drop "Plan".
+  The wizard SSRs, so the platform comes from `useIsNativeShell()` (`src/lib/use-native-shell.ts`,
+  `null` during SSR/hydration); on `null` the Plan/Betaling slot renders a blank placeholder, so
+  the shell never paints a price, not even for a frame.
+- **Billing screen (native):** status only — no price, no payment-method card, no invoices/portal
+  copy, the trial/past-due notes lose their "set up your payment" half. "Manage your subscription
+  on the web version" (itself a pointer to an outside purchase) became "Subscription changes
+  aren't available in the app."
+- **Soft-block banner:** the three copies (home, events, team) became one kit primitive
+  `BillingLockNote`; native states the lock without the payment nudge or the Billing link.
+- **More → Billing row:** plan name only in the shell, no `€49/month`.
+- Guards: `src/features/onboarding/components/native-store-tax.test.tsx`,
+  `src/components/po/screens/settings/billing.native.test.tsx` (regex over the rendered text for
+  €/payment/iDEAL/SEPA/checkout/portal/"on the web").
+- Not changed: the browser flow (unchanged Plan → Betaling → Stripe checkout from Billing).
+  Plan choice in the shell is therefore always the default plan; changing it stays a browser task.
+
+---
+
 ## 2026-10-05 — Legal v0.3 E1: self-service venue data export + marketing opt-in visible (z8uq9m2hm6)
 
 Branch `claude/z8uq9m2hm6-venue-export`, milestone Now (DPA 11.3, ToS 9.5/16.5), high-risk
