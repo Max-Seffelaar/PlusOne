@@ -410,7 +410,7 @@ export function Home(): JSX.Element {
                 {greetingFor(amsterdamHour(), firstName)}
               </h1>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13.5px] text-faint">
-                <span className="font-semibold text-dim">{venueName ?? 'Venue'}</span>
+                <span className="font-semibold text-dim">{venueName ?? t.home.companyFallback}</span>
                 {pulse.upcoming > 0 && (
                   <>
                     <span className="text-ghost">·</span>

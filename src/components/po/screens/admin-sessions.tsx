@@ -9,6 +9,7 @@
  *  Reached from the Meer hub. */
 import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoTeam, usePoUserSessions } from '@/features/po/hooks';
 import { usePoAdminRevokeSession } from '@/features/po/mutations';
@@ -78,7 +79,7 @@ function MemberPicker({
         {team.isLoading ? (
           <Empty text="Loading…" />
         ) : members.length === 0 ? (
-          <Empty text="No team members in this venue." />
+          <Empty text={t.settings.profile.teamSessionsEmpty} />
         ) : (
           <div className="flex flex-col gap-2">
             {members.map((m) => (

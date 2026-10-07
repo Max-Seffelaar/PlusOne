@@ -1,45 +1,49 @@
 /**
- * Onboarding surface copy (venue creation). EN-only; voice + rules in
+ * Onboarding surface copy (company creation). EN-only; voice + rules in
  * tone-of-voice.md, string deck in copy-deck.md §11. Sentence case, numerals,
- * no em-dash habit, glossary terms exact (Venue, Admin, VAT, Data retention).
+ * no em-dash habit, glossary terms exact (Company, Admin, VAT, Data retention).
  */
 export const onboarding = {
   venueCreate: {
-    title: 'New venue',
-    introPre: 'You make a new venue and become its ',
+    title: 'New company',
+    introPre: 'You make a new company and become its ',
     introBold: 'Admin',
-    introPost: ' automatically. Your account stays yours, separate from your other venues.',
-    companyNameLabel: 'Venue name',
+    introPost: ' automatically. Your account stays yours, separate from your other companies.',
+    companyNameLabel: 'Company name',
     companyNamePlaceholder: 'e.g. LOFI',
     cityLabel: 'City',
     cityPlaceholder: 'Amsterdam',
-    venueTypeLabel: 'Venue type',
+    venueTypeLabel: 'Type',
+    // Type options, in this order (decision Max + Joeri 2026-10-06). Stored as
+    // venues.settings.venue_type: `club`/`festival`/`bar`/`concertzaal`/`venue`/`organizer`.
     typeClub: 'Club',
     typeFestival: 'Festival',
     typeBar: 'Bar',
     typeConcert: 'Concert hall',
+    typeVenue: 'Venue',
+    typeOrganizer: 'Organizer',
     kvkLabel: 'Company number (KVK, optional)',
     kvkPlaceholder: '12345678',
     retentionLabel: 'Data retention',
     retentionNote: 'Guest data is anonymized to “Guest #X” after this period. Default 12 months, 1 minimum.',
     retentionMonths: '{n} mo',
     billingLabel: 'Billing',
-    billingNotePre: 'Every venue gets its own subscription, and yours starts in ',
+    billingNotePre: 'Every company gets its own subscription, and yours starts in ',
     billingNoteBold1: 'onboarding',
     billingNoteMid: '. Leave your billing details and finish payment later. Pilots can run on ',
     billingNoteBold2: 'comped',
     billingNotePost: '.',
     billingEmailLabel: 'Billing email',
-    billingEmailPlaceholder: 'billing@venue.com',
+    billingEmailPlaceholder: 'billing@company.com',
     vatLabel: 'VAT (optional)',
     vatPlaceholder: 'NL000000000B00',
     paymentNote: "We never store your IBAN or card details. The payment provider handles that (SEPA Direct Debit / iDEAL).",
-    /** The venue WAS created; only the follow-up active-venue switch was refused
+    /** The company WAS created; only the follow-up active-company switch was refused
      *  (86eykm7rk). Never reuse `venue.switchFailed` here: telling someone they
-     *  have lost access to the venue they just made is false, and its "refresh
-     *  your venues" advice points at a list that does contain it. */
-    createdNotOpened: 'Venue created, but we could not open it. You’ll find it under More → Venues.',
-    submit: 'Create venue',
+     *  have lost access to the company they just made is false, and its "refresh
+     *  your companies" advice points at a list that does contain it. */
+    createdNotOpened: 'Company created, but we could not open it. You’ll find it under More → Companies.',
+    submit: 'Create company',
     submitBusy: 'Working…',
     // Consent (#40) — split so the Terms/Privacy words can be links.
     consentPre: 'I agree to the ',
@@ -49,7 +53,7 @@ export const onboarding = {
     consentPost: '.',
   },
 
-  // Onboarding wizard, store-review demo account (86ey6bfug): the venue step
+  // Onboarding wizard, store-review demo account (86ey6bfug): the company step
   // shows the refusal (t.auth.demoNoVenues) and this way out instead of a form.
   demo: {
     backToApp: 'Back to the app',
@@ -69,7 +73,7 @@ export const onboarding = {
     roleManager: 'Manager',
     roleHost: 'Host',
     remove: 'Remove',
-    emailPlaceholder: 'name@venue.com',
+    emailPlaceholder: 'name@company.com',
     addRow: 'Add another team member',
     send: 'Send invites',
     working: 'Working…',

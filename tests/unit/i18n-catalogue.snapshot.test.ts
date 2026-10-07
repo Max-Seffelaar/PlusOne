@@ -28,4 +28,12 @@ describe('i18n catalogue', () => {
     expect(lines.join('\n')).toMatchSnapshot();
   });
 
+  it('says "company", never "venue", in user-visible copy (z8uq9m2vqc)', () => {
+    const offenders = lines.filter((line) => {
+      const value = line.slice(line.indexOf(' = ') + 3);
+      if (line.startsWith('onboarding.venueCreate.typeVenue = ')) return false;
+      return /\bvenues?\b/i.test(value.replace(/\{venue\}/g, ''));
+    });
+    expect(offenders).toEqual([]);
+  });
 });

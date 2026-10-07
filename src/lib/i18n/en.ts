@@ -42,17 +42,17 @@ export const en = {
   venue: {
     switching: 'Switching…',
     /** The switch was refused server-side — almost always a membership revoked
-     *  between the render of the venue list and the tap (86eykm7rk). Names the
+     *  between the render of the company list and the tap (86eykm7rk). Names the
      *  cause and the one action that helps, because a retry never will. */
-    switchFailed: 'You no longer have access to that venue. Refresh to see your current venues.',
+    switchFailed: 'You no longer have access to that company. Refresh to see your current companies.',
     /** The action threw (network blip, 500) rather than refusing. Distinct from
      *  `switchFailed`: nothing is wrong with the user's access, so the honest
      *  advice is "try again" — the opposite of what switchFailed says (86eykm7rk). */
-    switchError: 'Could not switch venue. Check your connection and try again.',
+    switchError: 'Could not switch company. Check your connection and try again.',
   },
   sections: {
     account: 'Account',
-    thisVenue: 'This venue',
+    thisVenue: 'This company',
     teamAccess: 'Team & access',
     insights: 'Insights',
   },

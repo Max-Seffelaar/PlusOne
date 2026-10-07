@@ -44,7 +44,7 @@ describe('createVenueAction — demo account', () => {
   ])('refuses the demo account %s without calling the RPC', async (_label, user) => {
     H.user = user;
     const res = await createVenueAction({ ...INPUT });
-    expect(res).toEqual({ ok: false, code: '42501', message: "The demo account can't create venues." });
+    expect(res).toEqual({ ok: false, code: '42501', message: "The demo account can't create companies." });
     expect(H.rpc).not.toHaveBeenCalled();
   });
 

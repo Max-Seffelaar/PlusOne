@@ -1,9 +1,9 @@
 /**
- * Settings cluster copy (More hub, profile/account, team, roles, quota, venue
- * settings, venue switch, billing, import). EN-only; voice + rules in
+ * Settings cluster copy (More hub, profile/account, team, roles, quota, company
+ * settings, company switch, billing, import). EN-only; voice + rules in
  * tone-of-voice.md, string deck in copy-deck.md §9. Sentence case, numerals,
- * no em-dash habit. Glossary terms exact: Team, Quota, Venue settings, Billing,
- * Import, Roles & permissions, Switch venue, Profile, Account, Refuse, Regular.
+ * no em-dash habit. Glossary terms exact: Team, Quota, Company settings, Billing,
+ * Import, Roles & permissions, Switch company, Profile, Account, Refuse, Regular.
  * Label renames: Gebruikers→Team, Statistieken→Analytics, Toelage→Quota,
  * Persoonlijke gegevens→Profile.
  */
@@ -18,12 +18,12 @@ export const settings = {
   // More hub (Meer).
   more: {
     title: 'More',
-    switchSub: '{name} · switch venue',
-    /** Same card with a single venue: it opens venue settings instead (z8uq9m0hw2). */
-    settingsSub: '{name} · venue settings',
+    switchSub: '{name} · switch company',
+    /** Same card with a single company: it opens company settings instead (z8uq9m0hw2). */
+    settingsSub: '{name} · company settings',
     /** Shown instead of a name while the profile loads or on a load error — never a placeholder person. */
     nameFallback: 'your account',
-    sectionVenue: 'This venue',
+    sectionVenue: 'This company',
     sectionBilling: 'Billing',
     analyticsTitle: 'Analytics',
     analyticsSub: 'Turnout, arrivals, and additions',
@@ -37,7 +37,7 @@ export const settings = {
     profileSub: 'Profile, email, and sessions',
     templatesTitle: 'Event templates',
     templatesSub: 'Reusable setups per event type',
-    venueSettingsTitle: 'Venue settings',
+    venueSettingsTitle: 'Company settings',
     venueSettingsSub: 'Name, data retention, defaults',
     teamTitle: 'Team',
     teamSub: 'Invites, roles, and MFA',
@@ -63,7 +63,7 @@ export const settings = {
     subMany: '{count} members · {open} open',
     inviteTitle: 'Invite a member',
     emailLabel: 'Email',
-    emailPlaceholder: 'name@venue.com',
+    emailPlaceholder: 'name@company.com',
     rolesLabel: 'Roles · pick one or more',
     mfaNotePre: 'We recommend Admin and Finance enable ',
     mfaNoteBold: 'MFA',
@@ -81,18 +81,18 @@ export const settings = {
     organizerNotePre: 'Joins the ',
     quotaLabel: 'Default quota · optional',
     quotaPlaceholder: 'e.g. 5 guests per event',
-    quotaHelp: "Becomes the default quota once the invite is accepted. Leave empty for the venue default.",
+    quotaHelp: "Becomes the default quota once the invite is accepted. Leave empty for the company default.",
     sending: 'Sending…',
     sendInvite: 'Send invite',
     inviteCta: 'Invite a member',
     quotaPerMember: 'Default quota per member',
-    teamLabel: 'Venue members',
+    teamLabel: 'Company members',
     teamLoadError: "Couldn't load the team.",
     teamEmpty: 'No team members yet.',
     memberQuota: 'quota {n}',
     manage: 'Manage',
     manageAria: 'Manage {name}',
-    // External crew section (T8) — event-scoped people, venue-wide overview.
+    // External crew section (T8) — event-scoped people, company-wide overview.
     crewLabel: 'External crew',
     crewLoadError: "Couldn't load the external crew.",
     crewEmpty: 'No external crew yet. Add a DJ, artist, or guest organizer via “Add someone”.',
@@ -111,23 +111,23 @@ export const settings = {
     // Member sheet.
     sheetNoRights: "You can't manage this member. Only an admin can change or remove an admin.",
     removeConfirmBold: '{name}',
-    removeConfirmPost: ' loses access to this venue. Their account and access to other venues stay intact.',
+    removeConfirmPost: ' loses access to this company. Their account and access to other companies stay intact.',
     removing: 'Revoking…',
     removeConfirmBtn: 'Yes, revoke access',
     sheetRolesLabel: 'Roles',
     savingRoles: 'Saving…',
     saveRoles: 'Save roles',
-    removeAccess: 'Revoke access to this venue',
-    // Invite chooser + external-crew branch (86ey21vre). A venue user joins the
-    // whole venue (every event); external crew is event-scoped with a guest quota.
+    removeAccess: 'Revoke access to this company',
+    // Invite chooser + external-crew branch (86ey21vre). A company user joins the
+    // whole company (every event); external crew is event-scoped with a guest quota.
     chooseTitle: 'Add someone',
     chooseSub: 'Two kinds of people, two kinds of access.',
-    chooseTeamTitle: 'Venue user · Team',
-    chooseTeamSub: 'Works across your whole venue, on every event. You pick their roles and quota.',
+    chooseTeamTitle: 'Company user · Team',
+    chooseTeamSub: 'Works across your whole company, on every event. You pick their roles and quota.',
     chooseCrewTitle: 'External crew',
-    chooseCrewSub: 'A DJ, artist, or guest organizer for specific events only. No access to the rest of the venue.',
+    chooseCrewSub: 'A DJ, artist, or guest organizer for specific events only. No access to the rest of the company.',
     crewTitle: 'Invite external crew',
-    crewIntro: 'They get a login for the events you pick and can add guests up to a quota. Nothing else in your venue.',
+    crewIntro: 'They get a login for the events you pick and can add guests up to a quota. Nothing else in your company.',
     crewEventsLabel: 'Add to which events?',
     crewQuotaLabel: 'Guests they can add · optional',
     crewQuotaPlaceholder: 'e.g. 10 guests',
@@ -164,38 +164,38 @@ export const settings = {
     noUpcomingEvents: 'No upcoming events to set an allowance for.',
   },
 
-  // Switch venue (VenueSwitch).
+  // Switch company (VenueSwitch).
   venueSwitch: {
-    title: 'Venues',
-    sub: 'Switch between your venues',
+    title: 'Companies',
+    sub: 'Switch between your companies',
     notePre: 'You’re working in ',
     noteBold: '{name}',
-    notePost: ' now. Your account is separate from the venue, so switching changes nothing about your access elsewhere.',
-    yourVenues: 'Your venues · {n}',
-    empty: "You don't belong to any venue yet.",
+    notePost: ' now. Your account is separate from the company, so switching changes nothing about your access elsewhere.',
+    yourVenues: 'Your companies · {n}',
+    empty: "You don't belong to any company yet.",
     current: 'CURRENT',
     manage: 'Manage',
     switch: 'Switch',
-    addVenue: 'Add a new venue',
-    thisVenueFallback: 'this venue',
-    // Shown instead of role chips for a venue the caller only has external-crew
-    // (event-scoped) access to — they're not a venue member there (86ey21vre).
+    addVenue: 'Add a new company',
+    thisVenueFallback: 'this company',
+    // Shown instead of role chips for a company the caller only has external-crew
+    // (event-scoped) access to — they're not a company member there (86ey21vre).
     crewAccess: 'External crew',
   },
 
-  // Venue settings (VenueSettings).
+  // Company settings (VenueSettings).
   venue: {
-    title: 'Venue settings',
-    viewNoRights: "You don't have rights to view the venue settings.",
+    title: 'Company settings',
+    viewNoRights: "You don't have rights to view the company settings.",
     loading: 'Loading…',
-    loadError: "Couldn't load the venue settings.",
+    loadError: "Couldn't load the company settings.",
     readonlyNote: 'You can view the settings, read-only. Only an admin can change them.',
-    nameLabel: 'Venue name',
+    nameLabel: 'Company name',
     websiteLabel: 'Website',
-    websitePlaceholder: 'yourvenue.com',
+    websitePlaceholder: 'yourcompany.com',
     websiteEmpty: 'No website yet',
     websiteOpen: 'Open website',
-    websiteInvalid: "That web address doesn't look right. Try something like yourvenue.com",
+    websiteInvalid: "That web address doesn't look right. Try something like yourcompany.com",
     defaultsLabel: 'Defaults for new events',
     defaultQuotaTitle: 'Default quota per member',
     defaultQuotaSub: 'Seeds each new event. Change it per event & per person',
@@ -205,10 +205,10 @@ export const settings = {
     retentionLabel: 'Data retention',
     retentionNote: 'Guest data is anonymized to “Guest #X” after this period. The audit log stays intact.',
     retentionMonths: '{n} mo',
-    companyLabel: 'Company details',
+    companyLabel: 'Business details',
     // Persistent field labels (T10) — replace the placeholder-as-label pattern so
     // a filled value ("34567890") is never a guess. Placeholders become examples.
-    companyNameFieldLabel: 'Company name',
+    companyNameFieldLabel: 'Legal name',
     kvkFieldLabel: 'KVK number',
     vatFieldLabel: 'VAT number',
     billingEmailFieldLabel: 'Billing email',
@@ -216,10 +216,10 @@ export const settings = {
     postalFieldLabel: 'Postal code',
     cityFieldLabel: 'City',
     countryFieldLabel: 'Country',
-    companyNamePlaceholder: 'Company name',
+    companyNamePlaceholder: 'Legal name',
     kvkPlaceholder: '12345678',
     vatPlaceholder: 'NL000000000B00',
-    billingEmailPlaceholder: 'billing@venue.com',
+    billingEmailPlaceholder: 'billing@company.com',
     addressLabel: 'Address',
     streetPlaceholder: 'Herengracht 1',
     postalPlaceholder: '1000 AA',
@@ -244,7 +244,7 @@ export const settings = {
     phonePlaceholder: '06 …',
     profileSaved: 'Profile saved.',
     emailLabel: 'Email',
-    emailNote: 'Only you can change your email, never a venue admin. We send a confirmation to both your old and new address.',
+    emailNote: 'Only you can change your email, never a company admin. We send a confirmation to both your old and new address.',
     changeEmail: 'Change email',
     sending: 'Sending…',
     emailSent: 'Confirm the change with the link we sent to your old and new address.',
@@ -258,6 +258,8 @@ export const settings = {
     deleteAccountSub: 'Request deletion of your PlusOne account',
     sessionsLabel: 'Your devices',
     sessionsEmpty: 'No active sessions.',
+    /** Team sessions picker (admin-sessions.tsx), empty company (z8uq9m2vqc). */
+    teamSessionsEmpty: 'No team members in this company.',
     thisDevice: 'This device',
     sessionCount: '{n} sessions',
     logOut: 'Log out',
@@ -304,29 +306,29 @@ export const settings = {
   // Legal v0.3 E1 — self-service data export (admin only, never billing-gated).
   export: {
     title: 'Export data',
-    body: 'Download everything this venue holds about guests: the guest lists, contacts, requests and door activity, as four CSV files in one ZIP.',
+    body: 'Download everything this company holds about guests: the guest lists, contacts, requests and door activity, as four CSV files in one ZIP.',
     everything: 'Export everything',
     eventOnly: 'Export this event',
     busy: 'Preparing export…',
     done: 'Export ready: {guests} guests, {contacts} contacts, {requests} requests, {door} door entries.',
     logged: 'Every export is recorded in the audit log.',
     nativeOnly: 'Export from the web app at app.plus-one.io.',
-    errorTooLarge: 'This venue is too large to export in one go. Export per event instead, from the event menu.',
-    errorUnauthorized: 'Only a venue admin can export data.',
+    errorTooLarge: 'This company is too large to export in one go. Export per event instead, from the event menu.',
+    errorUnauthorized: 'Only a company admin can export data.',
     errorFailed: "Couldn't prepare the export. Try again in a moment.",
   },
   billing: {
     title: 'Billing',
     loading: 'Loading…',
     loadError: "Couldn't load the subscription.",
-    empty: 'No subscription for this venue yet.',
+    empty: 'No subscription for this company yet.',
     statusTrialing: 'TRIAL',
     statusActive: 'ACTIVE',
     statusComped: 'COMPED · PILOT',
     statusPastDue: 'PAST DUE',
     statusCanceled: 'CANCELED',
     fieldEvents: 'Events',
-    fieldVenue: 'Venue',
+    fieldVenue: 'Company',
     fieldRenews: 'Renews',
     fieldStatus: 'Status',
     pastDueBanner: "Your payment's overdue. Update it to keep things running.",
@@ -360,8 +362,8 @@ export const settings = {
     blockedCanceled: 'The subscription is canceled. Reactivate billing to plan new events and grow your team. Your data and planned events stay untouched.',
     blockedCta: 'Go to Billing',
     // Invoicing soft-gate (checkout requires real company details, feedback Rik
-    // 2026-09-24): the venue display name is not the invoice legal entity, so
-    // checkout refuses until companyName is filled in Venue settings.
+    // 2026-09-24): the company display name is not the invoice legal entity, so
+    // checkout refuses until companyName is filled in Company settings.
     invoicingRequiredError: 'Add your company name for invoicing before setting up payment.',
     invoicingRequiredCta: 'Add company details',
   },
