@@ -26,7 +26,7 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 7. **Users exist independently of venues.** Access flows through `venue_memberships` (roles array) and `event_organizers` (event scope). Removing a membership never deletes the user or touches their other venues/events. Only the user can change their own email. (#24)
 8. **Multiple roles per user per venue.** Never model role as a single column.
 9. **Stats and quotas hang on the event, never the calendar day.** Events cross midnight. (#26)
-10. **No ticketing integrations in the core. No outbound invitations (mail/WhatsApp).** Read-only ticketing connectors are a phase-3 layer (#36).
+10. **No ticketing in the core list logic. No outbound invitations (mail/WhatsApp).** The guest list always works without a provider. Ticketing is an optional, transactional provider layer (#54, see "Ticketing" below): the provider issues and mails the ticket, PlusOne only requests it for a guest already on the list and turns the provider's scans into check-ins. Transactional guest mail about the guest's own list spot (#10 revised 2026-10-06) is not an invitation either.
 11. **Native apps are planned, not optional (#37).** MVP is a browser PWA; the same codebase gets wrapped with Capacitor (remote-URL model) for both stores. Never introduce a feature that would force a rewrite at wrap time — see the Capacitor checklist below.
 
 ## Platform admins (decision #49)
@@ -62,6 +62,18 @@ PlusOne's own operators (Max, Joeri) need cross-venue read+write for support/deb
 - `comped` = pilot venues without billing; set manually (SQL runbook in `docs/stripe-setup.md`), audited, **never overwritten by webhook state** (guard in the RPC).
 - **Store-tax (Apple IAP):** the native shell shows billing **read-only** — no checkout/portal/pricing/upgrade UI, no "pay on the web" pointer, not even a link; seam = `isNativeShell()` (`src/lib/platform.ts`; SSR'd components use `useIsNativeShell()` from `src/lib/use-native-shell.ts`). This includes the onboarding wizard: an invite link opens the app, so in the shell Plan + Betaling are replaced by a silent default-plan trial start (`TrialStartStep`).
 - Never store card/IBAN details; we persist only `stripe_customer_id`/`stripe_subscription_id`. Setup + test-mode script: `docs/stripe-setup.md`; go-live checklist ClickUp `86ey6bga8`.
+
+## Ticketing (decision #54 — in build, Weeztix first)
+
+Plan of record: `docs/ticketing/plan.md` (plain language), `docs/ticketing/README.md` (tables, RLS, RPCs, PR order), `docs/ticketing/partner-brief.md` (what we ask each provider). Code lands in Ticketing 1–7; until a path exists on `main` it is named here only in prose.
+
+- **The provider issues and mails the ticket.** PlusOne creates a free order for a guest already on the list (first name, last name, e-mail) and turns the provider's scans into check-ins. Closed loop is the entry condition: a provider without events + ticket types + free order + scans back is not integrated. PlusOne sends no ticket mail for Weeztix.
+- **One seam, one adapter per provider** (`TicketingProvider` with declared capabilities, under src/features/ticketing once Ticketing 2 lands) with the same confinement guard as billing: provider hosts and the service client for ticketing only inside that directory. Keyless local dev/CI runs the stub adapter.
+- **Tier drives the ticket:** `guest_tiers.ticket_mode` `none | optional | required`; one ticket type per tier; ticket lines per guest (`guest_ticket_lines` + one `guest_tickets` row per barcode), never a second `guests` row per person. Lines are never quota slots (#22). App/bulk add into a `required` tier without e-mail fails (45010); a door walk-in is accepted with `needs_email` — the outbox never fails on a business rule (#25).
+- **Provider scans are system actions.** `check_ins.source` (`door | cockpit | provider_scan`); `checked_by` is nullable only for `provider_scan`, written only by the service_role-only SECURITY DEFINER RPC `apply_ticket_scan`; clients can neither insert nor change that source (RLS + guard). Audit actor NULL + `device_id = '<provider>:<scanner>'`, same line as auto-approve (#43c). First scan = check-in, later scans = `plus_ones_arrived` top-up, doorhost-first = top-up only, refused stays refused with the row recorded.
+- **Secrets in Supabase Vault** behind service_role-only RPCs (`ticketing_secret_put`, `ticketing_secret_get`, `ticketing_secret_delete`); no app role reads them, the `postgres` role can (operator rule under Platform admins). Webhook URL carries a per-connection path secret stored as sha256; HMAC on top when the provider signs. Worker = `ticketing_outbox` + pg_net kick with a single-use token (push pattern, #50) into a Next.js route — ids only in payloads.
+- **Beta gate:** `venues.ticketing_enabled_at`, platform admin only (`set_venue_ticketing_enabled`). Connect/issue are billing-gated like create-event.
+- Migrations reserved: `20261014100000` core, `20261014100100` names, `20261014100200` check_ins source, `20261015100000` Vault RPCs, `20261016100000` lines/outbox, `20261017100000` webhook inbox. Ticketing 1, 2, 4 and 5 are high-risk surfaces (review gates below).
 
 ## Design & surface (decision #38)
 

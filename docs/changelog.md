@@ -8,6 +8,34 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Ticketing-provider integration: decision #54 + plan + partner brief (Ticketing 0)
+
+Max asked how to connect venues' ticketing providers (Weeztix, Celebratix, Paylogic, Stager, CM.com, WeTicket) so
+that guests on the list get a real ticket and provider scans show up as check-ins. Planned in plan mode; eight
+decisions taken by Max (ticket issuer, trigger model, door carve-out, +N, extras, names, backfill, refused + scanned).
+
+- **Spec:** decision #54 (amends #2, #36 and CLAUDE.md rule 10): the provider issues and mails the ticket, PlusOne
+  creates a free order for a guest already on the list, scans come back as check-ins; closed loop is the entry
+  condition per provider; Weeztix first. Datamodel `[later]` rows replaced by the planned tables; Fase 3 and "Bewust
+  niet" updated. Numbering: #50–#53 were already taken (push backend, push client, bundling, company/location).
+- **CLAUDE.md:** rule 10 rewritten; new "Ticketing (decision #54)" block with the invariants (provider scans as
+  system actions with `check_ins.source` + nullable `checked_by`, Vault behind service_role RPCs, outbox + single-use
+  token worker, beta gate, reserved migration timestamps). Paths that do not exist yet are named in prose only
+  (`claude-md-references` guard).
+- **Docs:** `docs/ticketing/plan.md` (plain language, for Max), `docs/ticketing/README.md` (tables, RLS, RPC sketches,
+  seam, routes, PR order, tests, runbook, open questions), `docs/ticketing/weeztix.md` (verified vs assumed API
+  mapping), `docs/ticketing/partner-brief.md` (seven questions per provider, what public docs already answer, draft
+  outreach e-mail).
+- **Exploration facts worth keeping:** no ticketing/external-id concept existed; `check_ins` is not FORCE RLS so a
+  definer RPC can insert a provider check-in and inherits status sync, clamping, realtime and audit; the realtime
+  publication already carries `check_ins`; `guests_autolink_contact` + the `(event_id, contact_id)` unique index rule
+  out a second guest row per e-mail (hence ticket lines); mail infra F0 (PR #413) landed the same day but Weeztix
+  mails tickets itself, so v1 sends no mail.
+- **ClickUp:** tasks Ticketing 0–7 to be created in list `901818739469` (the MCP daily limit was hit during this
+  session; see the session wrap-up).
+
+---
+
 ## 2026-10-07 — Templates keep the event location (z8uq9m2vqc, PR B)
 
 Max's prod report ("an event from a template loses its location") traced via the edge logs to **Save as template**:
