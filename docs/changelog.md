@@ -11,7 +11,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-10-07 — Check-in D: group-first check-in, absolute count, undo per role (z8uq9m2vg6)
 
 Milestone **Now** (onboarding programme okt 2026, wave C, task 4). Design: spike 9.2 in
-`onboarding-orchestration-claude-code.md`. Spec decision #54 (refines #22/#25 and the S1.1 undo setting).
+`onboarding-orchestration-claude-code.md`. Spec decision #55 (refines #22/#25 and the S1.1 undo setting).
 
 - **UI, phone door and desktop cockpit:** the "how many are coming in?" stepper is gone. "Check in all (N)" checks in
   everyone still outside; "Check in 1" lets one more in and shows the count (3/4). The cockpit's check-in modal has the

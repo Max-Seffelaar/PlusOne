@@ -175,7 +175,7 @@ test('core flow: create event → add guest → door check-in, asserted in the d
   await page.goto(`/door/${eventId}`);
   await page.getByPlaceholder('Search a name…').fill(GUEST_NAME, { timeout: 30_000 });
   await page.getByRole('button', { name: new RegExp(GUEST_NAME) }).click();
-  await page.getByRole('button', { name: /Check in · 1 person/ }).click();
+  await page.getByRole('button', { name: 'Check in', exact: true }).click();
 
   // DB truth: the check_ins row landed with the session user as actor (C15 class:
   // the UI is optimistic — only the database proves RLS accepted the write).

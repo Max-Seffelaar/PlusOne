@@ -72,7 +72,7 @@ test('door: offline check-in replays to server + audit log; colleague check-in s
 
   await page.getByPlaceholder('Typ de naam van de gast…').fill(offlineName);
   await page.getByRole('button', { name: new RegExp(offlineName) }).click();
-  await page.getByRole('button', { name: /Check in · 1 persoon/ }).click();
+  await page.getByRole('button', { name: 'Check in', exact: true }).click();
 
   // Optimistic confirmation (queued in the outbox while offline).
   await expect(page.getByText(/binnen ✓/)).toBeVisible({ timeout: 5_000 });
