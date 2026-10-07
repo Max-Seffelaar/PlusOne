@@ -800,7 +800,7 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | Requests | Inkorten, splitsen over tiers, deels afwijzen, verplichte opmerking; statusmail | #10, nieuw |
 | Legal | Eenmanszaak, geen BV/VOF | legal docs |
 | Last-admin-guard | Een company houdt altijd minstens één admin; de laatste admin kan zichzelf niet verwijderen of degraderen (trigger, niet alleen UI) | #24 |
-| Share-import | Delen vanuit WhatsApp/Mail/Notes/Excel naar PlusOne landt op Paste a list met event- en tier-keuze; +N en e-mail herkend. Web-kant hier (5b); native share-sheet op Android én iOS = S6 in het Capacitor-programma, mee in de eerstvolgende store-build (besluit Max 2026-10-07); gedeelde tekst nooit in URL of server-log | #33, #37 |
+| Share-import | Delen vanuit WhatsApp/Mail/Notes/Excel naar PlusOne landt op Paste a list met event- en tier-keuze; +N en e-mail herkend. Web-kant hier (5b); native share-sheet op Android én iOS = S6 in het Capacitor-programma. Timing (Max 2026-10-07, na een test van de concurrent: hun share-knop verschijnt niet in WhatsApp of Instagram op Android, dus marketing, geen werkende feature): niet naar voren trekken; 5b blijft in golf D en S6 komt in de eerste build ná de store-goedkeuring; gedeelde tekst nooit in URL of server-log | #33, #37 |
 | Quota-aanvraag | Melding terug op Home (reden verplicht bij afwijzen); gast optioneel meegeven; akkoord zet de gast direct op de lijst | nieuw |
 | Deep link | Event van een andere company: uitleg + "Switch to {company}", nooit stil wisselen | nieuw |
 | Opt-out via telefoon | Matchend nummer mag "Keep me posted" uitzetten (alleen uit, audit); restrisico geaccepteerd | nieuw |
