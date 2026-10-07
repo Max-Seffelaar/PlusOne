@@ -97,7 +97,7 @@ function partsFor(content: TeamMailContent): MailParts {
       return {
         ...m.teamAddedToEvent,
         intro: [[m.teamAddedToEvent.intro, ...quotaLine].join(' ')],
-        after: [m.crewFindEvent, m.crewScope],
+        after: [m.crewAccept, m.joinOpenFor, m.crewFindEvent, m.crewScope],
       };
     }
     case 'team_resend':

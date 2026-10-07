@@ -23,7 +23,12 @@ import { renderTeamMail, type TeamMailContent } from './templates';
 
 export type TeamMail = TeamMailContent & { to: string };
 
-export type TeamMailResult = { ok: true } | { ok: false; reason: 'inactive' | 'failed' };
+/** `recipient_window`: a mail went to this address within mail_recipient_window()
+ *  (60 s); `venue_cap`: the company's daily invitation cap. Both are PM429 from
+ *  log_mail_attempt, told apart by its message, so callers can say which. */
+export type TeamMailResult =
+  | { ok: true }
+  | { ok: false; reason: 'inactive' | 'failed' | 'recipient_window' | 'venue_cap' };
 
 /** sha256 of the trimmed, lowercased address: what mail_log stores instead of it. */
 export function recipientHash(email: string): string {
@@ -51,6 +56,8 @@ export async function sendTeamMail(mail: TeamMail): Promise<TeamMailResult> {
       // per day): expected under abuse or a double click, so a warning.
       if (logError?.code === 'PM429') {
         console.warn('sendTeamMail: throttled', { type: mail.template });
+        if (/recipient/i.test(logError.message ?? '')) return { ok: false, reason: 'recipient_window' };
+        if (/venue/i.test(logError.message ?? '')) return { ok: false, reason: 'venue_cap' };
         return { ok: false, reason: 'failed' };
       }
       console.error('sendTeamMail: log_mail_attempt failed', { code: logError?.code, type: mail.template });
