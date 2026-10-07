@@ -65,7 +65,7 @@ test('native-shell guard: billing is status-only inside the app', async ({ page,
     // the control is the checkout button and the payment-method card.
     await flow.check(3, 'Billing: native shows "Subscription changes aren\'t available in the app."; browser (control) offers "Set up payment" + payment method', async () => {
       await expect(page.getByRole('button', { name: /Set up payment/i })).toBeVisible();
-      await expect(page.getByText('SEPA Direct Debit & iDEAL').first()).toBeVisible();
+      await expect(page.getByText('Card, SEPA Direct Debit or iDEAL').first()).toBeVisible();
     });
     flow.skip(4, 'Billing: no price, payment method, checkout or portal copy');
     flow.skip(5, 'Billing: no payment/checkout/portal button and no outbound link');
