@@ -45,12 +45,24 @@ Volgorde is bewust: SEPA-activatie heeft dagen doorlooptijd — start die eerst.
    (Vercel env).
 8. **Branding**: logo + lavendel-accent, e-mailbonnen op NL/EN, factuur-
    nummering en eigen BTW-nummer op de facturen.
+9. **API-key: een restricted key (`rk_…`), geen secret key.** Developers → API
+   keys → *Create restricted key*, in test- én live-mode, en zet die als
+   `STRIPE_SECRET_KEY`. Precies deze rechten, al het andere op **None** (ook
+   niet "Read" of "View-only" op alles):
+   - **Customers: Write** (find-or-create van de customer bij checkout);
+   - **Checkout Sessions: Write** (hosted Checkout);
+   - **Customer portal: Write** (portal-sessie);
+   - **Prices: Read** (de twee Pro-prijzen op lookup key).
+   De webhook gebruikt de key niet voor API-calls (alleen de signing secret), en
+   een gelekte restricted key kan geen refunds, payouts of klantdata buiten
+   deze vier resources aanraken. Weigert Stripe een call met
+   `permission_error`, voeg dan alleen dát recht toe en zet het hier bij.
 
 ## 2. Env-vars
 
 | Var | Waar | Betekenis |
 |---|---|---|
-| `STRIPE_SECRET_KEY` | Vercel (live) / `.env.local` (test) | Zonder deze key is billing volledig uit (stub). |
+| `STRIPE_SECRET_KEY` | Vercel (live) / `.env.local` (test) | Restricted key `rk_…` met de vier rechten uit §1.9. Zonder deze key is billing volledig uit (stub). |
 | `STRIPE_WEBHOOK_SECRET` | idem | Signing secret van het endpoint (of van `stripe listen` lokaal). |
 | `STRIPE_TAX_RATE_ID` | idem | 21%-tax-rate, op elke subscription toegepast. |
 

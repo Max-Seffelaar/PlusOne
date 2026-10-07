@@ -28,16 +28,10 @@ export const onboarding = {
     retentionNote: 'Guest data is anonymized to “Guest #X” after this period. Default 12 months, 1 minimum.',
     retentionMonths: '{n} mo',
     billingLabel: 'Billing',
-    billingNotePre: 'Every company gets its own subscription, and yours starts in ',
-    billingNoteBold1: 'onboarding',
-    billingNoteMid: '. Leave your billing details and finish payment later. Pilots can run on ',
-    billingNoteBold2: 'comped',
-    billingNotePost: '.',
     billingEmailLabel: 'Billing email',
     billingEmailPlaceholder: 'billing@company.com',
     vatLabel: 'VAT (optional)',
     vatPlaceholder: 'NL000000000B00',
-    paymentNote: "We never store your IBAN or card details. The payment provider handles that (SEPA Direct Debit / iDEAL).",
     /** The company WAS created; only the follow-up active-company switch was refused
      *  (86eykm7rk). Never reuse `venue.switchFailed` here: telling someone they
      *  have lost access to the company they just made is false, and its "refresh

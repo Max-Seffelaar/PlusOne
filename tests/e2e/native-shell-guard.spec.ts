@@ -10,7 +10,9 @@ import { acceptConsent, adminClient, getUserIdByEmail } from './helpers/supabase
  *   - /onboarding is Welcome → Company → Team: no plan step, no payment step,
  *     no price and no purchase button at any point of the walk;
  *   - /app (Home, incl. a lapsed trial's lock note) and /app/billing show no
- *     "€", no "Set up payment", no "Manage …", no outbound URL and no link.
+ *     "€", no "Set up payment", no "Manage …", no outbound URL and no link;
+ *   - More → Switch company → New company shows no billing, payment or
+ *     "comped" copy (orchestrator review on PR #422).
  * The unit guards (billing.native.test.tsx, native-store-tax.test.tsx) pin the
  * components; the QA-0 flows (native-shell-guard.flow.ts, billing-g.flow.ts)
  * screenshot it. This spec is the CI-required behavioural gate.
@@ -25,7 +27,7 @@ const ADMIN = 'admin@plusone.test';
 const TRIAL_VENUE = 'aa000000-0000-7000-8000-000000000002';
 
 /** Anything a store reviewer would read as a price or a purchase call to action. */
-const PURCHASE_COPY = /€|\/ ?month|\/ ?year|set up payment|\bmanage\b|payment|checkout|portal|reactivate|upgrade|pick (a|your) plan|iDEAL|SEPA|on the web/i;
+const PURCHASE_COPY = /€|\/ ?month|\/ ?year|set up payment|\bmanage\b|payment|checkout|portal|reactivate|upgrade|pick (a|your) plan|\biDEAL\b|\bSEPA\b|on the web/i;
 
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
@@ -132,6 +134,19 @@ test.describe('native shell: no purchase surface (Billing G)', () => {
       await page.goto(new URL('/app/more', baseURL).toString());
       await expect(page.getByText(/Pro · Trial ends in \d+ days/).first()).toBeVisible({ timeout: 30_000 });
       await expectNoPurchaseSurface(page);
+    });
+
+    test('More → Switch company → New company: no billing or payment copy', async ({ page, baseURL }) => {
+      await page.goto(`/auth/dev-login?email=${encodeURIComponent(ADMIN)}&next=/app/venue/switch`);
+      await page.waitForURL(/\/app\/venue\/switch/, { timeout: 60_000 });
+      expect(await reportsNative(page)).toBe(true);
+      await page.getByText('Add a new company').first().click();
+      await page.waitForURL(new RegExp(`${new URL('/app/venue/new', baseURL).pathname}$`), { timeout: 30_000 });
+      await expect(page.getByRole('button', { name: 'Create company' })).toBeVisible({ timeout: 30_000 });
+      // The consent's Terms/Privacy links stay (legal requirement), so this is
+      // the copy check plus the pilot vocabulary, not the link check.
+      await expectNoPurchaseCopy(page);
+      await expect(page.locator('body')).not.toHaveText(/comped|subscription/i);
     });
 
     test('/app with a lapsed trial: the lock note states the lock, no button', async ({ page }) => {
