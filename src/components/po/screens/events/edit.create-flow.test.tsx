@@ -50,7 +50,8 @@ vi.mock('@/features/po/PoLiveProvider', () => ({
   usePoIdentity: () => ({ venueId: 'venue-1', venueName: 'Club Nova', roles: ['admin'] }),
 }));
 
-vi.mock('@/components/po/context', () => ({ useNav: () => nav }));
+const toast = vi.fn();
+vi.mock('@/components/po/context', () => ({ useNav: () => nav, usePo: () => ({ toast }) }));
 
 // Imported AFTER the mocks so the screen picks them up.
 import { EventEdit } from './edit';
@@ -204,5 +205,23 @@ describe('EventEdit location fields', () => {
     fillAndCreate();
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
     expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: null });
+  });
+});
+
+// Review fix: on the template path the event already exists when the location
+// write runs. A failure there must still move on to the new event (a second
+// Save would create a second event) and tell the user via the shell toast.
+describe('EventEdit template path, location write fails', () => {
+  it('navigates to the new event anyway and toasts that the location did not save', async () => {
+    updateEvent.mockRejectedValueOnce(new Error('network'));
+    templates = [{ id: 'tpl-1', name: 'Lofi', tierCount: 2, landing_active: false }];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Lofi' }));
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: 'Paradiso' } });
+    fillAndCreate();
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('event', { id: NEW_ID }));
+    expect(createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith(t.events.locationNotSaved);
+    expect(screen.queryByText('network')).not.toBeInTheDocument();
   });
 });

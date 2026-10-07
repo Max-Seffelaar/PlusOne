@@ -13,13 +13,14 @@ import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { WizardShell, WizardPanel } from '../WizardShell';
 
+const vc = t.onboarding.venueCreate;
 const TYPE_LABEL: Record<VenueType, string> = {
-  club: 'Club',
-  festival: 'Festival',
-  bar: 'Bar',
-  concertzaal: 'Concert hall',
-  venue: 'Venue',
-  organizer: 'Organizer',
+  club: vc.typeClub,
+  festival: vc.typeFestival,
+  bar: vc.typeBar,
+  concertzaal: vc.typeConcert,
+  venue: vc.typeVenue,
+  organizer: vc.typeOrganizer,
 };
 
 // Longest offered option (settings/venue.tsx offers 6/12/24), stamped without

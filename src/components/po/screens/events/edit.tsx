@@ -26,7 +26,7 @@ import {
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
-import { useNav } from '../../context';
+import { useNav, usePo } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
 import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
@@ -50,6 +50,7 @@ function splitLocal(iso: string | null): [string, string] {
 
 export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.Element {
   const nav = useNav();
+  const { toast } = usePo();
   const { venueId, venueName, roles } = usePoIdentity();
   const isAdmin = roles.includes('admin');
   const editId = isNew ? '' : id ?? '';
@@ -70,7 +71,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const linksQ = usePoRequestLinks(editId);
   // Create mode has no event row to embed the company address from; the
   // company settings read (shared cache with Company settings) supplies it.
-  const venueSettings = usePoVenueSettings();
+  const venueSettings = usePoVenueSettings({ enabled: !!isNew });
 
   const [name, setName] = useState('');
   // Per-event location (z8uq9m2vqc). '' = follow the company address.
@@ -232,8 +233,15 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
           : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress });
         // The template RPC takes no location; set it on the new event after.
+        // The event exists by now, so a failed location write must never keep
+        // the form open (a second Save would create a SECOND event): move on
+        // to the new event regardless and say what didn't stick.
         if (templateId && (locationName || locationAddress)) {
-          await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress });
+          try {
+            await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress });
+          } catch {
+            toast?.(t.events.locationNotSaved);
+          }
         }
         // Save the event first, then the tiers (Max, z8uq9m0hw3 item 7): a
         // tier-less event goes straight to its guided tiers step, which ends on

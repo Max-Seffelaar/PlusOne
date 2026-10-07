@@ -35,6 +35,7 @@ import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/feature
 import { getPlan, isPlanId, trialEndsAt } from '@/features/billing/plans';
 import { deviceLabel } from '@/lib/ua';
 import { t } from '@/lib/i18n';
+import { formatVenueAddress } from '@/features/requests/status-view';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
 // No I/O, so they're unit-tested directly (adapters.test.ts). The po mock types
@@ -84,15 +85,13 @@ export interface EventCounts {
 // event detail, the Home board and the public request page (which passes
 // `venue_address: null`: the company address stays private there, spec #48(c)).
 
-/** The company address as one line: "Wibautstraat 150, 1091 GR Amsterdam". */
+/** The company address as one line: "Wibautstraat 150, 1091 GR Amsterdam".
+ *  Row-shaped wrapper around the one formatter (`formatVenueAddress`, also
+ *  used by the request status page), so the two can never drift. */
 export function formatCompanyAddress(
   v: { address_line: string | null; postal_code: string | null; city: string | null } | null | undefined
 ): string | null {
-  if (!v) return null;
-  const clean = (x: string | null): string => (x ?? '').trim();
-  const place = [clean(v.postal_code), clean(v.city)].filter(Boolean).join(' ');
-  const line = [clean(v.address_line), place].filter(Boolean).join(', ');
-  return line === '' ? null : line;
+  return v ? formatVenueAddress(v.address_line, v.postal_code, v.city) : null;
 }
 
 export interface EventLocationInput {

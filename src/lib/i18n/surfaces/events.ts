@@ -87,6 +87,8 @@ export const events = {
   locationNameTooLong: 'That location name is too long.',
   locationAddressTooLong: 'That address is too long.',
   locationAria: 'Location',
+  /** Template create path: the event exists, the follow-up location write failed. */
+  locationNotSaved: "Event created, but the location didn't save. Add it in the event settings.",
   fieldDate: 'Date',
   fieldDoors: 'Doors',
   fieldEndDate: 'End date',

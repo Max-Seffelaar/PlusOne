@@ -62,6 +62,14 @@ export interface BoardEvent {
   canManage: boolean;
 }
 
+/** Home's search match: event name, company name, and the location the card
+ *  actually shows (`location.label`), so typing "paradiso" finds the Paradiso
+ *  night. `q` is already trimmed + lowercased by the caller. */
+export function matchesBoardQuery(e: Pick<BoardEvent, 'name' | 'venue' | 'location'>, q: string): boolean {
+  if (!q) return true;
+  return [e.name, e.venue, e.location.label].join(' ').toLowerCase().includes(q);
+}
+
 /**
  * Map the home-events bundle + the venue-wide request lists to BoardEvent rows.
  * Pure (now injected) — Home's board memo and the door picker share this, so the

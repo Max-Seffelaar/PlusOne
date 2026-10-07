@@ -516,6 +516,7 @@ events.locationHint = "Empty means your company address. Filled in, guests see i
 events.locationNameAria = "Location name"
 events.locationNamePlaceholder = "e.g. Paradiso"
 events.locationNameTooLong = "That location name is too long."
+events.locationNotSaved = "Event created, but the location didn't save. Add it in the event settings."
 events.lockListNote = "Locking closes the list: no new sign-up requests come in, and staff can no longer add or change guests. Admin, organizer, and door staff can still work the list."
 events.lockListOffSub = "Usually at doors."
 events.lockListOnSub = "Staff can't make changes. Admin, host, and door still can."

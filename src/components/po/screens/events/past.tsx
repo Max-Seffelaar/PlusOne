@@ -46,7 +46,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={ev.name} sub={`${ev.location.label} · ${ev.date} ${ev.mon}`} right={<IconBtn name="share" />} />
+      <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="share" />} />
       <Scroll bottom={28}>
         {/* Desktop (S3.3): two columns — left = opkomst + ingecheckt, right =
             no-shows + per-tier + acties. Stacks to one column below lg. */}

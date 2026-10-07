@@ -107,6 +107,10 @@ export interface PoApp {
    *  chrome that's redundant with the desktop sidebar (M12/M5: one venue-switch
    *  entry — the sidebar's header-picker — instead of a second one in More). */
   isMobile: boolean;
+  /** Show a short toast in the shell chrome — survives the screen navigating
+   *  away (z8uq9m2vqc: the template create path reports a failed follow-up
+   *  write after it has already moved on to the new event). */
+  toast?: (text: string) => void;
 }
 
 const PoContext = createContext<PoApp | null>(null);
