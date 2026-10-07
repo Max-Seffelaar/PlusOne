@@ -44,7 +44,7 @@ import { HomeHeaderActions } from './home-header-actions';
 import { PulseTile } from './home-pulse';
 import { ComboChart } from './home-chart';
 import { NoUpcomingEvents } from './no-upcoming-events';
-import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
+import { EventRow, StatusChip, matchesBoardQuery, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
 const PAGE_SIZE = 7;
@@ -341,7 +341,7 @@ export function Home(): JSX.Element {
   const upcomingList = useMemo(() => {
     const q = query.trim().toLowerCase();
     return board
-      .filter((e) => e.when !== 'past' && (filter === 'all' || e.when === filter) && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
+      .filter((e) => e.when !== 'past' && (filter === 'all' || e.when === filter) && matchesBoardQuery(e, q))
       .sort(sortUpcoming);
   }, [board, query, filter]);
 
@@ -351,7 +351,7 @@ export function Home(): JSX.Element {
     const q = query.trim().toLowerCase();
     const cutoffMs = Date.now() - PAST_WINDOW_MS;
     return board
-      .filter((e) => e.when === 'past' && e.startsAtMs >= cutoffMs && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
+      .filter((e) => e.when === 'past' && e.startsAtMs >= cutoffMs && matchesBoardQuery(e, q))
       .sort((a, b) => b.startsAtMs - a.startsAtMs);
   }, [board, query]);
 
@@ -359,7 +359,7 @@ export function Home(): JSX.Element {
   const pickable = useMemo(() => board.filter((e) => e.when !== 'past').sort(sortUpcoming), [board]);
   const pickMatches = useMemo(() => {
     const q = guestQuery.trim().toLowerCase();
-    return q ? pickable.filter((e) => (e.name + ' ' + e.venue).toLowerCase().includes(q)) : pickable;
+    return q ? pickable.filter((e) => matchesBoardQuery(e, q)) : pickable;
   }, [pickable, guestQuery]);
 
   // Alias used in EmptyBoard + pagination (upcoming section only).
@@ -410,7 +410,7 @@ export function Home(): JSX.Element {
                 {greetingFor(amsterdamHour(), firstName)}
               </h1>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13.5px] text-faint">
-                <span className="font-semibold text-dim">{venueName ?? 'Venue'}</span>
+                <span className="font-semibold text-dim">{venueName ?? t.home.companyFallback}</span>
                 {pulse.upcoming > 0 && (
                   <>
                     <span className="text-ghost">·</span>

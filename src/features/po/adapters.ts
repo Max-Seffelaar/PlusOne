@@ -1,4 +1,4 @@
-import type { Guest, PoEvent, Tier, Role, GuestStatus, GuestSource, Priority, RecapGuest, EventPhase } from '@/lib/po/types';
+import type { EventLocation, Guest, PoEvent, Tier, Role, GuestStatus, GuestSource, Priority, RecapGuest, EventPhase } from '@/lib/po/types';
 import { eventPhase, eventWhenFromPhase } from './event-phase';
 import type { Database } from '@/lib/database.types';
 import type {
@@ -34,6 +34,8 @@ import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { getPlan, isPlanId, trialEndsAt } from '@/features/billing/plans';
 import { deviceLabel } from '@/lib/ua';
+import { t } from '@/lib/i18n';
+import { formatVenueAddress } from '@/features/requests/status-view';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
 // No I/O, so they're unit-tested directly (adapters.test.ts). The po mock types
@@ -75,12 +77,52 @@ export interface EventCounts {
   inside: number;
 }
 
+// ── Event location (z8uq9m2vqc) ─────────────────────────────────────────────
+// THE one place the location fallback lives: an event that sets its own
+// location (name and/or address) shows exactly that; an event that sets
+// neither shows the company's. Never mixed — an event at "Paradiso" without an
+// address must not borrow the company's street. Used by the Events cards, the
+// event detail, the Home board and the public request page (which passes
+// `venue_address: null`: the company address stays private there, spec #48(c)).
+
+/** The company address as one line: "Wibautstraat 150, 1091 GR Amsterdam".
+ *  Row-shaped wrapper around the one formatter (`formatVenueAddress`, also
+ *  used by the request status page), so the two can never drift. */
+export function formatCompanyAddress(
+  v: { address_line: string | null; postal_code: string | null; city: string | null } | null | undefined
+): string | null {
+  return v ? formatVenueAddress(v.address_line, v.postal_code, v.city) : null;
+}
+
+export interface EventLocationInput {
+  location_name: string | null;
+  location_address: string | null;
+  venue_name: string | null;
+  venue_address: string | null;
+}
+
+export function resolveEventLocation(row: EventLocationInput): EventLocation {
+  const trimmed = (x: string | null): string | null => {
+    const v = (x ?? '').trim();
+    return v === '' ? null : v;
+  };
+  const ownName = trimmed(row.location_name);
+  const ownAddress = trimmed(row.location_address);
+  if (ownName || ownAddress) {
+    return { name: ownName, address: ownAddress, label: ownName ?? ownAddress ?? '', own: true };
+  }
+  const name = trimmed(row.venue_name);
+  const address = trimmed(row.venue_address);
+  return { name, address, label: address ?? name ?? '', own: false };
+}
+
 export function toPoEvent(row: PoEventRow, counts: EventCounts, nowMs: number = Date.now()): PoEvent {
   const phase = eventPhase(row.starts_at, row.ends_at, nowMs);
   return {
     id: row.id,
     name: row.name,
     venue: row.venue_name,
+    location: resolveEventLocation(row),
     time: fmt(row.starts_at, { hour: '2-digit', minute: '2-digit', hour12: false }),
     date: fmt(row.starts_at, { day: '2-digit' }),
     mon: fmt(row.starts_at, { month: 'short' }).replace(/\W/g, '').toUpperCase(),
@@ -940,7 +982,7 @@ export interface PoMyInvite {
 export function toPoMyInvite(row: PoMyInviteRow): PoMyInvite {
   return {
     id: row.id,
-    venueName: row.venue_name ?? 'a venue',
+    venueName: row.venue_name ?? t.shared.invites.companyFallback,
     rolesLabel: rolesLabel(row.roles),
   };
 }

@@ -1,5 +1,5 @@
 /**
- * Analytics surface copy (was Statistieken; #26, spec §6) — venue-level KPIs plus
+ * Analytics surface copy (was Statistieken; #26, spec §6) — company-level KPIs plus
  * the per-event arrivals / tier / "added by" detail. Read-only, admin/finance only.
  *
  * Source deck: copy-deck.md §7 (Analytics). Voice: app-general, low wink
@@ -16,10 +16,10 @@ export const analytics = {
   fetchError: "Couldn't load statistics. Check your connection and try again.",
   retry: 'Try again',
 
-  // ── Venue-level trends (parked, M6 86ey7dzmp — 8/7 UX/IA decision) ───────────
-  // No venue-wide KPIs shown for now; they come back once retention/event
+  // ── Company-level trends (parked, M6 86ey7dzmp — 8/7 UX/IA decision) ───────────
+  // No company-wide KPIs shown for now; they come back once retention/event
   // comparisons actually say something. Analytics is event-first instead.
-  venueTrendsLater: 'Venue-wide trends (retention, comparisons across events) are coming later.',
+  venueTrendsLater: 'Company-wide trends (retention, comparisons across events) are coming later.',
 
   // ── Per-event picker ────────────────────────────────────────────────────────
   perEvent: 'Per event',

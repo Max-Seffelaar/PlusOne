@@ -12,9 +12,9 @@ import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 import { useIsNativeShell } from '@/lib/use-native-shell';
 
-const STEP_LABELS = ['Venue', 'Plan', 'Team'] as const;
+const STEP_LABELS = ['Company', 'Plan', 'Team'] as const;
 // Native shell: no Plan step (store-tax seam, #32/#37 — see TrialStartStep).
-const NATIVE_STEP_LABELS = ['Venue', 'Team'] as const;
+const NATIVE_STEP_LABELS = ['Company', 'Team'] as const;
 
 function StepDots({ current }: { current: 1 | 2 | 3 }): JSX.Element {
   const native = useIsNativeShell() === true;

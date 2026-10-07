@@ -19,6 +19,70 @@ Milestone **Now** (golf B, task 0d). `inviteExternalCrew` answered `exists` ("Th
 
 ---
 
+## 2026-10-07 — Follow-up to #414: no Company field on New event, magic-link copy (z8uq9m2vqc)
+
+- **New event form:** the read-only "Company" field is gone in create mode. An event is always created in the active
+  company. Edit mode keeps it. Flow Q7 now asserts its absence.
+- **`supabase/templates/magic_link.html`:** "Added to a new venue?" → "Added to a new company?". Max pastes this into
+  the prod dashboard template. The footer tagline and `invite.html` stay for task 3.
+- **Template location, NOT fixed here:** Max's report "an event from a template loses its location" traced (prod edge
+  logs 09:28–09:30Z) to **Save as template** (`create_template_from_event`); no `create_event_from_template` call
+  happened. Templates have no location columns, and neither RPC handles one. A location typed in the form for a
+  template event does save (verified locally, browser + DB). The fix needs a migration (`event_templates.location_*`
+  plus both SECURITY DEFINER RPCs) and a template-editor field. Reported to the orchestrator for a slot or a separate
+  task.
+
+---
+
+## 2026-10-07 — Mail-infra F0 + team-invite mails (z8uq9m2yvt)
+
+Milestone **Now** (onboarding programme okt 2026, wave B, task 0e). The app now sends its own mail through Resend's HTTP API, behind a `MailProvider` interface in `src/features/mail/` (billing pattern: Resend adapter + keyless stub; a vitest guard keeps `resend` and the API host inside that directory and the mail module out of `src/features/door/`). Plain `fetch` instead of the `resend` SDK: one POST, no new dependency; the Svix signature is verified with `node:crypto` against Svix's published test vector.
+
+- **Team mails:** a CONFIRMED existing account invited to a company (`inviteUserAction`, `resendInviteAction`) or reminded as crew (`resendCrewInvite`) gets "<inviter> invited you to join <company>" (or the resend/crew variant) with a plain `/login` link instead of a magic link. New/unconfirmed accounts still get Supabase's invite template; platform invites are untouched. `InviteMailResult` (provision/notify) unchanged; a failed mail never fails an initial invite.
+- **No key = no regression:** `teamMailActive()` is true with `RESEND_API_KEY`, or outside a production build (stub logs type + `mail_log` id, never the address). A production build without the key (prod until Max sets it) keeps the magic-link path.
+- **Migration `20261007130000_mail_log`:** `mail_log` (type, venue, sha256 of the recipient, status, Resend id; no content/subject/names; platform admins read, nobody writes directly) and the `resend_webhook_events` ledger; three service_role-only SECURITY DEFINER RPCs (`log_mail_attempt`, `record_mail_send_result`, `apply_resend_webhook_event`). Idempotency-Key per `mail_log` row; a 429 (rate/daily/monthly quota) settles the row `failed` with no retry.
+- **Send limits (review round, decision Max):** at most 25 invitation mails per company per UTC day, counting the Resend team mail AND the Supabase invite mail (`auth_invite` rows); the invite/resend actions refuse before creating anything, with a clear message. One team mail per recipient per 60 s. The Resend account is shared with every login OTP, so one company can never drain everyone's login.
+- **Webhook `POST /api/webhooks/resend`:** Svix signature over the raw body, 5-minute tolerance, 503 without the secret, replay = no-op via the ledger, status only moves forward.
+- **Not done here:** the crew-added mail (`team_added_to_event`) in `inviteExternalCrew` waits on 0d (`z8uq9m2yvp`); the template and catalogue strings already exist. Max: `RESEND_API_KEY` + `RESEND_WEBHOOK_SECRET` in Vercel after the merge, Resend plan check (Free shares a 100/day quota with login OTPs), prod-push of the migration.
+
+---
+
+## 2026-10-07 — Venue → Company + event location (z8uq9m2vqc)
+
+Milestone **Now** (onboarding programme okt 2026, wave B, task 1). Decision Max + Joeri 2026-10-06; spec #53 + a
+terminology paragraph above the decision table.
+
+- **Copy sweep:** every user-visible "venue" in `src/lib/i18n` (all surfaces), the po screens and the onboarding wizard
+  copy now says "company" (Switch company, Company settings, New company, empty states, aria labels, placeholders like
+  `you@company.com`). Identifiers, tables, routes, `venue_id` and `{venue}` interpolation keys stay. The legal-entity
+  fields in Company settings became **Legal name** under **Business details** so they don't collide with
+  **Company name**. Three hardcoded strings moved into the catalogue (`admin-sessions.tsx`, the Home header fallback,
+  the pending-invite fallback). Guard + review aid: `tests/unit/i18n-catalogue.snapshot.test.ts` snapshots the whole
+  catalogue (baseline committed first, so the sweep is one diff) and fails on any "venue" in a catalogue value except
+  the Type option and `{venue}` keys.
+- **Type:** "Venue type" → "Type" with Club, Festival, Bar, Concert hall, Venue, Organizer; `VENUE_TYPES` gains `venue`
+  + `organizer` (stored in `venues.settings`, no migration). Shown in the wizard and New company. **Not** in Company
+  settings: saving it there needs `venues/actions.ts` + `po/mutations.ts`, outside the task's scope fence (flagged).
+- **Event location:** migration `20261007120000_event_location.sql` adds nullable `events.location_name` (≤ 120) and
+  `location_address` (≤ 200), no RLS change (table-level grants only on `events`). One helper,
+  `resolveEventLocation` (`src/features/po/adapters.ts`): own name and/or address → exactly that; neither → the company
+  (name + `formatCompanyAddress`). Used by the Events cards, event detail (new location line), the Home board and
+  `/e/[slug]`. The form has two plain fields with the company as placeholder (Places autocomplete = task 3).
+- **Public request page:** `get_landing_event` (SECURITY DEFINER, anon) gained the event's OWN two location columns,
+  raw — drop + create (a RETURNS TABLE change can't be `create or replace`), same body/predicate/grants. It does **not**
+  fall back to the company address: that would contradict spec #48(c) (address only after approval). Without its own
+  location the page shows the company name, as before. Flagged for Max in the PR.
+- **Tests:** pgTAP `event_location.test.sql` (14) + `landing_venue_name` signature updated; vitest: adapter fallback
+  (all four combinations + no-address), schema caps, create-form placeholders/writes, landing chip; flow
+  `tests/flows/company-rename.flow.ts` (15 checks, four variants) + onboarding asserts tightened to company copy.
+- **Out of scope, still saying "venue" (follow-ups):** `features/venues/actions.ts` + `schemas.ts` error messages,
+  `features/po/mutations.ts` ("No active venue selected."), `features/audit/translate.ts` (Audit log lines),
+  `features/contacts/actions.ts`, `features/events/actions.ts` crew error + `events/queries.ts` fallback,
+  `features/billing/**`, `features/auth/OtpLoginForm` placeholder, `lib/auth/memberships.ts` fallback, the root
+  `metadata.description`, `tone-of-voice.md` glossary, mail templates (task 0e). Door header location → task 4.
+
+---
+
 ## 2026-10-06 — Onboarding programme okt 2026, wave A closed (orchestrator)
 
 Milestone **Now**. Parallel wave of five sessions, merged in order: #402 (spikes §9 + seed fix), #404 (Sentry hygiene S1), #405 (Notifications N1, prod: `20261007110000` + `push-dispatch` v2), #406 (QA-0 flow harness + `flow-shots` CI job), #408 (Snelheid P1: `/app` layout 16 → 6 Supabase calls in 2 waves, 1 GoTrue; prod-push of `20261007100100`/`20261007100200` pending with Max). High-risk PRs (#405, #408) each had one fresh-session reviewer round (`/code-review high` + `/security-review`); no `/code-review ultra`. All 13 trialing prod venues set to `comped` via the `docs/stripe-setup.md` §5 runbook. Process lessons (drafts, changelog conflicts blocking CI, `CI=1 pnpm test`, watcher instead of polling) and follow-ups are in `onboarding-orchestration-claude-code.md` §2b "Status golf A".

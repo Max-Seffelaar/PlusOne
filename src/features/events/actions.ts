@@ -3,7 +3,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
-import { getAuthContext } from '@/lib/auth/context';
+import { inviteMailCapReached } from '@/features/mail/limits';
+import { getAuthContext, getMyProfile } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
@@ -79,7 +80,7 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, name, startsAt, endsAt, landingActive } = parsed.data;
+  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -103,6 +104,8 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         starts_at: startsAt,
         ends_at: endsAt ?? null,
         landing_active: landingActive,
+        location_name: locationName ?? null,
+        location_address: locationAddress ?? null,
         landing_slug: buildEventSlug(name, startsAt),
       } as Database['public']['Tables']['events']['Insert'])
       .select('id')
@@ -117,11 +120,11 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   return { ok: false, code: 'slug', message: "Couldn't generate a unique landing link. Try again." };
 }
 
-/** Edit name / start / end (admin or organizer — RLS). */
+/** Edit name / start / end / location (admin or organizer — RLS). */
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, name, startsAt, endsAt } = parsed.data;
+  const { eventId, name, startsAt, endsAt, locationName, locationAddress } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -131,6 +134,8 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     ...(name !== undefined ? { name } : {}),
     ...(startsAt !== undefined ? { starts_at: startsAt } : {}),
     ...(endsAt !== undefined ? { ends_at: endsAt } : {}),
+    ...(locationName !== undefined ? { location_name: locationName } : {}),
+    ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
@@ -660,11 +665,34 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
     return { ok: false, code: 'noop', message: "Couldn't find this person's e-mail." };
   }
 
-  // Invite-first, magic-link fallback (shared with the venue-invite resend).
-  // The order matters: a crew member who never accepted is an UNCONFIRMED
-  // account, and signInWithOtp refuses those ("Signups not allowed") — only a
-  // re-invite reaches them; a confirmed account takes the magic-link path.
-  const sent = await sendInviteEmail(profile.email);
+  // Daily invitation-mail cap per company (decision Max 2026-10-07).
+  if (await inviteMailCapReached(venueId)) {
+    return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
+  }
+
+  // Display context for the crew reminder a CONFIRMED account gets (Mail-infra
+  // F0): the caller's own name and the venue name, both through RLS. No venue
+  // name = no context = the magic-link fallback below, unchanged.
+  const [myProfile, { data: venue }] = await Promise.all([
+    getMyProfile(),
+    supabase.from('venues').select('name').eq('id', venueId).maybeSingle(),
+  ]);
+  const existingAccountMail = venue?.name
+    ? {
+        template: 'team_resend' as const,
+        kind: 'event' as const,
+        venueId,
+        inviterName: myProfile?.full_name ?? null,
+        companyName: venue.name,
+      }
+    : undefined;
+
+  // Invite-first, then the team mail or the magic-link fallback (shared with
+  // the venue-invite resend). The order matters: a crew member who never
+  // accepted is an UNCONFIRMED account, and signInWithOtp refuses those
+  // ("Signups not allowed") — only a re-invite reaches them; a confirmed
+  // account takes the team-mail (or magic-link) path.
+  const sent = await sendInviteEmail(profile.email, { existingAccountMail, mailCapVenueId: venueId });
   if (!sent.ok) {
     return { ok: false, code: 'invite', message: "Couldn't send the e-mail. Try again." };
   }

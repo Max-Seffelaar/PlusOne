@@ -34,11 +34,13 @@
 | 0d | Crew-bug (bestaand account als crew) | z8uq9m2yvp | Opus | 0b | gemerged; `staff@` (bestaand account) is als crew toe te voegen aan een event van de andere seed-company en ziet alleen dat event | — |
 | 0e | Mail-infra F0 (Resend + team-invite mails) | z8uq9m2yvt | Opus | 0d; Max: Resend-key | gemerged; prod-push; team-invite naar een bestaand account en crew-toevoeging geven een echte mail (geen magic link meer); webhook idempotent | — |
 | 0f | Sentry-hygiene S1 | zie ClickUp "Sentry-hygiene S1" | Sonnet | 0b | gemerged; verwachte gebruikersfouten (42501, exists, validatie, already_handled, billing_*) komen niet meer in Sentry; Supabase-fouten hebben een leesbare titel en `code`-tag; EvalError-bron bekend | — |
+| 0g | Last-admin-guard (bug: eigenaar kan zichzelf verwijderen) | n.n.b. | Opus | 0b | gemerged; prod-push; de laatste admin van een company kan zichzelf niet verwijderen of degraderen, ook niet via de API; knop verborgen in Team |
 | 1 | Venue → Company | z8uq9m2vqc | Opus | 0 | gemerged; `pnpm e2e:layout` groen; geen "venue" meer zichtbaar in de UI; event met eigen locatie zichtbaar op de eventkaart | — |
 | 2 | Billing G | z8uq9m2vrz | Opus | 1 | gemerged; prod-push; onboarding zonder plan/betaalstap; Platform-tab kan trial verlengen en "always free" zetten; native toont alleen status en de neutrale zin (e2e-guard native-shell groen); Max' Stripe-stappen (§6) klaar vóór de env-vars live gaan | — |
 | 2b | Platform R | z8uq9m2ybj | Opus | 2 | gemerged; prod-push; invite-rij toont company-chip met Switch, events, status, activiteit; Overview toont status-tellingen, MRR/ARR, trial-funnel, gebruik; manager@ ziet niets | — |
 | 2c | Billing-mails B1 | z8uq9m2z19 | Opus | 0e, 2, 2b; copy gekozen | gemerged; prod-push; seed-trials op dag 7/12/14/21 krijgen elk precies één mail per run; Platform-tab toont de tijdlijn per company | — |
 | 3 | Onboarding A | z8uq9m2vg5 | Opus | 2 | gemerged; comped-invite werkt end-to-end; Places op het adresveld; één DPA-checkbox; nieuwe invite-mail in Mailpit en in prod gezien | — |
+| 3b | Event-locaties L (opgeslagen locaties per company; publiek altijd de event-locatie) | n.n.b. | Opus | 3 | gemerged; prod-push; deellink en statuspagina tonen altijd de event-locatie, nooit het companyadres; per event een opgeslagen locatie kiezen | — |
 | 4 | Check-in D | z8uq9m2vg6 | Opus | 0 (ontwerp), 1 | gemerged; groep-knop en per-persoon-knop; doorhost kan niet uitchecken tenzij de setting aan staat, ook niet via de API | — |
 | 5 | Event C + Dashboard B | z8uq9m2vg7 + z8uq9m2vg8 | Opus | 1 | één PR, twee taken; gemerged; test-handoff beantwoord | — |
 | 5b | Share-import S2 (deel vanuit WhatsApp/Mail/Notes/Excel naar PlusOne) | n.n.b. | Opus | 1 | gemerged; een gedeelde tekst uit WhatsApp landt op Paste a list met event- en tier-keuze, +N en e-mail herkend, telling "6 entries = 9 guests (2 with email)"; werkt als Android-PWA en in de Android-shell; iOS Share Extension naar het Capacitor-programma |
@@ -85,6 +87,25 @@ Lessen golf A voor de volgende orchestrator:
 - ClickUp-ID's voor QA-0 en S1 stonden niet in de repo; zet taak-ID's in §2 vóór de golf start.
 - P2-notities uit de P1-review staan in `docs/perf-audit-2026-10.md` (eigen organizer-wijziging ververst de layout niet; single-event headcount met `p_since`; staff-gastenvenster loopt bij 30k gasten in de statement-timeout, ook op main).
 - Follow-ups (geen golf-A-scope): `po/mutations.ts` gooit `new Error(res.message)` en verliest de MutationError-`code` (S1 matcht daarom op copy; een `MutationFailure extends Error { code }` maakt dat overbodig); `pnpm dev:mfa` brengt de gedropte `set_venue_plan(uuid,text,boolean)`-overload terug en breekt de plan-stap lokaal (QA-0-vondst); P1 liet `usePoEvents`-staleTime staan omdat guest-mutaties `poKeys.events` niet invalideren (P2).
+
+### Status golf B (orchestrator, 2026-10-07; loopt nog)
+
+| Taak | PR | Status | Prod |
+|---|---|---|---|
+| 1 Venue → Company | [#414](https://github.com/Max-Seffelaar/PlusOne/pull/414) | gemerged (`0ab6f36`); handoff 14 ✅ | `20261007120000` op prod (geverifieerd) |
+| 1 follow-up A | [#417](https://github.com/Max-Seffelaar/PlusOne/pull/417) | gemerged (`fd685e6`): Company-veld uit New event, magic-link-copy "company" (Max plakte het dashboardtemplate), flow Q16 | n.v.t. |
+| 1 follow-up B | [#419](https://github.com/Max-Seffelaar/PlusOne/pull/419) | templates bewaren de event-locatie; reviewer: DB/security schoon, should-fix in verwerking; daarna handoff 15 | `20261007135000` vóór merge pushen |
+| 0e Mail-infra F0 | [#413](https://github.com/Max-Seffelaar/PlusOne/pull/413) | gemerged (`ba0bdfa`) na drie schone reviewer-rondes; handoff 5 ✅ 6 ✅ 7 ✅ | `20261007130000` op prod (geverifieerd); env-vars in Vercel |
+| 0d Crew-bug | [#412](https://github.com/Max-Seffelaar/PlusOne/pull/412) | herbouw volgens besluit (a): crew via uitnodiging + accepteren, banner met companynaam/event, aansluiting op mail-cap en crew-mail, aparte melding bij 60-s-weigering; daarna nieuwe reviewer-ronde | `20261007140000` vóór merge pushen |
+| docs | [#415](https://github.com/Max-Seffelaar/PlusOne/pull/415) | gemerged (`20a04de`) | n.v.t. |
+
+Incident golf B (2026-10-07, ~09:15–09:25 UTC): de prod-push voor #414 werd per ongeluk vanaf de branch van #413 gedaan, waarna #414 gemerged werd zonder `…120000` op prod; Events/Home/event-edit gaven ~10 min 42703 tot de push met `--include-all`. Les: bij "prod-push vóór merge" eerst `git branch --show-current` + `supabase db push --dry-run` lezen (de lijst moet exact de migratie van díe PR bevatten), en de orchestrator verifieert `schema_migrations` op prod vóór hij merget.
+
+Besluiten Max 2026-10-07 (golf B): geen `/code-review ultra`, één reviewer-sessie per high-risk PR; crew-invites volgens (a) met de regel "gegevens pas zichtbaar als ze zijn ingevuld, de gebruiker is toegevoegd én de uitnodiging is geaccepteerd"; de banner blijft (geen auto-accept); mail-cap 25 per company per dag; Resend Pro pas bij meer tractie (Max houdt het quotum in de gaten); testmails via de echte route na de merge van #413; event-locatie zie §7 en taak 3b (golf D).
+
+Volgorde rest golf B: #419 (`…135000`) → #412 (`…140000`), telkens eerst prod-push, dan merge. Golf C mag parallel starten (besluit Max 2026-10-07): geen bestandsoverlap met #419/#412; golf-C-migraties (`20261008…`, `20261010…`) liggen ná die van golf B, maar mergen ze eerder, dan vraagt de push van `…135000`/`…140000` `--include-all`.
+
+Open follow-ups uit golf B (geen golf-B-scope): door-header toont de event-locatie (taak 4); quick-add/bulk-add/profile-sheets tonen de companynaam i.p.v. de event-locatie; `can_view_profile` laat crew-relaties telefoon en `is_platform_admin` zien (apart ticket); `resend_webhook_events` opschonen (> 30 dagen, taak 2c); Type-veld in Company settings (kleine vervolgtaak); hint onder het locatieveld ("Empty means your company address…") aanpassen in taak 3b; footer-tagline "venues & events" in de Supabase-templates in taak 3.
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
@@ -194,6 +215,9 @@ GOLF B — parallel; wacht op golf A gemerged (P1 raakt events/actions.ts; QA-0 
     Raakt: src/features/mail/** (nieuw), src/app/api/webhooks/resend/route.ts (nieuw), src/features/auth/invite-mail.ts (bestaand-account-tak), src/features/events/actions.ts (alleen de crew-mail-aanroep; rebase na 0d), .env.example, docs/mail-deliverability.md, docs/legal/README.md, tests.
     Verboden: gastmail, notificatie-voorkeuren, digest (taak 6); Supabase-templates (taak 3); src/features/door/**.
     High-risk (webhook + service-role-verzending) → reviewer-sessie verplicht. Max vooraf: RESEND_API_KEY, RESEND_WEBHOOK_SECRET, copy voor drie team-mails.
+0g  n.n.b.       Last-admin-guard                   Opus    branch claude/last-admin-guard
+    Timestamp: 20261007140000_last_admin_guard. Raakt: de migratie (trigger + pgTAP), src/features/venues/actions.ts (removeMemberAction en updateMemberRolesAction: nette fout vóór de DB-weigering), src/features/venues/components/RemoveMemberButton.tsx en settings/team.tsx (knop/rol-wissel verborgen voor de laatste admin), i18n, tests.
+    Verboden: invites, crew, alles buiten memberships. HIGH-RISK (trigger op een auth-tabel).
 1   z8uq9m2vqc   Venue → Company                    Opus    branch claude/z8uq9m2vqc-company-rename
     Timestamp: 20261007120000_event_location.
     Raakt: src/lib/i18n/**, screens (alleen strings), settings/venue*.tsx (Type-veld), events/edit.tsx (locatie), src/features/po/adapters.ts + queries.ts, src/features/events/actions.ts + schemas (location), database.types.ts, gastenlijst-app-spec.md, design-system.md, copy-deck.md.
@@ -236,16 +260,21 @@ GOLF D — parallel; wacht op golf C gemerged (set_venue_comped, listPrices, bil
     Raakt: src/features/platform/invite-actions.ts + platform-screens (comped), src/features/auth/invite-mail.ts (metadata kind/invited_by/company), docs/email-templates/invite.html (nieuw), supabase/config.toml (invite-template), VenueStep.tsx (DPA-checkbox, Places), src/app/api/places/route.ts + src/lib/places/** (nieuw), events/edit.tsx (Places op de locatie), docs/legal/README.md, .env.example (GOOGLE_PLACES_API_KEY), gastenlijst-app-spec.md (#40).
     Verboden: src/features/billing/** behalve het aanroepen van set_venue_comped; door; requests. Spike 4 negatief → geen hook-route, template statisch, melden.
     High-risk (invite-metadata, publieke proxy) → reviewer-sessie verplicht. Max vooraf: Google Cloud-project + Places-key, Supabase invite-expiry 7 dagen, template geplakt na de merge, copy.
+3b  n.n.b.       Event-locaties L                   Opus    branch claude/event-locations
+    Timestamp: 20261009130000_event_locations. Start na de merge van 3 (gebruikt de Places-component).
+    Raakt: migratie, settings/venue.tsx (sectie Locations), events/edit.tsx (locatie kiezen), src/features/po/adapters.ts (resolveEventLocation zonder company-fallback in publieke weergave), src/app/e/[slug]/**, src/features/requests/status-view.ts + statuspagina, i18n, tests, tests/flows, gastenlijst-app-spec.md (#48(c) herzien).
+    Verboden: billing, door (door-header zit in taak 4), invite-mail, andere migraties.
+    High-risk (get_request_status = SECURITY DEFINER, anon) → reviewer-sessie verplicht. Besluit Max 2026-10-07, zie §7 "Event-locatie (herzien)".
 5   z8uq9m2vg7 + z8uq9m2vg8   Event C + Dashboard B  Opus  branch claude/z8uq9m2vg7-event-screens
     Raakt: home.tsx, events/*.tsx, settings/quota.tsx, settings/team.tsx (invite-sheet exporteren), templates.tsx (terugknop-bug), i18n, bijbehorende tests, tests/flows.
     Verboden: src/features/**, migraties, door. Eén PR, beide taken bijgehouden.
 
 5b  n.n.b.       Share-import S2                    Opus    branch claude/share-import-s2
-    Raakt: public/manifest.json (share_target), nieuw scherm 'share' in routes.ts/nav-map.ts + src/components/po/screens/share.tsx (landt op Paste a list met event- en tier-keuze), src/features/guests/bulk-paste-parser (uitbreiding: e-mail per regel, tab/komma uit Excel, kopregel overslaan; hergebruik quick-add-parser voor +N en contacts/import/parse voor e-mail), de telling in de preview, android/app/src/main/AndroidManifest.xml (ACTION_SEND text/plain → /app/share) + de kleinst mogelijke intent-plugin, tests/flows (share-flow), i18n.
-    Verboden: iOS Share Extension (Capacitor-programma, na de store-review), server-side opslag van de gedeelde tekst (alles client-side tot de import), src/features/door/**.
+    Raakt (web-kant): public/manifest.json (share_target), nieuw scherm 'share' in routes.ts/nav-map.ts + src/components/po/screens/share.tsx (landt op Paste a list met event- en tier-keuze; accepteert tekst uit de query én uit geheugen via een `shareInbox`-store), src/features/guests/bulk-paste-parser (uitbreiding: e-mail per regel, tab/komma uit Excel, kopregel overslaan; hergebruik quick-add-parser voor +N en contacts/import/parse voor e-mail), de telling in de preview, tests/flows (share-flow), i18n.
+    Verboden: alles native (Android-intent en iOS Share Extension = S6 in capacitor-plan-claude-code.md §4, zelfde plugin `PlusOneShareInbox`; gaat mee in de eerstvolgende store-build nadat dit live is), server-side opslag van de gedeelde tekst (alles client-side tot de import), src/features/door/**.
     Geen migratie. Sequentieel na taak 5 (zelfde guests-screens) of in dezelfde worker als 5.
 
-Exit: alle vier gemerged; test-handoffs beantwoord; comped-invite werkt end-to-end; Overview toont de cijfers; een WhatsApp-tekst gedeeld naar PlusOne staat na twee tikken op de lijst.
+Exit: alle vijf gemerged (2b, 3, 3b, 5, 5b); test-handoffs beantwoord; comped-invite werkt end-to-end; deellink en statuspagina tonen altijd de event-locatie en nooit het companyadres; Overview toont de cijfers; een WhatsApp-tekst gedeeld naar PlusOne staat na twee tikken op de lijst.
 ```
 
 ### Golf E
@@ -295,6 +324,7 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 0b | `20261007100100_guests_venue_created_idx.sql` (was `…100000`, dat slot bleek bezet door `contacts_freeze_anonymized`) | index `guests(venue_id, created_at desc, id desc)` |
 | 0b | `20261007100200_invites_select_initplan.sql` | `invites_select` met `(select auth.uid())` (advisor auth_rls_initplan) |
 | 0c | `20261007110000_notification_throttle.sql` | `notification_throttle`, `notification_outbox.collapse_key` + `deliver_after`, trigger-telling (>10 in 60 min → 24 uur per uur bundelen) |
+| 0g | `20261007140000_last_admin_guard.sql` | BEFORE DELETE/UPDATE-trigger op `venue_memberships`: weigert als de rij de laatste admin van de venue is (delete, of roles zonder admin); pgTAP allowed/denied |
 | 1 | `20261007120000_event_location.sql` | `events.location_name text`, `events.location_address text` (nullable, expand-only); geen RLS-wijziging |
 | 2 | `20261008120000_single_plan_pro.sql` | `update subscriptions set plan_id = 'pro'`; `create_venue_with_owner` zet `plan_id = 'pro'`; `set_venue_plan` blijft bestaan maar accepteert alleen `pro` |
 | 2 | `20261008120100_billing_interval.sql` | `subscriptions.billing_interval text check in ('month','year')` nullable; `apply_stripe_subscription_update` krijgt `p_billing_interval` |
@@ -303,9 +333,11 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 2c | `20261008140000_billing_mail_types.sql` | zeven `mail_log.type`-waarden, unique `(venue_id, type)` voor trial-mails, `subscriptions.billing_mails_paused`, RPC `platform_billing_mail_timeline` |
 | 3 | `20261009120000_platform_invite_comped.sql` | `platform_invites.comped boolean not null default false`; `create_venue_with_owner` roept `set_venue_comped` aan als de invite comped is |
 | 3 | `20261009120100_places_throttle.sql` | throttle-wrapper voor de Places-proxy + grant + pgTAP allowed/denied (spike 9.6) |
+| 3b | `20261009130000_event_locations.sql` | `company_locations` (opgeslagen locaties per company) + RLS + grant matrix; `get_request_status` geeft de event-locatie terug i.p.v. het companyadres (expand: companyadres-kolommen pas in een latere migratie droppen); zie taak 3b |
 | 4 | `20261010120000_checkin_absolute_count_guard.sql` | check `plus_ones_arrived <= guest.plus_ones` (trigger); stale-guard op `client_timestamp` in de check-in-RPC |
 | 4 | ~~`20261010120100_door_checkout_permission.sql`~~ | **Vervalt (spike 9.2):** uitchecken bestaat al als `venues.allow_uncheck` + `events.allow_uncheck` + RESTRICTIVE policy `check_ins_void_requires_uncheck`; taak 4 maakt die rolafhankelijk binnen `20261010120000` of een `…120100`-slot met die inhoud. |
 | 0e | `20261007130000_mail_log.sql` | `mail_log` (append-only, type + ontvanger-hash + status + provider-id, geen inhoud), `resend_webhook_events`-ledger, grant matrix |
+| 0d | `20261007140000_crew_invites.sql` | crew-only uitnodigingen (`invites` zonder venue-rol, met event_ids + crew-quotum), `accept_pending_invites` maakt dan alleen event_organizers/event_quotas, SECURITY DEFINER-RPC voor de eigen openstaande uitnodigingen (companynaam + eventnamen voor de banner); besluit (a), 2026-10-07 |
 | 6 | `20261013120000_guest_mail_types.sql` | nieuwe `mail_log.type`-waarden voor gastmail; geen nieuwe tabel |
 | 6 | `20261013120100_company_contact_channels.sql` | `venues.contact_email` (verplicht vóór eerste live event, afgedwongen in de publish-actie, niet als NOT NULL), `venues.contact_channels jsonb` |
 | 6 | `20261013120200_guest_mail_optout.sql` | `contact_mail_optout` (per contact per venue, publieke token-route), RLS |
@@ -397,6 +429,28 @@ Scope-hek:
 Wat je bouwt: de taakbeschrijving. Kern: in de alreadyRegistered-tak het account opzoeken via de service-client op user_profiles (gedocumenteerde uitzondering; de admin-check ervoor blijft de boundary) en daarna exact het bestaande pad: event_organizers via de user-scoped client, quota, revalidate. Geen venue-membership (#24).
 
 Klaar als: vitest nieuw/bestaand/niet-admin; crew-user ziet alleen de gekozen events; test-handoff met staff@ als bestaand account.
+```
+
+### Taak 0g — Last-admin-guard (ClickUp n.n.b., Opus; trigger op venue_memberships → reviewer)
+
+```
+Scope-hek:
+- Raakt: supabase/migrations/20261007140000_last_admin_guard.sql, supabase/tests/database/last_admin_guard.test.sql, src/features/venues/actions.ts (alleen removeMemberAction + updateMemberRolesAction), src/features/venues/components/RemoveMemberButton.tsx, src/components/po/screens/settings/team.tsx (alleen de verberg-conditie), src/lib/i18n settings-surface, gastenlijst-app-spec.md (#24 verfijning).
+- Verboden: invites, crew, platform, alles buiten venue_memberships.
+- Deps: taak 0b gemerged.
+
+Bug (Max, 2026-10-07): een company-eigenaar kan zichzelf uit zijn company verwijderen; daarna heeft de company geen admin meer en kan niemand nog iemand uitnodigen. Max deed dit per ongeluk bij "Giorke Kantoor".
+
+Wat je bouwt:
+1. Database is de boundary: BEFORE DELETE en BEFORE UPDATE OF roles op public.venue_memberships weigeren (raise met een eigen SQLSTATE, bijv. 'P0LA1', en een duidelijke message) als de rij de laatste membership met 'admin' in roles van die venue is. Platform-admins krijgen GEEN uitzondering (een company zonder admin is nooit de bedoeling); het demo-venue-trigger-patroon uit 20260925150000 is het voorbeeld.
+2. Server actions: removeMemberAction en updateMemberRolesAction geven de nette fout terug ("You're the only admin. Make someone else admin first.") en mappen de SQLSTATE in db-errors.ts.
+3. UI: in Team is "Remove" en de admin-rol-wissel verborgen voor de laatste admin (zelf én door anderen), met een hint waarom.
+4. Spec #24: "een company houdt altijd minstens één admin; de laatste admin kan zichzelf niet verwijderen of degraderen".
+
+Klaar als:
+- pgTAP: laatste admin delete → geweigerd; laatste admin roles zonder admin → geweigerd; tweede admin aanwezig → beide toegestaan; niet-admin-rij verwijderen → toegestaan; via de REST-API als venue-admin dezelfde weigering (RLS laat de delete toe, de trigger weigert).
+- Vitest op de actions; `pnpm db:test` groen.
+- Test-handoff: manager@ in de seed-company (enige admin) ziet geen Remove bij zichzelf; na een tweede admin wel.
 ```
 
 ### Taak 0e — Mail-infra F0 (z8uq9m2yvt, Opus; webhook + service-role-verzending → reviewer)
@@ -534,6 +588,30 @@ Klaar als:
 Test-handoff: admin@ (platform) → Platform → Invite met comped; de uitgenodigde via Mailpit; manager@ → Company settings → adres via Places.
 ```
 
+### Taak 3b — Event-locaties L (ClickUp n.n.b., Opus; SECURITY DEFINER → reviewer)
+
+```
+Scope-hek:
+- Raakt: supabase/migrations/20261009130000_event_locations.sql, src/components/po/screens/settings/venue.tsx (sectie Locations: lijst, toevoegen met de Places-component uit taak 3, bewerken, archiveren), src/components/po/screens/events/edit.tsx (locatie kiezen uit de opgeslagen locaties of eenmalig invullen), src/features/po/adapters.ts + queries.ts, src/features/events/actions.ts + schemas (location), src/features/venues/actions.ts + schemas (locations), src/app/e/[slug]/**, src/features/requests/status-view.ts + de publieke statuspagina, src/lib/i18n, src/lib/database.types.ts, pgTAP, vitest, tests/flows, gastenlijst-app-spec.md (#48(c) herzien + beslistabel), docs/changelog.md.
+- Verboden: src/features/billing/**, src/features/door/** (door-header = taak 4), src/features/auth/**, invite-mail, andere migraties.
+- Deps: taak 3 gemerged (Places-component + proxy); taak 1 gemerged (events.location_name/location_address).
+
+Besluit Max (2026-10-07), bindend:
+- De deellink (/e/[slug]) en de statuspagina tonen ALTIJD de locatie van het event (naam + adres). Het companyadres wordt daar nooit getoond. Event-locatie en companyadres mogen gelijk zijn, maar wat zichtbaar is, is altijd het adres van het event. Het event-adres is bewust publiek (het is een deellink); dit vervangt de oude regel uit #48(c) "adres pas na goedkeuring".
+- Een company kan meerdere locaties opslaan en kiest er per event één (of vult eenmalig een andere in).
+
+Wat je bouwt:
+1. `company_locations` (venue_id, name, address_line, postal_code, city, country, place_id nullable, archived_at): RLS lezen voor leden van de venue, schrijven alleen admin; grant matrix (revoke eerst, dan grant); pgTAP allowed/denied per rol.
+2. Event-formulier: kies een opgeslagen locatie (default: de eerste/standaardlocatie, bij een nieuwe company gevuld vanuit het companyadres) of vul eenmalig in. Opgeslagen wordt altijd een kopie op het event (`location_name`/`location_address`), zodat het wijzigen of archiveren van een opgeslagen locatie geen bestaande events verandert.
+3. Publiek: /e/[slug] en de statuspagina tonen alleen de event-locatie. `get_request_status` (SECURITY DEFINER, anon) geeft de event-locatie terug; de app leest de companyadres-kolommen niet meer (expand–contract: droppen in een latere migratie). Bestaande events zonder locatie: de migratie vult `location_name`/`location_address` eenmalig vanuit het companyadres (besluit Max 2026-10-07: nog niet live, de testende organisatoren gebruiken het niet, dus geen risico). Daarna heeft elk event een eigen locatie; een nieuw event krijgt de standaardlocatie voorgevuld.
+4. Tests: pgTAP op company_locations en de nieuwe get_request_status-signature (exacte kolommen, SECURITY DEFINER + search_path, grants, geen companyadres in de output); vitest op de adapter; flow: Company settings → locatie toevoegen → event met die locatie → /e/[slug] en de goedgekeurde statuspagina tonen de event-locatie.
+5. Deploy-volgorde in de PR-body: prod-push vóór merge als de app de nieuwe kolommen/RPC-output leest.
+
+Klaar als: een company met twee opgeslagen locaties kiest per event een locatie; /e/[slug] en de statuspagina tonen die en nooit het companyadres; bestaande events zijn eenmalig gevuld vanuit het companyadres; reviewer-ronde schoon; spec #48(c) herzien.
+
+Test-handoff: admin@ → Company settings → Locations (twee toevoegen) → nieuw event met de tweede locatie → deellink → aanvraag goedkeuren → statuspagina.
+```
+
 ### Taak 4 — Check-in D (z8uq9m2vg6, Opus; RLS → reviewer)
 
 ```
@@ -578,15 +656,15 @@ Test-handoff: manager@ → Home, Events → nieuw event → tier-stap, event ope
 
 ```
 Scope-hek:
-- Raakt: public/manifest.json (Web Share Target: method GET, params text/title/url → /app/share), src/components/po/routes.ts + nav-map.ts (screen 'share', bookmarkbaar, G1), src/components/po/screens/share.tsx (nieuw: toont de gedeelde tekst, kiest event (default: eerstvolgende) en tier, hergebruikt de bestaande Paste a list-preview en import), src/features/guests/ (paste-parser: per regel naam + optioneel +N (quick-add-parser) + optioneel e-mail of telefoon (contacts/import/parse), tab- en komma-gescheiden regels uit Excel/Sheets, kopregel "Name/Email" overslaan), de preview-telling ("6 entries = 9 total guests (2 with email)"), android/app/src/main/AndroidManifest.xml (intent-filter ACTION_SEND text/plain) + de kleinst mogelijke Capacitor-plugin of community-plugin die de gedeelde tekst als /app/share?text= aan de webview geeft, src/features/notifications is NIET het pad (dit is geen push), tests/flows/share, i18n guests-surface.
-- Verboden: iOS Share Extension (eigen native target; Capacitor-programma na de store-review), de gedeelde tekst server-side opslaan of loggen (namen en e-mails = PII; alles blijft client-side tot de bestaande import-actie), src/features/door/**, wijzigingen aan de import-RPC.
+- Raakt: public/manifest.json (Web Share Target: method GET, params text/title/url → /app/share), src/components/po/routes.ts + nav-map.ts (screen 'share', bookmarkbaar, G1), src/components/po/screens/share.tsx (nieuw: toont de gedeelde tekst, kiest event (default: eerstvolgende) en tier, hergebruikt de bestaande Paste a list-preview en import; leest de tekst uit de query óf uit een in-memory `shareInbox`-store die de native plugin uit S6 later vult), src/features/guests/ (paste-parser: per regel naam + optioneel +N (quick-add-parser) + optioneel e-mail of telefoon (contacts/import/parse), tab- en komma-gescheiden regels uit Excel/Sheets, kopregel "Name/Email" overslaan), de preview-telling ("6 entries = 9 total guests (2 with email)"), tests/flows/share, i18n guests-surface. src/features/notifications is NIET het pad (dit is geen push).
+- Verboden: alles native (android/, ios/, Capacitor-plugins): dat is S6 in capacitor-plan-claude-code.md §4 (plugin `PlusOneShareInbox` voor Android ACTION_SEND én de iOS Share Extension), in de eerstvolgende store-build nadat deze taak live is; de gedeelde tekst server-side opslaan of loggen (namen en e-mails = PII; alles blijft client-side tot de bestaande import-actie); src/features/door/**; wijzigingen aan de import-RPC.
 - Deps: taak 1 (strings), bij voorkeur na taak 5 (zelfde guests-screens).
 
-Wat je bouwt: de drie stappen uit de concurrent-screenshots van 2026-10-07: (1) delen vanuit WhatsApp/Mail/Notes/Excel via de OS-share-sheet, (2) PlusOne kiezen, (3) landen op Paste a list met de tekst al ingevuld, event- en tier-keuze, de telling, en de bestaande Import-knop. Op Android werkt dit als geïnstalleerde PWA via share_target en in de native shell via de intent-filter; op iOS werkt de PWA-route niet (geen share target) en is de Share Extension later. De gedeelde tekst mag nooit in een URL naar de server lekken: share_target met GET levert de tekst in de query, dus de /app/share-route is client-only (ssr:false zoals de shell), leest de query, en vervangt de URL meteen via history.replaceState zonder de tekst (geen PII in URL's, CLAUDE.md).
+Wat je bouwt: de drie stappen uit de concurrent-screenshots van 2026-10-07: (1) delen vanuit WhatsApp/Mail/Notes/Excel via de OS-share-sheet, (2) PlusOne kiezen, (3) landen op Paste a list met de tekst al ingevuld, event- en tier-keuze, de telling, en de bestaande Import-knop. Op Android werkt dit meteen als geïnstalleerde PWA via share_target; in de native shells (Android intent, iOS Share Extension) via S6 uit het Capacitor-programma, dat dezelfde /app/share-route gebruikt. De gedeelde tekst mag nooit in een URL naar de server lekken: share_target met GET levert de tekst in de query, dus de /app/share-route is client-only (ssr:false zoals de shell), leest de query, en vervangt de URL meteen via history.replaceState zonder de tekst (geen PII in URL's, CLAUDE.md).
 
 Klaar als:
 - Android (Chrome, geïnstalleerde PWA): tekst delen vanuit WhatsApp → PlusOne in de share-sheet → Paste a list met de tekst, event en tier → Import; de URL bevat daarna geen tekst meer.
-- Android-shell: zelfde via de intent-filter (Max test op zijn toestel).
+- Desktop/elke browser: /app/share?text=… met een plakvoorbeeld landt op Paste a list; de in-memory store-route is unit-getest (S6 vult hem later).
 - Parser-tests: "Milan Hendriks +2" = 1 gast met 2 extra; "Fleur Janssen fleur@example.com" = gast met e-mail; "Name<tab>email" uit Sheets; kopregel overgeslagen; telling klopt.
 - Flow in tests/flows/share met de native-shell-variant; geen request bevat de gedeelde tekst behalve de bestaande import-actie.
 
@@ -726,7 +804,8 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | Check-in | Groep-eerst; één rij per gast met absoluut aantal; uitchecken per venue instelbaar (RLS) | #22/#25 |
 | Requests | Inkorten, splitsen over tiers, deels afwijzen, verplichte opmerking; statusmail | #10, nieuw |
 | Legal | Eenmanszaak, geen BV/VOF | legal docs |
-| Share-import | Delen vanuit WhatsApp/Mail/Notes/Excel naar PlusOne landt op Paste a list met event- en tier-keuze; +N en e-mail herkend; Android (PWA + shell) nu, iOS Share Extension in het Capacitor-programma; gedeelde tekst nooit in URL of server-log | #33, #37 |
+| Last-admin-guard | Een company houdt altijd minstens één admin; de laatste admin kan zichzelf niet verwijderen of degraderen (trigger, niet alleen UI) | #24 |
+| Share-import | Delen vanuit WhatsApp/Mail/Notes/Excel naar PlusOne landt op Paste a list met event- en tier-keuze; +N en e-mail herkend. Web-kant hier (5b); native share-sheet op Android én iOS = S6 in het Capacitor-programma. Timing (Max 2026-10-07, na een test van de concurrent: hun share-knop verschijnt niet in WhatsApp of Instagram op Android, dus marketing, geen werkende feature): niet naar voren trekken; 5b blijft in golf D en S6 komt in de eerste build ná de store-goedkeuring; gedeelde tekst nooit in URL of server-log | #33, #37 |
 | Quota-aanvraag | Melding terug op Home (reden verplicht bij afwijzen); gast optioneel meegeven; akkoord zet de gast direct op de lijst | nieuw |
 | Deep link | Event van een andere company: uitleg + "Switch to {company}", nooit stil wisselen | nieuw |
 | Opt-out via telefoon | Matchend nummer mag "Keep me posted" uitzetten (alleen uit, audit); restrisico geaccepteerd | nieuw |
@@ -736,6 +815,10 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | Notificaties | Push bundelen per company en per soort (>10 in 60 min → 24 uur één per uur met aantal). Teammail via Resend: aanvraag direct (gebundeld), quota direct, besluit naar aanvrager, dagelijkse samenvatting; voorkeuren per gebruiker, afmeldlink | nieuw |
 | Platform | Per invite: company-chip met Switch, events, status, activiteit. Overview: companies per status, MRR/ARR uit eigen DB × Stripe-prijzen (excl. kortingen/dunning, gelabeld), trial-funnel, gebruik 30 dagen. Direct na Billing G | #49 |
 | PostHog | Plan gemerged (PR #108, docs/posthog-implementation-plan.md). Bouw als laatste taak van golf F, niet vóór ADE; consent-gated, opt-out in Profile, subprocessor C → A bij de code | #49, legal |
+| Event-locatie (herzien 2026-10-07) | Deellink en statuspagina tonen altijd de locatie van het event, nooit het companyadres (mogen gelijk zijn, maar zichtbaar is het event-adres). Het event-adres is publiek; vervangt "adres pas na goedkeuring". Meerdere opgeslagen locaties per company, per event kiezen; bestaande events eenmalig gevuld vanuit het companyadres. Bouw in taak 3b (golf D) | #48(c) herzien, nieuw |
+| Crew-uitnodiging (2026-10-07) | Bestaand en nieuw account worden crew via een uitnodiging die geaccepteerd moet worden; gegevens pas zichtbaar als ze zijn ingevuld, de gebruiker is toegevoegd én de uitnodiging is geaccepteerd. Banner op Home blijft (geen auto-accept) | #24 |
+| Mail-limiet (2026-10-07) | Per adres 1 mail per 60 s; per company 25 uitnodigingsmails per dag (team + crew, Supabase-invite + Resend-teammail); daarboven weigert de actie met een melding naar support. Resend Pro pas bij meer tractie | #20 |
+| Review (2026-10-07) | Geen `/code-review ultra`; één verse reviewer-sessie per high-risk PR, zoals CLAUDE.md | — |
 | Werkwijze | Sequentieel, geen orchestrator; dit document is de orchestrator | — |
 | Sentry | Alleen onverwachte fouten rapporteren; gebruikersfouten zijn breadcrumbs; Supabase-fouten met leesbare titel; Android-pushfouten horen bij het Capacitor-programma | — |
 | Testen | Elke UI-PR levert flow-screenshots per device (incl. native-shell) als CI-artifact en automatiseert de handoff-vragen die kunnen; Max beantwoordt alleen de rest (QA-0, vóór alle bouwtaken) | — |

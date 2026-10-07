@@ -18,8 +18,8 @@ select is(
 
 select is(
   pg_get_function_result('public.get_landing_event(text, text)'::regprocedure),
-  'TABLE(event_name text, starts_at timestamp with time zone, via_label text, spots_left integer, venue_name text)',
-  'the result gained venue_name and no other column');
+  'TABLE(event_name text, starts_at timestamp with time zone, via_label text, spots_left integer, venue_name text, location_name text, location_address text)',
+  'the result is venue_name + the event-location pair (z8uq9m2vqc) and no other column');
 
 select is(
   (select count(*)::int from public.get_landing_event('does-not-exist', 'ip-lvn')),

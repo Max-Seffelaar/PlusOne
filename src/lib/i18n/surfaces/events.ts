@@ -16,7 +16,8 @@ export const events = {
   loadEventsError: "Couldn't load events. Try again in a moment.",
   emptyUpcoming: 'No upcoming events. Create one and start the list.',
   emptyPast: 'No past events yet.',
-  cardDoors: 'Doors {time} · {venue}',
+  /** {place} = the event's own location, else the company address (z8uq9m2vqc). */
+  cardDoors: 'Doors {time} · {place}',
   cardTurnoutSuffix: '% attendance',
   cardGuests: 'guests',
   // Inline search on the Events tab (z8uq9m0hw3, item 2): filters the Upcoming /
@@ -61,7 +62,7 @@ export const events = {
   errEndDateTime: 'Enter the end date and time, or clear both.',
   errStartAfterEnd: 'The end must be after the start.',
   errCloseDateTime: 'Enter the close date and time, or turn off auto-close.',
-  errNoVenue: 'No active venue found.',
+  errNoVenue: 'No active company found.',
   errSaveFailed: "Couldn't save. Try again.",
   errLockFailed: "Couldn't lock or unlock the list.",
   errUncheckFailed: "Couldn't change the check-out setting.",
@@ -72,8 +73,22 @@ export const events = {
   noteViewOnly: 'You can only view this event. Changes need admin or organizer rights.',
   fieldName: 'Name',
   namePlaceholder: 'e.g. FRENZY',
-  fieldVenue: 'Venue',
-  venuePlaceholder: 'Unknown venue',
+  fieldVenue: 'Company',
+  venuePlaceholder: 'Unknown company',
+  // Per-event location (z8uq9m2vqc). Empty = the company address. The public
+  // request page shows only what is typed here, never the company address
+  // (spec #48(c)), so the hint promises exactly that and no more.
+  fieldLocation: 'Location',
+  locationHint: 'Empty means your company address. Filled in, guests see it on the request page.',
+  locationNameAria: 'Location name',
+  locationAddressAria: 'Location address',
+  locationNamePlaceholder: 'e.g. Paradiso',
+  locationAddressPlaceholder: 'Street and number, city',
+  locationNameTooLong: 'That location name is too long.',
+  locationAddressTooLong: 'That address is too long.',
+  locationAria: 'Location',
+  /** Template create path: the event exists, the follow-up location write failed. */
+  locationNotSaved: "Event created, but the location didn't save. Add it in the event settings.",
   fieldDate: 'Date',
   fieldDoors: 'Doors',
   fieldEndDate: 'End date',
@@ -133,10 +148,10 @@ export const events = {
   lockListNote:
     'Locking closes the list: no new sign-up requests come in, and staff can no longer add or change guests. Admin, organizer, and door staff can still work the list.',
   allowCheckoutTitle: 'Allow check-out',
-  allowCheckoutFollowsSub: 'Follows the venue default ({state})',
+  allowCheckoutFollowsSub: 'Follows the company default ({state})',
   allowCheckoutOnSub: 'On for this event',
   allowCheckoutOffSub: 'Off for this event',
-  followVenueDefault: 'Follow the venue default ({state})',
+  followVenueDefault: 'Follow the company default ({state})',
   stateOn: 'on',
   stateOff: 'off',
   saving: 'Saving…',
@@ -188,7 +203,7 @@ export const events = {
   errCreateTier: "Couldn't create the tier.",
   errSaveAlias: "Couldn't save the alias.",
   newTier: 'New tier',
-  // The example is a tier name a first-time venue actually recognizes (ADE UX
+  // The example is a tier name a first-time company actually recognizes (ADE UX
   // round 17/9/2026, item F) — "Backstage" read as a feature, not an example.
   tierNamePlaceholder: 'Name, e.g. "Guest"',
   color: 'Color',
@@ -274,7 +289,7 @@ export const events = {
 
   // ── External crew (event_organizers, #6/#24) ─────────────────────────────────
   // Event-scoped people (a DJ, artist, guest organizer) attached to ONE event —
-  // distinct from venue-wide Team (venue_memberships). Wording: "External crew".
+  // distinct from company-wide Team (venue_memberships). Wording: "External crew".
   crew: {
     // Entry rows on the event edit + detail screens.
     rowTitle: 'External crew',
@@ -285,7 +300,7 @@ export const events = {
     // Crew screen.
     title: 'External crew',
     explainer:
-      'Your Team works every event automatically. External crew is added to this one event, like a DJ, artist, or guest organizer. They can add guests (up to a quota you set) and work the door, with no access to the rest of your venue.',
+      'Your Team works every event automatically. External crew is added to this one event, like a DJ, artist, or guest organizer. They can add guests (up to a quota you set) and work the door, with no access to the rest of your company.',
     listLabel: 'On this crew',
     loading: 'Loading crew…',
     loadError: "Couldn't load the crew.",
@@ -310,7 +325,7 @@ export const events = {
       'Two ways: invite someone new by email (they get a login and can add their own guests), or add a returning person you’ve worked with before.',
     inviteLabel: 'Invite someone new',
     inviteHint:
-      'For someone outside your venue, like a DJ or guest organizer. We create a login with no access to the rest of the venue; they activate it on first login.',
+      'For someone outside your company, like a DJ or guest organizer. We create a login with no access to the rest of the company; they activate it on first login.',
     invitePlaceholder: 'dj@email.com',
     inviteCta: 'Send invite',
     inviting: 'Inviting…',

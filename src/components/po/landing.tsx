@@ -114,8 +114,13 @@ export interface LandingEvent {
   name: string;
   date: string;
   time: string;
-  /** The venue's trade name (public read, decision 11): hero pin chip and the legal copy. */
+  /** The company's trade name (public read, decision 11): the legal copy, and
+   *  the hero pin chip when the event sets no location of its own. */
   venue?: string;
+  /** Where it happens (z8uq9m2vqc): `resolveEventLocation(...).label` with the
+   *  company address withheld (spec #48(c)) — the event's own location, else
+   *  the company name. Wins over `venue` on the pin chip. */
+  place?: string;
   line?: string;
   closes?: string;
   /** Provenance of the request link ("via Jayden") — influencer/label links only. */
@@ -402,7 +407,7 @@ export function LandingForm({
           [
             ['cal', event.date],
             ['clock', fmt(t.landing.doorsAt, { time: event.time })],
-            ...(event.venue ? ([['pin', event.venue]] as [IconName, string][]) : []),
+            ...((event.place || event.venue) ? ([['pin', event.place || event.venue]] as [IconName, string][]) : []),
           ] as [IconName, string][]
         ).map(([d, label]) => (
           <span key={label} className="inline-flex items-center gap-[7px] rounded-[11px] border border-line bg-elev px-[13px] py-2 text-[13px] font-semibold text-dim">

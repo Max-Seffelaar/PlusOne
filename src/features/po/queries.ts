@@ -5,6 +5,7 @@ import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
+import { formatCompanyAddress } from '@/features/po/adapters';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -29,6 +30,11 @@ export type PoEventRow = {
   cancelled_at: string | null;
   list_locked: boolean;
   venue_name: string;
+  /** The event's own location (z8uq9m2vqc); null = fall back to the company. */
+  location_name: string | null;
+  location_address: string | null;
+  /** The company address as one line (formatCompanyAddress); null when unset. */
+  venue_address: string | null;
 };
 
 export type PoGuestRow = Pick<
@@ -121,7 +127,7 @@ export async function fetchEvents(
 ): Promise<PoEventRow[]> {
   let query = client
     .from('events')
-    .select('id, name, starts_at, ends_at, status, cancelled_at, list_locked, venues(name)')
+    .select('id, name, starts_at, ends_at, status, cancelled_at, list_locked, location_name, location_address, venues(name, address_line, postal_code, city)')
     .eq('venue_id', venueId)
     .order('starts_at', { ascending: false });
   if (scope.sinceIso) query = query.gte('starts_at', scope.sinceIso);
@@ -139,6 +145,9 @@ export async function fetchEvents(
     cancelled_at: e.cancelled_at,
     list_locked: e.list_locked,
     venue_name: e.venues?.name ?? '',
+    location_name: e.location_name,
+    location_address: e.location_address,
+    venue_address: formatCompanyAddress(e.venues),
   }));
 }
 
@@ -788,6 +797,11 @@ export interface EventEditRow {
   venueAllowUncheck: boolean;
   /** Per-event default member quota (T10) — seeds the add-crew prefill; editable per event. */
   defaultMemberQuota: number;
+  /** The event's own location (z8uq9m2vqc); null = follow the company. */
+  locationName: string | null;
+  locationAddress: string | null;
+  /** The company address as one line — the form's placeholder for an empty location. */
+  venueAddress: string | null;
 }
 
 /** A single event with the editable fields + the caller's organizer scope (EventEdit). */
@@ -800,7 +814,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, venues(name, allow_uncheck)'
+        'id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, venues(name, allow_uncheck, address_line, postal_code, city)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -833,6 +847,9 @@ export async function fetchEventForEdit(
     allowUncheckOverride: e.allow_uncheck,
     venueAllowUncheck,
     defaultMemberQuota: e.default_member_quota,
+    locationName: e.location_name,
+    locationAddress: e.location_address,
+    venueAddress: formatCompanyAddress(e.venues),
   };
 }
 

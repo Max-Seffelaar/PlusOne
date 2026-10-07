@@ -1,7 +1,7 @@
 /**
  * Promotion dashboard copy (Requests-epic F2, 86ey6b3fe — S15). The internal
  * analytics screen that answers "who actually pulls people through the door":
- * overview funnel per event, the venue-wide influencer leaderboard, label-only
+ * overview funnel per event, the company-wide influencer leaderboard, label-only
  * links, the per-event funnel and the create-request-link flow. Strings are the
  * approved Claude Design copy, verbatim. {placeholders} are filled via fmt().
  */

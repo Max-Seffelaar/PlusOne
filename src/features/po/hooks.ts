@@ -1336,11 +1336,12 @@ export function usePoProfile() {
 }
 
 /** Venue settings for the active venue (any member reads; only admin edits). */
-export function usePoVenueSettings() {
+/** `enabled: false` skips the read (the event form only needs it in create mode). */
+export function usePoVenueSettings({ enabled = true }: { enabled?: boolean } = {}) {
   const { venueId } = usePoIdentity();
   return useQuery<PoVenueSettings | null>({
     queryKey: poKeys.venueSettings(venueId ?? ''),
-    enabled: !!venueId,
+    enabled: enabled && !!venueId,
     queryFn: async () => {
       if (!venueId) return null;
       const row = await fetchVenueSettings(createClient(), venueId);
