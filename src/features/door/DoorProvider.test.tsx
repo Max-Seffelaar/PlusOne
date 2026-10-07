@@ -442,7 +442,9 @@ describe('DoorProvider — which failure the doorhost is shown (#33)', () => {
 
 describe('DoorProvider — group-first check-in as an absolute count (z8uq9m2vg6)', () => {
   const setOnline = (v: boolean) => Object.defineProperty(window.navigator, 'onLine', { value: v, configurable: true });
-  afterEach(() => setOnline(true));
+  afterEach(() => {
+    setOnline(true);
+  });
 
   it('two "Check in 1" taps offline become ONE queued write, and one row with the last count online', async () => {
     const h = renderDoor();

@@ -81,14 +81,12 @@ export const door = {
   logReversed: 'Check-in reversed',
   statusOnTheWay: 'on the way',
   logNotCheckedIn: 'Not checked in yet',
-  partyNotAllInTitle: "Not everyone's in yet",
   // tail after a separately-styled count span: "<X> of {total} inside · {n} still on the way"
   partyOfInsideTail: 'of {total} inside · {n} still on the way',
   refuseBtn: 'Refuse',
   inside: 'Inside',
   inAt: 'Inside at {time}',
   inBy: 'by {name}',
-  checkInMoreBtn: 'Check in {n} more',
   // Group-first check-in (z8uq9m2vg6). {n} = the whole party (1 + plus-ones), or
   // what is still outside when part of the party is already in.
   checkInAllBtn: 'Check in all ({n})',
@@ -103,13 +101,8 @@ export const door = {
   // Toast after sync when the database refused a queued undo (setting off).
   undoDeniedToast: "Undo not saved. Only admins and user managers can undo check-ins here.",
   reCheckInTitle: 'Check in again?',
-  howManyComingIn: 'How many are coming in?',
   reCheckIn: 'Check in again',
   checkIn: 'Check in',
-  // Check in · {n} people  /  Check in again · {n} people
-  checkInStepper: '{label} · {n} {unit}',
-  personSingular: 'person',
-  personPlural: 'people',
 
   // ── Guest actions sheet ("…" in the door overlay — ADE UX round, item M2) ──
   // Editing +N is a server write with quota and list-lock rules the database

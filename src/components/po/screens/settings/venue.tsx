@@ -171,7 +171,7 @@ export function VenueSettings(): JSX.Element {
     name: '',
     retentionMonths: 12,
     defaultPersonalQuota: 0,
-    allowUncheck: true,
+    allowUncheck: false,
     companyName: '',
     kvkNumber: '',
     vatNumber: '',
