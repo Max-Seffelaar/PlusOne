@@ -233,6 +233,12 @@ export const removeOrganizerSchema = z.object({
 });
 export type RemoveOrganizerInput = z.input<typeof removeOrganizerSchema>;
 
+/** Revoke an open crew invite (z8uq9m2yvp) — RLS invites_delete is the gate. */
+export const revokeCrewInviteSchema = z.object({
+  inviteId: uuid,
+});
+export type RevokeCrewInviteInput = z.input<typeof revokeCrewInviteSchema>;
+
 /** Resend an external crew member's login mail (T8) — venue-scoped. */
 export const resendCrewInviteSchema = z.object({
   venueId: uuid,

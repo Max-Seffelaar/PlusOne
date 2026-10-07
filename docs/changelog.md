@@ -60,6 +60,19 @@ Milestone **Now** (onboarding programme okt 2026, wave C, task 4). Design: spike
 
 ---
 
+## 2026-10-07 — Crew via invite + accept, existing accounts included (z8uq9m2yvp)
+
+Milestone **Now** (golf B, task 0d). First version of this PR (#412) resolved an existing account by e-mail with the service role and wrote `event_organizers` straight away; the reviewer showed that this let anyone who creates a company read any account's name, phone and platform-admin flag by typing its address (the organizer leg of `can_view_profile`). Rebuilt on Max's rule (2026-10-07): data becomes visible only once the person has been added AND accepted.
+
+- **Migration `20261007140000_crew_invites`:** `invites` can be crew-only (no roles, exactly one event, `crew_quota`); the pending-unique index is split (team: per venue + e-mail; crew: per venue + e-mail + event). `invites_insert` keeps crew admin-only and requires the crew event to belong to the venue. `accept_pending_invites()` (the LOGIN path) now accepts crew invites only for a fresh account (no profile yet); an existing account accepts in the Home banner through the new `accept_my_invites()`. Per crew invite: `event_organizers` for that one event, the quota only for a new crew row, nothing at all for a member of that company. New `my_pending_invites()` (SECURITY DEFINER) gives the banner the company and event name of the caller's own open invites.
+- **`inviteExternalCrew`:** one path for new and existing accounts: C1 admin check, the company mail cap, skip members of the company and people already on the crew (read through RLS), insert the crew invite (23505 = resend: expiry bump, quota untouched), then `sendInviteEmail` with the `team_added_to_event` crew mail (now "invited you … accept in the app"). The service-role lookup is gone. Response identical for a new address, an existing account, a member and existing crew.
+- **60-second window:** `sendTeamMail` now tells the per-recipient window (`recipient_window`) apart from the daily cap (`venue_cap`); `sendInviteEmail` maps them (and GoTrue's own 429) to `recent` / `cap`. Team resend, crew resend and crew invite show "Already sent. Give it a minute before you resend."; the cap keeps its own copy.
+- **UI:** crew sheet copy ("Invite sent. They're on the crew once they accept."), banner lines "Club Vesper (Staff)" / "Crew · <event> at <company>", and the team screen no longer lists crew-only invites.
+- Tests: pgTAP `crew_invites.test.sql` (34, allowed/denied per role, the before/after-accept profile visibility proof); vitest for the action (12, database state), mail reasons, resends, banner read, accept action; flow `crew-existing-account` Q1–Q12 on four variants, cleaning up after itself (the two fixture events stay when the audit trail references them).
+- Not changed: `src/lib/db-errors.ts` does not list `mail_cap`/`mail_recent` as expected codes (Sentry may still see them); team invites are still auto-accepted at login for existing accounts (same leak shape via a team invite; follow-up, see PR #412).
+
+---
+
 ## 2026-10-07 — Templates keep the event location (z8uq9m2vqc, PR B)
 
 Max's prod report ("an event from a template loses its location") traced via the edge logs to **Save as template**:

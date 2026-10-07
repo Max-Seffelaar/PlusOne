@@ -67,7 +67,20 @@ export type InviteMailResult =
   /** The account exists; only the notify mail failed. An initial invite may
    *  proceed anyway (access comes from the invite row, not the mail); a RESEND
    *  must surface this, because the mail is the whole point. */
-  | { ok: false; reason: 'notify' };
+  | { ok: false; reason: 'notify' }
+  /** A mail already went to this address within the last minute (our
+   *  per-recipient window, or GoTrue's own resend limit). Nothing was sent. */
+  | { ok: false; reason: 'recent' }
+  /** The company's daily invitation-mail cap, hit at send time. */
+  | { ok: false; reason: 'cap' };
+
+/** GoTrue's per-ADDRESS resend limit ("For security purposes, you can only
+ *  request this after N seconds"). GoTrue answers its project-wide hourly mail
+ *  cap with the same 429 / over_email_send_rate_limit, and that one is a real
+ *  failure (no mail went to anyone): only the per-address text is `recent`. */
+function rateLimited(error: { message?: string }): boolean {
+  return /you can only request this after/i.test(error.message ?? '');
+}
 
 /**
  * Notify an invitee by e-mail (invite + every resend, venue AND crew). For a
@@ -99,17 +112,23 @@ export async function sendInviteEmail(
       // Best effort by contract: sendTeamMail never throws. A failed send is a
       // 'notify' failure, the same contract as a failed magic link below.
       const sent = await sendTeamMail({ ...options.existingAccountMail, to: email });
-      return sent.ok ? { ok: true } : { ok: false, reason: 'notify' };
+      if (sent.ok) return { ok: true };
+      if (sent.reason === 'recipient_window') return { ok: false, reason: 'recent' };
+      if (sent.reason === 'venue_cap') return { ok: false, reason: 'cap' };
+      return { ok: false, reason: 'notify' };
     }
     const mailer = createAnonClient();
     const { error: otpError } = await mailer.auth.signInWithOtp({
       email,
       options: { shouldCreateUser: false },
     });
+    if (otpError && rateLimited(otpError)) return { ok: false, reason: 'recent' };
     if (otpError) {
       console.error('sendInviteEmail: existing-user notify failed', otpError.message);
       return { ok: false, reason: 'notify' };
     }
+  } else if (inviteMailError && rateLimited(inviteMailError)) {
+    return { ok: false, reason: 'recent' };
   } else if (inviteMailError) {
     console.error('sendInviteEmail: inviteUserByEmail failed', inviteMailError.message);
     return { ok: false, reason: 'provision' };

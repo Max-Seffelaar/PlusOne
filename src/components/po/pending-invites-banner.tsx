@@ -3,7 +3,8 @@
 /** Incoming-invite banner for po (#24) — shown on the home/start screen when the
  *  signed-in user has open invites to ANOTHER venue (the "invited while already
  *  logged in" case the desktop PendingInvitesBanner handled; first-login invites
- *  auto-accept in /auth/callback). Accepting changes memberships, which are
+ *  auto-accept in /auth/callback). Crew invites to an existing account are
+ *  accepted ONLY here (z8uq9m2yvp): the login path leaves them open. Accepting changes memberships, which are
  *  resolved server-side in /app, so we router.refresh() afterwards to re-resolve
  *  identity + the venue switcher. Renders nothing when there are no invites. */
 import type { JSX } from 'react';
@@ -32,7 +33,7 @@ export function PendingInvitesBanner(): JSX.Element | null {
         </span>
       </div>
       <div className="mb-3 text-[13px] leading-[1.5] text-dim">
-        {list.map((iv) => `${iv.venueName} (${iv.rolesLabel})`).join(' · ')}
+        {list.map((iv) => iv.label).join(', ')}
       </div>
       <Btn
         kind="primary"

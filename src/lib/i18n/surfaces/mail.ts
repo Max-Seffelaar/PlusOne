@@ -46,11 +46,14 @@ export const mail = {
     intro: "{inviter} added you to the {company} team on PlusOne. You already have a login, so there's nothing new to set up.",
   },
 
+  /** Crew invite (z8uq9m2yvp): nothing changes until they accept in the app. */
   teamAddedToEvent: {
-    subject: '{inviter} added you to {event}',
-    heading: "You're on the crew for {event}",
-    intro: '{inviter} added you to the crew for {event} at {company}.',
+    subject: '{inviter} invited you to the crew for {event}',
+    heading: "You're invited to the crew for {event}",
+    intro: '{inviter} invited you to the crew for {event} at {company}. Accept the invite in the app to join.',
   },
+  crewAccept:
+    "Log in and tap Accept invite in the banner at the top of Home. You're on the crew from that moment.",
 
   teamResendJoin: {
     subject: 'Reminder: {inviter} invited you to join {company}',

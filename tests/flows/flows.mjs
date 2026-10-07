@@ -70,6 +70,17 @@ export const FLOWS = {
       'src/components/po/screens/settings',
     ],
   },
+  'crew-existing-account': {
+    title: 'Crew — an existing account is invited, accepts in the Home banner, sees only that event (#24)',
+    paths: [
+      'src/components/po/screens/events/crew',
+      'src/components/po/pending-invites-banner.tsx',
+      'src/features/events/actions.ts',
+      'src/features/auth/invite-actions.ts',
+      'src/features/onboarding/components/steps/CrewInviteStep',
+      'src/app/onboarding/',
+    ],
+  },
   'company-rename': {
     title: 'Venue → Company — copy sweep, Type options, per-event location → cards, detail, /e/[slug]',
     paths: [
