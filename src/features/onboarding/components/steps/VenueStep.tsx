@@ -13,11 +13,14 @@ import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { WizardShell, WizardPanel } from '../WizardShell';
 
+const vc = t.onboarding.venueCreate;
 const TYPE_LABEL: Record<VenueType, string> = {
-  club: 'Club',
-  festival: 'Festival',
-  bar: 'Bar',
-  concertzaal: 'Concert hall',
+  club: vc.typeClub,
+  festival: vc.typeFestival,
+  bar: vc.typeBar,
+  concertzaal: vc.typeConcert,
+  venue: vc.typeVenue,
+  organizer: vc.typeOrganizer,
 };
 
 // Longest offered option (settings/venue.tsx offers 6/12/24), stamped without
@@ -63,10 +66,10 @@ export function VenueStep({
 
   const panel = (
     <WizardPanel
-      title="Put your venue on the map"
+      title="Put your company on the map"
       sub="The base for every guest list and check-in you'll run."
       bullets={[
-        'Add more venues later',
+        'Add more companies later',
         'You can always change these details in settings',
       ]}
     />
@@ -77,7 +80,7 @@ export function VenueStep({
       <WizardShell
         current={1}
         panel={panel}
-        heading="Tell us about your venue"
+        heading="Tell us about your company"
         sub="Guests see this on your landing pages and at check-in."
         footer={
           <Btn kind="primary" full icon="arrowR" onClick={() => router.push('/app')}>
@@ -94,7 +97,7 @@ export function VenueStep({
     <WizardShell
       current={1}
       panel={panel}
-      heading="Tell us about your venue"
+      heading="Tell us about your company"
       sub="Guests see this on your landing pages and at check-in."
       footer={
         <>
@@ -107,12 +110,12 @@ export function VenueStep({
             disabled={!ok || pending}
             className={ok ? '' : 'opacity-[0.45]'}
           >
-            {pending ? 'Working…' : 'Create venue'}
+            {pending ? 'Working…' : 'Create company'}
           </Btn>
         </>
       }
     >
-      <Label className="mb-2">Venue name</Label>
+      <Label className="mb-2">Company name</Label>
       <Field
         icon="building"
         placeholder="e.g. LOFI"
@@ -131,7 +134,7 @@ export function VenueStep({
         className="mb-[18px]"
       />
 
-      <Label className="mb-[10px]">Venue type</Label>
+      <Label className="mb-[10px]">Type</Label>
       <div className="mb-[18px] grid grid-cols-2 gap-[8px]">
         {VENUE_TYPES.map((t) => (
           <button
@@ -153,7 +156,7 @@ export function VenueStep({
 
       <div className="mb-[18px] rounded-[16px] border border-line bg-elev p-4 text-[13px] leading-[1.5] text-dim">
         Guest data is kept for {DEFAULT_RETENTION_MONTHS} months, then anonymized automatically to
-        “Guest #X” (#29). You can shorten this later in Venue settings.
+        “Guest #X” (#29). You can shorten this later in Company settings.
       </div>
 
       <ConsentCheck checked={agreed} onChange={setAgreed} copy={t.onboarding.venueCreate} className="mt-[18px]" />

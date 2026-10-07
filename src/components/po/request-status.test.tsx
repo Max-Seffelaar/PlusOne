@@ -29,7 +29,7 @@ describe('RequestStatus', () => {
     expect(screen.getByText("You're on the list.")).toBeInTheDocument();
     expect(screen.getByText('· Approved for 3 of 5 people', { exact: false })).toBeInTheDocument();
     expect(screen.queryByText(/Party of 5/)).not.toBeInTheDocument();
-    expect(screen.getByText('Message from the venue')).toBeInTheDocument();
+    expect(screen.getByText('Message from the company')).toBeInTheDocument();
     expect(screen.getByText(/Happy birthday!/)).toBeInTheDocument();
     expect(screen.getByText('Warmoesstraat 12, 1012 JD Amsterdam')).toBeInTheDocument();
     expect(screen.getByText('23:00 to 05:00')).toBeInTheDocument();
@@ -47,7 +47,7 @@ describe('RequestStatus', () => {
   it('approved as requested keeps the party line and shows no message block', () => {
     render(<RequestStatus data={{ ...base, approvedPlusOnes: 4, message: null }} />);
     expect(screen.getByText(/Party of 5/)).toBeInTheDocument();
-    expect(screen.queryByText('Message from the venue')).not.toBeInTheDocument();
+    expect(screen.queryByText('Message from the company')).not.toBeInTheDocument();
   });
 
   it('approved with nothing confirmed for this token (a duplicate submission): no party-size claim', () => {

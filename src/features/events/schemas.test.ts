@@ -9,6 +9,9 @@ import {
   createTierSchema,
   setEventDefaultMemberQuotaSchema,
   updateTierSchema,
+  updateEventSchema,
+  LOCATION_NAME_MAX,
+  LOCATION_ADDRESS_MAX,
 } from './schemas';
 
 // Event templates (86exyp8gn) — the new Zod schemas gate every template input.
@@ -218,5 +221,28 @@ describe('updateTierSchema', () => {
     const r = updateTierSchema.safeParse({ tierId: TIER, maxGuests: null, doorPriceCents: null, vatPercent: null });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data).toMatchObject({ maxGuests: null, doorPriceCents: null, vatPercent: null });
+  });
+});
+
+// Per-event location (z8uq9m2vqc): optional, trimmed, '' → null, capped like the DB CHECKs.
+describe('event location fields', () => {
+  const base = { venueId: VENUE, name: 'X', startsAt: '2026-10-16T21:00:00.000Z' };
+
+  it('trims and keeps a typed location', () => {
+    const r = createEventSchema.parse({ ...base, locationName: '  Paradiso ', locationAddress: 'Weteringschans 6' });
+    expect(r.locationName).toBe('Paradiso');
+    expect(r.locationAddress).toBe('Weteringschans 6');
+  });
+
+  it("turns '' into null (follow the company) and leaves an omitted field undefined", () => {
+    const r = updateEventSchema.parse({ eventId: EVENT_ID, locationName: '   ' });
+    expect(r.locationName).toBeNull();
+    expect(r.locationAddress).toBeUndefined();
+  });
+
+  it('rejects a name or address past the DB cap', () => {
+    expect(createEventSchema.safeParse({ ...base, locationName: 'x'.repeat(LOCATION_NAME_MAX + 1) }).success).toBe(false);
+    expect(createEventSchema.safeParse({ ...base, locationAddress: 'x'.repeat(LOCATION_ADDRESS_MAX + 1) }).success).toBe(false);
+    expect(createEventSchema.safeParse({ ...base, locationName: 'x'.repeat(LOCATION_NAME_MAX) }).success).toBe(true);
   });
 });

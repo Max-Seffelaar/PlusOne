@@ -74,7 +74,7 @@ export const venueSettingsSchema = z.object({
 // Venue type shown to guests at check-in / on landing pages. Constrained here
 // in Zod, not the DB — it is stored in venues.settings (no column). Mirrors the
 // onboarding "Type venue" choice.
-export const VENUE_TYPES = ['club', 'festival', 'bar', 'concertzaal'] as const;
+export const VENUE_TYPES = ['club', 'festival', 'bar', 'concertzaal', 'venue', 'organizer'] as const;
 export type VenueType = (typeof VENUE_TYPES)[number];
 
 // Self-service venue creation (#40a). Retention bounds match the DB check

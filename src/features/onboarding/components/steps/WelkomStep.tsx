@@ -10,13 +10,13 @@ import { Btn } from '@/components/po/kit';
 import { useIsNativeShell } from '@/lib/use-native-shell';
 
 const STEPS = [
-  { n: 1, title: 'Set up your venue', sub: 'Name, address, and data retention' },
-  { n: 2, title: 'Pick a plan', sub: 'Scales with your venue' },
+  { n: 1, title: 'Set up your company', sub: 'Name, address, and data retention' },
+  { n: 2, title: 'Pick a plan', sub: 'Scales with your company' },
   { n: 3, title: 'Invite your team', sub: 'Hosts and managers, or do it later' },
 ] as const;
 // Native shell: no plan step (store-tax seam, #32/#37 — see TrialStartStep).
 const NATIVE_STEPS = [
-  { n: 1, title: 'Set up your venue', sub: 'Name, address, and data retention' },
+  { n: 1, title: 'Set up your company', sub: 'Name, address, and data retention' },
   { n: 2, title: 'Invite your team', sub: 'Hosts and managers, or do it later' },
 ] as const;
 
@@ -39,7 +39,7 @@ export function WelkomStep({
           Magic link verified
         </span>
         <h1 className="m-0 font-display text-[40px] font-extrabold leading-[1.02] tracking-[-0.03em] text-text">
-          Let&apos;s set up your venue
+          Let&apos;s set up your company
         </h1>
         <p className="mt-4 text-[16px] leading-[1.5] text-dim">
           Logged in as <span className="text-text">{owner.email || owner.name}</span>. {steps.length === 2 ? 'Two' : 'Three'} quick

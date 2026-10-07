@@ -189,7 +189,7 @@ export function Events(): JSX.Element {
                           </div>
                           <div className="mt-[3px] flex items-center gap-1.5 text-[13px] text-faint">
                             <Icon name="clock" size={13} stroke="rgba(255,255,255,0.40)" />
-                            {fmt(t.events.cardDoors, { time: e.time, venue: e.venue })}
+                            {fmt(t.events.cardDoors, { time: e.time, place: e.location.label })}
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
@@ -265,6 +265,18 @@ export function EventView({ id }: { id?: string }): JSX.Element {
       {/* Feedback Joeri: the "dots" icon was unreadable — use a clear settings/edit cog. */}
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" ariaLabel={t.events.editTitle} onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
+        {/* Where it happens (z8uq9m2vqc): the event's own location, else the
+            company address — resolved once in resolveEventLocation. */}
+        {(ev.location.name || ev.location.address) && (
+          <div data-testid="event-location" aria-label={t.events.locationAria} className="mb-3 flex items-start gap-2 text-[13.5px] leading-[1.45] text-dim">
+            <Icon name="pin" size={15} className="mt-[2px] shrink-0 text-faint" />
+            <span className="min-w-0 break-words">
+              {ev.location.name && <span className="font-semibold text-text">{ev.location.name}</span>}
+              {ev.location.name && ev.location.address && <span className="text-ghost"> · </span>}
+              {ev.location.address}
+            </span>
+          </div>
+        )}
         {needsSetup && (
           <GuideCard
             title={t.events.setup.title}

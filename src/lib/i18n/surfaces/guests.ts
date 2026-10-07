@@ -38,7 +38,7 @@ export const guests = {
     sub: '{shown} of {total} shown',
     allScope: 'All events',
     // Event scope chips: upcoming events sit in the row, past ones hide behind
-    // this toggle so a venue with a long history doesn't scroll for a minute.
+    // this toggle so a company with a long history doesn't scroll for a minute.
     pastScope: 'Past',
     pastShowAll: 'Show all',
     regularsFilter: 'Regulars',
@@ -184,7 +184,7 @@ export const guests = {
     contactPhoneError: 'Enter a valid phone number.',
     // Banner above the email + phone fields (item G, reworded z8uq9m0hw4). Mirrors
     // the guests_autolink_contact trigger exactly: an email OR phone saves (or
-    // links) a venue contact, a name-only guest never becomes one.
+    // links) a company contact, a name-only guest never becomes one.
     contactSaveNote:
       "Add an email or phone and they're saved to your contacts, so next time they're one tap away. Name only? They go on this list but aren't saved as a contact.",
   },
@@ -275,11 +275,11 @@ export const guests = {
     onListCount: '{n}× on a list',
     // Legal v0.3 decision 2: latest request had "Keep me posted" ticked.
     keepMePostedBadge: 'Keep me posted ✓',
-    keepMePostedTitle: 'Opted in to venue updates on their latest request',
+    keepMePostedTitle: 'Opted in to company updates on their latest request',
     filterAll: 'All',
-    filterOptedIn: 'Opted in to venue updates',
+    filterOptedIn: 'Opted in to company updates',
     filterAria: 'Filter contacts',
-    emptyOptedIn: 'No contacts opted in to venue updates yet.',
+    emptyOptedIn: 'No contacts opted in to company updates yet.',
     editAria: 'Edit {name}',
     openAria: 'Open {name}',
     unmakeRegular: 'Stop adding to every list',
@@ -287,7 +287,7 @@ export const guests = {
     addToEventAria: 'Add {name} to an event',
     // Contact edit sheet
     editTitle: 'Edit contact',
-    noVenue: 'No active venue.',
+    noVenue: 'No active company.',
     nameRequired: 'Name is required.',
     phoneInvalid: 'Check the phone number (e.g. 06… or +31…).',
     nameLabel: 'Name',
@@ -320,7 +320,7 @@ export const guests = {
     forget: 'Forget this person',
     forgetTitle: 'Forget {name}?',
     forgetBody:
-      'Permanently anonymizes {name} to “Contact #X” and wipes their name, email, phone and birthday from this contact and every guest entry of theirs at this venue. The audit log stays, but without their personal data.',
+      'Permanently anonymizes {name} to “Contact #X” and wipes their name, email, phone and birthday from this contact and every guest entry of theirs at this company. The audit log stays, but without their personal data.',
     forgetIrreversible: 'This cannot be undone.',
     forgetPermanentWarn: 'They are marked as a regular (kept on purpose). Forgetting them removes that too.',
     forgetConfirm: 'Yes, forget permanently',
@@ -472,7 +472,7 @@ export const guests = {
     guestMany: 'guests',
     tierFailed: "Couldn't update tier.",
   },
-  // ── Bulk add-to-event (from the Guests tab, venue-wide or event-pinned, and Contacts) ──
+  // ── Bulk add-to-event (from the Guests tab, company-wide or event-pinned, and Contacts) ──
   bulkAdd: {
     title: 'Add {n} to an event',
     pickEvent: 'Pick the event and tier for everyone.',

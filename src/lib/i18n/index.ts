@@ -21,11 +21,11 @@ import { mail } from './surfaces/mail';
 
 /**
  * Active UI dictionary — the composed "message catalogus". EN-only for now; to add
- * a locale, build a sibling composition and switch here (by user/venue preference).
+ * a locale, build a sibling composition and switch here (by user/company preference).
  * Components import `t` and read static, typed copy: `t.nav.home`, `t.door.checkin`.
  * Use `fmt` for strings with {placeholders}.
  *
- * `en` holds the app-shell base (common / nav / venue + the 3 door-tab titles);
+ * `en` holds the app-shell base (common / nav / `venue` + the 3 door-tab titles);
  * each screen surface lives in ./surfaces/* and is composed in below. The door
  * surface is merged onto the base so the shell's titles and the component strings
  * share one `t.door`.

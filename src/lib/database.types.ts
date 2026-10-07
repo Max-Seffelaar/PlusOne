@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       audit_log: {
@@ -502,6 +477,8 @@ export type Database = {
           landing_active: boolean
           landing_slug: string
           list_locked: boolean
+          location_address: string | null
+          location_name: string | null
           locked_at: string | null
           locked_by: string | null
           name: string
@@ -523,6 +500,8 @@ export type Database = {
           landing_active?: boolean
           landing_slug: string
           list_locked?: boolean
+          location_address?: string | null
+          location_name?: string | null
           locked_at?: string | null
           locked_by?: string | null
           name: string
@@ -544,6 +523,8 @@ export type Database = {
           landing_active?: boolean
           landing_slug?: string
           list_locked?: boolean
+          location_address?: string | null
+          location_name?: string | null
           locked_at?: string | null
           locked_by?: string | null
           name?: string
@@ -1260,6 +1241,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      public_throttle_trusted_callers: {
+        Row: {
+          created_at: string
+          label: string
+          secret_sha256: string
+        }
+        Insert: {
+          created_at?: string
+          label: string
+          secret_sha256: string
+        }
+        Update: {
+          created_at?: string
+          label?: string
+          secret_sha256?: string
+        }
+        Relationships: []
       }
       push_dispatch_tokens: {
         Row: {
@@ -2235,6 +2234,8 @@ export type Database = {
         Args: { p_ip_hash: string; p_slug: string }
         Returns: {
           event_name: string
+          location_address: string
+          location_name: string
           spots_left: number
           starts_at: string
           venue_name: string
@@ -2462,6 +2463,14 @@ export type Database = {
         Args: { p_contact_ids: string[] }
         Returns: number
       }
+      redact_anonymized_platform_invite_audit_pii: {
+        Args: never
+        Returns: number
+      }
+      redact_anonymized_request_audit_pii: {
+        Args: { p_request_ids?: string[] }
+        Returns: number
+      }
       redact_audit_diff: {
         Args: { p_diff: Json; p_redaction: Json }
         Returns: Json
@@ -2502,6 +2511,10 @@ export type Database = {
           id: string
           preferred_role: Database["public"]["Enums"]["contact_role"]
         }[]
+      }
+      seed_platform_admin_by_email_hash: {
+        Args: { p_hash: string }
+        Returns: string
       }
       set_platform_admin: {
         Args: { p_user_id: string; p_value: boolean }
@@ -2673,12 +2686,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2702,11 +2715,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2727,11 +2740,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2752,11 +2765,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2769,11 +2782,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2783,9 +2796,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],
@@ -2814,4 +2824,3 @@ export const Constants = {
     },
   },
 } as const
-

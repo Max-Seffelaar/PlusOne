@@ -3,6 +3,7 @@
 // actions and the client forms so the rules live in exactly one place.
 
 import { z } from 'zod';
+import { t } from '@/lib/i18n';
 
 const uuid = z.string().uuid('Invalid id');
 
@@ -31,12 +32,30 @@ const optionalText = (max: number) =>
 
 // ── Event CRUD ──────────────────────────────────────────────────────────────
 
+// Per-event location (z8uq9m2vqc): optional free text, trimmed, '' → null (=
+// follow the company address). The caps match the DB CHECKs in
+// 20261007120000_event_location.sql.
+export const LOCATION_NAME_MAX = 120;
+export const LOCATION_ADDRESS_MAX = 200;
+const locationField = (max: number, tooLong: string) =>
+  z
+    .string()
+    .trim()
+    .max(max, tooLong)
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional();
+const locationName = locationField(LOCATION_NAME_MAX, t.events.locationNameTooLong);
+const locationAddress = locationField(LOCATION_ADDRESS_MAX, t.events.locationAddressTooLong);
+
 export const createEventSchema = z
   .object({
     venueId: uuid,
     name: eventName,
     startsAt: isoDateTime,
     endsAt: isoDateTime.nullable().optional(),
+    locationName,
+    locationAddress,
     // New events open their sign-up link by default (z8uq9m0hw3, item 6). The
     // column default stays false; createEvent always writes this value.
     landingActive: z.boolean().default(true),
@@ -53,6 +72,8 @@ export const updateEventSchema = z
     name: eventName.optional(),
     startsAt: isoDateTime.optional(),
     endsAt: isoDateTime.nullable().optional(),
+    locationName,
+    locationAddress,
   })
   .refine((v) => v.endsAt == null || v.startsAt == null || v.endsAt > v.startsAt, {
     message: 'The end must be after the start',

@@ -1,6 +1,6 @@
 /**
  * Requests surface copy (S5) — the approval inbox: landing-page guest requests
- * and quota requests, venue-wide or scoped to one event.
+ * and quota requests, company-wide or scoped to one event.
  *
  * Source deck: copy-deck.md §6 (Requests). Voice: app-general, low wink
  * (tone-of-voice.md). Sentence case, numerals, no em-dash habit, glossary terms
@@ -14,7 +14,7 @@ export const requests = {
   title: 'Requests',
   scopeAll: 'All events',
   scopeEventFallback: 'Event',
-  noVenue: 'No active venue selected.',
+  noVenue: 'No active company selected.',
   noAccess: "You don't have access to requests.",
   ownTitle: 'Your requests',
   // Header action (z8uq9m0hw4): opens Promotion's create-link flow from here.
@@ -35,12 +35,12 @@ export const requests = {
   approveFailed: "Couldn't approve.",
   declineFailed: "Couldn't decline.",
   approveQuotaFailed: "Couldn't approve. Try again.",
-  // ── Read-only / own-status framing (M1, K-4/K-5) — finance sees the venue
+  // ── Read-only / own-status framing (M1, K-4/K-5) — finance sees the company
   // inbox with no decide buttons; staff sees only their own submissions.
   pendingReviewBadge: 'Pending review',
   readOnlyNote: "You can see every request here, but only an admin can decide. Reason: fraud resistance. Every approval needs a single accountable decider.",
   ownQuotaNote:
-    "Extra slots you've asked for at this venue. An admin decides. Once they do, the request drops off this list.",
+    "Extra slots you've asked for at this company. An admin decides. Once they do, the request drops off this list.",
   ownEmptyQuota: 'No pending requests. Ask for extra slots from the add-guest screen when you run out.',
 
   // ── Landing-page (guest-list) queue ─────────────────────────────────────────
@@ -51,7 +51,7 @@ export const requests = {
   // The generic "via landing page" is gone (z8uq9m0hw4): every card now names
   // its actual link in a chip ("Standard link" / "via {label}", requestLinkLabel).
   cardPhone: 'phone •••• {last4} · {at}',
-  // 86eyke279: the public form now REQUIRES both contact fields so the venue can
+  // 86eyke279: the public form now REQUIRES both contact fields so the company can
   // reach an approved guest — so the approve surface has to show them. The card
   // keeps its compact scan line (masked phone) and adds the address underneath;
   // the approve sheet spells both out in full, because that is the moment you
@@ -135,5 +135,5 @@ export const requests = {
   // Legal v0.3 decision 2: the guest ticked "Keep me posted" on the request form.
   // Display only — PlusOne sends nothing (rule 10).
   keepMePostedBadge: 'Keep me posted ✓',
-  keepMePostedTitle: 'This guest wants venue updates',
+  keepMePostedTitle: 'This guest wants company updates',
 } as const;

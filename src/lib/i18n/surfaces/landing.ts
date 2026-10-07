@@ -60,12 +60,12 @@ export const landing = {
 
   submit: 'Request my spot',
   submitting: 'Sending…',
-  // Legal v0.3 B2 (decision 11): the venue is named, never "the organizer of this
+  // Legal v0.3 B2 (decision 11): the company is named, never "the organizer of this
   // event". `venueFallback` only fills {venue} when the public read carries no name.
   venueFallback: 'the organizer',
   privacyNote: 'Your details go to {venue} and are anonymized automatically after its retention period.',
   privacyHow: 'How your details are used',
-  // Two links: the PlusOne Guest Terms and the venue's privacy notice (both open
+  // Two links: the PlusOne Guest Terms and the company's privacy notice (both open
   // via the kit's openExternal). Split so the link text keeps its own element.
   acceptPre: 'By sending this request you accept the ',
   acceptTermsLink: 'PlusOne Guest Terms',
@@ -118,13 +118,13 @@ export const landing = {
   statusApprovedGroup: 'Party of {n}, all under your name.',
   statusDeniedTitle: 'Not this time.',
   statusDeniedBody: "Your request for {event} wasn't approved. The door has the final say tonight.",
-  // z8uq9m0hw6: the night's window, a reduced approval, and the venue's own
+  // z8uq9m0hw6: the night's window, a reduced approval, and the company's own
   // words. No dashes in the range: "23:00 to 05:00".
   statusTimeRange: '{start} to {end}',
   statusTimeFrom: 'From {start}',
   statusApprovedReduced: 'Approved for {approved} of {requested} people',
-  statusMessageLabel: 'Message from the venue',
-  statusAddressAria: 'Venue address',
+  statusMessageLabel: 'Message from the company',
+  statusAddressAria: 'Address',
   statusNotFoundTitle: 'Nothing here.',
   statusNotFoundBody: "This status link isn't valid (anymore). Request a spot through the event link.",
 

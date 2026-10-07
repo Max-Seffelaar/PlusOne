@@ -35,8 +35,8 @@ export function TrialStartStep({ venueId, onNext }: { venueId: string; onNext: (
   return (
     <WizardShell
       current={2}
-      panel={<WizardPanel title="Almost there" sub="Your venue is ready. Next up: your team." />}
-      heading="Getting your venue ready"
+      panel={<WizardPanel title="Almost there" sub="Your company is ready. Next up: your team." />}
+      heading="Getting your company ready"
       footer={
         <>
           {error && <div className="mb-3 text-[13.5px] text-[#ff9b9b]">{error}</div>}

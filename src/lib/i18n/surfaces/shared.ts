@@ -85,6 +85,8 @@ export const shared = {
     acceptOne: 'Accept invite',
     acceptMany: 'Accept invites',
     error: "Couldn't accept the invite. Try again.",
+    /** Stand-in when the inviting company's name can't be read (z8uq9m2vqc). */
+    companyFallback: 'a company',
   },
 
   // ── Country picker (country-select.tsx) ───────────────────────────────────

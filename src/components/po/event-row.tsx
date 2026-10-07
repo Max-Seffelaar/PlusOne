@@ -12,7 +12,8 @@ import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { HomeEvent } from '@/features/po/adapters';
-import { isOpenGuestRequest } from '@/features/po/adapters';
+import { isOpenGuestRequest, resolveEventLocation } from '@/features/po/adapters';
+import type { EventLocation } from '@/lib/po/types';
 import { eventPhase } from '@/features/po/event-phase';
 import { TZ, formatTime, formatWeekdayDate } from '@/features/po/format';
 import { Icon, type IconName } from './icon';
@@ -42,6 +43,8 @@ export interface BoardEvent {
   id: string;
   name: string;
   venue: string;
+  /** Own event location, else the company address (z8uq9m2vqc) — the pin line. */
+  location: EventLocation;
   date: string;
   door: string;
   startsAtMs: number;
@@ -57,6 +60,14 @@ export interface BoardEvent {
    *  Edit/Lock buttons on this, so a role like a bare user_manager never sees
    *  a control RLS would silently refuse. */
   canManage: boolean;
+}
+
+/** Home's search match: event name, company name, and the location the card
+ *  actually shows (`location.label`), so typing "paradiso" finds the Paradiso
+ *  night. `q` is already trimmed + lowercased by the caller. */
+export function matchesBoardQuery(e: Pick<BoardEvent, 'name' | 'venue' | 'location'>, q: string): boolean {
+  if (!q) return true;
+  return [e.name, e.venue, e.location.label].join(' ').toLowerCase().includes(q);
 }
 
 /**
@@ -87,6 +98,7 @@ export function toBoardEvents(
       id: e.id,
       name: e.name,
       venue: e.venue_name,
+      location: resolveEventLocation(e),
       date: fmtDate(e.starts_at),
       door: fmtTime(e.starts_at),
       startsAtMs: new Date(e.starts_at).getTime(),
@@ -286,7 +298,7 @@ export function EventRow({
     <div data-ev-part="meta" className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-dim">
       <span className="inline-flex items-center gap-[5px]">
         <Icon name="pin" size={13} className="text-faint" />
-        {e.venue}
+        {e.location.label}
       </span>
       <span className="text-ghost">·</span>
       <span className="inline-flex items-center gap-[5px]">

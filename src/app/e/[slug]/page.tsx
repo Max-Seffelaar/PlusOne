@@ -5,6 +5,7 @@ import { submitGuestRequest } from '@/features/requests/actions';
 import { landingClientIpHash } from '@/features/requests/ip-hash';
 import { publicRpcTrustHeaders } from '@/features/requests/rpc-trust';
 import { LandingForm, LandingClosed, type LandingEvent } from '@/components/po/landing';
+import { resolveEventLocation } from '@/features/po/adapters';
 
 export const metadata: Metadata = {
   title: 'Get on the list · PlusOne',
@@ -56,11 +57,23 @@ export default async function LandingPage({
   if (!event) return <LandingClosed />;
 
   const starts = new Date(event.starts_at);
+  // Same fallback rule as the app (one helper), but the company address is
+  // never public here: get_landing_event does not return it (spec #48(c)), so
+  // an event without its own location shows the company name, as before.
+  const location = resolveEventLocation({
+    location_name: event.location_name,
+    location_address: event.location_address,
+    venue_name: event.venue_name,
+    venue_address: null,
+  });
   const display: LandingEvent = {
     name: event.event_name,
     date: dateFmt.format(starts),
     time: timeFmt.format(starts),
     venue: event.venue_name,
+    // Own location: name and address both (the guest has to get there);
+    // fallback: the company name.
+    place: (location.own ? [location.name, location.address].filter(Boolean).join(', ') : location.label) || undefined,
     via: event.via_label ?? undefined,
     spotsLeft: event.spots_left,
   };

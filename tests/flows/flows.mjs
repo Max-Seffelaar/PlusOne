@@ -70,6 +70,20 @@ export const FLOWS = {
       'src/components/po/screens/settings',
     ],
   },
+  'company-rename': {
+    title: 'Venue → Company — copy sweep, Type options, per-event location → cards, detail, /e/[slug]',
+    paths: [
+      'src/features/onboarding/',
+      'src/features/venues/',
+      'src/features/events/',
+      'src/features/po/',
+      'src/components/po/screens/',
+      'src/components/po/event-row.tsx',
+      'src/components/po/landing',
+      'src/app/e/',
+      'src/app/onboarding/',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [

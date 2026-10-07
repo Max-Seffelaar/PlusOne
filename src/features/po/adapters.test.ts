@@ -27,6 +27,8 @@ import {
   toPoVenueSettings,
   toPoSubscription,
   type EventCounts,
+  resolveEventLocation,
+  formatCompanyAddress,
 } from './adapters';
 import type {
   PoEventRow,
@@ -61,6 +63,9 @@ describe('toPoHome', () => {
     cancelled_at: null,
     list_locked: true,
     venue_name: 'De Marktkantine',
+    location_name: null,
+    location_address: null,
+    venue_address: null,
   };
   const boundedQuota = { quota: 20, consumed: 8, remaining: 12, exempt: false };
   const NOW = Date.parse('2024-12-14T18:00:00Z');
@@ -189,6 +194,9 @@ describe('toPoEvent', () => {
     cancelled_at: null,
     list_locked: false,
     venue_name: 'Lofi',
+    location_name: null,
+    location_address: null,
+    venue_address: 'Wibautstraat 150, 1091 GR Amsterdam',
   };
   // A fixed "now" well after the 2024 event → time-derived phase is 'past'.
   const NOW = Date.parse('2026-01-01T00:00:00Z');
@@ -199,6 +207,7 @@ describe('toPoEvent', () => {
       id: 'e1',
       name: 'LOFI Nightcap',
       venue: 'Lofi',
+      location: { name: 'Lofi', address: 'Wibautstraat 150, 1091 GR Amsterdam', label: 'Wibautstraat 150, 1091 GR Amsterdam', own: false },
       time: '23:00',
       date: '23',
       mon: 'NOV',
@@ -1136,5 +1145,59 @@ describe('toPoQuotaRequest', () => {
 
   it('collapses a null motivation to an empty reason', () => {
     expect(toPoQuotaRequest({ ...row, motivation: null }, now).reason).toBe('');
+  });
+});
+
+describe('resolveEventLocation (z8uq9m2vqc — the one fallback rule)', () => {
+  const company = { venue_name: 'Club Vesper', venue_address: 'Wibautstraat 150, 1091 GR Amsterdam' };
+
+  it('own name + own address → exactly the event location, name first', () => {
+    expect(
+      resolveEventLocation({ ...company, location_name: 'Paradiso', location_address: 'Weteringschans 6, Amsterdam' })
+    ).toEqual({ name: 'Paradiso', address: 'Weteringschans 6, Amsterdam', label: 'Paradiso', own: true });
+  });
+
+  it('own name only → the name, and never the company street', () => {
+    expect(resolveEventLocation({ ...company, location_name: 'Paradiso', location_address: null })).toEqual({
+      name: 'Paradiso',
+      address: null,
+      label: 'Paradiso',
+      own: true,
+    });
+  });
+
+  it('own address only → the address, no company name borrowed', () => {
+    expect(resolveEventLocation({ ...company, location_name: '  ', location_address: 'Weteringschans 6' })).toEqual({
+      name: null,
+      address: 'Weteringschans 6',
+      label: 'Weteringschans 6',
+      own: true,
+    });
+  });
+
+  it('neither → the company, address first on the label', () => {
+    expect(resolveEventLocation({ ...company, location_name: null, location_address: '' })).toEqual({
+      name: 'Club Vesper',
+      address: 'Wibautstraat 150, 1091 GR Amsterdam',
+      label: 'Wibautstraat 150, 1091 GR Amsterdam',
+      own: false,
+    });
+  });
+
+  it('neither, and the company has no address (or it is withheld, as on /e/[slug]) → the company name', () => {
+    expect(
+      resolveEventLocation({ location_name: null, location_address: null, venue_name: 'Club Vesper', venue_address: null })
+    ).toEqual({ name: 'Club Vesper', address: null, label: 'Club Vesper', own: false });
+  });
+});
+
+describe('formatCompanyAddress', () => {
+  it('joins street, postal code and city, skipping blanks', () => {
+    expect(formatCompanyAddress({ address_line: 'Wibautstraat 150', postal_code: '1091 GR', city: 'Amsterdam' })).toBe(
+      'Wibautstraat 150, 1091 GR Amsterdam'
+    );
+    expect(formatCompanyAddress({ address_line: null, postal_code: '', city: 'Maastricht' })).toBe('Maastricht');
+    expect(formatCompanyAddress({ address_line: ' ', postal_code: null, city: null })).toBeNull();
+    expect(formatCompanyAddress(null)).toBeNull();
   });
 });
