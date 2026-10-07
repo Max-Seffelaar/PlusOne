@@ -325,13 +325,13 @@ export const events = {
       'Two ways: invite someone new by email (they get a login and can add their own guests), or add a returning person you’ve worked with before.',
     inviteLabel: 'Invite someone new',
     inviteHint:
-      'For someone outside your company, like a DJ or guest organizer. We create a login with no access to the rest of the company; they activate it on first login.',
+      'For someone outside your company, like a DJ or guest organizer. They get an invite by email and join the crew once they accept. No access to the rest of your company.',
     invitePlaceholder: 'dj@email.com',
     inviteCta: 'Send invite',
     inviting: 'Inviting…',
-    // Same copy whether the address was new or already had a PlusOne account
-    // (z8uq9m2yvp): the admin must not learn which (no enumeration oracle).
-    inviteDone: 'Added to the crew. They’ll see this event when they log in with this email.',
+    // Same copy for a new address and an existing account (z8uq9m2yvp): the
+    // admin must not learn which, and nobody is crew until they accept.
+    inviteDone: 'Invite sent. They’re on the crew once they accept.',
     inviteError: "Couldn't send the invite.",
     assignLabel: 'Add a returning crew member',
     assignHint: 'Someone who’s been external crew here before. They keep their login; just set their guest quota.',

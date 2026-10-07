@@ -938,6 +938,7 @@ export type Database = {
           accepted_at: string | null
           accepted_by: string | null
           created_at: string
+          crew_quota: number | null
           default_quota: number | null
           email: string
           event_ids: string[]
@@ -951,6 +952,7 @@ export type Database = {
           accepted_at?: string | null
           accepted_by?: string | null
           created_at?: string
+          crew_quota?: number | null
           default_quota?: number | null
           email: string
           event_ids?: string[]
@@ -964,6 +966,7 @@ export type Database = {
           accepted_at?: string | null
           accepted_by?: string | null
           created_at?: string
+          crew_quota?: number | null
           default_quota?: number | null
           email?: string
           event_ids?: string[]
@@ -1933,6 +1936,11 @@ export type Database = {
       }
     }
     Functions: {
+      accept_invites_for_caller: {
+        Args: { p_include_crew: boolean }
+        Returns: number
+      }
+      accept_my_invites: { Args: never; Returns: number }
       accept_pending_invites: { Args: never; Returns: number }
       add_contact_to_event: {
         Args: {
@@ -2327,6 +2335,16 @@ export type Database = {
       mark_onboarding_complete: {
         Args: { p_venue_id: string }
         Returns: undefined
+      }
+      my_pending_invites: {
+        Args: never
+        Returns: {
+          company_name: string
+          created_at: string
+          event_name: string
+          id: string
+          roles: Database["public"]["Enums"]["venue_role"][]
+        }[]
       }
       notification_bundle_slot: {
         Args: { p_kind: string; p_source: string; p_venue: string }

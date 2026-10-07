@@ -1,9 +1,9 @@
 /**
  * inviteExternalCrew / resendCrewInvite refuse the store-review demo account
- * (86ey6bfug) before any read or service-role call. inviteExternalCrew mints a
- * real account through the service role and writes no invites row, so the
- * invites trigger never sees it: this app check is the stop for the demo
- * account on that path. A normal admin still reaches the flow.
+ * (86ey6bfug) before any read or service-role call. inviteExternalCrew writes an
+ * invites row (z8uq9m2yvp), which the invites trigger refuses for the demo
+ * venue, and its invitation mail provisions an account: this app check stops
+ * the demo account before either. A normal admin still reaches the flow.
  *
  * assignOrganizer (round 8) refuses too: adding an existing user as crew on a
  * demo event would hand them the demo venue (the DB trigger from

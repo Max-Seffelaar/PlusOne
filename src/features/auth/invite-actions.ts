@@ -241,19 +241,28 @@ export async function resendInviteAction(
 
   const existingAccountMail = (await teamMailContext(invite.venue_id, 'resend')) ?? undefined;
   const sent = await sendInviteEmail(invite.email, { existingAccountMail, mailCapVenueId: invite.venue_id });
-  if (!sent.ok) return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
+  if (!sent.ok) {
+    // The 60-second per-address window and the daily cap each get their own
+    // message (decision Max 2026-10-07); anything else stays the generic one.
+    if (sent.reason === 'recent') return { ok: false, error: t.auth.inviteMailRecent };
+    if (sent.reason === 'cap') return { ok: false, error: t.auth.inviteMailCapReached };
+    return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
+  }
 
   revalidatePath('/admin/team');
   return { ok: true, message: `Invite re-sent to ${invite.email}.` };
 }
 
-/** Accept the caller's own pending invites (used by the banner). */
+/** Accept the caller's own pending invites (used by the banner). The explicit
+ *  accept: crew invites included (accept_my_invites, z8uq9m2yvp). The login
+ *  path (accept_pending_invites) leaves an existing account's crew invites open
+ *  for exactly this tap. */
 export async function acceptInvitesAction(): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc('accept_pending_invites');
+  const { error } = await supabase.rpc('accept_my_invites');
   if (error) {
     return { ok: false, error: "Couldn't accept the invite." };
   }

@@ -71,10 +71,12 @@ export const FLOWS = {
     ],
   },
   'crew-existing-account': {
-    title: 'Crew — an existing account added as external crew sees only that event (#24)',
+    title: 'Crew — an existing account is invited, accepts in the Home banner, sees only that event (#24)',
     paths: [
       'src/components/po/screens/events/crew',
+      'src/components/po/pending-invites-banner.tsx',
       'src/features/events/actions.ts',
+      'src/features/auth/invite-actions.ts',
     ],
   },
   'company-rename': {

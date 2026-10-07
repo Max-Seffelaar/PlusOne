@@ -1714,6 +1714,8 @@ export async function fetchVenueInvites(client: Client, venueId: string): Promis
     .from('invites')
     .select('id, email, roles, expires_at, created_at, accepted_at')
     .eq('venue_id', venueId)
+    // Crew invites (no roles, z8uq9m2yvp) belong to the event's crew, not the team.
+    .filter('roles', 'neq', '{}')
     .order('created_at', { ascending: false })
     .limit(25);
   if (error) throw error;
@@ -1723,35 +1725,28 @@ export async function fetchVenueInvites(client: Client, venueId: string): Promis
 
 export type PoMyInviteRow = {
   id: string;
-  venue_id: string;
+  venue_id?: string;
   venue_name: string | null;
   roles: Tables['invites']['Row']['roles'];
+  /** Crew-only invite (no roles): the one event it is for. */
+  event_name: string | null;
 };
 
-/** Open invites addressed to the signed-in user (matched by e-mail) — the
- *  "invited to another venue while already logged in" banner (#24). RLS scopes
- *  invites to the invitee; the e-mail filter mirrors the server getMyPendingInvites.
- *  Callable from the browser client. First-login acceptance still happens in
- *  /auth/callback; this covers the mid-session case the desktop banner did. */
+/** Open invites addressed to the signed-in user — the incoming-invite banner
+ *  (#24). Through the SECURITY DEFINER read my_pending_invites()
+ *  (20261007140000): the invitee may not read the inviting company or its
+ *  events yet, so the RPC returns just the company name, roles and, for a crew
+ *  invite, the event name, for the caller's OWN open invites (matched on their
+ *  auth e-mail). Callable from the browser client. */
 export async function fetchMyPendingInvites(client: Client): Promise<PoMyInviteRow[]> {
-  const { data: auth, error: authErr } = await client.auth.getUser();
-  if (authErr) throw authErr;
-  const email = auth.user?.email;
-  if (!email) return [];
-  const { data, error } = await client
-    .from('invites')
-    .select('id, venue_id, roles, expires_at, venues(name)')
-    .is('accepted_at', null)
-    .gt('expires_at', new Date().toISOString())
-    .ilike('email', email)
-    .order('created_at', { ascending: false });
+  const { data, error } = await client.rpc('my_pending_invites');
   if (error) throw error;
 
   return (data ?? []).map((row) => ({
     id: row.id,
-    venue_id: row.venue_id,
-    venue_name: row.venues?.name ?? null,
+    venue_name: row.company_name ?? null,
     roles: row.roles,
+    event_name: row.roles.length === 0 ? (row.event_name ?? null) : null,
   }));
 }
 

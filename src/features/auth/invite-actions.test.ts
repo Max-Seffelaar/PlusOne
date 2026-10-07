@@ -276,6 +276,34 @@ describe('team mail refused by the send limits', () => {
   });
 });
 
+// A second mail to the same address within a minute (z8uq9m2yvp): the resend
+// says so instead of the generic error; the send-time cap keeps the cap copy.
+describe('resend within the 60-second window', () => {
+  it('resendInviteAction shows "Already sent. Give it a minute before you resend."', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'recent' });
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+    expect(await resendInviteAction({ ok: false }, fd)).toEqual({
+      ok: false,
+      error: 'Already sent. Give it a minute before you resend.',
+    });
+  });
+
+  it('the cap hit at send time keeps the cap copy', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'cap' });
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+    expect(await resendInviteAction({ ok: false }, fd)).toEqual({
+      ok: false,
+      error: "You've hit today's limit for inviting team members and crew. Need more today? Mail support@plus-one.io.",
+    });
+  });
+});
+
 // Daily invitation-mail cap per company (decision Max 2026-10-07): refused
 // BEFORE anything is created, with the cap copy.
 describe('invitation-mail cap reached', () => {

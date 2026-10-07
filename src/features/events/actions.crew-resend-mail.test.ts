@@ -98,6 +98,18 @@ describe('resendCrewInvite — team mail context', () => {
   });
 });
 
+describe('resendCrewInvite — 60-second window (z8uq9m2yvp)', () => {
+  it('a mail to this address in the last minute gets its own message', async () => {
+    tables({});
+    H.sendInviteEmail.mockResolvedValue({ ok: false, reason: 'recent' });
+    expect(await resendCrewInvite({ venueId: VENUE_ID, userId: CREW_ID })).toEqual({
+      ok: false,
+      code: 'mail_recent',
+      message: 'Already sent. Give it a minute before you resend.',
+    });
+  });
+});
+
 describe('resendCrewInvite — invitation-mail cap', () => {
   it('refuses with the cap copy and sends nothing', async () => {
     tables({});
