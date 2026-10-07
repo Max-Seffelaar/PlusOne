@@ -24,7 +24,7 @@ begin
 end;
 $fn$;
 
-select plan(27);
+select plan(31);
 
 -- ---------------------------------------------------------------------------
 -- A. create_venue_with_owner — create, effects, audit actor
@@ -127,10 +127,23 @@ select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@
 select lives_ok(
   $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'pro') $$,
   'T9 the owner sets the plan without MFA');
--- Billing G (20261008120000): Pro is the only plan; any other id is refused.
-select throws_ok(
+-- Billing G (20261008120000), expand–contract: the pre-Billing-G wizard still
+-- sends 'premium' (its default) or 'indie'. Both are accepted and stored as
+-- 'pro'; anything else is refused.
+select lives_ok(
   $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'premium') $$,
-  '22023', null, 'T10c set_venue_plan refuses any plan but pro');
+  'T10c the deployed wizard''s default id premium is still accepted');
+select is((select plan_id from public.subscriptions where venue_id = current_setting('test.vid')::uuid),
+          'pro', 'T10d premium is stored as pro');
+select lives_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'indie') $$,
+  'T10e the legacy id indie is still accepted');
+select throws_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'enterprise') $$,
+  '22023', null, 'T10f an unknown plan id is refused');
+select throws_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, null) $$,
+  '22023', null, 'T10g a null plan id is refused');
 reset role;
 
 select is((select plan_id from public.subscriptions where venue_id = current_setting('test.vid')::uuid),

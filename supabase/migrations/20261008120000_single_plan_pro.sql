@@ -16,7 +16,9 @@
 --    onboarding 'plan' step: a company created by the RPC already has its plan,
 --    so getOnboardingState goes venue → team.
 -- 3. set_venue_plan(): stays (the deployed wizard still calls it until this
---    release ships) but only accepts 'pro' — anything else raises 22023.
+--    release ships). It accepts the deployed wizard's ids 'indie', 'premium'
+--    and 'pro' and always stores 'pro'; anything else raises 22023. Narrowing
+--    it to 'pro' (or dropping it) is a later contract migration.
 --    Same admin check and same "never downgrade a paid/dunning/comped status"
 --    rule as 20260713180000. No new overload: create or replace on the exact
 --    (uuid, text) signature, so exactly one set_venue_plan exists.
@@ -184,7 +186,12 @@ begin
   if not public.has_venue_role(p_venue_id, '{admin}'::public.venue_role[]) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
-  if p_plan_id is distinct from 'pro' then
+  -- Expand–contract: the wizard deployed before Billing G still sends its
+  -- legacy ids ('premium' by default, or 'indie'). Accept them and store Pro,
+  -- so "db push before the app is promoted" (or an app rollback) never blocks
+  -- onboarding. Contract to 'pro'-only in a later migration, once no deployed
+  -- app calls this with a legacy id.
+  if p_plan_id is null or p_plan_id not in ('indie', 'premium', 'pro') then
     raise exception 'unknown plan' using errcode = '22023';
   end if;
 

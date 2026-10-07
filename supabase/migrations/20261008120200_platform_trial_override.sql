@@ -67,9 +67,11 @@ begin
   if p_venue_id is null or p_trial_ends_at is null then
     raise exception 'venue and trial end are required' using errcode = '22004';
   end if;
-  -- A trial end in the past would block the company on the spot; more than
-  -- two years out is a typo, not a trial. "Always free" is set_venue_comped.
-  if p_trial_ends_at <= now() or p_trial_ends_at > now() + interval '2 years' then
+  -- A trial end in the past would block the company on the spot. The upper
+  -- bound is 730 days, Stripe's maximum for subscription trial_end (a checkout
+  -- carries this date over), and fixed in days so a leap year can't stretch
+  -- it to 731. "Always free" is set_venue_comped.
+  if p_trial_ends_at <= now() or p_trial_ends_at > now() + interval '730 days' then
     raise exception 'trial end out of range' using errcode = '22023';
   end if;
   if not exists (select 1 from public.venues v where v.id = p_venue_id) then
@@ -101,7 +103,7 @@ $$;
 
 comment on function public.set_venue_trial_end(uuid, timestamptz) is
   'Platform admin only (42501 otherwise): put a company on a trial ending at '
-  'p_trial_ends_at (future, max 2 years). Refuses a Stripe-linked subscription '
+  'p_trial_ends_at (future, max 730 days — Stripe''s trial_end cap). Refuses a Stripe-linked subscription '
   '(55000). Audited by audit_subscriptions under auth.uid().';
 
 revoke execute on function public.set_venue_trial_end(uuid, timestamptz)

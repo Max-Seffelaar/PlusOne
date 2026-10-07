@@ -38,7 +38,7 @@ begin
 end;
 $fn$;
 
-select plan(30);
+select plan(33);
 
 -- ---------------------------------------------------------------------------
 -- Fixture: one platform admin with no venue membership
@@ -168,8 +168,14 @@ select is((select count(*)::int from public.audit_log
 select pg_temp.login('99999999-9999-4999-8999-999999999999');
 select throws_ok($$ select public.set_venue_trial_end('aa000000-0000-7000-8000-000000000002', now() - interval '1 day') $$,
   '22023', null, 'T24 a trial end in the past is refused');
-select throws_ok($$ select public.set_venue_trial_end('aa000000-0000-7000-8000-000000000002', now() + interval '3 years') $$,
-  '22023', null, 'T25 a trial end beyond two years is refused');
+select throws_ok($$ select public.set_venue_trial_end('aa000000-0000-7000-8000-000000000002', now() + interval '731 days') $$,
+  '22023', null, 'T25 a trial end 731 days out is refused (Stripe caps trial_end at 730)');
+select throws_ok($$ select public.set_venue_trial_end('aa000000-0000-7000-8000-000000000002', now() + interval '730 days 1 second') $$,
+  '22023', null, 'T25b one second past 730 days is refused');
+select lives_ok($$ select public.set_venue_trial_end('aa000000-0000-7000-8000-000000000002', now() + interval '730 days') $$,
+  'T25c exactly 730 days out is accepted');
+select lives_ok($$ select public.set_venue_trial_end('aa000000-0000-7000-8000-000000000002', now() + interval '45 days') $$,
+  'T25d (restore the 45-day end for the checks below)');
 select throws_ok($$ select public.set_venue_trial_end('aa000000-0000-7000-8000-000000000002', null) $$,
   '22004', null, 'T26 a null trial end is refused');
 select throws_ok($$ select public.set_venue_comped('00000000-0000-7000-8000-00000000dead', true) $$,
