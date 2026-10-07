@@ -8,6 +8,40 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Billing G: one plan Pro, monthly/yearly, platform trial override (z8uq9m2vrz)
+
+Milestone **Now** (onboarding programme okt 2026, wave C, task 2). Decision #32 revised, #40 wizard steps.
+
+- **One plan, Pro** (`20261008120000_single_plan_pro`): every subscription relabelled `pro`; `create_venue_with_owner`
+  starts every company on trialing Pro; `set_venue_plan` survives for the deployed wizard but only takes `pro`. The
+  wizard is Welcome → Company → Team in browser and native shell: `PlanStep`, `BetalingStep` and `TrialStartStep` are
+  deleted (no client-side trial start is needed — the RPC creates the row).
+- **Prices live from Stripe** by lookup key `pro_monthly` / `pro_yearly` (`BillingProvider.listPrices`, 10 min server
+  cache, stub = null → "Price shown at checkout"). No price id or amount in code or env; the misconfiguration guard
+  moved from config import to the first checkout. Yearly saving is computed from the two prices.
+- **Checkout:** monthly/yearly picker on More → Billing (browser, admin **and** finance —
+  `callerIsVenueAdmin` → `callerMayManageBilling`), card added next to SEPA + iDEAL, interval marked in session
+  metadata. `20261008120100_billing_interval`: `subscriptions.billing_interval`, the webhook RPC gains
+  `p_billing_interval` (one overload; ordering and comped guards unchanged); the webhook also maps
+  `customer.subscription.created` (enable it in the dashboard, `docs/stripe-setup.md` §1.7).
+- **Platform trial override** (`20261008120200_platform_trial_override`): `subscriptions.trial_ends_at`,
+  `set_venue_trial_end` / `set_venue_comped` (SECURITY DEFINER, `is_platform_admin()` inside, 42501 for venue
+  admin/finance/manager, 55000 for a Stripe-linked row, audited by the subscriptions trigger on the admin's uid).
+  Platform → Companies shows "Trial until <date>" / "Always free" per card with the two controls. The SQL runbook in
+  `docs/stripe-setup.md` §5 now points at the tab.
+- **One trial rule:** `effectiveTrialEndsAt()` = `coalesce(trial_ends_at, created_at + 14 d)` feeds the server gate,
+  `toPoSubscription`, `useBillingBlocked` (now calls `billingBlockReason` itself) and Stripe's `trial_end`. Spike 9.1:
+  no gate fix was needed; tests use De Marktzaal (trialing), not comped Club Vesper.
+- **Native:** Billing shows plan, status, "Trial ends in N days." and the neutral sentence; the price query never runs
+  in the shell. New `tests/e2e/native-shell-guard.spec.ts` in `pnpm e2e:smoke`.
+- **dev-mfa fix:** `pnpm dev:mfa` no longer replays `20260615000000` (that resurrected the dropped `p_comped`
+  overloads, breaking named-arg calls and reopening client-set comped locally); it now checks one overload each and
+  points at `pnpm db:fresh`.
+- **Found, not fixed (out of scope):** the in-app New company screen (`src/components/po/screens/onboarding.tsx`)
+  still shows "finish payment later … comped" and "SEPA Direct Debit / iDEAL" copy, also inside the native shell.
+
+---
+
 ## 2026-10-07 — Follow-up to #414: no Company field on New event, magic-link copy (z8uq9m2vqc)
 
 - **New event form:** the read-only "Company" field is gone in create mode. An event is always created in the active
