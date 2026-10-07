@@ -24,6 +24,8 @@ export const templates = {
   namePlaceholder: 'e.g. Lofi, open air',
   capacityLabel: 'Capacity (optional)',
   capacityHint: 'Max people through the door, plus-ones included. Leave empty for no limit.',
+  /** Under the location fields (z8uq9m2vqc): the template hands it to new events. */
+  locationHint: 'New events from this template start here. Empty means your company address.',
   capacityPlaceholder: 'e.g. 1800',
   settingsLabel: 'Default event settings',
   landingTitle: 'Request link on by default',

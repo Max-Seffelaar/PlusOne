@@ -1078,12 +1078,12 @@ export async function fetchVenueCrew(client: Client, venueId: string): Promise<P
 // Reusable per-event-type setups (RLS: members read their venue's templates).
 export type PoTemplateRow = Pick<
   Tables['event_templates']['Row'],
-  'id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes'
+  'id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes' | 'location_name' | 'location_address'
 > & { tierCount: number };
 
 export type PoTemplateDetail = Pick<
   Tables['event_templates']['Row'],
-  'id' | 'venue_id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes'
+  'id' | 'venue_id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes' | 'location_name' | 'location_address'
 >;
 
 export type PoTemplateTierRow = Pick<
@@ -1096,7 +1096,7 @@ export async function fetchTemplates(client: Client, venueId: string): Promise<P
   const { data, error } = await client
     .from('event_templates')
     .select(
-      'id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, event_template_tiers(count)',
+      'id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, location_name, location_address, event_template_tiers(count)',
     )
     .eq('venue_id', venueId)
     .order('name');
@@ -1108,6 +1108,8 @@ export async function fetchTemplates(client: Client, venueId: string): Promise<P
     allow_uncheck: t.allow_uncheck,
     landing_active: t.landing_active,
     auto_lock_offset_minutes: t.auto_lock_offset_minutes,
+    location_name: t.location_name,
+    location_address: t.location_address,
     tierCount: t.event_template_tiers?.[0]?.count ?? 0,
   }));
 }
@@ -1116,7 +1118,7 @@ export async function fetchTemplates(client: Client, venueId: string): Promise<P
 export async function fetchTemplate(client: Client, templateId: string): Promise<PoTemplateDetail | null> {
   const { data, error } = await client
     .from('event_templates')
-    .select('id, venue_id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes')
+    .select('id, venue_id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, location_name, location_address')
     .eq('id', templateId)
     .maybeSingle();
   if (error) throw error;

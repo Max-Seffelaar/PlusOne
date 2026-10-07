@@ -428,6 +428,8 @@ export type Database = {
           created_at: string
           id: string
           landing_active: boolean
+          location_address: string | null
+          location_name: string | null
           name: string
           updated_at: string
           venue_id: string
@@ -439,6 +441,8 @@ export type Database = {
           created_at?: string
           id?: string
           landing_active?: boolean
+          location_address?: string | null
+          location_name?: string | null
           name: string
           updated_at?: string
           venue_id: string
@@ -450,6 +454,8 @@ export type Database = {
           created_at?: string
           id?: string
           landing_active?: boolean
+          location_address?: string | null
+          location_name?: string | null
           name?: string
           updated_at?: string
           venue_id?: string

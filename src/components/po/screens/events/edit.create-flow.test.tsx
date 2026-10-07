@@ -21,7 +21,7 @@ const nav = { push: vi.fn(), replace: vi.fn(), back: vi.fn(), setTab: vi.fn(), o
 const createEvent = vi.fn().mockResolvedValue(NEW_ID);
 const createFromTemplate = vi.fn().mockResolvedValue(NEW_ID);
 
-let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean }> = [];
+let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean; location_name?: string | null; location_address?: string | null }> = [];
 
 const mutation = () => ({ mutateAsync: vi.fn(), isPending: false });
 const updateEvent = vi.fn().mockResolvedValue(undefined);
@@ -223,6 +223,100 @@ describe('EventEdit template path, location write fails', () => {
     expect(createFromTemplate).toHaveBeenCalledTimes(1);
     expect(toast).toHaveBeenCalledWith(t.events.locationNotSaved);
     expect(screen.queryByText('network')).not.toBeInTheDocument();
+  });
+});
+
+// Templates keep the location (20261007135000): the RPC copies the template's
+// location onto the event, the form prefills it on pick, and only a change the
+// user made is written in a second step.
+describe('EventEdit template location prefill', () => {
+  const withLoc = { id: 'tpl-loc', name: 'Offsite', tierCount: 1, landing_active: true, location_name: 'Paradiso', location_address: 'Weteringschans 6' };
+
+  it('prefills the location from the picked template and clears it when un-picked', () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Paradiso');
+    expect(screen.getByRole('textbox', { name: t.events.locationAddressAria })).toHaveValue('Weteringschans 6');
+    fireEvent.click(screen.getByRole('button', { name: t.events.templateBlank }));
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('');
+  });
+
+  it('always writes the location the form showed after a template create (never diffs against the cache)', async () => {
+    // The cache says Paradiso; the RPC copies whatever the template holds in
+    // the DB right now (another admin may have changed it). The event must end
+    // up with what this user saw and kept: the form value.
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    fillAndCreate();
+    await waitFor(() => expect(createFromTemplate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: 'Weteringschans 6' });
+  });
+
+  // Review #419: a chip tap never overwrites a location the user typed.
+  const nameBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.locationNameAria });
+  const addrBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.locationAddressAria });
+  const noLoc = { id: 'tpl-none', name: 'Plain', tierCount: 1, landing_active: true, location_name: null, location_address: null };
+
+  it('keeps a typed location when a template without a location is picked', () => {
+    templates = [withLoc, noLoc];
+    render(<EventEdit isNew />);
+    fireEvent.change(nameBox(), { target: { value: 'Melkweg' } });
+    fireEvent.change(addrBox(), { target: { value: 'Lijnbaansgracht 234' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Plain' }));
+    expect(nameBox()).toHaveValue('Melkweg');
+    expect(addrBox()).toHaveValue('Lijnbaansgracht 234');
+    // …and a template WITH a location doesn't replace it either.
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    expect(nameBox()).toHaveValue('Melkweg');
+  });
+
+  it('keeps an edited prefill when the same template is tapped again', () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    fireEvent.change(nameBox(), { target: { value: 'Paradiso Noord' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    expect(nameBox()).toHaveValue('Paradiso Noord');
+    expect(addrBox()).toHaveValue('Weteringschans 6');
+  });
+
+  it('keeps a location typed under "Blank" when "Blank" is tapped again', () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.change(nameBox(), { target: { value: 'Melkweg' } });
+    fireEvent.click(screen.getByRole('button', { name: t.events.templateBlank }));
+    expect(nameBox()).toHaveValue('Melkweg');
+  });
+
+  it('swaps an untouched prefill when another template is picked', () => {
+    templates = [withLoc, { ...noLoc, id: 'tpl-2', name: 'Melkweg nights', location_name: 'Melkweg', location_address: 'Lijnbaansgracht 234' }];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Melkweg nights' }));
+    expect(nameBox()).toHaveValue('Melkweg');
+    expect(addrBox()).toHaveValue('Lijnbaansgracht 234');
+  });
+
+  it('does not make the form dirty just by picking a template with a location', () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(nav.back).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes an overridden location after the template create, empty = back to the company', async () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: 'Melkweg' } });
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationAddressAria }), { target: { value: '' } });
+    fillAndCreate();
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null });
   });
 });
 
