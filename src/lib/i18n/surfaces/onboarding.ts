@@ -94,12 +94,6 @@ export const onboarding = {
     headingOne: "You've been invited",
     headingMany: 'You have {n} invites',
     sub: 'Accept to join. The company only sees your details once you accept.',
-    accept: 'Accept',
-    decline: 'Decline',
-    accepting: 'Accepting…',
-    declining: 'Declining…',
-    error: "Couldn't accept the invite. Try again.",
-    declineError: "Couldn't decline the invite. Try again.",
     ownCompany: 'Set up my own company instead',
     /** After the last invite is declined: the way on is company setup. */
     ownCompanyAfter: 'Set up my own company',

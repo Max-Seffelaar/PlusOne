@@ -320,7 +320,10 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
   await expect(page.getByText(`Crew · ${CREW_EVENT_NAME} at De Marktzaal`)).toBeVisible();
   await flow.shot('decliner-invite');
   await page.getByRole('button', { name: 'Decline', exact: true }).click();
-  await flow.check(19, 'Decline says so: "You declined the invite from De Marktzaal."', async () => {
+  await expect(page.getByText('Decline this invite? You can ask De Marktzaal to invite you again later.')).toBeVisible();
+  await flow.shot('decline-confirm');
+  await page.getByRole('button', { name: 'Decline invite', exact: true }).click();
+  await flow.check(19, 'Decline asks first, then says so: "You declined the invite from De Marktzaal."', async () => {
     await expect(page.getByRole('status')).toHaveText("You declined the invite from De Marktzaal. We'll let them know.");
   });
   await flow.shot('declined');

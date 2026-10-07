@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getMyProfile, getSessionUser } from '@/lib/auth/context';
 import { assertVenueBillingActive } from '@/features/billing/gate';
@@ -17,6 +18,9 @@ export interface ActionState {
   ok: boolean;
   error?: string;
   message?: string;
+  /** `not_open`: the invite is gone (expired, declined, accepted, revoked or not
+   *  theirs). The UI drops the card instead of leaving a dead button. */
+  code?: 'not_open';
 }
 
 const INVITE_TTL_DAYS = 7;
@@ -278,7 +282,7 @@ export async function acceptInviteAction(inviteId: string): Promise<ActionState>
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
   const parsed = respondInviteSchema.safeParse({ inviteId });
-  if (!parsed.success) return { ok: false, error: t.shared.invites.notOpen };
+  if (!parsed.success) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('accept_invite', { p_invite_id: parsed.data.inviteId });
@@ -286,7 +290,7 @@ export async function acceptInviteAction(inviteId: string): Promise<ActionState>
     console.error('acceptInvite: rpc failed', error.code);
     return { ok: false, error: "Couldn't accept the invite." };
   }
-  if (!data) return { ok: false, error: t.shared.invites.notOpen };
+  if (!data) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
 
   revalidatePath('/app');
   revalidatePath('/', 'layout');
@@ -298,14 +302,17 @@ export async function acceptInviteAction(inviteId: string): Promise<ActionState>
  * (decline_invite, true only on the open -> declined transition), then the two
  * decline mails go out, once: the inviter hears which address declined (the
  * address as typed on the invite, never a profile name), the decliner gets a
- * confirmation. Mail is best effort and never turns a recorded decline into an
- * error.
+ * confirmation. The mails run in `after()`, so the invitee never waits on the
+ * mail provider; they are best effort and never turn a recorded decline into an
+ * error. Only the onboarding page reads the invite list on the server (the
+ * banner refetches client-side), so that is the one path to revalidate: a decline
+ * changes no identity, membership or layout data.
  */
 export async function declineInviteAction(inviteId: string): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
   const parsed = respondInviteSchema.safeParse({ inviteId });
-  if (!parsed.success) return { ok: false, error: t.shared.invites.notOpen };
+  if (!parsed.success) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('decline_invite', { p_invite_id: parsed.data.inviteId });
@@ -313,11 +320,11 @@ export async function declineInviteAction(inviteId: string): Promise<ActionState
     console.error('declineInvite: rpc failed', error.code);
     return { ok: false, error: t.shared.invites.declineError };
   }
-  if (!data) return { ok: false, error: t.shared.invites.notOpen };
+  if (!data) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
 
-  await notifyInviteDeclined(parsed.data.inviteId);
+  const declinedId = parsed.data.inviteId;
+  after(() => notifyInviteDeclined(declinedId));
 
-  revalidatePath('/app');
-  revalidatePath('/', 'layout');
+  revalidatePath('/onboarding');
   return { ok: true, message: 'Invite declined.' };
 }

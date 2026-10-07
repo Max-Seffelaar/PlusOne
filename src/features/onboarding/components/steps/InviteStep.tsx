@@ -5,16 +5,18 @@
  *  (invites are never auto-accepted), and the Home banner is out of reach for
  *  someone the /app layout sends to onboarding, so this is their way in. Accept
  *  gives them that company or event; the page then re-reads the onboarding state
- *  and sends them to /app. Decline closes that one invite and tells them so
- *  (the inviter and they are also mailed). Setting up their own company stays one
- *  tap away, never forced. */
-import { type JSX, useState, useTransition } from 'react';
+ *  and sends them to /app. Decline asks first, then closes that one invite and
+ *  tells them so (the inviter and they are also mailed). The accept/decline logic
+ *  is shared with the Home banner (`useInviteDecisions`); the list always follows
+ *  the `invites` prop, minus cards that are declined or no longer open. Setting up
+ *  their own company stays one tap away, never forced. */
+import type { JSX } from 'react';
 import { useRouter } from 'next/navigation';
 import { fmt, t } from '@/lib/i18n';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 import { Btn } from '@/components/po/kit';
-import { acceptInviteAction, declineInviteAction } from '@/features/auth/invite-actions';
+import { InviteActions, useInviteDecisions } from '@/features/auth/components/InviteDecisions';
 
 export interface OnboardingInvite {
   id: string;
@@ -25,43 +27,10 @@ export interface OnboardingInvite {
 
 export function InviteStep({ invites, onSkip }: { invites: OnboardingInvite[]; onSkip: () => void }): JSX.Element {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [open, setOpen] = useState(invites);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [declinedFrom, setDeclinedFrom] = useState<string | null>(null);
+  const decisions = useInviteDecisions({ onAccepted: () => router.refresh() });
   const c = t.onboarding.invites;
-
-  const accept = (invite: OnboardingInvite): void => {
-    setError(null);
-    setDeclinedFrom(null);
-    setBusyId(invite.id);
-    startTransition(async () => {
-      const res = await acceptInviteAction(invite.id);
-      if (!res.ok) {
-        setError(c.error);
-        return;
-      }
-      router.refresh();
-    });
-  };
-
-  const decline = (invite: OnboardingInvite): void => {
-    setError(null);
-    setDeclinedFrom(null);
-    setBusyId(invite.id);
-    startTransition(async () => {
-      const res = await declineInviteAction(invite.id);
-      if (!res.ok) {
-        setError(c.declineError);
-        return;
-      }
-      setOpen((list) => list.filter((i) => i.id !== invite.id));
-      setDeclinedFrom(invite.company);
-    });
-  };
-
-  const allDeclined = open.length === 0;
+  const open = invites.filter((invite) => !decisions.isGone(invite.id));
+  const allDone = open.length === 0;
 
   return (
     <div
@@ -69,7 +38,7 @@ export function InviteStep({ invites, onSkip }: { invites: OnboardingInvite[]; o
       style={{ background: AUTH_GRADIENT }}
     >
       <div className="w-full max-w-[460px]">
-        {!allDeclined && (
+        {!allDone && (
           <>
             <span className="mb-6 inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-[6px] font-body text-[12.5px] font-bold text-acc">
               <Icon name="mail" size={14} sw={2.4} />
@@ -89,13 +58,14 @@ export function InviteStep({ invites, onSkip }: { invites: OnboardingInvite[]; o
                     </span>
                     <div className="min-w-0 font-display text-[15px] font-bold text-text">{invite.label}</div>
                   </div>
-                  <div className="mt-3 flex gap-2">
-                    <Btn kind="ghost" sm full disabled={pending} onClick={() => decline(invite)}>
-                      {pending && busyId === invite.id ? c.declining : c.decline}
-                    </Btn>
-                    <Btn kind="primary" sm full icon="check" disabled={pending} onClick={() => accept(invite)}>
-                      {pending && busyId === invite.id ? c.accepting : c.accept}
-                    </Btn>
+                  <div className="mt-3">
+                    <InviteActions
+                      invite={invite}
+                      pending={decisions.pending}
+                      busyKind={decisions.busy?.id === invite.id && decisions.pending ? decisions.busy.kind : null}
+                      onAccept={() => decisions.accept(invite)}
+                      onDecline={() => decisions.decline(invite)}
+                    />
                   </div>
                 </div>
               ))}
@@ -103,19 +73,19 @@ export function InviteStep({ invites, onSkip }: { invites: OnboardingInvite[]; o
           </>
         )}
 
-        {declinedFrom && (
-          <p className={allDeclined ? 'text-[16px] leading-[1.5] text-text' : 'mt-4 text-[13px] text-dim'} role="status">
-            {fmt(t.shared.invites.declinedNotice, { company: declinedFrom })}
+        {decisions.declinedFrom && (
+          <p className={allDone ? 'text-[16px] leading-[1.5] text-text' : 'mt-4 text-[13px] text-dim'} role="status">
+            {fmt(t.shared.invites.declinedNotice, { company: decisions.declinedFrom })}
           </p>
         )}
-        {error && (
+        {decisions.error && (
           <p className="mt-2 text-[12.5px] text-red-300" role="alert">
-            {error}
+            {decisions.error}
           </p>
         )}
 
-        <Btn kind={allDeclined ? 'primary' : 'ghost'} full onClick={onSkip} disabled={pending} className="mt-6">
-          {allDeclined ? c.ownCompanyAfter : c.ownCompany}
+        <Btn kind={allDone ? 'primary' : 'ghost'} full onClick={onSkip} disabled={decisions.pending} className="mt-6">
+          {allDone ? c.ownCompanyAfter : c.ownCompany}
         </Btn>
       </div>
     </div>

@@ -117,7 +117,7 @@ import type {
   CreateRequestLinkInput,
   UpdateRequestLinkInput,
 } from '@/features/links/schemas';
-import { inviteUserAction, revokeInviteAction, resendInviteAction, acceptInviteAction, declineInviteAction } from '@/features/auth/invite-actions';
+import { inviteUserAction, revokeInviteAction, resendInviteAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
@@ -1560,28 +1560,6 @@ export function usePoUpdateEmail() {
       fd.set('email', email);
       return throwOnActionError(await updateEmailAction(NO_PREV, fd));
     },
-  });
-}
-
-/** Accept ONE of the caller's own pending invites (the incoming-invite banner).
- *  This changes memberships — resolved server-side in /app — so the banner
- *  reloads on success to re-resolve identity + the venue switcher. Invalidates
- *  the list too. */
-export function usePoAcceptInvite() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (inviteId: string) => throwOnActionError(await acceptInviteAction(inviteId)),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.myInvites() }),
-  });
-}
-
-/** Decline ONE pending invite (the banner). Nothing else changes for the
- *  caller; the list just loses the row. */
-export function usePoDeclineInvite() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (inviteId: string) => throwOnActionError(await declineInviteAction(inviteId)),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.myInvites() }),
   });
 }
 

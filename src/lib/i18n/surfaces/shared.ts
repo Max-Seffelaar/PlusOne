@@ -87,6 +87,10 @@ export const shared = {
     decline: 'Decline',
     accepting: 'Accepting…',
     declining: 'Declining…',
+    /** Decline asks first (z8uq9m2yvp): the one action this screen can't undo. */
+    confirmDecline: 'Decline this invite? You can ask {company} to invite you again later.',
+    keep: 'Keep',
+    declineConfirm: 'Decline invite',
     error: "Couldn't accept the invite. Try again.",
     declineError: "Couldn't decline the invite. Try again.",
     notOpen: 'This invite is no longer open.',

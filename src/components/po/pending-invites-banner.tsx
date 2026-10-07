@@ -6,39 +6,30 @@
  *  Decline, until the person taps. The company sees nothing of them before that.
  *  Accepting changes memberships, which are resolved server-side in /app, so we
  *  router.refresh() afterwards to re-resolve identity + the venue switcher.
- *  Declining closes the invite and confirms in place (the inviter and the
- *  decliner are also mailed). Renders nothing when there is nothing to show. */
-import { type JSX, useState } from 'react';
+ *  Declining asks first, closes the invite and confirms in place (the inviter and
+ *  the decliner are also mailed). The accept/decline logic is shared with the
+ *  onboarding invite step (`useInviteDecisions`). A card the server reports as no
+ *  longer open disappears. Renders nothing when there is nothing to show. */
+import type { JSX } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { t, fmt } from '@/lib/i18n';
 import { usePoMyPendingInvites } from '@/features/po/hooks';
-import { usePoAcceptInvite, usePoDeclineInvite } from '@/features/po/mutations';
+import { poKeys } from '@/features/po/keys';
+import { InviteActions, useInviteDecisions } from '@/features/auth/components/InviteDecisions';
 import { Icon } from './icon';
-import { Btn } from './kit';
 
 export function PendingInvitesBanner(): JSX.Element | null {
   const router = useRouter();
+  const qc = useQueryClient();
   const invites = usePoMyPendingInvites();
-  const accept = usePoAcceptInvite();
-  const decline = usePoDeclineInvite();
-  const [declinedFrom, setDeclinedFrom] = useState<string | null>(null);
-  const list = invites.data ?? [];
+  const decisions = useInviteDecisions({
+    onAccepted: () => router.refresh(),
+    onChanged: () => void qc.invalidateQueries({ queryKey: poKeys.myInvites() }),
+  });
   const copy = t.shared.invites;
-  if (list.length === 0 && !declinedFrom) return null;
-
-  const busy = accept.isPending || decline.isPending;
-  const failed = accept.isError ? copy.error : decline.isError ? copy.declineError : null;
-
-  const onAccept = (id: string): void => {
-    setDeclinedFrom(null);
-    decline.reset();
-    accept.mutate(id, { onSuccess: () => router.refresh() });
-  };
-  const onDecline = (id: string, company: string): void => {
-    setDeclinedFrom(null);
-    accept.reset();
-    decline.mutate(id, { onSuccess: () => setDeclinedFrom(company) });
-  };
+  const list = (invites.data ?? []).filter((iv) => !decisions.isGone(iv.id));
+  if (list.length === 0 && !decisions.declinedFrom && !decisions.error) return null;
 
   return (
     <div className="rounded-[18px] border border-acc-dim bg-acc-dim p-4">
@@ -55,27 +46,26 @@ export function PendingInvitesBanner(): JSX.Element | null {
             {list.map((iv) => (
               <div key={iv.id} className="rounded-[14px] border border-line bg-elev p-3">
                 <div className="mb-3 text-[14px] leading-[1.4] text-text">{iv.label}</div>
-                <div className="flex gap-2">
-                  <Btn kind="ghost" sm full disabled={busy} onClick={() => onDecline(iv.id, iv.venueName)}>
-                    {decline.isPending && decline.variables === iv.id ? copy.declining : copy.decline}
-                  </Btn>
-                  <Btn kind="primary" sm full icon="check" disabled={busy} onClick={() => onAccept(iv.id)}>
-                    {accept.isPending && accept.variables === iv.id ? copy.accepting : copy.accept}
-                  </Btn>
-                </div>
+                <InviteActions
+                  invite={{ id: iv.id, company: iv.venueName }}
+                  pending={decisions.pending}
+                  busyKind={decisions.busy?.id === iv.id && decisions.pending ? decisions.busy.kind : null}
+                  onAccept={() => decisions.accept({ id: iv.id, company: iv.venueName })}
+                  onDecline={() => decisions.decline({ id: iv.id, company: iv.venueName })}
+                />
               </div>
             ))}
           </div>
         </>
       )}
-      {declinedFrom && (
+      {decisions.declinedFrom && (
         <p className={list.length > 0 ? 'mt-3 text-[13px] text-dim' : 'text-[13px] text-dim'} role="status">
-          {fmt(copy.declinedNotice, { company: declinedFrom })}
+          {fmt(copy.declinedNotice, { company: decisions.declinedFrom })}
         </p>
       )}
-      {failed && (
-        <p className="mt-2 text-[12.5px] text-red-300" role="alert">
-          {failed}
+      {decisions.error && (
+        <p className={list.length > 0 || decisions.declinedFrom ? 'mt-2 text-[12.5px] text-red-300' : 'text-[12.5px] text-red-300'} role="alert">
+          {decisions.error}
         </p>
       )}
     </div>

@@ -429,14 +429,14 @@ export function Gebruikers(): JSX.Element {
                       <Icon name="check" size={13} sw={2.6} />
                       {t.settings.team.statusAccepted}
                     </span>
-                  ) : (
+                  ) : iv.status === 'declined' ? null : (
+                    // A declined invite is closed and keeps its "Declined" status on
+                    // the row: nothing to resend, and no Revoke that would erase it.
                     caps.manageTeam && (
                       <div className="flex shrink-0 items-center gap-[6px]">
-                        {iv.status !== 'declined' && (
-                          <MiniChip disabled={demo} onClick={() => resendInvite.mutate(iv.id)}>
-                            {resendBusy ? t.settings.team.resending : resendDone ? t.settings.team.resent : t.settings.team.resend}
-                          </MiniChip>
-                        )}
+                        <MiniChip disabled={demo} onClick={() => resendInvite.mutate(iv.id)}>
+                          {resendBusy ? t.settings.team.resending : resendDone ? t.settings.team.resent : t.settings.team.resend}
+                        </MiniChip>
                         <MiniChip
                           onClick={() => {
                             // AAL1 → open the MFA step-up sheet and retry the revoke after.
