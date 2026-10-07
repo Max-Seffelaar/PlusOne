@@ -225,3 +225,13 @@ describe('EventEdit template path, location write fails', () => {
     expect(screen.queryByText('network')).not.toBeInTheDocument();
   });
 });
+
+// Max 2026-10-07: a new event is always created in the active company, so the
+// read-only Company field is gone from the create form.
+describe('EventEdit create form', () => {
+  it('has no Company field', () => {
+    render(<EventEdit isNew />);
+    expect(screen.queryByText(t.events.fieldVenue)).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveAttribute('placeholder', 'Club Nova');
+  });
+});

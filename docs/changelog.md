@@ -8,6 +8,21 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Follow-up to #414: no Company field on New event, magic-link copy (z8uq9m2vqc)
+
+- **New event form:** the read-only "Company" field is gone in create mode. An event is always created in the active
+  company. Edit mode keeps it. Flow Q7 now asserts its absence.
+- **`supabase/templates/magic_link.html`:** "Added to a new venue?" → "Added to a new company?". Max pastes this into
+  the prod dashboard template. The footer tagline and `invite.html` stay for task 3.
+- **Template location, NOT fixed here:** Max's report "an event from a template loses its location" traced (prod edge
+  logs 09:28–09:30Z) to **Save as template** (`create_template_from_event`); no `create_event_from_template` call
+  happened. Templates have no location columns, and neither RPC handles one. A location typed in the form for a
+  template event does save (verified locally, browser + DB). The fix needs a migration (`event_templates.location_*`
+  plus both SECURITY DEFINER RPCs) and a template-editor field. Reported to the orchestrator for a slot or a separate
+  task.
+
+---
+
 ## 2026-10-07 — Mail-infra F0 + team-invite mails (z8uq9m2yvt)
 
 Milestone **Now** (onboarding programme okt 2026, wave B, task 0e). The app now sends its own mail through Resend's HTTP API, behind a `MailProvider` interface in `src/features/mail/` (billing pattern: Resend adapter + keyless stub; a vitest guard keeps `resend` and the API host inside that directory and the mail module out of `src/features/door/`). Plain `fetch` instead of the `resend` SDK: one POST, no new dependency; the Svix signature is verified with `node:crypto` against Svix's published test vector.
