@@ -41,11 +41,11 @@ export function PlanStep({
       panel={
         <WizardPanel
           title="Pick what fits"
-          sub="Scales with your venue. Cancel monthly, switch whenever you like."
+          sub="Scales with your company. Cancel monthly, switch whenever you like."
         />
       }
       heading="Pick your plan"
-      sub="You'll handle payment later. Your venue starts on a trial right away."
+      sub="You'll handle payment later. Your company starts on a trial right away."
       footer={
         <>
           {error && <div className="mb-3 text-[13.5px] text-[#ff9b9b]">{error}</div>}

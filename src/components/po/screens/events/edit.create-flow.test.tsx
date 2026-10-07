@@ -24,11 +24,13 @@ const createFromTemplate = vi.fn().mockResolvedValue(NEW_ID);
 let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean }> = [];
 
 const mutation = () => ({ mutateAsync: vi.fn(), isPending: false });
+const updateEvent = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@/features/po/hooks', () => ({
   usePoEventForEdit: () => ({ data: null, isLoading: false, isError: false, canManage: true }),
   usePoTemplates: () => ({ data: templates }),
   usePoRequestLinks: () => ({ data: [] }),
+  usePoVenueSettings: () => ({ data: { addressLine: 'Wibautstraat 150', postalCode: '1091 GR', city: 'Amsterdam' } }),
 }));
 
 vi.mock('@/features/po/mutations', () => ({
@@ -40,7 +42,7 @@ vi.mock('@/features/po/mutations', () => ({
   usePoSetEventDefaultMemberQuota: () => mutation(),
   usePoSetLandingActive: () => mutation(),
   usePoSetListLock: () => mutation(),
-  usePoUpdateEvent: () => mutation(),
+  usePoUpdateEvent: () => ({ mutateAsync: updateEvent, isPending: false }),
   usePoCreateTemplateFromEvent: () => mutation(),
 }));
 
@@ -48,7 +50,8 @@ vi.mock('@/features/po/PoLiveProvider', () => ({
   usePoIdentity: () => ({ venueId: 'venue-1', venueName: 'Club Nova', roles: ['admin'] }),
 }));
 
-vi.mock('@/components/po/context', () => ({ useNav: () => nav }));
+const toast = vi.fn();
+vi.mock('@/components/po/context', () => ({ useNav: () => nav, usePo: () => ({ toast }) }));
 
 // Imported AFTER the mocks so the screen picks them up.
 import { EventEdit } from './edit';
@@ -77,6 +80,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   createEvent.mockResolvedValue(NEW_ID);
   createFromTemplate.mockResolvedValue(NEW_ID);
+  updateEvent.mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
@@ -159,5 +163,65 @@ describe('SaveAsTemplate copy (item 8)', () => {
     expect(screen.getByText('Template')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save as template' })).toBeInTheDocument();
     expect(screen.queryByText('Reuse this setup')).not.toBeInTheDocument();
+  });
+});
+
+// Per-event location (z8uq9m2vqc): the company is the placeholder, a typed
+// location is written with the create, and an empty one stays null.
+describe('EventEdit location fields', () => {
+  it('shows the company name and address as placeholders', () => {
+    render(<EventEdit isNew />);
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveAttribute('placeholder', 'Club Nova');
+    expect(screen.getByRole('textbox', { name: t.events.locationAddressAria })).toHaveAttribute(
+      'placeholder',
+      'Wibautstraat 150, 1091 GR Amsterdam'
+    );
+  });
+
+  it('writes a typed location with the create, trimmed', async () => {
+    render(<EventEdit isNew />);
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: '  Paradiso ' } });
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationAddressAria }), {
+      target: { value: 'Weteringschans 6, Amsterdam' },
+    });
+    fillAndCreate();
+    await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
+    expect(createEvent.mock.calls[0][0]).toMatchObject({ locationName: 'Paradiso', locationAddress: 'Weteringschans 6, Amsterdam' });
+    expect(updateEvent).not.toHaveBeenCalled();
+  });
+
+  it('leaves an untouched location null (= follow the company)', async () => {
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
+    expect(createEvent.mock.calls[0][0]).toMatchObject({ locationName: null, locationAddress: null });
+  });
+
+  it('sets the location on an event created from a template (the RPC takes none)', async () => {
+    templates = [{ id: 'tpl-1', name: 'Lofi', tierCount: 2, landing_active: false }];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Lofi' }));
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: 'Paradiso' } });
+    fillAndCreate();
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: null });
+  });
+});
+
+// Review fix: on the template path the event already exists when the location
+// write runs. A failure there must still move on to the new event (a second
+// Save would create a second event) and tell the user via the shell toast.
+describe('EventEdit template path, location write fails', () => {
+  it('navigates to the new event anyway and toasts that the location did not save', async () => {
+    updateEvent.mockRejectedValueOnce(new Error('network'));
+    templates = [{ id: 'tpl-1', name: 'Lofi', tierCount: 2, landing_active: false }];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Lofi' }));
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: 'Paradiso' } });
+    fillAndCreate();
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('event', { id: NEW_ID }));
+    expect(createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith(t.events.locationNotSaved);
+    expect(screen.queryByText('network')).not.toBeInTheDocument();
   });
 });

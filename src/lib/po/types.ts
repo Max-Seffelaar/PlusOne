@@ -28,10 +28,24 @@ export type GuestSource = Database['public']['Enums']['guest_source'];
  *  retired manual status machine for everything the UI shows. */
 export type EventPhase = 'upcoming' | 'live' | 'past';
 
+/** Where an event happens (z8uq9m2vqc), resolved by `resolveEventLocation`
+ *  (src/features/po/adapters.ts — the one place the fallback rule lives). */
+export interface EventLocation {
+  /** The event's own location name, or the company name on fallback. */
+  name: string | null;
+  /** The event's own address, or the company address on fallback. */
+  address: string | null;
+  /** One line for a card/chip: own → name first; fallback → company address first. */
+  label: string;
+  /** True when the event sets its own location; false = company fallback. */
+  own: boolean;
+}
+
 export interface PoEvent {
   id: string;
   name: string;
   venue: string;
+  location: EventLocation;
   time: string;
   date: string;
   mon: string;

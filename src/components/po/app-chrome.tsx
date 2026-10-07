@@ -190,8 +190,9 @@ export function AppShellChrome({
       switchToVenue,
       nav,
       isMobile,
+      toast: showTransientToast,
     }),
-    [statsAccess, myVenues, activeVenueId, switchToVenue, nav, isMobile],
+    [statsAccess, myVenues, activeVenueId, switchToVenue, nav, isMobile, showTransientToast],
   );
 
   // Contacts desktop-nav gate (T10).

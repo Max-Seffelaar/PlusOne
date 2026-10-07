@@ -18,6 +18,7 @@ const ev = (id: string, name: string, when: 'upcoming' | 'past') => ({
   id,
   name,
   venue: 'Club Nova',
+  location: { name: 'Club Nova', address: null, label: 'Club Nova', own: false },
   time: '23:00',
   date: '18',
   mon: 'SEP',

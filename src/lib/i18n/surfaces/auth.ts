@@ -6,7 +6,7 @@
  * the wireframe-only extras (anti-enumeration note, resend timer, MFA-mandatory
  * note, invite role/slots detail) follow tone-of-voice.md — sentence case,
  * numerals, no em-dash habit, glossary terms exact (PlusOne, Admin, Finance,
- * Host, Quota, Audit log, Venue).
+ * Host, Quota, Audit log, Company).
  *
  * Composed into the central dictionary (`../en.ts`) — components read these as
  * `t.auth.<key>` and fill {placeholders} with `fmt`.
@@ -26,7 +26,7 @@ export const auth = {
   loginTitle: 'Log in',
   loginHelp: "We'll email you a 6-digit code. No passwords here.",
   loginEmailLabel: 'Email',
-  loginEmailPlaceholder: 'you@venue.com',
+  loginEmailPlaceholder: 'you@company.com',
   loginSend: 'Send code',
   loginNote: "Invite-only accounts. If your address isn't on file, we won't say so on purpose. It stops enumeration.",
 
@@ -36,7 +36,7 @@ export const auth = {
   // Split for the styled email span: "<lead> {email}<trail>"
   otpSentLead: 'We sent a 6-digit code to ',
   otpSentTrail: '.',
-  otpEmailFallback: 'you@venue.com',
+  otpEmailFallback: 'you@company.com',
   otpVerify: 'Verify',
   otpResend: 'Resend code ({time})',
 
@@ -56,7 +56,7 @@ export const auth = {
   inviteRoleBold: 'Host',
   inviteMid: ' role with ',
   inviteSlotsBold: '5 guest list spots',
-  invitePost: ' per event. Your account works independently of the venue. Access elsewhere stays yours.',
+  invitePost: ' per event. Your account works independently of the company. Access elsewhere stays yours.',
   inviteSlotsChip: '5 spots/event',
   inviteAccept: 'Accept invite',
   inviteNotNow: 'Not now',
@@ -90,7 +90,7 @@ export const auth = {
   // Also the text of the /login link to the route above (shown only while the
   // review window is open): the review notes say "tap *App review sign-in*".
   reviewTitle: 'App review sign-in',
-  reviewHelp: 'Enter the review code from the App Review notes to open the PlusOne demo venue.',
+  reviewHelp: 'Enter the review code from the App Review notes to open the PlusOne demo company.',
   reviewCodeLabel: 'Review code',
   reviewSubmit: 'Sign in',
   reviewErrorCode: "That code didn't work. Check the review notes and try again.",
@@ -99,9 +99,9 @@ export const auth = {
   // What the demo account is refused (86ey6bfug). Store reviewers read these, so
   // each one names the demo account: a generic error reads as a bug (guideline 2.1).
   demoNoInvites: 'Invites are turned off for the demo account.',
-  demoNoVenues: "The demo account can't create venues.",
+  demoNoVenues: "The demo account can't create companies.",
   demoNoEmailChange: "The demo account's email can't be changed.",
-  demoNoOwnMembership: "The demo account's roles and venue access can't be changed.",
-  demoCannotJoin: "The demo account can't be added to other venues or events.",
+  demoNoOwnMembership: "The demo account's roles and company access can't be changed.",
+  demoCannotJoin: "The demo account can't be added to other companies or events.",
   demoNoMfa: 'Two-factor sign-in is turned off for the demo account.',
 } as const;

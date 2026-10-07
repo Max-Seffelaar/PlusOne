@@ -55,5 +55,5 @@ export const influencerStats = {
 
   // ── Not found (invalid / revoked token) ─────────────────────────────────────
   notFoundTitle: 'Nothing here.',
-  notFoundBody: 'This stats link is not active. Ask the venue for a fresh one.',
+  notFoundBody: 'This stats link is not active. Ask the company for a fresh one.',
 } as const;

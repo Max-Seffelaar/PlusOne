@@ -1,7 +1,7 @@
 /**
  * Platform (system) admin surface copy — the open-beta invite tab (P-04).
  *
- * Audience: PlusOne's own operators, not a venue. Dial = near-zero wink; this
+ * Audience: PlusOne's own operators, not a company. Dial = near-zero wink; this
  * is an internal console, so it says exactly what a button does and nothing
  * more. Sentence case, numerals for numbers, glossary terms verbatim.
  *
@@ -23,7 +23,7 @@ export const platform = {
   inviteTitle: 'Invite a customer',
   inviteIntro:
     'Send one email. They create their own company and accept the terms themselves, so you do not set anything up for them.',
-  emailPlaceholder: 'name@venue.com',
+  emailPlaceholder: 'name@company.com',
   emailLabel: 'Email address',
   noteLabel: 'Note (optional)',
   notePlaceholder: 'Where you met, who introduced you…',
@@ -75,21 +75,21 @@ export const platform = {
   cancel: 'Cancel',
   actionsFor: 'Actions for {email}',
 
-  // ── Venue overview + audit viewer (P-05) — nav from the Platform tab ───────
-  venuesNavTitle: 'Venues',
+  // ── Company overview + audit viewer (P-05) — nav from the Platform tab ───────
+  venuesNavTitle: 'Companies',
   venuesNavSub: 'Every company, at a glance',
   auditNavTitle: 'Audit',
   auditNavSub: 'Who did what, everywhere',
   accessLogNavTitle: 'Access log',
-  accessLogNavSub: 'When we switched into a customer venue',
+  accessLogNavSub: 'When we switched into a customer company',
 
-  // ── Venues screen ─────────────────────────────────────────────────────────
-  venuesTitle: 'Venues',
+  // ── Companies screen ─────────────────────────────────────────────────────────
+  venuesTitle: 'Companies',
   venuesSubtitle: 'Every company on the platform',
   venuesSearchPlaceholder: 'Search by name…',
-  venuesEmpty: 'No venues match that search.',
-  venuesLoading: 'Loading venues…',
-  venuesLoadError: "Couldn't load the venues. Try again in a moment.",
+  venuesEmpty: 'No companies match that search.',
+  venuesLoading: 'Loading companies…',
+  venuesLoadError: "Couldn't load the companies. Try again in a moment.",
   venuesMembers: '{count} member',
   venuesMembersPlural: '{count} members',
   venuesEvents: '{count} event',
@@ -98,7 +98,7 @@ export const platform = {
   venuesLastActivity: 'Last activity {date}',
   venuesNoSubscription: 'No subscription',
   venuesOpenAudit: 'View audit',
-  venuesSwitchInto: 'Switch into this venue',
+  venuesSwitchInto: 'Switch into this company',
   venuesCountOf: '{shown} of {total}',
   pagePrev: 'Previous',
   pageNext: 'Next',
@@ -114,50 +114,50 @@ export const platform = {
 
   // ── Audit screen ──────────────────────────────────────────────────────────
   auditTitle: 'Audit',
-  auditSubtitle: 'Every audited action, across every venue',
+  auditSubtitle: 'Every audited action, across every company',
   auditEmpty: 'No audit entries match these filters.',
   auditLoading: 'Loading audit entries…',
   auditLoadError: "Couldn't load the audit feed. Try again in a moment.",
-  auditFilterVenueLabel: 'Venue',
-  auditFilterAllVenues: 'All venues',
+  auditFilterVenueLabel: 'Company',
+  auditFilterAllVenues: 'All companies',
   auditFilterSinceLabel: 'From',
   auditFilterUntilLabel: 'Until',
   auditFilterClear: 'Clear filters',
   auditSupportBadge: 'Support action',
   // The flag is indicative, not forensic (review finding, z8uq9m0tnx): a
-  // platform admin can self-insert a real membership at any venue (their
+  // platform admin can self-insert a real membership at any company (their
   // own is_platform_admin() already satisfies that policy's role check) and
   // un-flag their own past rows there — an audited trail, not a tamper-proof
   // one, so this hint stays a present-tense description of the check.
-  auditSupportHint: 'The acting operator is not CURRENTLY a member of this venue.',
-  auditNoVenue: 'No venue',
+  auditSupportHint: 'The acting operator is not CURRENTLY a member of this company.',
+  auditNoVenue: 'No company',
   auditUnknownActor: 'Unknown',
   auditColWho: 'Who',
   auditColAction: 'Action',
-  auditColVenue: 'Venue',
+  auditColVenue: 'Company',
   auditColWhen: 'When',
   auditDiffLabel: 'Before / after',
   auditNoDiff: 'No field-level diff for this action.',
   auditCountOf: '{shown} of {total}',
 
   // ── Access log screen (legal v0.3 B3) ─────────────────────────────────────
-  // Internal only — the venue never sees this list; we share it on request
+  // Internal only — the company never sees this list; we share it on request
   // (DPA 4.4). The subtitle says what is and isn't in it, so nobody reads it
   // as a complete record of every read.
   accessLogTitle: 'Access log',
   accessLogSubtitle:
-    'Every switch by a platform admin into a venue they are not a member of. One row per switch, not per visit; direct database reads and other cross-venue screens are not in here.',
-  accessLogEmpty: 'No venue access logged for this filter.',
+    'Every switch by a platform admin into a company they are not a member of. One row per switch, not per visit; direct database reads and other cross-company screens are not in here.',
+  accessLogEmpty: 'No company access logged for this filter.',
   accessLogLoading: 'Loading the access log…',
   accessLogLoadError: "Couldn't load the access log. Try again in a moment.",
-  accessLogFilterVenueLabel: 'Venue',
-  accessLogFilterAllVenues: 'All venues',
+  accessLogFilterVenueLabel: 'Company',
+  accessLogFilterAllVenues: 'All companies',
   accessLogFilterClear: 'Clear filter',
   accessLogUnknownAdmin: 'Unknown',
-  accessLogUnknownVenue: 'Unknown venue',
+  accessLogUnknownVenue: 'Unknown company',
   accessLogNoReason: 'No reason given',
   accessLogColWho: 'Who',
-  accessLogColVenue: 'Venue',
+  accessLogColVenue: 'Company',
   accessLogColReason: 'Reason',
   accessLogColWhen: 'When',
   accessLogCountOf: '{shown} of {total}',

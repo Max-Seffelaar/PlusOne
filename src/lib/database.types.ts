@@ -502,6 +502,8 @@ export type Database = {
           landing_active: boolean
           landing_slug: string
           list_locked: boolean
+          location_address: string | null
+          location_name: string | null
           locked_at: string | null
           locked_by: string | null
           name: string
@@ -523,6 +525,8 @@ export type Database = {
           landing_active?: boolean
           landing_slug: string
           list_locked?: boolean
+          location_address?: string | null
+          location_name?: string | null
           locked_at?: string | null
           locked_by?: string | null
           name: string
@@ -544,6 +548,8 @@ export type Database = {
           landing_active?: boolean
           landing_slug?: string
           list_locked?: boolean
+          location_address?: string | null
+          location_name?: string | null
           locked_at?: string | null
           locked_by?: string | null
           name?: string
@@ -2162,6 +2168,8 @@ export type Database = {
         Args: { p_ip_hash: string; p_slug: string }
         Returns: {
           event_name: string
+          location_address: string
+          location_name: string
           spots_left: number
           starts_at: string
           venue_name: string

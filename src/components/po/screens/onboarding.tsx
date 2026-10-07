@@ -27,6 +27,8 @@ const TYPE_LABEL: Record<VenueType, string> = {
   festival: vc.typeFestival,
   bar: vc.typeBar,
   concertzaal: vc.typeConcert,
+  venue: vc.typeVenue,
+  organizer: vc.typeOrganizer,
 };
 
 export function VenueCreate(): JSX.Element {

@@ -1,7 +1,7 @@
 /**
  * Request-links + influencers surface copy (Requests-epic F1, 86ey21vjt) — the
  * per-event link screen (funnel stats, QR, pause), the create/edit link sheet,
- * and the venue influencer roster. Voice: app-general, low-mid wink
+ * and the company influencer roster. Voice: app-general, low-mid wink
  * (tone-of-voice.md). Sentence case, numerals, glossary terms exact (Request ·
  * Tier · heads). Strings with {placeholders} are filled via fmt().
  */
@@ -80,7 +80,7 @@ export const links = {
   qrDownload: 'Download PNG',
   qrImageAlt: 'QR code for {url}',
 
-  // ── Influencers screen (venue roster) ───────────────────────────────────────
+  // ── Influencers screen (company roster) ───────────────────────────────────────
   influencersTitle: 'Promoters',
   influencersLoading: 'Loading promoters…',
   influencersLoadError: "Couldn't load the promoters. Try again in a moment.",

@@ -4,6 +4,7 @@
 > **Landing = knipoog hoog**, **Deur = knipoog nul (snelheid wint)**. Kolommen: *Element · Oud (NL) · Nieuw (EN)*.
 > Dit is de **seed van de centrale message-catalogus** (`ia-audit-claude-code.md` §8) — string-voor-string, klaar om
 > te bedraden. Bron-strings uit `landing.tsx` en `src/features/door/components/*`.
+> **Terminologie (#53, 2026-10-06):** de tenant heet in de UI **company**, nooit "venue" ("Venue" is alleen nog een Type-optie). `{venue}`-placeholders zijn sleutels, geen copy. De bron van waarheid is `src/lib/i18n` (snapshot: `tests/unit/__snapshots__/i18n-catalogue.snapshot.test.ts.snap`); waar dit deck afwijkt, wint de catalogus.
 
 ## §1 — Landing (`/e/[slug]`) · knipoog HOOG
 
@@ -181,12 +182,13 @@
 | Titel / tabs | `Events` · `Upcoming` / `Past` |
 | Nieuw | `New event` |
 | Leeg (upcoming/past) | `No upcoming events. Create one and start the list.` · `No past events yet.` |
-| Kaart-tijd | `doors {time}` |
+| Kaart-tijd | `Doors {time} · {place}` ({place} = eigen locatie van het event, anders het company-adres — #53) |
 | Status-chips | `Draft` · `Open` · `Live` · `Closed` |
 | Detail-stats | `On the way` · `Inside` · `Turnout` |
 | "Net binnen"-kop | `Just in` |
 | Detail-acties | `Open the door` · `Guest list` · `Requests ({n})` · `Edit` · `Tiers` |
-| Edit-titel / velden | `New event` / `Edit event` · `Name` · `Date` · `Doors` · `Landing page` · `Auto-lock` · `Lock list` · `Allow check-out` |
+| Edit-titel / velden | `New event` / `Edit event` · `Company` · `Name` · `Date` · `Doors` · `Location` · `Landing page` · `Auto-lock` · `Lock list` · `Allow check-out` |
+| Locatie (#53) | velden `Location name` / `Location address` (placeholder = naam en adres van de company) · hint `Empty means your company address. Filled in, guests see it on the request page.` · fouten `That location name is too long.` / `That address is too long.` |
 | Lock-hint | `Locked lists can't be changed by staff.` |
 | Opslaan | `Create event` / `Save event` |
 | Tiers | titel `Tiers` · `Add tier` · veld `Name, e.g. "Guest"` · leeg `No tiers yet. Add one like "VIP" or "Guest".` (aliasveld verborgen sinds 17/9/2026 — `TIER_ALIASES_UI`) |
@@ -231,7 +233,7 @@
 | Context | EN |
 |---|---|
 | Titel | `More` |
-| Secties (desktop-groepen) | `Account` · `This venue` · `Team & access` · `Insights` · `Switch venue` |
+| Secties (desktop-groepen) | `Account` · `This company` · `Team & access` · `Insights` · `Switch company` |
 
 **Account**
 | Context | EN |
@@ -240,10 +242,10 @@
 | E-mail-noot | `Only you can change your email.` |
 | Apparaten | `Your devices` · `This device` · `Log out` · `Log out everywhere` |
 
-**This venue**
+**This company**
 | Context | EN |
 |---|---|
-| Venue settings | titel `Venue settings` · `Venue name` · `City` · `Company (KVK)` · `VAT` · `Billing email` · `Data retention` · `Allow check-out by default` · `Save settings` |
+| Company settings | titel `Company settings` · `Company name` · `Business details` (`Legal name` · `KVK number` · `VAT number` · `Billing email`) · `Address` · `Data retention` · `Allow check-out` · `Save settings` |
 | Quota | titel `Quota` · `Default guests per host, per event` · help `How many guests each host can add to an event.` |
 | Billing | titel `Billing` · `Plan` · status `Trial`/`Active`/`Past due`/`Canceled`/`Comped` · `Manage billing` · `Invoices` · past-due-banner `Your payment's overdue. Update it to keep things running.` |
 | Import | titel `Import contacts` · `Paste, CSV, or phone contacts` · knop `Import` |
@@ -255,10 +257,10 @@
 | Roles & permissions | titel `Roles & permissions` (read-only uitleg) |
 | Team sessions | titel `Team sessions` · `Pick a member` · `Log out device` · MFA-gate `Verify it's you.` |
 
-**Switch venue**
+**Switch company**
 | Context | EN |
 |---|---|
-| Titel | `Switch venue` · `{venue} · current` · `New venue` |
+| Titel | `Companies` · `Switch between your companies` · `Your companies · {n}` · `Add a new company` · `New company` |
 
 ## §10 — Auth & MFA (dial: laag; welcome mag persoonlijkheid)
 
@@ -272,13 +274,13 @@
 | Invite | `You're invited to {venue}.` · `Accept invite` |
 | Auth-errors | `That code didn't work. Check it or resend.` · `This invite has expired. Ask for a new one.` |
 
-## §11 — Onboarding (venue aanmaken; dial: midden)
+## §11 — Onboarding (company aanmaken; dial: midden)
 
 | Context | EN |
 |---|---|
-| Kop | `Set up your venue` · sub `Two minutes and you're running the door.` |
-| Velden | `Venue name` · `City` · `Company (KVK)` · `VAT` · `Billing email` · `Data retention` |
-| Knop | `Create venue` |
+| Kop | `Set up your company` · `Tell us about your company` |
+| Velden | `Company name` · `City` · `Type` (`Club` · `Festival` · `Bar` · `Concert hall` · `Venue` · `Organizer`) · `Company number (KVK, optional)` · `VAT (optional)` · `Billing email` · `Data retention` |
+| Knop | `Create company` |
 
 ## §12 — Errors & system states (dial: nul; kalm + behulpzaam)
 

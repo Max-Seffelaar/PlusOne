@@ -83,12 +83,14 @@ export const home = {
 
   // ── S14 · mission-control board (multi-event dashboard) ──
   metaUpcoming: '{n} upcoming',
+  /** Header stand-in while the active company's name is unknown (z8uq9m2vqc). */
+  companyFallback: 'Company',
   metaDoorsOpen: 'doors open',
   newGuest: 'New guest',
   // pulse strip
   pulseRequests: 'Open requests',
   pulseQuota: 'Quota requests',
-  // Staff/doorhost own-status tile (M1/M3, K-4/K-8): their venue-wide inbox is
+  // Staff/doorhost own-status tile (M1/M3, K-4/K-8): their company-wide inbox is
   // hidden, so the label reflects "your own", not everyone's.
   pulseQuotaOwn: 'Your quota requests',
   pulseLive: 'Events live',
@@ -142,7 +144,7 @@ export const home = {
   emptyFilteredBody: 'Adjust your search or filter to see events.',
   clearFilters: 'Clear filters',
   emptyNoneTitle: 'Nothing scheduled',
-  emptyNoneBody: 'No events on the calendar for this venue yet.',
+  emptyNoneBody: 'No events on the calendar for this company yet.',
   createEvent: 'Create an event',
   // toasts
   toastListOpen: '{name} · list open',
