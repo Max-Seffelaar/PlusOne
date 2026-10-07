@@ -167,6 +167,13 @@ export async function inviteUserAction(
   if (!sent.ok && sent.reason === 'provision') {
     return { ok: false, error: "Couldn't send the invite. Try again." };
   }
+  // The company's daily cap, hit at send time (a race with the pre-check
+  // above): no mail went out, so never report "Invite sent". The invite row
+  // stays; a resend tomorrow delivers it.
+  if (!sent.ok && sent.reason === 'cap') return { ok: false, error: t.auth.inviteMailCapReached };
+  // 'recent' (a mail reached this address under a minute ago) is reported as
+  // sent: only an existing account can hit that window, so anything else would
+  // tell the inviter the address has an account (review round 2).
 
   revalidatePath('/admin/team');
   return { ok: true, message: `Invite sent to ${email}.` };
@@ -241,10 +248,10 @@ export async function resendInviteAction(
 
   const existingAccountMail = (await teamMailContext(invite.venue_id, 'resend')) ?? undefined;
   const sent = await sendInviteEmail(invite.email, { existingAccountMail, mailCapVenueId: invite.venue_id });
-  if (!sent.ok) {
-    // The 60-second per-address window and the daily cap each get their own
-    // message (decision Max 2026-10-07); anything else stays the generic one.
-    if (sent.reason === 'recent') return { ok: false, error: t.auth.inviteMailRecent };
+  // 'recent' counts as re-sent (review round 2): only an existing account can
+  // hit the 60-second window, so a distinct message would reveal one; the
+  // address had a mail under a minute ago. The daily cap keeps its own copy.
+  if (!sent.ok && sent.reason !== 'recent') {
     if (sent.reason === 'cap') return { ok: false, error: t.auth.inviteMailCapReached };
     return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
   }

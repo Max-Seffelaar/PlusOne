@@ -40,6 +40,7 @@ import {
   fetchVenueInvites,
   fetchVenueCrew,
   fetchMyPendingInvites,
+  fetchEventCrewInvites,
   fetchOwnSessions,
   fetchUserSessions,
   fetchMyProfile,
@@ -80,6 +81,7 @@ import {
   type PoLeaderboardRow,
   type PoLabelFunnelRow,
   type PoCrewMember,
+  type PoCrewInvite,
   type EventEditRow,
   type CheckinArrival,
   type RecentCheckinRow,
@@ -620,6 +622,15 @@ export function usePoCrew(eventId: string) {
     queryKey: poKeys.crew(eventId),
     enabled: !!eventId,
     queryFn: () => fetchEventCrew(createClient(), eventId),
+  });
+}
+
+/** Open crew invites on an event (z8uq9m2yvp) — the crew sheet's Pending section. */
+export function usePoCrewInvites(eventId: string, enabled = true) {
+  return useQuery<PoCrewInvite[]>({
+    queryKey: poKeys.crewInvites(eventId),
+    enabled: !!eventId && enabled,
+    queryFn: () => fetchEventCrewInvites(createClient(), eventId),
   });
 }
 

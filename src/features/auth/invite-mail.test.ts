@@ -137,8 +137,20 @@ describe('sendInviteEmail — recent and cap', () => {
 
   it('the same limit on the magic-link fallback is "recent" too', async () => {
     H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
-    H.signInWithOtp.mockResolvedValue({ error: { status: 429, message: 'rate limited' } });
+    H.signInWithOtp.mockResolvedValue({
+      error: { status: 429, message: 'For security purposes, you can only request this after 41 seconds.' },
+    });
     expect(await sendInviteEmail('klant@venue.test', { seedName: false })).toEqual({ ok: false, reason: 'recent' });
+  });
+
+  it("GoTrue's project-wide hourly mail cap (same 429/code, other text) is a real failure, not \"recent\" (review round 2)", async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const hourly = { status: 429, code: 'over_email_send_rate_limit', message: 'email rate limit exceeded' };
+    H.inviteUserByEmail.mockResolvedValue({ data: null, error: hourly });
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+    H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
+    H.signInWithOtp.mockResolvedValue({ error: hourly });
+    expect(await sendInviteEmail('klant@venue.test', { seedName: false })).toEqual({ ok: false, reason: 'notify' });
   });
 });
 

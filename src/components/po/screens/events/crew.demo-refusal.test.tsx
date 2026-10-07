@@ -11,7 +11,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { t } from '@/lib/i18n';
 
-const H = vi.hoisted(() => ({ demo: false, invite: vi.fn() }));
+const H = vi.hoisted(() => ({ demo: false, invite: vi.fn(), revoke: vi.fn(), invites: [] as unknown[] }));
 const stub = () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false });
 
 vi.mock('../../app-shell-data', () => ({ useIsDemoVenue: () => H.demo }));
@@ -20,6 +20,7 @@ vi.mock('../../shell', () => ({ Sheet: ({ children }: { children: ReactNode }) =
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: ['admin'] }) }));
 vi.mock('@/features/po/hooks', () => ({
   usePoCrew: () => ({ data: [], isLoading: false, isError: false }),
+  usePoCrewInvites: (_id: string, enabled: boolean) => ({ data: enabled ? H.invites : undefined }),
   usePoAssignableCrew: () => ({ data: [], isLoading: false }),
   usePoEvent: () => ({ event: { name: 'Event' } }),
   usePoEventForEdit: () => ({ data: { defaultMemberQuota: 2 } }),
@@ -29,6 +30,7 @@ vi.mock('@/features/po/mutations', () => ({
   usePoSetCrewQuota: stub,
   usePoRemoveCrew: stub,
   usePoInviteExternalCrew: () => ({ ...stub(), mutate: H.invite }),
+  usePoRevokeCrewInvite: () => ({ ...stub(), mutate: H.revoke }),
 }));
 
 const { Crew } = await import('./crew');
@@ -36,6 +38,8 @@ const { Crew } = await import('./crew');
 afterEach(() => {
   cleanup();
   H.invite.mockClear();
+  H.revoke.mockClear();
+  H.invites = [];
 });
 
 const openSheet = () => fireEvent.click(screen.getByRole('button', { name: new RegExp(t.events.crew.addHeading) }));
@@ -78,5 +82,27 @@ describe('event crew invite', () => {
     expect(screen.getByRole('status')).toHaveTextContent(t.events.crew.inviteDone);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(document.body.textContent).not.toMatch(/already has an account/i);
+  });
+
+  it('admin: open crew invites show under "Waiting to accept" with quota + expiry; Revoke asks first (z8uq9m2yvp)', () => {
+    H.demo = false;
+    H.invites = [
+      { id: 'iv1', email: 'dj@crew.test', quota: 4, expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+    ];
+    render(<Crew eventId="e1" />);
+    expect(screen.getByText(t.events.crew.pendingLabel)).toBeInTheDocument();
+    expect(screen.getByText('dj@crew.test')).toBeInTheDocument();
+    expect(screen.getByText('4 guests · Expires in 7 days')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t.events.crew.revoke }));
+    expect(H.revoke).not.toHaveBeenCalled();
+    expect(screen.getByText(t.events.crew.revokeConfirm)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t.events.crew.revokeConfirmCta }));
+    expect(H.revoke).toHaveBeenCalledWith({ inviteId: 'iv1' }, expect.anything());
+  });
+
+  it('admin: no open invites, no Pending section', () => {
+    H.demo = false;
+    render(<Crew eventId="e1" />);
+    expect(screen.queryByText(t.events.crew.pendingLabel)).toBeNull();
   });
 });

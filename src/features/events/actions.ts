@@ -25,6 +25,7 @@ import {
   assignOrganizerSchema,
   inviteExternalCrewSchema,
   removeOrganizerSchema,
+  revokeCrewInviteSchema,
   resendCrewInviteSchema,
   setEventUserQuotaSchema,
   setEventDefaultMemberQuotaSchema,
@@ -49,6 +50,7 @@ import {
   type AssignOrganizerInput,
   type InviteExternalCrewInput,
   type RemoveOrganizerInput,
+  type RevokeCrewInviteInput,
   type ResendCrewInviteInput,
   type SetEventUserQuotaInput,
   type SetEventDefaultMemberQuotaInput,
@@ -420,9 +422,13 @@ const CREW_INVITE_TTL_DAYS = 7;
 
 /** The per-crew-invite mail outcome as the crew sheet should show it. */
 function crewMailFailure(reason: 'provision' | 'notify' | 'recent' | 'cap'): ActionResult | null {
-  if (reason === 'recent') return { ok: false, code: 'mail_recent', message: t.auth.inviteMailRecent };
   if (reason === 'cap') return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
   if (reason === 'provision') return { ok: false, code: 'invite', message: "Couldn't send the invite. Try again." };
+  // 'recent' is a success here (review round 2): only an EXISTING account can
+  // hit the 60-second window (a new address gets Supabase's invite, which is
+  // not throttled per address), so a distinct message would tell the admin the
+  // account exists. The address had a mail under a minute ago, and the invite
+  // row is what grants access on accept.
   // 'notify': the account exists and the invite row is what grants access on
   // accept; a lost notification is not a failed invite (same as a team invite).
   return null;
@@ -703,6 +709,31 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
     if (sent.reason === 'cap') return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
     return { ok: false, code: 'invite', message: "Couldn't send the e-mail. Try again." };
   }
+  return { ok: true };
+}
+
+/**
+ * Revoke an open crew invite (z8uq9m2yvp, review round 2): a typo or a change of
+ * mind no longer leaves a 7-day invite nobody can withdraw. Through the
+ * USER-scoped client, so RLS invites_delete is the boundary: an admin of the
+ * invite's company only (the same gate as creating it), open invites only.
+ * Scoped to crew-only rows so this action can never drop a team invite.
+ */
+export async function revokeCrewInvite(input: RevokeCrewInviteInput): Promise<ActionResult> {
+  const parsed = revokeCrewInviteSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error, count } = await supabase
+    .from('invites')
+    .delete({ count: 'exact' })
+    .eq('id', parsed.data.inviteId)
+    .filter('roles', 'eq', '{}');
+  if (error) return mapMutationError(error);
+  if (!count) return { ok: false, code: 'noop', message: t.events.crew.revokeError };
   return { ok: true };
 }
 

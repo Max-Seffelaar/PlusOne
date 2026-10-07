@@ -10,7 +10,9 @@
 --      existing account; the explicit accept does; then the profile opens
 --   C. re-invite of someone already crew never overwrites their quota
 --   D. a member of the venue never becomes crew of its own event via an invite
---   E. a FRESH account accepts its crew invite at first login
+--   E. a FRESH account's login accepts no crew invite; the explicit accept does
+--   G. revoke: an admin of that company only
+--   H. after removal, a new invite's quota applies
 --   F. my_pending_invites: own invites only, minimal fields; function grants
 --
 -- Seed: Max (1111) admin @ v1 + v2, Noor (2222) user_manager @ v1, Tom (5555)
@@ -27,6 +29,15 @@ begin
   perform set_config('request.jwt.claims', json_build_object(
     'sub', p_user::text, 'role', 'authenticated', 'aal', 'aal1', 'email', p_email)::text, true);
   perform set_config('role', 'authenticated', true);
+end;
+$fn$;
+
+create function pg_temp.rowcount(p_sql text) returns int language plpgsql as $fn$
+declare n int;
+begin
+  execute p_sql;
+  get diagnostics n = row_count;
+  return n;
 end;
 $fn$;
 
@@ -48,7 +59,7 @@ begin
 end;
 $fn$;
 
-select plan(34);
+select plan(45);
 
 -- ── Fixtures (as the migration owner) ───────────────────────────────────────
 -- Mallory: her own company v3 with one event; a second v2 event for Max.
@@ -230,7 +241,8 @@ select is((select count(*)::int from public.event_organizers
           0, 'D3 ... without making the team member an organizer of the event');
 
 -- ---------------------------------------------------------------------------
--- E. A FRESH account accepts its crew invite at first login
+-- E. A FRESH account: login accepts NO crew invite (review round 2); only the
+--    explicit accept does, and only then does the company see the profile
 -- ---------------------------------------------------------------------------
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
 insert into public.invites (venue_id, email, roles, event_ids, crew_quota, invited_by, expires_at)
@@ -238,16 +250,30 @@ values ('aa000000-0000-7000-8000-000000000002', 'Fresh@Crew.test', '{}',
         '{c4e00000-0000-7000-8000-0000000000e2}', 5,
         '11111111-1111-4111-8111-111111111111', now() + interval '7 days');
 select pg_temp.login('c4e00000-0000-4000-8000-0000000000b1', 'fresh@crew.test');
-select is((select public.accept_pending_invites()), 1,
-          'E1 a fresh account (no profile yet) accepts its crew invite at first login');
+select is((select public.accept_pending_invites()), 0,
+          'E1 a fresh account''s first login accepts no crew invite');
+reset role;
+select is((select count(*)::int from public.event_organizers
+            where user_id = 'c4e00000-0000-4000-8000-0000000000b1'),
+          0, 'E2 ... so no crew row exists');
+-- The account fills in its profile (the consent screen) before it accepts.
+update public.user_profiles set phone = '+31600000099' where id = 'c4e00000-0000-4000-8000-0000000000b1';
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select is((select count(*)::int from public.user_profiles where id = 'c4e00000-0000-4000-8000-0000000000b1'),
+          0, 'E3 ... and the inviting company cannot read the profile it filled in');
+select pg_temp.login('c4e00000-0000-4000-8000-0000000000b1', 'fresh@crew.test');
+select is((select public.accept_my_invites()), 1, 'E4 the explicit accept takes the crew invite');
 reset role;
 select is((select count(*)::int from public.event_organizers
             where user_id = 'c4e00000-0000-4000-8000-0000000000b1'
               and event_id = 'c4e00000-0000-7000-8000-0000000000e2'),
-          1, 'E2 ... crew on that event, matched case-insensitively');
+          1, 'E5 ... crew on that event, matched case-insensitively');
 select is((select count(*)::int from public.venue_memberships
             where user_id = 'c4e00000-0000-4000-8000-0000000000b1'),
-          0, 'E3 ... with no venue membership');
+          0, 'E6 ... with no venue membership');
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select is((select count(*)::int from public.user_profiles where id = 'c4e00000-0000-4000-8000-0000000000b1'),
+          1, 'E7 ... and only now the company sees the profile');
 
 -- ---------------------------------------------------------------------------
 -- F. my_pending_invites + function grants
@@ -271,6 +297,49 @@ select ok(not has_function_privilege('anon', 'public.accept_my_invites()', 'exec
           'F4 anon cannot execute accept_my_invites');
 select ok(has_function_privilege('authenticated', 'public.accept_my_invites()', 'execute'),
           'F5 authenticated can execute accept_my_invites');
+
+-- ---------------------------------------------------------------------------
+-- G. Revoking a crew invite: an admin of that company only
+-- ---------------------------------------------------------------------------
+-- Mallory's open crew invite for finance@ (F) and one Max makes at Vesper.
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+insert into public.invites (venue_id, email, roles, event_ids, invited_by, expires_at)
+values ('aa000000-0000-7000-8000-000000000001', 'revoke-me@crew.test', '{}',
+        '{ee000000-0000-7000-8000-000000000001}',
+        '11111111-1111-4111-8111-111111111111', now() + interval '7 days');
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'staff@plusone.test');
+select is(pg_temp.rowcount($$ delete from public.invites where lower(email) = 'revoke-me@crew.test' $$), 0,
+          'G1 staff cannot revoke a crew invite');
+select pg_temp.login('22222222-2222-4222-8222-222222222222', 'manager@plusone.test');
+select is(pg_temp.rowcount($$ delete from public.invites where lower(email) = 'revoke-me@crew.test' $$), 0,
+          'G2 a user_manager cannot revoke a crew invite (same gate as creating one)');
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select is(pg_temp.rowcount($$ delete from public.invites where lower(email) = 'finance@plusone.test' and venue_id = 'c4e00000-0000-7000-8000-0000000000f3' $$), 0,
+          'G3 an admin of another company cannot revoke it');
+select is(pg_temp.rowcount($$ delete from public.invites where lower(email) = 'revoke-me@crew.test' $$), 1,
+          'G4 an admin of the company revokes its crew invite');
+select pg_temp.login('c4e00000-0000-4000-8000-0000000000a1', 'mallory@evil.test');
+select is(pg_temp.rowcount($$ delete from public.invites where lower(email) = 'finance@plusone.test' and venue_id = 'c4e00000-0000-7000-8000-0000000000f3' $$), 1,
+          'G5 ... and so does mallory for her own company');
+
+-- ---------------------------------------------------------------------------
+-- H. Removed from the crew, invited again: the new invite's quota applies
+-- ---------------------------------------------------------------------------
+delete from public.event_organizers
+ where user_id = '55555555-5555-4555-8555-555555555555'
+   and event_id = 'c4e00000-0000-7000-8000-0000000000e3';
+insert into public.invites (venue_id, email, roles, event_ids, crew_quota, invited_by, expires_at)
+values ('c4e00000-0000-7000-8000-0000000000f3', 'staff@plusone.test', '{}',
+        '{c4e00000-0000-7000-8000-0000000000e3}', 7,
+        'c4e00000-0000-4000-8000-0000000000a1', now() + interval '7 days');
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'staff@plusone.test');
+select is((select public.accept_my_invites()), 1, 'H1 the new invite is accepted');
+reset role;
+select is((select quota_override from public.event_quotas
+            where user_id = '55555555-5555-4555-8555-555555555555'
+              and event_id = 'c4e00000-0000-7000-8000-0000000000e3'),
+          7, 'H2 ... with the new quota, not the 10 left from the earlier crew spell');
 
 select * from finish();
 rollback;

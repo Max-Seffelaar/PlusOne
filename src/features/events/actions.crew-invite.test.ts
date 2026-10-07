@@ -39,7 +39,7 @@ vi.mock('@/lib/auth/context', () => ({
 }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ from: (t: string) => builder(t) }) }));
 
-const { inviteExternalCrew } = await import('./actions');
+const { inviteExternalCrew, revokeCrewInvite } = await import('./actions');
 
 const VESPER = 'aa000000-0000-7000-8000-000000000001';
 const MARKTZAAL = 'aa000000-0000-7000-8000-000000000002';
@@ -115,6 +115,20 @@ function builder(table: string) {
         if (dup) return { error: { code: '23505', message: 'duplicate key' } };
         rows.push({ ...row, accepted_at: null });
         return { error: null };
+      };
+      return b;
+    },
+    delete: () => {
+      write = () => {
+        // RLS invites_delete: open invites; a crew-only one by an admin of its company.
+        const hit = rows.filter(
+          (r) =>
+            filters.every((f) => f(r)) &&
+            r.accepted_at == null &&
+            ((r.roles as string[]).length > 0 || isAdminOf(r.venue_id)),
+        );
+        for (const r of hit) rows.splice(rows.indexOf(r), 1);
+        return { error: null, count: hit.length };
       };
       return b;
     },
@@ -278,10 +292,12 @@ describe('inviteExternalCrew — one invite path, accept first', () => {
     expect(H.sendInviteEmail).not.toHaveBeenCalled();
   });
 
-  it('a mail to this address in the last minute: its own message (60-second window)', async () => {
+  it('a mail to this address in the last minute (only an existing account can hit it) answers like any success: no oracle', async () => {
     H.sendInviteEmail.mockResolvedValue({ ok: false, reason: 'recent' });
     const res = await inviteExternalCrew({ email: 'dj@crew.test', eventIds: [EV_MARKTZAAL] });
-    expect(res).toEqual({ ok: false, code: 'mail_recent', message: t.auth.inviteMailRecent });
+    expect(res).toEqual({ ok: true });
+    // The invite row is there, exactly as for an address that got its mail.
+    expect(H.db.invites).toEqual([expect.objectContaining({ email: 'dj@crew.test', event_ids: [EV_MARKTZAAL], accepted_at: null })]);
   });
 
   it('the cap hit at send time, a provisioning failure, and a lost notification', async () => {
@@ -299,5 +315,50 @@ describe('inviteExternalCrew — one invite path, accept first', () => {
     expect(res).toEqual({ ok: false, code: '42501', message: t.auth.demoCannotJoin });
     expect(H.db.invites).toEqual([]);
     expect(H.sendInviteEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe('revokeCrewInvite (review round 2)', () => {
+  const crewRow = (id: string, venue: string, extra: Row = {}) => ({
+    id,
+    venue_id: venue,
+    email: 'dj@crew.test',
+    roles: [],
+    event_ids: [venue === MARKTZAAL ? EV_MARKTZAAL : EV_VESPER],
+    accepted_at: null,
+    ...extra,
+  });
+
+  it('an admin of the company revokes an open crew invite: the row is gone', async () => {
+    H.db.invites.push(crewRow('11111111-0000-4000-8000-000000000001', MARKTZAAL));
+    expect(await revokeCrewInvite({ inviteId: '11111111-0000-4000-8000-000000000001' })).toEqual({ ok: true });
+    expect(H.db.invites).toEqual([]);
+  });
+
+  it('a non-admin (staff) cannot: noop, the invite stays', async () => {
+    H.db.invites.push(crewRow('11111111-0000-4000-8000-000000000002', VESPER));
+    H.callerId = STAFF;
+    expect(await revokeCrewInvite({ inviteId: '11111111-0000-4000-8000-000000000002' })).toEqual({
+      ok: false,
+      code: 'noop',
+      message: t.events.crew.revokeError,
+    });
+    expect(H.db.invites).toHaveLength(1);
+  });
+
+  it('never drops a TEAM invite, even for an admin', async () => {
+    H.db.invites.push({ ...crewRow('11111111-0000-4000-8000-000000000003', VESPER), roles: ['staff'], event_ids: [] });
+    expect(await revokeCrewInvite({ inviteId: '11111111-0000-4000-8000-000000000003' })).toMatchObject({ ok: false, code: 'noop' });
+    expect(H.db.invites).toHaveLength(1);
+  });
+
+  it('an accepted invite is not revocable', async () => {
+    H.db.invites.push(crewRow('11111111-0000-4000-8000-000000000004', MARKTZAAL, { accepted_at: '2026-10-07T10:00:00Z' }));
+    expect(await revokeCrewInvite({ inviteId: '11111111-0000-4000-8000-000000000004' })).toMatchObject({ ok: false, code: 'noop' });
+    expect(H.db.invites).toHaveLength(1);
+  });
+
+  it('rejects a non-uuid id before touching the database', async () => {
+    expect(await revokeCrewInvite({ inviteId: 'nope' })).toMatchObject({ ok: false });
   });
 });

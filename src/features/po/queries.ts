@@ -967,6 +967,32 @@ export async function fetchEventCrew(client: Client, eventId: string): Promise<P
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
+/** An open crew invite (z8uq9m2yvp): someone invited by e-mail who hasn't accepted yet. */
+export interface PoCrewInvite {
+  id: string;
+  /** As the admin typed it; RLS invites_select limits it to admin/user_manager/finance of the company. */
+  email: string;
+  /** The invite's guest quota; null = none set. */
+  quota: number | null;
+  expiresAt: string;
+}
+
+/** Open, unexpired crew-only invites for an event, newest first. RLS
+ *  (invites_select) shows them to the company's admin/user_manager/finance; the
+ *  crew sheet renders them for admins only. */
+export async function fetchEventCrewInvites(client: Client, eventId: string): Promise<PoCrewInvite[]> {
+  const { data, error } = await client
+    .from('invites')
+    .select('id, email, crew_quota, expires_at')
+    .filter('roles', 'eq', '{}')
+    .contains('event_ids', [eventId])
+    .is('accepted_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ id: row.id, email: row.email, quota: row.crew_quota, expiresAt: row.expires_at }));
+}
+
 /**
  * The pool for "add a returning external crew member": people who are external
  * crew on ANY event at this event's venue, EXCLUDING venue Team members (they

@@ -74,10 +74,12 @@ export type InviteMailResult =
   /** The company's daily invitation-mail cap, hit at send time. */
   | { ok: false; reason: 'cap' };
 
-/** GoTrue's "you can only request this after N seconds" (per-address resend
- *  limit), as opposed to a real provisioning failure. */
-function rateLimited(error: { code?: string; status?: number }): boolean {
-  return error.status === 429 || error.code === 'over_email_send_rate_limit';
+/** GoTrue's per-ADDRESS resend limit ("For security purposes, you can only
+ *  request this after N seconds"). GoTrue answers its project-wide hourly mail
+ *  cap with the same 429 / over_email_send_rate_limit, and that one is a real
+ *  failure (no mail went to anyone): only the per-address text is `recent`. */
+function rateLimited(error: { message?: string }): boolean {
+  return /you can only request this after/i.test(error.message ?? '');
 }
 
 /**

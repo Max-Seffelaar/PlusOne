@@ -16,20 +16,24 @@
 -- 2. invites_insert: a crew-only invite is an admin grant (already true for any
 --    non-empty event_ids), and its event must belong to the invite's venue.
 -- 3. Acceptance. accept_pending_invites() is the LOGIN path (/auth/callback,
---    /auth/confirm, dev-login, consent): it accepts team invites as before, but
---    crew invites only for a FRESH account (no user_profiles row before this
---    call, i.e. nothing the user filled in exists yet). Otherwise an existing
---    user who simply logs in would accept an invite they never saw, which is
---    the leak above with one extra step. Existing accounts accept crew invites
---    explicitly through the banner: accept_my_invites().
+--    /auth/confirm, dev-login, consent): it accepts team invites as before and
+--    NEVER a crew invite, for a new or an existing account alike (review round
+--    2: a fresh account would otherwise accept every company's crew invite at
+--    its first login, unseen, and fill in its profile one screen later). Crew
+--    invites are accepted only explicitly, through accept_my_invites() — the
+--    Home banner, or the crew-invite screen /onboarding shows a person with no
+--    company yet.
 --    Per crew invite: no venue membership; an event_organizers row for the one
---    event (if it still belongs to the invite's venue); the guest quota only
---    when that row is NEW (already crew = quota untouched); and nothing at all
---    when the user is a member of that venue (a team member never becomes crew
---    of their own company's event through an invite — review should-fix).
+--    event (if it still belongs to the invite's venue); the invite's guest
+--    quota when that crew row is NEW (overwriting a quota left from an earlier
+--    crew spell), never for someone who is still crew; and nothing at all when
+--    the user is a member of that venue (a team member never becomes crew of
+--    their own company's event through an invite).
 -- 4. my_pending_invites(): what the banner shows — company name, roles and, for
 --    crew, the event name — for the caller's own open invites only. The invitee
 --    has no read on venues/events of a company they are not in yet.
+-- 5. invites_delete: revoking a crew invite takes the same role as creating
+--    one (admin of the company); team invites keep admin/user_manager.
 --
 -- Grant matrix: no new table or view. The new column crew_quota is covered by
 -- the existing TABLE-level grants on public.invites (select, insert, delete to
@@ -101,6 +105,23 @@ create policy invites_insert on public.invites
     )
   );
 
+-- Revoke: recreated from 20260702120000_mfa_fully_optional.sql; added: a
+-- crew-only invite is revoked by an admin of the company only (the same gate
+-- as creating it).
+alter policy invites_delete on public.invites
+  using (
+    accepted_at is null
+    and public.has_venue_role(venue_id, '{admin,user_manager}'::public.venue_role[])
+    and (
+      public.has_venue_role(venue_id, '{admin}'::public.venue_role[])
+      or not (roles @> '{admin}'::public.venue_role[])
+    )
+    and (
+      cardinality(roles) > 0
+      or public.has_venue_role(venue_id, '{admin}'::public.venue_role[])
+    )
+  );
+
 -- ── 3. Acceptance ───────────────────────────────────────────────────────────
 
 create function public.accept_invites_for_caller(p_include_crew boolean)
@@ -113,7 +134,6 @@ declare
   v_uid uuid := auth.uid();
   v_email text;
   v_full_name text;
-  v_fresh boolean;
   v_count integer := 0;
   v_new_crew uuid;
   r record;
@@ -130,10 +150,6 @@ begin
   if v_email is null then
     return 0;
   end if;
-
-  -- A fresh account has no profile yet: nothing the user filled in exists, so
-  -- accepting a crew invite at its first login exposes nothing (see header).
-  v_fresh := not exists (select 1 from public.user_profiles p where p.id = v_uid);
 
   -- Profile is owned by the user (decision #24); create it on first acceptance.
   insert into public.user_profiles (id, full_name, email)
@@ -176,8 +192,8 @@ begin
       on conflict (event_id, user_id) do nothing;
     else
       -- ── Crew-only invite ──
-      -- Login path, existing account: leave it open for the banner.
-      if not p_include_crew and not v_fresh then
+      -- Login path: never. It stays open for the explicit accept.
+      if not p_include_crew then
         continue;
       end if;
 
@@ -195,12 +211,13 @@ begin
         on conflict (event_id, user_id) do nothing
         returning event_id into v_new_crew;
 
-        -- Quota only for a NEW crew row: already crew = quota untouched, and
-        -- an existing quota row is never overwritten either.
+        -- Quota only for a NEW crew row, and then the invite's value wins over a
+        -- row left from an earlier crew spell (removeOrganizer keeps
+        -- event_quotas). Someone who is still crew keeps their quota.
         if v_new_crew is not null and r.crew_quota is not null then
           insert into public.event_quotas (event_id, user_id, quota_override)
           values (v_new_crew, v_uid, r.crew_quota)
-          on conflict (event_id, user_id) do nothing;
+          on conflict (event_id, user_id) do update set quota_override = excluded.quota_override;
         end if;
       end if;
     end if;
@@ -217,7 +234,7 @@ end;
 $$;
 
 comment on function public.accept_invites_for_caller(boolean) is
-  'Internal worker for accept_pending_invites() (login path: crew invites only for a fresh account) and accept_my_invites() (explicit banner accept: everything). Acts only on the caller''s own open invites (auth.uid()). Not executable by app roles.';
+  'Internal worker for accept_pending_invites() (login path: team invites only, never crew) and accept_my_invites() (explicit accept: everything). Acts only on the caller''s own open invites (auth.uid()). Not executable by app roles.';
 
 create or replace function public.accept_pending_invites()
 returns integer
@@ -229,7 +246,7 @@ as $$
 $$;
 
 comment on function public.accept_pending_invites() is
-  'Login path (callback, confirm, dev-login, consent): accepts the caller''s open team invites, and crew invites only for a fresh account. Existing accounts accept crew invites via accept_my_invites() (banner). z8uq9m2yvp.';
+  'Login path (callback, confirm, dev-login, consent): accepts the caller''s open team invites, never a crew invite. Crew invites are accepted via accept_my_invites() (Home banner, or the crew-invite screen on /onboarding). z8uq9m2yvp.';
 
 create function public.accept_my_invites()
 returns integer
@@ -241,7 +258,7 @@ as $$
 $$;
 
 comment on function public.accept_my_invites() is
-  'Explicit accept (the incoming-invite banner): every open invite addressed to the caller, crew invites included. z8uq9m2yvp.';
+  'Explicit accept (Home banner, /onboarding crew-invite screen): every open invite addressed to the caller, crew invites included. z8uq9m2yvp.';
 
 -- ── 4. Banner read ──────────────────────────────────────────────────────────
 
