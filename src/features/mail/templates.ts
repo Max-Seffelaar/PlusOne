@@ -20,6 +20,8 @@ export type TeamMailContent =
       inviterName: string | null;
       companyName: string;
       eventName: string;
+      /** Crew guest quota on the event; the quota sentence shows only when > 0. */
+      quota?: number;
     }
   | {
       template: 'team_resend';
@@ -66,38 +68,86 @@ function cleanName(value: string): string {
   return line.length > NAME_MAX ? `${line.slice(0, NAME_MAX - 1)}…` : line;
 }
 
-function copyFor(content: TeamMailContent) {
+/** Upper-cases the first letter: the inviter fallback ("an admin at …") can
+ *  open a sentence or a subject. */
+function capFirst(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+interface MailParts {
+  subject: string;
+  heading: string;
+  intro: string[];
+  after: string[];
+}
+
+function partsFor(content: TeamMailContent): MailParts {
+  const m = t.mail;
   switch (content.template) {
     case 'team_join':
-      return t.mail.teamJoin;
-    case 'team_added_to_event':
-      return t.mail.teamAddedToEvent;
+      return { ...m.teamJoin, intro: [m.teamJoin.intro], after: [m.joinBanner, m.joinSwitch, m.joinOpenFor] };
+    case 'team_added_to_event': {
+      const quota = content.quota;
+      const quotaLine =
+        typeof quota === 'number' && Number.isInteger(quota) && quota > 0
+          ? [quota === 1 ? m.crewQuotaOne : m.crewQuota]
+          : [];
+      return {
+        ...m.teamAddedToEvent,
+        intro: [[m.teamAddedToEvent.intro, ...quotaLine].join(' ')],
+        after: [m.crewFindEvent, m.crewScope],
+      };
+    }
     case 'team_resend':
-      return content.kind === 'event' ? t.mail.teamResendEvent : t.mail.teamResendJoin;
+      return content.kind === 'event'
+        ? { ...m.teamResendEvent, intro: [m.teamResendEvent.intro], after: [m.crewFindEvents, m.crewScope] }
+        : {
+            ...m.teamResendJoin,
+            intro: [m.teamResendJoin.intro],
+            after: [m.joinBanner, m.joinSwitch, m.joinOpenFor],
+          };
   }
 }
 
 export function renderTeamMail(content: TeamMailContent, appUrl: string): RenderedMail {
   const company = cleanName(content.companyName);
-  const vars: Record<string, string> = {
-    inviter: cleanName(content.inviterName ?? '') || t.mail.inviterFallback,
+  const vars: Record<string, string | number> = {
+    inviter: cleanName(content.inviterName ?? '') || fmt(t.mail.inviterFallback, { company }),
     company,
     event: content.template === 'team_added_to_event' ? cleanName(content.eventName) : '',
+    n: content.template === 'team_added_to_event' && typeof content.quota === 'number' ? content.quota : '',
   };
-  const copy = copyFor(content);
+  const parts = partsFor(content);
+  const fill = (s: string) => capFirst(fmt(s, vars));
   const loginUrl = `${appUrl.replace(/\/+$/, '')}/login`;
 
-  const subject = plainLine(fmt(copy.subject, vars));
-  const heading = fmt(copy.heading, vars);
-  const body = fmt(copy.body, vars);
+  const subject = plainLine(fill(parts.subject));
+  const heading = fill(parts.heading);
+  const intro = parts.intro.map(fill);
+  const steps = t.mail.loginSteps;
+  const after = parts.after.map(fill);
   const reason = fmt(t.mail.footerReason, { company });
   const fallback = fmt(t.mail.linkFallback, { url: loginUrl });
 
-  const text = [heading, '', body, '', `${t.mail.cta}: ${loginUrl}`, '', '--', reason, t.mail.footerSupport].join(
-    '\n'
-  );
+  // Plain-text alternative (deliverability): same content, steps numbered.
+  const text = [
+    heading,
+    '',
+    ...intro.flatMap((p) => [p, '']),
+    t.mail.gettingIn,
+    ...steps.map((step, i) => `${i + 1}. ${step}`),
+    '',
+    `${t.mail.cta}: ${loginUrl}`,
+    '',
+    ...after.flatMap((p) => [p, '']),
+    '--',
+    reason,
+    t.mail.footerSupport,
+  ].join('\n');
 
+  // No images, by decision (deliverability + no remote content).
   const e = escapeHtml;
+  const P = 'margin:0 0 16px;font-size:16px;line-height:1.5;';
   const html = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(subject)}</title></head>
@@ -105,10 +155,15 @@ export function renderTeamMail(content: TeamMailContent, appUrl: string): Render
 <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;">
 <p style="margin:0 0 24px;font-weight:700;font-size:18px;">PlusOne</p>
 <h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;">${e(heading)}</h1>
-<p style="margin:0 0 24px;font-size:16px;line-height:1.5;">${e(body)}</p>
-<p style="margin:0 0 24px;"><a href="${e(loginUrl)}" style="display:inline-block;background:#B5A6FF;color:#0B0B0D;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px;">${e(t.mail.cta)}</a></p>
+${intro.map((p) => `<p style="${P}">${e(p)}</p>`).join('\n')}
+<h2 style="margin:24px 0 8px;font-size:16px;line-height:1.3;">${e(t.mail.gettingIn)}</h2>
+<ol style="margin:0 0 20px;padding-left:22px;font-size:16px;line-height:1.5;">
+${steps.map((step) => `<li style="margin:0 0 4px;">${e(step)}</li>`).join('\n')}
+</ol>
+<p style="margin:0 0 12px;"><a href="${e(loginUrl)}" style="display:inline-block;background:#B5A6FF;color:#0B0B0D;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px;">${e(t.mail.cta)}</a></p>
 <p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#55525e;">${e(fallback)}</p>
-<hr style="border:none;border-top:1px solid #e6e4ee;margin:0 0 16px;">
+${after.map((p) => `<p style="${P}">${e(p)}</p>`).join('\n')}
+<hr style="border:none;border-top:1px solid #e6e4ee;margin:8px 0 16px;">
 <p style="margin:0 0 8px;font-size:12px;line-height:1.5;color:#77737f;">${e(reason)}</p>
 <p style="margin:0;font-size:12px;line-height:1.5;color:#77737f;">${e(t.mail.footerSupport)}</p>
 </div>

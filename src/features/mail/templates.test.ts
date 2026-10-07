@@ -36,9 +36,18 @@ describe('renderTeamMail', () => {
     expect(b.subject).toBe("Reminder: you're on the crew at Club Vesper");
   });
 
-  it('falls back to a neutral inviter when the profile has no name', () => {
-    expect(renderTeamMail({ ...join, inviterName: null }, APP).subject).toBe('A teammate invited you to join Club Vesper');
-    expect(renderTeamMail({ ...join, inviterName: '  \n ' }, APP).subject).toBe('A teammate invited you to join Club Vesper');
+  it('falls back to "an admin at {company}" wherever {inviter} appears', () => {
+    const m = renderTeamMail({ ...join, inviterName: null }, APP);
+    expect(m.subject).toBe('An admin at Club Vesper invited you to join Club Vesper');
+    expect(m.text).toContain('An admin at Club Vesper added you to the Club Vesper team on PlusOne.');
+    expect(renderTeamMail({ ...join, inviterName: '  \n ' }, APP).subject).toBe(
+      'An admin at Club Vesper invited you to join Club Vesper'
+    );
+    const crew = renderTeamMail(
+      { template: 'team_resend', kind: 'event', venueId: VENUE_ID, inviterName: null, companyName: 'Club Vesper' },
+      APP
+    );
+    expect(crew.text).toContain('Ask an admin at Club Vesper. They make the changes.');
   });
 
   it('HTML-escapes names in the body (no markup injection)', () => {
@@ -82,5 +91,71 @@ describe('escapeHtml / plainLine', () => {
   });
   it('collapses whitespace and control characters to single spaces', () => {
     expect(plainLine(' a\t\r\n b\u0085c ')).toBe('a b c');
+  });
+});
+
+const crewAdded = (quota?: number): TeamMailContent => ({
+  template: 'team_added_to_event',
+  venueId: VENUE_ID,
+  inviterName: 'Max',
+  companyName: 'Club Vesper',
+  eventName: 'Friday Late',
+  quota,
+});
+const ALL: TeamMailContent[] = [
+  join,
+  crewAdded(4),
+  { template: 'team_resend', kind: 'join', venueId: VENUE_ID, inviterName: 'Max', companyName: 'Club Vesper' },
+  { template: 'team_resend', kind: 'event', venueId: VENUE_ID, inviterName: 'Max', companyName: 'Club Vesper' },
+];
+
+describe('approved copy structure (Max, 2026-10-07)', () => {
+  it.each(ALL.map((c) => [c.template + ('kind' in c ? `/${c.kind}` : ''), c] as const))(
+    '%s: has a text version, a real <ol> with 3 steps, numbered text steps, no images, no "venue"',
+    (_label, content) => {
+      const m = renderTeamMail(content, APP);
+      expect(m.text.length).toBeGreaterThan(100);
+      expect(m.text).toContain('Getting in\n1. Tap Log in to PlusOne.\n2. Enter this email address.\n3. ');
+      expect(m.html.match(/<ol[\s>]/g)).toHaveLength(1);
+      expect(m.html.match(/<li[\s>]/g)).toHaveLength(3);
+      expect(m.html).not.toMatch(/<img|background-image|url\(/i);
+      expect(`${m.subject} ${m.text}`).not.toMatch(/venue/i);
+      expect(m.html).toContain('>Log in to PlusOne</a>');
+    }
+  );
+
+  it('crew added: the guest sentence shows only with a quota', () => {
+    expect(renderTeamMail(crewAdded(4), APP).text).toContain(
+      'Max added you to the crew for Friday Late at Club Vesper. You can put up to 4 guests on the list.'
+    );
+    expect(renderTeamMail(crewAdded(1), APP).text).toContain('You can put up to 1 guest on the list.');
+    for (const q of [undefined, 0]) {
+      const m = renderTeamMail(crewAdded(q), APP);
+      expect(m.text).not.toMatch(/guests? on the list/);
+      expect(m.html).not.toMatch(/guests? on the list/);
+    }
+  });
+
+  it('crew added: find-the-event + scope paragraphs; no 7-day line', () => {
+    const m = renderTeamMail(crewAdded(), APP);
+    expect(m.text).toContain('Find the event. Switch to Club Vesper:');
+    expect(m.text).toContain('You only see the events Club Vesper put you on.');
+    expect(m.text).not.toContain('7 days');
+  });
+
+  it('join and join-resend share everything from "Getting in" down', () => {
+    const a = renderTeamMail(join, APP).text;
+    const c = renderTeamMail(ALL[2], APP).text;
+    expect(c).toContain('Max sent your invite again.');
+    expect(a.slice(a.indexOf('Getting in'))).toBe(c.slice(c.indexOf('Getting in')));
+    expect(a).toContain('Already logged in? Open PlusOne and accept the invite in the banner at the top.');
+    expect(a).toContain('The invite is open for 7 days.');
+  });
+
+  it('crew resend: reminder intro, find-your-events, no quota, no 7 days', () => {
+    const m = renderTeamMail(ALL[3], APP).text;
+    expect(m).toContain("Max sent you a reminder. You're still on the crew at Club Vesper.");
+    expect(m).toContain('Find your events. Switch to Club Vesper:');
+    expect(m).not.toMatch(/guests? on the list|7 days/);
   });
 });
