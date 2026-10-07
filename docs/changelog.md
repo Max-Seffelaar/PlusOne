@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Crew bug: an existing account as crew (z8uq9m2yvp)
+
+Milestone **Now** (golf B, task 0d). `inviteExternalCrew` answered `exists` ("This email already has an account…") for any address GoTrue already knew, so a PlusOne account from another company could never be added as crew. The `alreadyRegistered` branch now resolves the account and continues on the existing path: `event_organizers` insert through the user-scoped client (23505 = already crew, tolerated), `upsertCrewQuota`, same `{ ok: true }`. No venue membership, no profile write for an existing account (#24), no mail (task 0e hooks its "added you to <event>" mail into that branch).
+
+- **Lookup = documented service-role exception** (`resolveExistingAccountId` in `src/features/events/actions.ts`), behind the unchanged C1 admin check and the demo-account stop. `user_profiles.email` only nominates candidates (case-insensitive, `_`/`%`/`\` escaped); a candidate counts only when its `auth.users` address equals the requested one, because the profile e-mail is owner-editable (column grant) and could otherwise be set to someone else's address. Not exactly one verified match → generic `invite` error. The resolved demo account → `42501` (same as `assignOrganizer`).
+- **No enumeration oracle:** new and existing addresses give the same result and the same success copy ("Added to the crew. They’ll see this event when they log in with this email."). The old copy also claimed no e-mail was sent, which was wrong for new addresses (the Supabase invite mail goes out).
+- Tests: 10 vitest cases over an in-memory two-client stand-in that asserts the rows left behind (new, existing, already crew, profile-spoof, missing profile, wildcard escape, non-admin, cross-venue, demo as target, demo as caller); one crew-sheet UI case; flow `crew-existing-account` (Q1–Q8, four variants) registered for the crew screen and `events/actions.ts`. Spec #24 gets one sentence.
+- Not changed: `src/lib/db-errors.ts` still lists the old "already has an account" copy as an expected message (harmless, outside the scope fence); `po/mutations.ts` docblock still says "brand-new" crew.
+
+---
+
 ## 2026-10-06 — Onboarding programme okt 2026, wave A closed (orchestrator)
 
 Milestone **Now**. Parallel wave of five sessions, merged in order: #402 (spikes §9 + seed fix), #404 (Sentry hygiene S1), #405 (Notifications N1, prod: `20261007110000` + `push-dispatch` v2), #406 (QA-0 flow harness + `flow-shots` CI job), #408 (Snelheid P1: `/app` layout 16 → 6 Supabase calls in 2 waves, 1 GoTrue; prod-push of `20261007100100`/`20261007100200` pending with Max). High-risk PRs (#405, #408) each had one fresh-session reviewer round (`/code-review high` + `/security-review`); no `/code-review ultra`. All 13 trialing prod venues set to `comped` via the `docs/stripe-setup.md` §5 runbook. Process lessons (drafts, changelog conflicts blocking CI, `CI=1 pnpm test`, watcher instead of polling) and follow-ups are in `onboarding-orchestration-claude-code.md` §2b "Status golf A".

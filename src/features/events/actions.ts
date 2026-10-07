@@ -413,13 +413,57 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
 }
 
 /**
- * Invite a brand-new external (#24) crew member by e-mail and add them to one or
- * more events, each with an optional guest quota. Mirrors the venue invite flow:
- * the auth identity + profile are provisioned server-side (service role — the
- * documented exception, so invite-only OTP login works and the FK resolves), then
- * each event_organizers scope + event_quotas override is written through the
- * USER-scoped client so RLS (admin) re-validates. No venue membership is created —
- * external crew stay out of the venue (#24).
+ * Resolve the account id behind an e-mail that GoTrue reports as already
+ * registered (z8uq9m2yvp). Service role — the documented exception, see the
+ * existing-account branch in inviteExternalCrew: user_profiles is not readable
+ * across venues for the caller, and must not be (RLS can_view_profile).
+ *
+ * user_profiles.email is a display mirror the owner can edit (column grant), so
+ * it only nominates candidates; the auth identity decides. A candidate counts
+ * only when its auth.users address equals the requested one, so a profile whose
+ * e-mail was edited to someone else's address can never be resolved in their
+ * place. Anything but exactly one verified match returns null (generic error,
+ * no detail). `email` arrives trimmed + lower-cased by crewEmail; `_`/`%`/`\`
+ * are escaped so the case-insensitive match is literal.
+ */
+async function resolveExistingAccountId(
+  service: ReturnType<typeof createServiceClient>,
+  email: string,
+): Promise<string | null> {
+  const literal = email.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data: candidates, error } = await service
+    .from('user_profiles')
+    .select('id')
+    .ilike('email', literal)
+    .limit(5);
+  if (error) {
+    console.error('inviteExternalCrew: existing-account lookup failed', error.message);
+    return null;
+  }
+  const verified: string[] = [];
+  for (const { id } of candidates ?? []) {
+    const { data, error: authError } = await service.auth.admin.getUserById(id);
+    if (authError) {
+      console.error('inviteExternalCrew: existing-account verify failed', authError.message);
+      return null;
+    }
+    if ((data.user?.email ?? '').toLowerCase() === email) verified.push(id);
+  }
+  return verified.length === 1 ? verified[0] : null;
+}
+
+/**
+ * Add an external (#24) crew member by e-mail to one or more events, each with
+ * an optional guest quota. A brand-new address gets an account the same way the
+ * venue invite flow provisions one: the auth identity + profile are created
+ * server-side (service role — the documented exception, so invite-only OTP login
+ * works and the FK resolves). An address that already has a PlusOne account
+ * (z8uq9m2yvp) is resolved to that account instead; its profile is left alone.
+ * Either way each event_organizers scope + event_quotas override is written
+ * through the USER-scoped client so RLS (admin) re-validates. No venue
+ * membership is created — external crew stay out of the venue (#24). Both cases
+ * return the same result, so the admin never learns whether the address already
+ * had an account.
  */
 export async function inviteExternalCrew(input: InviteExternalCrewInput): Promise<ActionResult> {
   const parsed = inviteExternalCrewSchema.safeParse(input);
@@ -438,13 +482,13 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
   if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
 
   // C1 (security review 7/7): authorize BEFORE any service-role side effect.
-  // Provisioning an auth account + sending the invite mail must never run for a
-  // caller who isn't an admin of the venue(s) owning the target events — else any
-  // authenticated user could drive an invite-only bypass, spam mail, and probe
-  // account existence. Mirror resendCrewInvite: read through the USER-scoped
-  // client so RLS backs the evidence. A non-admin, or an event id in a venue the
-  // caller can't see, fails here generically (no oracle) — before line 470's
-  // inviteUserByEmail.
+  // Provisioning an auth account, sending the invite mail and resolving an
+  // existing account must never run for a caller who isn't an admin of the
+  // venue(s) owning the target events — else any authenticated user could drive
+  // an invite-only bypass, spam mail, and probe account existence. Mirror
+  // resendCrewInvite: read through the USER-scoped client so RLS backs the
+  // evidence. A non-admin, or an event id in a venue the caller can't see, fails
+  // here generically (no oracle) — before inviteUserByEmail and the lookup.
   const supabase = await createClient();
   const uniqueEventIds = [...new Set(eventIds)];
   const { data: targetEvents, error: eventsError } = await supabase
@@ -475,41 +519,50 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
     data: { full_name: fullName },
   });
 
+  let crewUserId: string;
   if (createError) {
-    if (alreadyRegistered(createError)) {
-      // The account already exists. We deliberately don't resolve their id
-      // server-side (no enumeration); steer the admin to the returning-crew list.
-      return {
-        ok: false,
-        code: 'exists',
-        message:
-          'This email already has an account. If they’ve worked here before, add them from the returning-crew list instead.',
-      };
+    if (!alreadyRegistered(createError)) {
+      console.error('inviteExternalCrew: createUser failed', createError.message);
+      return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
     }
-    console.error('inviteExternalCrew: createUser failed', createError.message);
-    return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
-  }
-
-  const crewUserId = created?.user?.id;
-  if (!crewUserId) {
-    return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
-  }
-
-  // Pre-provision the profile so event_organizers.user_id FK resolves. The user
-  // owns it from first login (decision #24); accept_pending_invites leaves it be.
-  const { error: profileError } = await service
-    .from('user_profiles')
-    .upsert({ id: crewUserId, full_name: fullName, email }, { onConflict: 'id', ignoreDuplicates: true });
-  if (profileError) {
-    console.error('inviteExternalCrew: profile upsert failed', profileError.message);
-    return { ok: false, code: 'invite', message: "Couldn't record the invite." };
+    // ── Existing account (z8uq9m2yvp) ──────────────────────────────────────
+    // Documented service-role exception, same shape as C1 above: the admin
+    // check has already passed, so only an admin of every target venue reaches
+    // this lookup. The resolved id is never returned or logged, and the result
+    // below is identical to the new-account path (no enumeration oracle). The
+    // profile belongs to its owner (#24): nothing here writes it. No mail goes
+    // out on this branch; the "added you to <event>" mail hooks in here.
+    const existingId = await resolveExistingAccountId(service, email);
+    if (!existingId) {
+      return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
+    }
+    // Same refusal as assignOrganizer: the demo account is never crew (the
+    // event_organizers trigger is the real stop).
+    if (existingId === DEMO_USER_ID) return { ok: false, code: '42501', message: t.auth.demoCannotJoin };
+    crewUserId = existingId;
+  } else {
+    const newUserId = created?.user?.id;
+    if (!newUserId) {
+      return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
+    }
+    // Pre-provision the profile so event_organizers.user_id FK resolves. The user
+    // owns it from first login (decision #24); accept_pending_invites leaves it be.
+    const { error: profileError } = await service
+      .from('user_profiles')
+      .upsert({ id: newUserId, full_name: fullName, email }, { onConflict: 'id', ignoreDuplicates: true });
+    if (profileError) {
+      console.error('inviteExternalCrew: profile upsert failed', profileError.message);
+      return { ok: false, code: 'invite', message: "Couldn't record the invite." };
+    }
+    crewUserId = newUserId;
   }
 
   for (const eventId of eventIds) {
     const { error } = await supabase
       .from('event_organizers')
       .insert({ event_id: eventId, user_id: crewUserId });
-    // A fresh account can't already be crew; tolerate 23505 defensively per event.
+    // Already crew on this event (an existing account, or an unconfirmed one
+    // GoTrue re-invited): 23505 is the desired state, not an error.
     if (error && error.code !== '23505') return mapMutationError(error);
     if (quota !== undefined) {
       const { error: qErr } = await upsertCrewQuota(supabase, eventId, crewUserId, quota);

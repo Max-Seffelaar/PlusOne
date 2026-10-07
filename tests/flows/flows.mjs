@@ -70,6 +70,13 @@ export const FLOWS = {
       'src/components/po/screens/settings',
     ],
   },
+  'crew-existing-account': {
+    title: 'Crew — an existing account added as external crew sees only that event (#24)',
+    paths: [
+      'src/components/po/screens/events/crew',
+      'src/features/events/actions.ts',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [

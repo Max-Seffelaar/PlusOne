@@ -61,4 +61,22 @@ describe('event crew invite', () => {
     openSheet();
     expect(screen.getByPlaceholderText(t.events.crew.invitePlaceholder)).toBeInTheDocument();
   });
+
+  it('admin: a successful invite shows the one success notice and no error (new or existing account alike, z8uq9m2yvp)', () => {
+    H.demo = false;
+    H.invite.mockImplementation((_input: unknown, opts: { onSuccess?: () => void }) => opts.onSuccess?.());
+    render(<Crew eventId="e1" />);
+    openSheet();
+    fireEvent.change(screen.getByPlaceholderText(t.events.crew.invitePlaceholder), {
+      target: { value: 'staff@plusone.test' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(t.events.crew.inviteCta) }));
+    expect(H.invite).toHaveBeenCalledWith(
+      { email: 'staff@plusone.test', eventIds: ['e1'], quota: 2 },
+      expect.anything(),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(t.events.crew.inviteDone);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/already has an account/i);
+  });
 });

@@ -314,7 +314,9 @@ export const events = {
     invitePlaceholder: 'dj@email.com',
     inviteCta: 'Send invite',
     inviting: 'Inviting…',
-    inviteDone: 'Added to the crew. No invite email is sent. Tell them to sign in at /login with this email.',
+    // Same copy whether the address was new or already had a PlusOne account
+    // (z8uq9m2yvp): the admin must not learn which (no enumeration oracle).
+    inviteDone: 'Added to the crew. They’ll see this event when they log in with this email.',
     inviteError: "Couldn't send the invite.",
     assignLabel: 'Add a returning crew member',
     assignHint: 'Someone who’s been external crew here before. They keep their login; just set their guest quota.',
