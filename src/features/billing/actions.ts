@@ -8,52 +8,22 @@ import { getAuthContext } from '@/lib/auth/context';
 import { t } from '@/lib/i18n';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { billing } from './provider';
-import { DEFAULT_PLAN_ID, isPlanId, trialEndsAt, type PlanId } from './plans';
+import { effectiveTrialEndsAt, PLAN_ID, type BillingPrices } from './plans';
 import {
-  setVenuePlanSchema,
   completeOnboardingSchema,
   billingSessionSchema,
-  type SetVenuePlanInput,
+  checkoutSessionSchema,
   type CompleteOnboardingInput,
   type BillingSessionInput,
+  type CheckoutSessionActionInput,
 } from './schemas';
 
 // Onboarding-time billing writes. subscriptions has no authenticated INSERT/UPDATE
-// path (Stripe/webhook writes only, #32), so both actions go through the
-// SECURITY DEFINER RPCs from 20260615000000 which re-check admin authority in the
-// database. The status decision lives behind the BillingProvider, never inline.
+// path (Stripe/webhook writes only, #32): the company's trialing Pro row is
+// created by create_venue_with_owner itself (20261008120000), so onboarding no
+// longer has a plan step or a plan action (Billing G).
 
 export type BillingActionResult = { ok: true } | MutationError;
-
-/**
- * Set/replace the plan on a venue during onboarding (resumable Plan step).
- * The venue's creator is already its admin, so the RPC's admin check passes
- * without MFA (a fresh owner has not enrolled yet).
- */
-export async function setVenuePlanAction(input: SetVenuePlanInput): Promise<BillingActionResult> {
-  const parsed = setVenuePlanSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, planId } = parsed.data;
-
-  const ctx = await getAuthContext();
-  if (!ctx) return unauthorized();
-
-  // comped is never client-settable (#32) — the RPC always starts a new
-  // subscription trialing; comped is stamped later, manually, via the
-  // service-role runbook (docs/stripe-setup.md).
-  await billing.startSubscription({ venueId, planId: planId as PlanId });
-
-  const supabase = await createClient();
-  const { error } = await supabase.rpc('set_venue_plan', {
-    p_venue_id: venueId,
-    p_plan_id: planId,
-  });
-  if (error) return mapMutationError(error);
-
-  revalidatePath('/onboarding');
-  revalidatePath('/app');
-  return { ok: true };
-}
 
 /** Mark onboarding finished for a venue (sets venues.settings.onboarding.completed). */
 export async function completeOnboardingAction(
@@ -99,9 +69,12 @@ async function appOrigin(): Promise<string> {
   return `${proto}://${host}`;
 }
 
-/** The caller's roles at the venue, via the user-scoped client (a user always
- *  reads their own membership; a non-member reads nothing). */
-async function callerIsVenueAdmin(venueId: string): Promise<boolean> {
+/** May the caller manage this venue's billing? Admin OR finance of THAT venue
+ *  (decision 2026-10-06: billing rights = admin + finance). Read through the
+ *  user-scoped client, so RLS is the proof: a user always reads their own
+ *  membership row, a non-member reads nothing. A platform admin without a real
+ *  membership there gets nothing either — billing stays the company's. */
+async function callerMayManageBilling(venueId: string): Promise<boolean> {
   const supabase = await createClient();
   const { data: userRes } = await supabase.auth.getUser();
   if (!userRes.user) return false;
@@ -111,27 +84,29 @@ async function callerIsVenueAdmin(venueId: string): Promise<boolean> {
     .eq('venue_id', venueId)
     .eq('user_id', userRes.user.id)
     .maybeSingle();
-  return (data?.roles ?? []).includes('admin');
+  const roles = data?.roles ?? [];
+  return roles.includes('admin') || roles.includes('finance');
 }
 
 /**
- * Start Stripe Checkout for the venue's subscription. Admin-only; the plan is
- * resolved server-side from the venue's own subscription row (a venue that
- * never picked a plan checks out on the default paid plan). Remaining app-side
- * trial carries into Stripe as trial_end. The fresh customer id is persisted
+ * Start Stripe Checkout for the venue's subscription. Admin or finance only;
+ * the plan is always Pro, the interval (month|year) is the caller's pick, and
+ * the price is found in Stripe by lookup key. The remaining app-side trial
+ * (effectiveTrialEndsAt — the same rule as the gate) carries into Stripe as
+ * trial_end. The fresh customer id is persisted
  * immediately (stamp_stripe_customer, service-role — second documented confined
  * usage besides the webhook) so a webhook can always match by customer.
  */
 export async function createCheckoutSessionAction(
-  input: BillingSessionInput
+  input: CheckoutSessionActionInput
 ): Promise<BillingUrlResult> {
-  const parsed = billingSessionSchema.safeParse(input);
+  const parsed = checkoutSessionSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId } = parsed.data;
+  const { venueId, interval } = parsed.data;
 
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
-  if (!(await callerIsVenueAdmin(venueId))) return unauthorized();
+  if (!(await callerMayManageBilling(venueId))) return unauthorized();
 
   const supabase = await createClient();
   const [{ data: venue }, { data: sub }] = await Promise.all([
@@ -142,7 +117,7 @@ export async function createCheckoutSessionAction(
       .maybeSingle(),
     supabase
       .from('subscriptions')
-      .select('status, plan_id, created_at, stripe_customer_id, stripe_subscription_id')
+      .select('status, created_at, trial_ends_at, stripe_customer_id, stripe_subscription_id')
       .eq('venue_id', venueId)
       .maybeSingle(),
   ]);
@@ -167,17 +142,13 @@ export async function createCheckoutSessionAction(
     );
   }
 
-  const planId: PlanId =
-    sub.plan_id && isPlanId(sub.plan_id) && sub.plan_id !== 'indie'
-      ? sub.plan_id
-      : DEFAULT_PLAN_ID;
-
   const origin = await appOrigin();
   let result: Awaited<ReturnType<typeof billing.createCheckoutSession>>;
   try {
     result = await billing.createCheckoutSession({
       venueId,
-      planId,
+      planId: PLAN_ID,
+      interval,
       company: {
         name: venue.company_name ?? venue.name,
         vatNumber: venue.vat_number ?? null,
@@ -185,7 +156,7 @@ export async function createCheckoutSessionAction(
       },
       customerEmail: ctx.user.email ?? '',
       existingCustomerId: sub.stripe_customer_id ?? null,
-      trialEnd: sub.status === 'trialing' ? trialEndsAt(sub.created_at) : null,
+      trialEnd: sub.status === 'trialing' ? effectiveTrialEndsAt(sub.created_at, sub.trial_ends_at) : null,
       successUrl: `${origin}/app?billing=success`,
       cancelUrl: `${origin}/app?billing=canceled`,
     });
@@ -195,9 +166,13 @@ export async function createCheckoutSessionAction(
   }
 
   if (!result.ok) {
-    return result.reason === 'free_plan'
-      ? billingErr('free_plan', 'This plan has no paid subscription.')
-      : billingErr('unavailable', "Billing isn't live yet. Try again later.");
+    if (result.reason === 'misconfigured') {
+      // The misconfiguration guard (moved here from config import time): Stripe
+      // is on but has no active price under this interval's lookup key. Loud on
+      // purpose — console.error is what the log drain alerts on.
+      console.error('stripe checkout misconfigured: no active price for lookup key', { interval });
+    }
+    return billingErr('unavailable', "Billing isn't live yet. Try again later.");
   }
 
   // Persist a newly created customer id before redirecting: if the user
@@ -219,7 +194,7 @@ export async function createCheckoutSessionAction(
 }
 
 /**
- * Open the Stripe customer portal (payment method + invoices). Admin-only;
+ * Open the Stripe customer portal (payment method + invoices). Admin or finance;
  * requires that a checkout once created the Stripe customer.
  */
 export async function createPortalSessionAction(
@@ -231,7 +206,7 @@ export async function createPortalSessionAction(
 
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
-  if (!(await callerIsVenueAdmin(venueId))) return unauthorized();
+  if (!(await callerMayManageBilling(venueId))) return unauthorized();
 
   const supabase = await createClient();
   const { data: sub } = await supabase
@@ -256,4 +231,24 @@ export async function createPortalSessionAction(
   }
   if (!result.ok) return billingErr('unavailable', "Billing isn't live yet. Try again later.");
   return { ok: true, url: result.url };
+}
+
+// ── Prices (Billing G) ───────────────────────────────────────────────────────
+// The two Pro prices, live from Stripe (provider-side cache). Browser only: the
+// po Billing screen never asks inside the native shell (store-tax seam). Any
+// signed-in user may read them — a price list is not venue data — but the
+// session is still verified server-side. null = no billing configured (stub)
+// or Stripe unreachable: the screen says the price is shown at checkout.
+
+export type BillingPricesResult = { ok: true; prices: BillingPrices | null } | MutationError;
+
+export async function getBillingPricesAction(): Promise<BillingPricesResult> {
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+  try {
+    return { ok: true, prices: await billing.listPrices() };
+  } catch (err) {
+    console.error('listPrices failed', { err: err instanceof Error ? err.message : 'unknown' });
+    return { ok: true, prices: null };
+  }
 }
