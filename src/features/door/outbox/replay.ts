@@ -43,6 +43,14 @@ export interface ReplayResult {
   codedReject?: boolean;
 }
 
+/**
+ * Shown (once, as a toast) when the database refused a queued undo because
+ * this user may not undo check-ins at this event (z8uq9m2vg6). English UI copy
+ * lives in the catalogue; replay stays free of React/i18n imports for its
+ * tests, so the provider maps `denied` to `t.door.undoDeniedToast`.
+ */
+export const UNDO_DENIED = 'undo_denied';
+
 export function classifyError(error: DbError | null): ReplayResult {
   if (!error) return { status: 'synced' };
   const code = error.code ?? '';
@@ -117,8 +125,11 @@ export async function replayEntry(
   const { actor, syncedBy } = actorOf(entry, uid);
   switch (entry.kind) {
     case 'check_in': {
+      // Absolute-count upsert on the row id (z8uq9m2vg6). A replay of the same
+      // item is a no-op on the server (same values, no audit row); an older
+      // item is dropped there (stale guard); identity stays first-wins.
       const p = entry.payload;
-      const { error } = await gw.insertCheckIn({
+      const { error } = await gw.upsertCheckIn({
         id: p.id,
         guest_id: p.guestId,
         event_id: entry.eventId,
@@ -135,7 +146,7 @@ export async function replayEntry(
       const p = entry.payload;
       // Absolute target; the trigger keeps it monotonic + capped, so a re-send or
       // a row owned by another checker (0 rows) is a harmless no-op = synced.
-      const { error } = await gw.topUpCheckIn(p.guestId, p.plusOnesArrived);
+      const { error } = await gw.topUpCheckIn(p.guestId, p.plusOnesArrived, p.clientTimestamp);
       return classifyError(error);
     }
     case 'check_in_void': {
@@ -144,12 +155,20 @@ export async function replayEntry(
       // this device was offline is left alone (#35) — that too is a 0-row synced.
       const p = entry.payload;
       // voided_by = the doorhost who sent the guest back out, not the courier.
-      const { error } = await gw.voidCheckIn(p.guestId, actor, p.checkInId ?? null);
+      const { error } = await gw.voidCheckIn(p.guestId, actor, p.checkInId ?? null, p.clientTimestamp);
+      // 42501 on an undo = the database says this user may not undo here (the
+      // company/event setting is off and they are not admin/user manager — the
+      // RESTRICTIVE check_ins_void_requires_uncheck policy, z8uq9m2vg6). That
+      // will never change on retry, and it is not a broken write either: settle
+      // it as `denied` so it is neither retried by "sync now" nor parked as a
+      // dead letter. The guest is still inside on the server; the refetch after
+      // the drain shows them inside again.
+      if (error?.code === '42501') return { status: 'denied', message: UNDO_DENIED };
       return classifyError(error);
     }
     case 'check_in_revive': {
       const p = entry.payload;
-      const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, actor, p.checkInId ?? null);
+      const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, actor, p.checkInId ?? null, p.clientTimestamp);
       return classifyError(error);
     }
     case 'refusal': {
@@ -211,6 +230,8 @@ export interface DrainSummary {
   errors: number;
   /** Coded rejects that gave up after MAX_ATTEMPTS and were dead-lettered (C9). */
   deadLettered: number;
+  /** Undos the database refused for this user (z8uq9m2vg6) — settled, reported once. */
+  denied: number;
   /** A code-less (network/offline) failure paused the drain early. */
   interrupted: boolean;
   /**
@@ -255,6 +276,7 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
     duplicates: 0,
     errors: 0,
     deadLettered: 0,
+    denied: 0,
     interrupted: false,
   };
   // Guest chains with a predecessor that is still pending after this loop's
@@ -313,6 +335,7 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
     summary.processed++;
     if (result.status === 'synced') summary.synced++;
     if (result.status === 'duplicate') summary.duplicates++;
+    if (result.status === 'denied') summary.denied++;
     if (result.status === 'error') {
       summary.errors++;
       if (result.message) summary.lastError = result.message;

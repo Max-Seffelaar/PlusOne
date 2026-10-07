@@ -26,8 +26,9 @@ import { v7 as uuidv7 } from 'uuid';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { addOnSpotSchema } from '@/features/guests/schemas';
 import { getDeviceId, getDoorClient } from './offline/device';
+import { t, fmt } from '@/lib/i18n';
 import { drainOutbox, guestKeyOf } from './outbox/replay';
-import { hasOpenCheckIn } from './outbox/dedup';
+import { coalesceTarget, openCheckInId } from './outbox/dedup';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
 import { foreignEntries, hasUnsynced, isPending, type OutboxEntry } from './outbox/types';
@@ -86,15 +87,22 @@ interface DoorContextValue {
   tasks: DoorTask[];
   quota: QuotaStatus | null;
   defaultTierId: string | null;
-  /** Effective "uitchecken toestaan" for this event (#3 / S1.1). When false the
-   *  screens hide the "Check-in terugdraaien" affordance; RLS rejects it too. */
+  /** Effective "uitchecken toestaan" for this event (#3 / S1.1) — the setting. */
   allowUncheck: boolean;
+  /** May THIS user undo a check-in here (z8uq9m2vg6)? Admin/user manager always,
+   *  door host/crew only with the setting on. The screens hide "Reverse
+   *  check-in" when false; the RESTRICTIVE check_ins policy rejects it too. */
+  canUncheck: boolean;
   /** Entries for this event still awaiting the network (sync-bar queue badge). */
   pendingCount: number;
   /** guest_id → its outbox entries (for the "duplicaat" marker). */
   outboxByGuest: Map<string, OutboxEntry[]>;
   guestById: (id: string) => DoorGuest | undefined;
+  /** Set how many of the party are inside, as an ABSOLUTE number (z8uq9m2vg6):
+   *  "Check in all (N)" passes the whole party. Never lowers the count. */
   checkIn: (guestId: string, totalPeople: number) => void;
+  /** "Check in 1": one more person of the party inside (the guest first). */
+  checkInOne: (guestId: string) => void;
   /** Raise an already-checked-in guest's arrivals by `addArrived` ("nog inchecken"). */
   topUp: (guestId: string, addArrived: number) => void;
   /** Soft-void a mistaken check-in — the guest returns to "onderweg" (#3). */
@@ -300,6 +308,9 @@ export function DoorProvider({
   viewRef.current = view;
   const guestMapRef = useRef(guestMap);
   guestMapRef.current = guestMap;
+  // setInside routes a tap on a voided row to the revive path, which is
+  // declared after it; a ref keeps the call order-independent.
+  const reviveRef = useRef<(guestId: string, totalPeople: number) => void>(() => {});
 
   // ── D2: Sets for O(1) realtime dedup (replaces O(n) .some() on the hot path).
   // Eagerly updated in onRealtimeCheckIn; rebuilt synchronously during render when
@@ -413,6 +424,10 @@ export function DoorProvider({
         }
       }
       if (summary.duplicates > 0) showToast('Was already checked in on another device');
+      // A queued undo the database refused for this user (z8uq9m2vg6). Settled
+      // as `denied` — not retried, not a dead letter — and said once, here; the
+      // refetch below puts the guest back inside where the server has them.
+      if (summary.denied > 0) showToast(t.door.undoDeniedToast);
       // The entry that JUST failed, carried out of the drain itself. Scanning the
       // store for the first `error` entry (the old code) returns the OLDEST one
       // still queued — since tombstones were never pruned, that meant a doorhost
@@ -510,85 +525,102 @@ export function DoorProvider({
 
   // ── Mutations (thin wrappers over enqueueDoorWrite).
 
-  const checkIn = useCallback(
+  // ── Check-in as an ABSOLUTE count (z8uq9m2vg6, spike 9.2). "Check in all
+  // (N)", "Check in 1" and "nog inchecken" all land here with the number of
+  // people that should be inside. One row per guest (#11), one outbox kind: an
+  // upsert on the row's id. Reads only synchronous state (the query cache that
+  // `patchSnapshot` writes, and the outbox), so a second tap in the same frame
+  // sees the first and builds on it — and nothing here waits on the network
+  // (#25: the door works offline).
+  const setInside = useCallback(
     (guestId: string, totalPeople: number) => {
       const g = guestMapRef.current.get(guestId);
-      // O8 — guard the ENQUEUE, not just the optimistic patch. The patch below
-      // is a no-op when the guest is already in the snapshot, but the entry was
-      // queued regardless; `check_ins.guest_id` is UNIQUE, so that second entry
-      // could only ever come back 23505 → `duplicate` → "Was already checked in
-      // on another device" at a doorhost who just double-tapped their own
-      // tablet. Both reads are deliberately synchronous state that the first tap
-      // already mutated — the query cache (also patched by realtime, so a
-      // colleague's check-in counts too) and the outbox — because two taps in
-      // one frame share the same stale render refs (`guestMapRef`/`view`).
-      const existing = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
-      if (existing || hasOpenCheckIn(outbox.getSnapshot(), eventId, guestId)) {
-        // Never silent: the tap has to answer something, or the doorhost taps
-        // again. A voided row is the revive path's business, not a fresh INSERT.
-        showToast(
-          existing?.voided_at
-            ? `${g?.name ?? 'Guest'} · check-in was reversed: use re-check-in`
-            : `${g?.name ?? 'Guest'} · already inside`,
-        );
+      const allotment = g?.plus ?? 0;
+      const row = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
+      // A voided row is brought back by a revive (it re-sets the count fresh);
+      // routed there so this path only ever raises an active count.
+      if (row?.voided_at) {
+        reviveRef.current(guestId, totalPeople);
         return;
       }
-      const ciId = uuidv7();
+      const target = Math.min(allotment, Math.max(0, totalPeople - 1));
+      if (row && target <= row.plus_ones_arrived) {
+        // Never silent: the tap has to answer something, or the doorhost taps again.
+        showToast(`${g?.name ?? 'Guest'} · already inside`);
+        return;
+      }
+      // The row this tap upserts: the one we already see (ours or a colleague's,
+      // from the snapshot), else the one a still-queued check-in will create,
+      // else a fresh one. Reusing the id is what makes "+1" on someone else's
+      // check-in an update of THEIR row instead of a 23505 duplicate.
+      const id = row?.id ?? openCheckInId(outbox.getSnapshot(), eventId, guestId) ?? uuidv7();
       const ts = new Date().toISOString();
-      const plusArrived = Math.max(0, totalPeople - 1);
-      enqueueDoorWrite(
-        { kind: 'check_in', payload: { id: ciId, guestId, plusOnesArrived: plusArrived, clientTimestamp: ts } },
-        (s) => {
-          if (s.checkIns.some((c) => c.guest_id === guestId)) return s;
-          const row: CheckInRow = {
-            id: ciId,
-            guest_id: guestId,
-            event_id: eventId,
-            venue_id: s.event.venueId,
-            checked_by: meId ?? '',
-            // Optimistic row: this device is both actor and sender until proven
-            // otherwise, and replay recomputes synced_by at drain time anyway.
-            synced_by: null,
-            checked_at: ts,
-            client_timestamp: ts,
-            device_id: getDeviceId(),
-            plus_ones_arrived: plusArrived,
-            offline_synced: false,
-            created_at: ts,
-            voided_at: null,
-            voided_by: null,
+      const payload = { id, guestId, plusOnesArrived: target, clientTimestamp: ts };
+      const patch = (s: DoorSnapshot): DoorSnapshot => {
+        if (s.checkIns.some((c) => c.guest_id === guestId)) {
+          return {
+            ...s,
+            checkIns: s.checkIns.map((c) =>
+              c.guest_id === guestId ? { ...c, plus_ones_arrived: Math.max(c.plus_ones_arrived, target) } : c,
+            ),
           };
-          return { ...s, checkIns: [...s.checkIns, row] };
-        },
-        `${g?.name ?? 'Guest'}${plusArrived > 0 ? ` +${plusArrived}` : ''} · inside ✓`,
-      );
+        }
+        const fresh: CheckInRow = {
+          id,
+          guest_id: guestId,
+          event_id: eventId,
+          venue_id: s.event.venueId,
+          checked_by: meId ?? '',
+          // Optimistic row: this device is both actor and sender until proven
+          // otherwise, and replay recomputes synced_by at drain time anyway.
+          synced_by: null,
+          checked_at: ts,
+          client_timestamp: ts,
+          device_id: getDeviceId(),
+          plus_ones_arrived: target,
+          offline_synced: false,
+          created_at: ts,
+          voided_at: null,
+          voided_by: null,
+        };
+        return { ...s, checkIns: [...s.checkIns, fresh] };
+      };
+      const toastMsg = `${g?.name ?? 'Guest'} · ${fmt(t.door.partyCount, { inside: 1 + target, total: 1 + allotment })} inside ✓`;
+      // Two taps offline = one row online: a still-pending entry for this same
+      // row is overwritten in place (last wins) rather than queued twice.
+      const coalesce = coalesceTarget(outbox.getSnapshot(), eventId, payload);
+      if (coalesce) {
+        outbox.update(coalesce, { payload, ownerId: meId ?? undefined } as Partial<OutboxEntry>);
+        patchSnapshot(patch);
+        showToast(toastMsg);
+        maybeFlush();
+        return;
+      }
+      enqueueDoorWrite({ kind: 'check_in', payload }, patch, toastMsg);
     },
-    [enqueueDoorWrite, eventId, meId, readSnapshot, showToast],
+    [enqueueDoorWrite, eventId, meId, readSnapshot, showToast, patchSnapshot, maybeFlush],
   );
 
-  // "Nog inchecken": raise plus_ones_arrived for a guest already inside. We read
-  // the current arrivals + allotment from the live view and send the NEW absolute
-  // target (capped client-side; the trigger caps + keeps it monotonic server-side).
+  const checkIn = setInside;
+
+  // "Check in 1": the guest themselves first, then one plus-one per tap.
+  const checkInOne = useCallback(
+    (guestId: string) => {
+      const row = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
+      if (!row || row.voided_at) setInside(guestId, 1);
+      else setInside(guestId, 2 + row.plus_ones_arrived);
+    },
+    [readSnapshot, setInside],
+  );
+
+  // "Nog inchecken": `addArrived` more of the party, on top of what is inside.
   const topUp = useCallback(
     (guestId: string, addArrived: number) => {
-      const g = guestMapRef.current.get(guestId);
-      if (!g || !g.inside) return;
-      const current = g.arrived ?? 0;
-      const target = Math.min(g.plus, current + Math.max(0, addArrived));
-      if (target <= current) return;
-      const ts = new Date().toISOString();
-      enqueueDoorWrite(
-        { kind: 'check_in_topup', payload: { guestId, plusOnesArrived: target, clientTimestamp: ts } },
-        (s) => ({
-          ...s,
-          checkIns: s.checkIns.map((c) =>
-            c.guest_id === guestId ? { ...c, plus_ones_arrived: Math.max(c.plus_ones_arrived, target) } : c,
-          ),
-        }),
-        `${g.name} · now ${1 + target} inside`,
-      );
+      const row = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
+      if (!row || row.voided_at) return;
+      setInside(guestId, 1 + row.plus_ones_arrived + Math.max(0, addArrived));
     },
-    [enqueueDoorWrite],
+    [readSnapshot, setInside],
   );
 
   // "Check-in terugdraaien": soft-void a mistaken check-in (#3 — never deleted).
@@ -598,6 +630,13 @@ export function DoorProvider({
     (guestId: string) => {
       const g = guestMapRef.current.get(guestId);
       if (!g || !g.inside) return;
+      // The button is hidden without the right; this catches a stale screen. The
+      // database is the boundary either way (check_ins_void_requires_uncheck).
+      const ev = viewRef.current?.event;
+      if (ev && !(ev.canUncheck ?? ev.allowUncheck)) {
+        showToast(t.door.uncheckDisabled);
+        return;
+      }
       const ts = new Date().toISOString();
       enqueueDoorWrite(
         // The observed row id travels with the entry: replayed hours later it
@@ -613,7 +652,7 @@ export function DoorProvider({
         `${g.name} · check-in reversed`,
       );
     },
-    [enqueueDoorWrite, meId],
+    [enqueueDoorWrite, meId, showToast],
   );
 
   // "Opnieuw inchecken": revive a voided check-in (clears voided_at, re-sets
@@ -622,13 +661,16 @@ export function DoorProvider({
   const reviveCheckIn = useCallback(
     (guestId: string, totalPeople: number) => {
       const g = guestMapRef.current.get(guestId);
-      if (!g || !g.voided) return;
+      // Fresh read of the cache, not the render ref: a tap in the same frame as
+      // the void (or routed here from setInside) must see the voided row.
+      const row = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
+      if (!g || !row?.voided_at) return;
       const plusArrived = Math.min(g.plus, Math.max(0, totalPeople - 1));
       const ts = new Date().toISOString();
       enqueueDoorWrite(
         {
           kind: 'check_in_revive',
-          payload: { guestId, plusOnesArrived: plusArrived, checkInId: g.checkInId, clientTimestamp: ts },
+          payload: { guestId, plusOnesArrived: plusArrived, checkInId: row.id, clientTimestamp: ts },
         },
         (s) => ({
           ...s,
@@ -641,8 +683,9 @@ export function DoorProvider({
         `${g.name}${plusArrived > 0 ? ` +${plusArrived}` : ''} · back inside ✓`,
       );
     },
-    [enqueueDoorWrite, meId],
+    [enqueueDoorWrite, meId, readSnapshot],
   );
+  reviveRef.current = reviveCheckIn;
 
   const refuse = useCallback(
     (guestId: string, reason: string) => {
@@ -827,10 +870,13 @@ export function DoorProvider({
       quota: quotaQuery.data ?? null,
       defaultTierId,
       allowUncheck: view?.event.allowUncheck ?? true,
+      // An older persisted snapshot has no canUncheck: fall back to the setting.
+      canUncheck: view?.event.canUncheck ?? view?.event.allowUncheck ?? false,
       pendingCount,
       outboxByGuest,
       guestById,
       checkIn,
+      checkInOne,
       topUp,
       voidCheckIn,
       reviveCheckIn,
@@ -839,7 +885,7 @@ export function DoorProvider({
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, pendingCount, outboxByGuest, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, pendingCount, outboxByGuest, guestById, checkIn, checkInOne, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
   );
 
   // Narrow contexts (see the comments on DoorFiltersContext/DoorToastContext

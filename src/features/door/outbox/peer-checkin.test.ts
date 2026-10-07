@@ -63,6 +63,27 @@ function fakeDb(seed: CheckInRowState[]) {
       });
       return { error: null };
     },
+    // ON CONFLICT (id): the same row is updated (count monotonic, identity
+    // first-wins — check_ins_a_stale_guard); a different row for the guest is
+    // still the guest_id unique violation (#11).
+    upsertCheckIn: async (row) => {
+      const same = rows.find((r) => r.id === row.id);
+      if (same) {
+        same.plus_ones_arrived = Math.max(same.plus_ones_arrived, row.plus_ones_arrived ?? 0);
+        return { error: null };
+      }
+      if (rows.some((r) => r.guest_id === row.guest_id)) {
+        return { error: { code: '23505', details: `Key (guest_id)=(${row.guest_id}) already exists.` } };
+      }
+      rows.push({
+        id: row.id as string,
+        guest_id: row.guest_id,
+        checked_by: row.checked_by,
+        plus_ones_arrived: row.plus_ones_arrived ?? 0,
+        voided_at: null,
+      });
+      return { error: null };
+    },
     topUpCheckIn: async (guestId, plusOnesArrived) => {
       const r = find(guestId, null);
       if (r) r.plus_ones_arrived = Math.max(r.plus_ones_arrived, plusOnesArrived);

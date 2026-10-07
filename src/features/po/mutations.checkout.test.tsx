@@ -58,6 +58,7 @@ let failing: Set<string>;
  */
 const fakeGateway: DoorGateway = {
   insertCheckIn: async () => ({ error: null }),
+  upsertCheckIn: async () => ({ error: null }),
   topUpCheckIn: async () => ({ error: null }),
   insertRefusal: async () => ({ error: null }),
   undoRefusal: async () => ({ error: null }),

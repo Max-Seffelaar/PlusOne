@@ -2007,6 +2007,7 @@ export type Database = {
         Args: { p_actor_id: string; p_event_id: string }
         Returns: boolean
       }
+      can_uncheck_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
       check_out_guest: {

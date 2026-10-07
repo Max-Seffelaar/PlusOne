@@ -89,8 +89,19 @@ export const door = {
   inAt: 'Inside at {time}',
   inBy: 'by {name}',
   checkInMoreBtn: 'Check in {n} more',
+  // Group-first check-in (z8uq9m2vg6). {n} = the whole party (1 + plus-ones), or
+  // what is still outside when part of the party is already in.
+  checkInAllBtn: 'Check in all ({n})',
+  checkInOneBtn: 'Check in 1',
+  // The running count beside "Check in 1": people inside of the party.
+  partyCount: '{inside}/{total}',
+  partyCountAria: '{inside} of {total} inside',
   uncheckBtn: 'Reverse check-in',
-  uncheckDisabled: "Check-out is off for this event. Ask an admin.",
+  // Undo is role-dependent since z8uq9m2vg6: admins and user managers always,
+  // door hosts and crew only when the company or event allows it.
+  uncheckDisabled: 'Only admins and user managers can undo check-ins here.',
+  // Toast after sync when the database refused a queued undo (setting off).
+  undoDeniedToast: "Undo not saved. Only admins and user managers can undo check-ins here.",
   reCheckInTitle: 'Check in again?',
   howManyComingIn: 'How many are coming in?',
   reCheckIn: 'Check in again',

@@ -14,12 +14,14 @@ import { act, render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CheckInRow, DoorSnapshot, GuestRow, TierRow } from './queries';
 import type { DbError, DoorGateway } from './outbox/gateway';
+import { t } from '@/lib/i18n';
 
 const EVENT_ID = 'ev1';
 const VENUE_ID = 'v1';
 const UID = 'u-door';
 const GUEST_A = 'g-anna';
 const GUEST_B = 'g-bram';
+const GUEST_C = 'g-cleo'; // +2: a party of three
 
 const QUOTA_FULL: DbError = { code: '45001', message: 'Quotum overschreden: dit zou 6 van 5 plekken gebruiken.' };
 const TIER_FULL: DbError = { code: '45002', message: 'Tier zit vol: 11 van 10 plekken bezet.' };
@@ -74,14 +76,14 @@ function tier(): TierRow {
   };
 }
 
-function guest(id: string, fullName: string): GuestRow {
+function guest(id: string, fullName: string, plusOnes = 0): GuestRow {
   return {
     id,
     event_id: EVENT_ID,
     tier_id: 't-reg',
     full_name: fullName,
     phone: null,
-    plus_ones: 0,
+    plus_ones: plusOnes,
     note: null,
     note_priority: 'none',
     note_acknowledged_by: null,
@@ -92,9 +94,9 @@ function guest(id: string, fullName: string): GuestRow {
   };
 }
 
-function serverRow(guestId: string, plusOnesArrived: number): CheckInRow {
+function serverRow(guestId: string, plusOnesArrived: number, id = `srv-${guestId}`): CheckInRow {
   return {
-    id: `srv-${guestId}`,
+    id,
     guest_id: guestId,
     event_id: EVENT_ID,
     venue_id: VENUE_ID,
@@ -111,6 +113,9 @@ function serverRow(guestId: string, plusOnesArrived: number): CheckInRow {
   };
 }
 
+/** What can_uncheck_check_in answers for the signed-in user (z8uq9m2vg6). */
+let canUncheck = true;
+
 function snapshotWith(checkIns: CheckInRow[]): DoorSnapshot {
   return {
     event: {
@@ -121,8 +126,9 @@ function snapshotWith(checkIns: CheckInRow[]): DoorSnapshot {
       status: 'open',
       listLocked: false,
       allowUncheck: true,
+      canUncheck,
     },
-    guests: [guest(GUEST_A, 'Anna'), guest(GUEST_B, 'Bram')],
+    guests: [guest(GUEST_A, 'Anna'), guest(GUEST_B, 'Bram'), guest(GUEST_C, 'Cleo', 2)],
     tiers: [tier()],
     checkIns,
     refusals: [],
@@ -144,23 +150,40 @@ let serverCheckIns: CheckInRow[] = [];
 let insertCalls: string[] = [];
 /** guestId → error the server returns instead of accepting the INSERT. */
 let rejects: Map<string, DbError>;
+/** Error the server returns for a void (an undo), or null to accept it. */
+let voidError: DbError | null;
+let voidCalls: number;
 /** guestId → a gate that holds the INSERT open (models a slow drain). */
 let gates: Map<string, { promise: Promise<void>; resolve: () => void }>;
 
 function makeGateway(): DoorGateway {
   const ok = async () => ({ error: null });
   return {
-    ...({ topUpCheckIn: ok, voidCheckIn: ok, reviveCheckIn: ok, insertRefusal: ok, undoRefusal: ok, insertGuest: ok, ackNote: ok } as unknown as DoorGateway),
-    insertCheckIn: async (row) => {
+    ...({ topUpCheckIn: ok, reviveCheckIn: ok, insertRefusal: ok, undoRefusal: ok, insertGuest: ok, ackNote: ok } as unknown as DoorGateway),
+    insertCheckIn: async () => {
+      throw new Error('the door upserts since z8uq9m2vg6; INSERT is the cockpit path only');
+    },
+    // The door's check-in write: an upsert on the row id (z8uq9m2vg6). The same
+    // id updates the row (count monotonic); another id for a guest who already
+    // has a row is the guest_id unique violation (#11).
+    upsertCheckIn: async (row) => {
       insertCalls.push(row.guest_id);
       const gate = gates.get(row.guest_id);
       if (gate) await gate.promise;
       const rejection = rejects.get(row.guest_id);
       if (rejection) return { error: rejection };
-      // The real constraint: one check-in row per guest, ever (#11).
+      const same = serverCheckIns.find((c) => c.id === row.id);
+      if (same) {
+        same.plus_ones_arrived = Math.max(same.plus_ones_arrived, row.plus_ones_arrived ?? 0);
+        return { error: null };
+      }
       if (serverCheckIns.some((c) => c.guest_id === row.guest_id)) return { error: UNIQUE_GUEST };
-      serverCheckIns.push(serverRow(row.guest_id, row.plus_ones_arrived ?? 0));
+      serverCheckIns.push(serverRow(row.guest_id, row.plus_ones_arrived ?? 0, row.id));
       return { error: null };
+    },
+    voidCheckIn: async () => {
+      voidCalls += 1;
+      return { error: voidError };
     },
   };
 }
@@ -206,6 +229,9 @@ beforeEach(() => {
   insertCalls = [];
   rejects = new Map();
   gates = new Map();
+  voidError = null;
+  voidCalls = 0;
+  canUncheck = true;
   H.gateway = makeGateway();
   H.fetchSnapshot = async () => snapshotWith([...serverCheckIns]);
   H.client = {
@@ -411,6 +437,105 @@ describe('DoorProvider — which failure the doorhost is shown (#33)', () => {
     });
     await waitFor(() => expect(insertCalls.filter((g) => g === GUEST_A)).toHaveLength(2));
     await waitFor(() => expect(serverCheckIns.map((c) => c.guest_id)).toEqual([GUEST_A]));
+  });
+});
+
+describe('DoorProvider — group-first check-in as an absolute count (z8uq9m2vg6)', () => {
+  const setOnline = (v: boolean) => Object.defineProperty(window.navigator, 'onLine', { value: v, configurable: true });
+  afterEach(() => setOnline(true));
+
+  it('two "Check in 1" taps offline become ONE queued write, and one row with the last count online', async () => {
+    const h = renderDoor();
+    await settle();
+    setOnline(false);
+
+    await act(async () => {
+      h.api().checkInOne(GUEST_C); // Cleo herself: 1/3
+    });
+    await act(async () => {
+      h.api().checkInOne(GUEST_C); // her first plus-one: 2/3
+    });
+    const queued = outbox.getSnapshot().filter((e) => e.kind === 'check_in');
+    expect(queued).toHaveLength(1);
+    expect(queued[0].payload).toMatchObject({ guestId: GUEST_C, plusOnesArrived: 1 });
+    expect(h.api().view?.guests.find((g) => g.id === GUEST_C)?.arrived).toBe(1);
+    expect(h.api().toast).toBe('Cleo · 2/3 inside ✓');
+    expect(insertCalls).toHaveLength(0); // nothing waited on the network
+
+    setOnline(true);
+    await act(async () => {
+      h.sync().forceSync();
+    });
+    await waitFor(() => expect(serverCheckIns).toHaveLength(1));
+    expect(insertCalls).toEqual([GUEST_C]);
+    expect(serverCheckIns[0]).toMatchObject({ guest_id: GUEST_C, plus_ones_arrived: 1, id: queued[0].payload.id });
+  });
+
+  it('"Check in all" checks in the whole party in one write; a later "Check in 1" reuses the same row', async () => {
+    const h = renderDoor();
+    await settle();
+    await act(async () => {
+      h.api().checkInOne(GUEST_C);
+    });
+    await waitFor(() => expect(serverCheckIns).toHaveLength(1));
+    await waitFor(() => expect(h.api().pendingCount).toBe(0));
+    await act(async () => {
+      h.api().checkIn(GUEST_C, 3); // "Check in all (2)": the two still outside
+    });
+    await waitFor(() => expect(serverCheckIns[0].plus_ones_arrived).toBe(2));
+    expect(serverCheckIns).toHaveLength(1); // same row, no 23505 duplicate
+    expect(outbox.getSnapshot().some((e) => e.status === 'duplicate')).toBe(false);
+  });
+
+  it('"+1" on a guest another device checked in upserts THAT row instead of colliding', async () => {
+    serverCheckIns = [serverRow(GUEST_C, 0, 'row-from-tablet-2')];
+    const h = renderDoor();
+    await settle();
+    await waitFor(() => expect(insideIds(h.api())).toEqual([GUEST_C]));
+    await act(async () => {
+      h.api().checkInOne(GUEST_C);
+    });
+    await waitFor(() => expect(serverCheckIns[0].plus_ones_arrived).toBe(1));
+    expect(serverCheckIns).toHaveLength(1);
+    expect(serverCheckIns[0].id).toBe('row-from-tablet-2');
+  });
+
+  it('an undo the database refuses is settled quietly and reported once, never retried', async () => {
+    serverCheckIns = [serverRow(GUEST_A, 0)];
+    voidError = { code: '42501', message: 'new row violates row-level security policy' };
+    const h = renderDoor();
+    await settle();
+    await waitFor(() => expect(insideIds(h.api())).toEqual([GUEST_A]));
+
+    await act(async () => {
+      h.api().voidCheckIn(GUEST_A);
+    });
+    await waitFor(() => expect(h.api().toast).toBe(t.door.undoDeniedToast));
+    // Back inside: the refetch after the drain shows what the server has.
+    await waitFor(() => expect(insideIds(h.api())).toEqual([GUEST_A]));
+    // No dead letter, nothing for "sync now" to retry.
+    expect(outbox.getSnapshot().some((e) => e.status === 'error')).toBe(false);
+    await act(async () => {
+      h.sync().forceSync();
+    });
+    await settle();
+    expect(voidCalls).toBe(1);
+  });
+
+  it('a user without the undo right never queues an undo (the screen hides it; the provider refuses too)', async () => {
+    canUncheck = false;
+    serverCheckIns = [serverRow(GUEST_A, 0)];
+    const h = renderDoor();
+    await settle();
+    await waitFor(() => expect(insideIds(h.api())).toEqual([GUEST_A]));
+    expect(h.api().canUncheck).toBe(false);
+
+    await act(async () => {
+      h.api().voidCheckIn(GUEST_A);
+    });
+    expect(h.api().toast).toBe(t.door.uncheckDisabled);
+    expect(outbox.getSnapshot().some((e) => e.kind === 'check_in_void')).toBe(false);
+    expect(insideIds(h.api())).toEqual([GUEST_A]);
   });
 });
 

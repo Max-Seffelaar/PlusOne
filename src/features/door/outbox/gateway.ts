@@ -26,20 +26,38 @@ export interface DbError {
 
 export interface DoorGateway {
   insertCheckIn(row: CheckInRow): Promise<{ error: DbError | null }>;
-  /** Raise plus_ones_arrived on a guest's existing check-in ("nog inchecken"). */
-  topUpCheckIn(guestId: string, plusOnesArrived: number): Promise<{ error: DbError | null }>;
+  /**
+   * The door's check-in write since z8uq9m2vg6: an upsert on `id` with an
+   * ABSOLUTE plus_ones_arrived. First tap inserts; every later tap ("Check in
+   * 1", "Check in all", a colleague's "+1" on the same row, a replay) updates
+   * the same row. The database drops a write older than the row's
+   * client_timestamp and keeps checked_by/checked_at first-wins, so sending the
+   * whole row again is safe (check_ins_a_stale_guard, 20261010120000).
+   */
+  upsertCheckIn(row: CheckInRow): Promise<{ error: DbError | null }>;
+  /** Raise plus_ones_arrived by guest_id — the cockpit's top-up and the legacy
+   *  `check_in_topup` outbox kind. `clientTimestamp` defaults to now. */
+  topUpCheckIn(guestId: string, plusOnesArrived: number, clientTimestamp?: string): Promise<{ error: DbError | null }>;
   /**
    * Soft-void a check-in ("uitchecken"); idempotent (re-void matches no row).
    * `checkInId` is the check_ins row the caller OBSERVED — pass it whenever it
    * is known so a replayed write can never reach a peer's newer row (#35).
+   * `clientTimestamp` (default now) is when the doorhost tapped: a void older
+   * than the row's last write is dropped by the database (z8uq9m2vg6).
    */
-  voidCheckIn(guestId: string, uid: string, checkInId?: string | null): Promise<{ error: DbError | null }>;
+  voidCheckIn(
+    guestId: string,
+    uid: string,
+    checkInId?: string | null,
+    clientTimestamp?: string,
+  ): Promise<{ error: DbError | null }>;
   /** Re-checkin a voided guest: clear the void and re-set arrivals. */
   reviveCheckIn(
     guestId: string,
     plusOnesArrived: number,
     uid: string,
     checkInId?: string | null,
+    clientTimestamp?: string,
   ): Promise<{ error: DbError | null }>;
   /**
    * Atomic (partial) check-out: void + re-checkin of the smaller party in ONE
@@ -66,10 +84,26 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     insertCheckIn: async (row) => ({
       error: (await client.from('check_ins').insert(row as Database['public']['Tables']['check_ins']['Insert'])).error,
     }),
+    // ON CONFLICT (id) DO UPDATE. RLS: check_ins_insert on the insert path,
+    // check_ins_update_door on the update path. A 23505 on guest_id (a DIFFERENT
+    // id already holds this guest — another device won the first check-in) is
+    // still the `duplicate` outcome replay.ts has always produced (#11).
+    upsertCheckIn: async (row) => ({
+      error: (
+        await client
+          .from('check_ins')
+          .upsert(row as Database['public']['Tables']['check_ins']['Insert'], { onConflict: 'id' })
+      ).error,
+    }),
     // Update by guest_id; check_ins_update_door RLS scopes it to any door-scoped
     // user (can_check_in), and cap_check_in_arrivals clamps + keeps it monotonic.
-    topUpCheckIn: async (guestId, plusOnesArrived) => ({
-      error: (await client.from('check_ins').update({ plus_ones_arrived: plusOnesArrived }).eq('guest_id', guestId)).error,
+    topUpCheckIn: async (guestId, plusOnesArrived, clientTimestamp = new Date().toISOString()) => ({
+      error: (
+        await client
+          .from('check_ins')
+          .update({ plus_ones_arrived: plusOnesArrived, client_timestamp: clientTimestamp })
+          .eq('guest_id', guestId)
+      ).error,
     }),
     // Soft-void: flag the row. `.is('voided_at', null)` makes a re-void a no-op
     // (idempotent). The audit trigger records the change; RLS = check_ins_update_door.
@@ -82,10 +116,10 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     // synced, which is the same "the server's first write wins" rule the 23505
     // duplicate path already applies (#11). Entries queued by an older bundle
     // carry no id and keep the guest-scoped behaviour rather than being dropped.
-    voidCheckIn: async (guestId, uid, checkInId = null) => {
+    voidCheckIn: async (guestId, uid, checkInId = null, clientTimestamp = new Date().toISOString()) => {
       let q = client
         .from('check_ins')
-        .update({ voided_at: new Date().toISOString(), voided_by: uid })
+        .update({ voided_at: new Date().toISOString(), voided_by: uid, client_timestamp: clientTimestamp })
         .eq('guest_id', guestId)
         .is('voided_at', null);
       if (checkInId) q = q.eq('id', checkInId);
@@ -102,7 +136,7 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     // void may legitimately have created the voided state, so the voided-only
     // guard alone cannot tell "the row I voided" from "a peer's row I just
     // voided by mistake".
-    reviveCheckIn: async (guestId, plusOnesArrived, uid, checkInId = null) => {
+    reviveCheckIn: async (guestId, plusOnesArrived, uid, checkInId = null, clientTimestamp = new Date().toISOString()) => {
       let q = client
         .from('check_ins')
         .update({
@@ -111,6 +145,7 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
           checked_by: uid,
           checked_at: new Date().toISOString(),
           plus_ones_arrived: plusOnesArrived,
+          client_timestamp: clientTimestamp,
         })
         .eq('guest_id', guestId)
         .not('voided_at', 'is', null);
