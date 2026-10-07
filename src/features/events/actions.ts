@@ -79,7 +79,7 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, name, startsAt, endsAt, landingActive } = parsed.data;
+  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -103,6 +103,8 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         starts_at: startsAt,
         ends_at: endsAt ?? null,
         landing_active: landingActive,
+        location_name: locationName ?? null,
+        location_address: locationAddress ?? null,
         landing_slug: buildEventSlug(name, startsAt),
       } as Database['public']['Tables']['events']['Insert'])
       .select('id')
@@ -117,11 +119,11 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   return { ok: false, code: 'slug', message: "Couldn't generate a unique landing link. Try again." };
 }
 
-/** Edit name / start / end (admin or organizer — RLS). */
+/** Edit name / start / end / location (admin or organizer — RLS). */
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, name, startsAt, endsAt } = parsed.data;
+  const { eventId, name, startsAt, endsAt, locationName, locationAddress } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -131,6 +133,8 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     ...(name !== undefined ? { name } : {}),
     ...(startsAt !== undefined ? { starts_at: startsAt } : {}),
     ...(endsAt !== undefined ? { ends_at: endsAt } : {}),
+    ...(locationName !== undefined ? { location_name: locationName } : {}),
+    ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 

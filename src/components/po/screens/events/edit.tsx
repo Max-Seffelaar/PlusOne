@@ -8,7 +8,10 @@ import {
   usePoEventForEdit,
   usePoTemplates,
   usePoRequestLinks,
+  usePoVenueSettings,
 } from '@/features/po/hooks';
+import { formatCompanyAddress } from '@/features/po/adapters';
+import { LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
 import {
   usePoSetCancelled,
   usePoCreateEvent,
@@ -65,8 +68,14 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Request links (F1): the row under the block shows the live active count.
   // editId is '' on create, which keeps the hook disabled (no fetch).
   const linksQ = usePoRequestLinks(editId);
+  // Create mode has no event row to embed the company address from; the
+  // company settings read (shared cache with Company settings) supplies it.
+  const venueSettings = usePoVenueSettings();
 
   const [name, setName] = useState('');
+  // Per-event location (z8uq9m2vqc). '' = follow the company address.
+  const [locName, setLocName] = useState('');
+  const [locAddress, setLocAddress] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState('');
@@ -105,6 +114,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   useEffect(() => {
     if (!ev) return;
     setName(ev.name);
+    setLocName(ev.locationName ?? '');
+    setLocAddress(ev.locationAddress ?? '');
     const [d, t] = splitLocal(ev.startsAt);
     setDateStr(d);
     setTimeStr(t);
@@ -134,18 +145,30 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const fromTemplate = isNew && !!templateId;
   const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
+  // Placeholders show what an empty location falls back to: the company.
+  const companyAddress = isNew
+    ? formatCompanyAddress(
+        venueSettings.data
+          ? { address_line: venueSettings.data.addressLine, postal_code: venueSettings.data.postalCode, city: venueSettings.data.city }
+          : null
+      )
+    : ev?.venueAddress ?? null;
+  const locNamePlaceholder = venueLabel || t.events.locationNamePlaceholder;
+  const locAddressPlaceholder = companyAddress ?? t.events.locationAddressPlaceholder;
   const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
 
   // Anything the Save button would commit that differs from the loaded state.
   const fieldsDirty = ((): boolean => {
     if (!writable || saving) return false;
-    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr);
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locName.trim() || locAddress.trim());
     if (!ev) return false;
     const [d0, t0] = splitLocal(ev.startsAt);
     const [ed0, et0] = splitLocal(ev.endsAt);
     const [ad0, at0] = splitLocal(ev.autoLockAt);
     return (
       name !== ev.name ||
+      locName.trim() !== (ev.locationName ?? '') ||
+      locAddress.trim() !== (ev.locationAddress ?? '') ||
       dateStr !== d0 ||
       timeStr !== t0 ||
       endDateStr !== ed0 ||
@@ -203,9 +226,15 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           setErr(t.events.errNoVenue);
           return;
         }
+        const locationName = locName.trim() || null;
+        const locationAddress = locAddress.trim() || null;
         const newId = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
-          : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
+          : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress });
+        // The template RPC takes no location; set it on the new event after.
+        if (templateId && (locationName || locationAddress)) {
+          await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress });
+        }
         // Save the event first, then the tiers (Max, z8uq9m0hw3 item 7): a
         // tier-less event goes straight to its guided tiers step, which ends on
         // the event detail. A template that seeded tiers skips the step and
@@ -216,7 +245,14 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         else nav.replace('tiers', { id: newId, setup: true });
         return;
       } else {
-        await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt, endsAt });
+        await updateEvent.mutateAsync({
+          eventId: editId,
+          name: name.trim(),
+          startsAt,
+          endsAt,
+          locationName: locName.trim() || null,
+          locationAddress: locAddress.trim() || null,
+        });
         if (ev && landingOn !== ev.landingActive) {
           await setLandingActive.mutateAsync({ eventId: editId, active: landingOn });
         }
@@ -336,6 +372,29 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             setEndTimeStr(next.endTime);
           }}
         />
+
+        {/* Per-event location (z8uq9m2vqc). Plain text for now; Places
+            autocomplete lands in onboarding task 3. Saves with the form. */}
+        <Label className="mb-2">{t.events.fieldLocation}</Label>
+        <Field
+          icon="building"
+          ariaLabel={t.events.locationNameAria}
+          placeholder={locNamePlaceholder}
+          value={locName}
+          onChange={writable ? setLocName : undefined}
+          maxLength={LOCATION_NAME_MAX}
+          className="mb-2"
+        />
+        <Field
+          icon="pin"
+          ariaLabel={t.events.locationAddressAria}
+          placeholder={locAddressPlaceholder}
+          value={locAddress}
+          onChange={writable ? setLocAddress : undefined}
+          maxLength={LOCATION_ADDRESS_MAX}
+          className="mb-2"
+        />
+        <div className="mb-[18px] text-[12.5px] leading-[1.45] text-faint">{t.events.locationHint}</div>
 
         {!isNew && (
           <button

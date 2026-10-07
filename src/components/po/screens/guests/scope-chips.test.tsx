@@ -27,6 +27,7 @@ function ev(name: string, when: PoEvent['when']): PoEvent {
     id: name,
     name,
     venue: 'Club',
+    location: { name: 'Club', address: null, label: 'Club', own: false },
     time: '23:00',
     date: '14',
     mon: 'DEC',

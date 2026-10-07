@@ -340,3 +340,17 @@ describe('request page legal copy', () => {
     expect(container.textContent).toContain('so the organizer can reach you');
   });
 });
+
+// Event location (z8uq9m2vqc): the pin chip shows the event's own place when
+// it has one, else the company name (the company address is never public here).
+describe('request page location chip', () => {
+  it('shows the event place over the company name', () => {
+    render(<LandingForm event={{ ...EVENT, venue: 'Club Vesper', place: 'Paradiso, Weteringschans 6' }} slug="x" action={vi.fn()} />);
+    expect(screen.getByText('Paradiso, Weteringschans 6')).toBeInTheDocument();
+  });
+
+  it('falls back to the company name without a place', () => {
+    render(<LandingForm event={{ ...EVENT, venue: 'Club Vesper' }} slug="x" action={vi.fn()} />);
+    expect(screen.getAllByText('Club Vesper').length).toBeGreaterThan(0);
+  });
+});

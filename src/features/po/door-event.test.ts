@@ -20,6 +20,9 @@ function row(
     cancelled_at: opts.cancelled ? '2026-06-01T00:00:00Z' : null,
     list_locked: false,
     venue_name: 'De Marktkantine',
+    location_name: null,
+    location_address: null,
+    venue_address: null,
   };
 }
 
