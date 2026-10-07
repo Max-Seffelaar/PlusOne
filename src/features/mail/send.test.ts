@@ -88,6 +88,15 @@ describe('sendTeamMail', () => {
     expect(H.send).not.toHaveBeenCalled();
   });
 
+  it('a throttled attempt (PM429, review of PR #413) sends nothing and reports failed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    H.rpc.mockResolvedValue({ data: null, error: { code: 'PM429', message: 'mail throttled: recipient' } });
+    expect(await sendTeamMail(MAIL)).toEqual({ ok: false, reason: 'failed' });
+    expect(H.send).not.toHaveBeenCalled();
+    expect(H.rpc).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('sendTeamMail: throttled', { type: 'team_join' });
+  });
+
   it('never throws, and logs no address, when something unexpected blows up', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     H.send.mockRejectedValue(new Error('boom crew@example.test'));

@@ -54,11 +54,13 @@ export function escapeHtml(value: string): string {
 }
 
 /** One line of plain text: control characters (incl. CR/LF, NUL, DEL, the
- *  Unicode line/paragraph separators) become a space, whitespace collapses. */
+ *  Unicode line/paragraph separators, and the bidi controls LRM/RLM,
+ *  U+202A–U+202E and U+2066–U+2069 that can reorder a name) become a space,
+ *  whitespace collapses. */
 export function plainLine(value: string): string {
   return value
     // eslint-disable-next-line no-control-regex -- stripping control chars is the point
-    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

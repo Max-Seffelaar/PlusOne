@@ -29,6 +29,31 @@
 -- read user_profiles.email anyway.
 
 -- ---------------------------------------------------------------------------
+-- 0. Send limits (review of PR #413: the existing-account path used to ride on
+--    GoTrue's per-address throttle; app mail must carry its own)
+-- ---------------------------------------------------------------------------
+-- The Resend account is SHARED with Supabase Auth SMTP: on the Free plan that
+-- is 100 mails per UTC day for app mail AND every login OTP together. One
+-- venue looping invite/resend must never drain it and take every venue's
+-- login down with it. log_mail_attempt enforces, before it logs anything:
+--   * one mail per recipient per MAIL_RECIPIENT_WINDOW (60 s, GoTrue's own
+--     per-address spacing for OTP mail);
+--   * at most MAIL_VENUE_DAILY_CAP (50) app mails per venue per UTC day,
+--     i.e. at most half the Free daily quota for any single venue.
+-- Raise the cap together with the Resend plan. A refusal raises SQLSTATE
+-- 'PM429'; the sender treats it as a failed send (an initial invite still
+-- succeeds, a resend shows its usual error).
+
+create or replace function public.mail_venue_daily_cap()
+returns integer language sql immutable set search_path = '' as $$ select 50 $$;
+
+create or replace function public.mail_recipient_window()
+returns interval language sql immutable set search_path = '' as $$ select interval '60 seconds' $$;
+
+revoke execute on function public.mail_venue_daily_cap(), public.mail_recipient_window()
+  from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- 1. Tables
 -- ---------------------------------------------------------------------------
 
@@ -65,6 +90,9 @@ comment on table public.mail_log is
 
 create index mail_log_venue_created_idx on public.mail_log (venue_id, created_at desc);
 create index mail_log_created_idx on public.mail_log (created_at desc);
+-- The per-recipient throttle in log_mail_attempt (the per-venue cap uses
+-- mail_log_venue_created_idx above).
+create index mail_log_recipient_created_idx on public.mail_log (recipient_hash, created_at desc);
 
 alter table public.mail_log enable row level security;
 
@@ -112,6 +140,26 @@ as $$
 declare
   v_id uuid;
 begin
+  -- Serialise concurrent sends to one recipient so two parallel calls can't
+  -- both pass the window check.
+  perform pg_advisory_xact_lock(hashtextextended('mail_log:' || coalesce(p_recipient_hash, ''), 0));
+
+  if exists (
+    select 1 from public.mail_log m
+     where m.recipient_hash = p_recipient_hash
+       and m.created_at > now() - public.mail_recipient_window()
+  ) then
+    raise exception 'mail throttled: recipient' using errcode = 'PM429';
+  end if;
+
+  if p_venue_id is not null and (
+    select count(*) from public.mail_log m
+     where m.venue_id = p_venue_id
+       and m.created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC'
+  ) >= public.mail_venue_daily_cap() then
+    raise exception 'mail throttled: venue daily cap' using errcode = 'PM429';
+  end if;
+
   insert into public.mail_log (type, venue_id, recipient_hash)
   values (p_type, p_venue_id, p_recipient_hash)
   returning id into v_id;
@@ -121,7 +169,9 @@ $$;
 
 comment on function public.log_mail_attempt(text, uuid, text) is
   'Mail sender (service_role): record a queued send and return its id '
-  '(= the Resend Idempotency-Key). Check constraints validate the input.';
+  '(= the Resend Idempotency-Key). Refuses (PM429) a second mail to the same '
+  'recipient within mail_recipient_window() and a venue past '
+  'mail_venue_daily_cap() for the UTC day. Check constraints validate the input.';
 
 -- Sender, after the provider call. Only moves a row out of 'queued', so a
 -- second settle of the same row is a no-op. Accepted gap: a webhook can only

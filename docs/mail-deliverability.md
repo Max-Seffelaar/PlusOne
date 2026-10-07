@@ -117,6 +117,28 @@ login mail for existing accounts, so prod does not regress before the key is set
   status only moves forward. Without the secret the route answers 503 and processes nothing.
   Auth (SMTP) mail from the same account also triggers events; those match no `mail_log`
   row and are only ledgered.
+- **Send limits (review of PR #413):** login OTPs used to be the only mail to an existing
+  account, and GoTrue throttles those per address. App mail has its own limits in
+  `log_mail_attempt`: one mail per recipient per 60 s and at most 50 app mails per company
+  per UTC day (half the Free daily quota, so one company can never drain the login OTPs of
+  all the others). A refusal is SQLSTATE `PM429`, logged as `sendTeamMail: throttled`; the
+  invite itself still succeeds, a resend shows its usual error. Raise the cap
+  (`mail_venue_daily_cap()`, new migration) together with the Resend plan.
+- **Accepted residual risk: URL-like text in a company name.** Names are HTML-escaped,
+  control and bidi characters are stripped and each name is capped at 80 characters, but a
+  company admin can still name the company e.g. "Acme. Verify at example.com", and Gmail or
+  Outlook may auto-link that bare domain inside a mail from `noreply@plus-one.io`. We do not
+  refuse such names: that would change what admins can call their company, outside this
+  task's scope. The exposure is small: the recipient is already a confirmed PlusOne account
+  that this company's own admin invited, the send limits above cap the volume, and the
+  name is visible to that admin in the app. Revisit if guest mail (task 6), which goes to
+  people without an account, puts company names in front of a wider audience.
+- **Ledger growth (follow-up for task 2c):** the webhook endpoint receives every `email.*`
+  event of the whole Resend account, including each Supabase Auth OTP/invite mail sent over
+  SMTP. Every handled event adds a `resend_webhook_events` row, also when it matches no
+  `mail_log` row, so the ledger grows with every login. No security impact (no app-role
+  grant). Pruning rows older than 30 days (Svix stops retrying long before that) is a
+  follow-up for task 2c; no code for it yet.
 - **Diagnose:** Resend dashboard → Emails, filter on tag `type`; `mail_log` by `status` /
   `error_code` (platform admin). Vercel logs show `resend send failed` with HTTP status and
   Resend's error name only.

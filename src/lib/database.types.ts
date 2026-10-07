@@ -2319,6 +2319,8 @@ export type Database = {
         }
         Returns: string
       }
+      mail_recipient_window: { Args: never; Returns: string }
+      mail_venue_daily_cap: { Args: never; Returns: number }
       mark_guest_regular: { Args: { p_guest_id: string }; Returns: undefined }
       mark_onboarding_complete: {
         Args: { p_venue_id: string }

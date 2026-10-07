@@ -53,11 +53,24 @@ function makeClient(opts: {
     maybeSingle: vi.fn(async () => ({ data: { roles: ['admin'] } })),
   };
 
-  const invitesChain = {
+  const invitesChain: {
+    insert: Mock;
+    select: Mock;
+    eq: Mock;
+    maybeSingle: Mock;
+    update: Mock;
+  } = {
     insert: vi.fn(async () => {
       callLog.push('insert');
       return { error: opts.insertError ?? null };
     }),
+    // resendInviteAction: read the pending invite, then bump expires_at.
+    select: vi.fn(() => invitesChain),
+    eq: vi.fn(() => invitesChain),
+    maybeSingle: vi.fn(async () => ({
+      data: { id: 'inv-1', email: 'crew@venue.com', venue_id: VENUE_ID, accepted_at: null },
+    })),
+    update: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null, count: 1 })) })),
   };
 
   // Mail-infra F0: the team-mail display context (caller's name + venue name).
@@ -223,5 +236,31 @@ describe('inviteUserAction — team mail context', () => {
     const result = await inviteUserAction({ ok: false }, inviteFormData());
 
     expect(result.ok).toBe(true);
+  });
+});
+
+// Review of PR #413: a throttled team mail (log_mail_attempt PM429) reaches the
+// actions as sendInviteEmail's 'notify'. An initial invite still succeeds (the
+// invite row grants access); a resend shows its existing error.
+describe('team mail refused by the send limits', () => {
+  it('resendInviteAction shows its usual error and passes the resend context', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'notify' });
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+
+    const result = await resendInviteAction({ ok: false }, fd);
+
+    expect(result).toEqual({ ok: false, error: "Couldn't send the invite e-mail. Try again." });
+    expect(sendInviteEmail).toHaveBeenCalledWith('crew@venue.com', {
+      existingAccountMail: {
+        template: 'team_resend',
+        kind: 'join',
+        venueId: VENUE_ID,
+        inviterName: 'Max',
+        companyName: 'Club Vesper',
+      },
+    });
   });
 });

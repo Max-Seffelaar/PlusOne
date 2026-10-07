@@ -54,7 +54,7 @@ begin
 end;
 $fn$;
 
-select plan(40);
+select plan(47);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner)
@@ -160,7 +160,7 @@ select throws_ok(
   $$ select public.log_mail_attempt('team_join', 'aa000000-0000-7000-8000-000000000001', 'crew@example.test') $$,
   '23514', null, 'B3 a plaintext address is not a recipient hash (check constraint)');
 select throws_ok(
-  $$ select public.log_mail_attempt('guest_marketing', 'aa000000-0000-7000-8000-000000000001', repeat('a', 64)) $$,
+  $$ select public.log_mail_attempt('guest_marketing', 'aa000000-0000-7000-8000-000000000001', repeat('4', 64)) $$,
   '23514', null, 'B4 an unknown mail type is refused');
 
 select is(
@@ -190,6 +190,53 @@ select is(
 select is(
   (select row(status, provider_message_id, error_code)::text from public.mail_log where id = (select id from ids where k = 'b')),
   '(failed,,daily_quota_exceeded)', 'B12 row b: failed with the quota code, no provider id');
+
+-- ---------------------------------------------------------------------------
+-- T. Send limits in log_mail_attempt (review of PR #413)
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login_service();
+select throws_ok(
+  $$ select public.log_mail_attempt('team_resend', 'aa000000-0000-7000-8000-000000000001', repeat('a', 64)) $$,
+  'PM429', null, 'T1 a second mail to the same recipient within 60 s is refused');
+reset role;
+select is((select count(*)::int from public.mail_log where recipient_hash = repeat('a', 64)), 1,
+  'T2 ...and logs nothing');
+
+-- 61 s later (backdated as owner) the same recipient may be mailed again.
+update public.mail_log set created_at = now() - interval '61 seconds' where recipient_hash = repeat('a', 64);
+select pg_temp.login_service();
+select lives_ok(
+  $$ select public.log_mail_attempt('team_resend', 'aa000000-0000-7000-8000-000000000001', repeat('a', 64)) $$,
+  'T3 after the 60 s window the same recipient is allowed again');
+reset role;
+
+-- Venue daily cap: fill De Marktzaal (aa…02, already 1 row today) up to 50.
+insert into public.mail_log (type, venue_id, recipient_hash)
+select 'team_join', 'aa000000-0000-7000-8000-000000000002', encode(extensions.digest('cap' || i, 'sha256'), 'hex')
+  from generate_series(1, public.mail_venue_daily_cap() - 1) as i;
+select pg_temp.login_service();
+select throws_ok(
+  $$ select public.log_mail_attempt('team_join', 'aa000000-0000-7000-8000-000000000002', repeat('f', 64)) $$,
+  'PM429', null, 'T4 a venue at its daily cap is refused, even for a fresh recipient');
+select lives_ok(
+  $$ select public.log_mail_attempt('team_join', 'aa000000-0000-7000-8000-000000000001', repeat('f', 64)) $$,
+  'T5 another venue is not affected by that cap');
+reset role;
+
+-- Yesterday's rows do not count toward today's cap.
+update public.mail_log set created_at = date_trunc('day', now() at time zone 'UTC') at time zone 'UTC' - interval '1 hour'
+ where venue_id = 'aa000000-0000-7000-8000-000000000002' and recipient_hash <> repeat('b', 64);
+select pg_temp.login_service();
+select lives_ok(
+  $$ select public.log_mail_attempt('team_join', 'aa000000-0000-7000-8000-000000000002', repeat('9', 64)) $$,
+  'T6 the cap resets per UTC day');
+reset role;
+
+select ok(
+  not has_function_privilege('authenticated', 'public.mail_venue_daily_cap()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.mail_recipient_window()', 'EXECUTE'),
+  'T7 the limit constants are not callable by app roles');
 
 -- ---------------------------------------------------------------------------
 -- C. Webhook RPC (as service_role)

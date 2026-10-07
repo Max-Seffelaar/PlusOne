@@ -47,6 +47,12 @@ export async function sendTeamMail(mail: TeamMail): Promise<TeamMailResult> {
       p_recipient_hash: recipientHash(mail.to),
     });
     if (logError || !logId) {
+      // PM429 = the send limits in log_mail_attempt (per recipient / per venue
+      // per day): expected under abuse or a double click, so a warning.
+      if (logError?.code === 'PM429') {
+        console.warn('sendTeamMail: throttled', { type: mail.template });
+        return { ok: false, reason: 'failed' };
+      }
       console.error('sendTeamMail: log_mail_attempt failed', { code: logError?.code, type: mail.template });
       return { ok: false, reason: 'failed' };
     }

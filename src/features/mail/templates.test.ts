@@ -159,3 +159,16 @@ describe('approved copy structure (Max, 2026-10-07)', () => {
     expect(m).not.toMatch(/guests? on the list|7 days/);
   });
 });
+
+describe('bidi controls (review of PR #413)', () => {
+  it('strips LRM/RLM, embeddings/overrides and isolates from names', () => {
+    const bidi = ['\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069'];
+    const m = renderTeamMail({ ...join, inviterName: `Max${bidi.join('')}`, companyName: 'Club \u202eresseV\u202c' }, APP);
+    for (const ch of bidi) {
+      expect(m.subject).not.toContain(ch);
+      expect(m.text).not.toContain(ch);
+      expect(m.html).not.toContain(ch);
+    }
+    expect(m.subject).toBe('Max invited you to join Club resseV');
+  });
+});
