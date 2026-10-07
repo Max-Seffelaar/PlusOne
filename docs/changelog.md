@@ -35,6 +35,8 @@ Milestone **Now** (onboarding programme okt 2026, wave C, task 4). Design: spike
   defaults to `false` and was backfilled to `false`, so door hosts and crew can no longer undo a check-in until an admin
   turns "Door team can undo check-ins" back on in Company settings (or per event). Admins and user managers are not
   affected. The backfill is audited (one `update` per company, actor NULL = system).
+  **Besluit Max 2026-10-07: bestaande companies ook uit (A)** (review point 3 on PR #423, relayed by the
+  orchestrator).
 - **"+1" on a row undone meanwhile:** without the undo right the RESTRICTIVE policy refuses it (42501 naming
   `check_ins_void_requires_uncheck`); the outbox settles it as `denied` with its own toast ("Check-in not saved. It was
   undone in the meantime, so check them in again.") instead of a retried error / dead letter.
