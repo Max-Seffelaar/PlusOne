@@ -41,6 +41,7 @@
 | 3 | Onboarding A | z8uq9m2vg5 | Opus | 2 | gemerged; comped-invite werkt end-to-end; Places op het adresveld; één DPA-checkbox; nieuwe invite-mail in Mailpit en in prod gezien | — |
 | 4 | Check-in D | z8uq9m2vg6 | Opus | 0 (ontwerp), 1 | gemerged; groep-knop en per-persoon-knop; doorhost kan niet uitchecken tenzij de setting aan staat, ook niet via de API | — |
 | 5 | Event C + Dashboard B | z8uq9m2vg7 + z8uq9m2vg8 | Opus | 1 | één PR, twee taken; gemerged; test-handoff beantwoord | — |
+| 5b | Share-import S2 (deel vanuit WhatsApp/Mail/Notes/Excel naar PlusOne) | n.n.b. | Opus | 1 | gemerged; een gedeelde tekst uit WhatsApp landt op Paste a list met event- en tier-keuze, +N en e-mail herkend, telling "6 entries = 9 guests (2 with email)"; werkt als Android-PWA en in de Android-shell; iOS Share Extension naar het Capacitor-programma |
 | 6 | Gastcommunicatie F | z8uq9m2vpy | Opus | 1, 2 (company-contact zit in settings), copy gekozen | gemerged; prod-push; een handmatig toegevoegde gast met e-mail krijgt binnen een minuut "You're on the list"; afmeldlink werkt; bounce-webhook idempotent | — |
 | 7 | Requests E | z8uq9m2vga | Opus | 6 | gemerged; prod-push; splitsen, inkorten, deels afwijzen met verplichte opmerking; statusmail via F | — |
 | 8 | Quota-aanvraag Q | z8uq9m2xyp | Opus | 7 | gemerged; prod-push; aanvrager ziet de beslissing op Home; akkoord met gast-gegevens zet de gast op de lijst | — |
@@ -239,7 +240,12 @@ GOLF D — parallel; wacht op golf C gemerged (set_venue_comped, listPrices, bil
     Raakt: home.tsx, events/*.tsx, settings/quota.tsx, settings/team.tsx (invite-sheet exporteren), templates.tsx (terugknop-bug), i18n, bijbehorende tests, tests/flows.
     Verboden: src/features/**, migraties, door. Eén PR, beide taken bijgehouden.
 
-Exit: alle drie gemerged; test-handoffs beantwoord; comped-invite werkt end-to-end; Overview toont de cijfers.
+5b  n.n.b.       Share-import S2                    Opus    branch claude/share-import-s2
+    Raakt: public/manifest.json (share_target), nieuw scherm 'share' in routes.ts/nav-map.ts + src/components/po/screens/share.tsx (landt op Paste a list met event- en tier-keuze), src/features/guests/bulk-paste-parser (uitbreiding: e-mail per regel, tab/komma uit Excel, kopregel overslaan; hergebruik quick-add-parser voor +N en contacts/import/parse voor e-mail), de telling in de preview, android/app/src/main/AndroidManifest.xml (ACTION_SEND text/plain → /app/share) + de kleinst mogelijke intent-plugin, tests/flows (share-flow), i18n.
+    Verboden: iOS Share Extension (Capacitor-programma, na de store-review), server-side opslag van de gedeelde tekst (alles client-side tot de import), src/features/door/**.
+    Geen migratie. Sequentieel na taak 5 (zelfde guests-screens) of in dezelfde worker als 5.
+
+Exit: alle vier gemerged; test-handoffs beantwoord; comped-invite werkt end-to-end; Overview toont de cijfers; een WhatsApp-tekst gedeeld naar PlusOne staat na twee tikken op de lijst.
 ```
 
 ### Golf E
@@ -568,6 +574,25 @@ Klaar als:
 Test-handoff: manager@ → Home, Events → nieuw event → tier-stap, event openen → Add guest, gastdetail, Quota per event.
 ```
 
+### Taak 5b — Share-import S2 (ClickUp n.n.b., Opus)
+
+```
+Scope-hek:
+- Raakt: public/manifest.json (Web Share Target: method GET, params text/title/url → /app/share), src/components/po/routes.ts + nav-map.ts (screen 'share', bookmarkbaar, G1), src/components/po/screens/share.tsx (nieuw: toont de gedeelde tekst, kiest event (default: eerstvolgende) en tier, hergebruikt de bestaande Paste a list-preview en import), src/features/guests/ (paste-parser: per regel naam + optioneel +N (quick-add-parser) + optioneel e-mail of telefoon (contacts/import/parse), tab- en komma-gescheiden regels uit Excel/Sheets, kopregel "Name/Email" overslaan), de preview-telling ("6 entries = 9 total guests (2 with email)"), android/app/src/main/AndroidManifest.xml (intent-filter ACTION_SEND text/plain) + de kleinst mogelijke Capacitor-plugin of community-plugin die de gedeelde tekst als /app/share?text= aan de webview geeft, src/features/notifications is NIET het pad (dit is geen push), tests/flows/share, i18n guests-surface.
+- Verboden: iOS Share Extension (eigen native target; Capacitor-programma na de store-review), de gedeelde tekst server-side opslaan of loggen (namen en e-mails = PII; alles blijft client-side tot de bestaande import-actie), src/features/door/**, wijzigingen aan de import-RPC.
+- Deps: taak 1 (strings), bij voorkeur na taak 5 (zelfde guests-screens).
+
+Wat je bouwt: de drie stappen uit de concurrent-screenshots van 2026-10-07: (1) delen vanuit WhatsApp/Mail/Notes/Excel via de OS-share-sheet, (2) PlusOne kiezen, (3) landen op Paste a list met de tekst al ingevuld, event- en tier-keuze, de telling, en de bestaande Import-knop. Op Android werkt dit als geïnstalleerde PWA via share_target en in de native shell via de intent-filter; op iOS werkt de PWA-route niet (geen share target) en is de Share Extension later. De gedeelde tekst mag nooit in een URL naar de server lekken: share_target met GET levert de tekst in de query, dus de /app/share-route is client-only (ssr:false zoals de shell), leest de query, en vervangt de URL meteen via history.replaceState zonder de tekst (geen PII in URL's, CLAUDE.md).
+
+Klaar als:
+- Android (Chrome, geïnstalleerde PWA): tekst delen vanuit WhatsApp → PlusOne in de share-sheet → Paste a list met de tekst, event en tier → Import; de URL bevat daarna geen tekst meer.
+- Android-shell: zelfde via de intent-filter (Max test op zijn toestel).
+- Parser-tests: "Milan Hendriks +2" = 1 gast met 2 extra; "Fleur Janssen fleur@example.com" = gast met e-mail; "Name<tab>email" uit Sheets; kopregel overgeslagen; telling klopt.
+- Flow in tests/flows/share met de native-shell-variant; geen request bevat de gedeelde tekst behalve de bestaande import-actie.
+
+Test-handoff: manager@ op Android → delen vanuit WhatsApp; op desktop → /app/share?text= met een plakvoorbeeld.
+```
+
 ### Taak 6 — Gastcommunicatie F (z8uq9m2vpy, Opus; webhook + publieke route → reviewer)
 
 ```
@@ -701,6 +726,7 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | Check-in | Groep-eerst; één rij per gast met absoluut aantal; uitchecken per venue instelbaar (RLS) | #22/#25 |
 | Requests | Inkorten, splitsen over tiers, deels afwijzen, verplichte opmerking; statusmail | #10, nieuw |
 | Legal | Eenmanszaak, geen BV/VOF | legal docs |
+| Share-import | Delen vanuit WhatsApp/Mail/Notes/Excel naar PlusOne landt op Paste a list met event- en tier-keuze; +N en e-mail herkend; Android (PWA + shell) nu, iOS Share Extension in het Capacitor-programma; gedeelde tekst nooit in URL of server-log | #33, #37 |
 | Quota-aanvraag | Melding terug op Home (reden verplicht bij afwijzen); gast optioneel meegeven; akkoord zet de gast direct op de lijst | nieuw |
 | Deep link | Event van een andere company: uitleg + "Switch to {company}", nooit stil wisselen | nieuw |
 | Opt-out via telefoon | Matchend nummer mag "Keep me posted" uitzetten (alleen uit, audit); restrisico geaccepteerd | nieuw |
