@@ -166,8 +166,8 @@ test('company rename: wizard → More → Company settings → events with a loc
   await goApp(page, '/app/events/new', baseURL);
   const locName = page.getByRole('textbox', { name: 'Location name' });
   const locAddress = page.getByRole('textbox', { name: 'Location address' });
-  await flow.check(7, 'New event: "Company" field, and the location placeholders are the company name + address', async () => {
-    await expect(page.getByText('Company', { exact: true }).first()).toBeVisible();
+  await flow.check(7, 'New event: no "Company" field (always the active company), and the location placeholders are the company name + address', async () => {
+    await expect(page.getByText('Company', { exact: true })).toHaveCount(0);
     await expect(locName).toHaveAttribute('placeholder', COMPANY);
     await expect(locAddress).toHaveAttribute('placeholder', COMPANY_ADDRESS);
     expect(await visibleVenueWords(page)).toEqual([]);
