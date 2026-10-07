@@ -96,3 +96,5 @@ En één kolomregel: de per-scherm contentbreedte (`WIDE_DESKTOP` in `nav-map.ts
 - Prototype-rollen (VIP/All Access/…) zijn voorbeelden van **tiers** (#8), geen vaste lijst.
 - "Vaste gasten" (ster) = `fixed_members`, fase 2 (#18).
 - Adresboek/contacten = fase 2-kandidaat (venue-contacten, hergebruik over events); niet in MVP.
+- **Terminologie (#53, 2026-10-06):** de tenant heet in de UI **company** (Switch company, Company settings, New company); `venues` blijft de naam in datamodel, code en routes. "Venue" is alleen nog een Type-optie (Club · Festival · Bar · Concert hall · Venue · Organizer, chips in een 2-koloms grid, geselecteerd = `bg-acc text-on-acc`).
+- **Event-locatie (#53):** op kaarten en in de detail-`Top`-sub één regel via `resolveEventLocation(...).label` (pin-icoon, `text-faint`); het event-detail toont daarnaast één regel `naam · adres` (`data-testid="event-location"`). Het formulier heeft twee gewone `Field`s (building-icoon voor de naam, pin voor het adres) met de company als placeholder en een `text-[12.5px] text-faint`-hint eronder. Places-autocomplete vervangt die velden later (taak 3) zonder het patroon te veranderen.
