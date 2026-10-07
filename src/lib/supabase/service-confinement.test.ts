@@ -68,3 +68,40 @@ describe('service-role key confinement (secret-grep)', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// Mail-infra F0 (z8uq9m2yvt): the app's Resend API key and webhook secret get
+// the same treatment. Both are referenced in exactly ONE module, the
+// server-only mail config, which no Client Component may import.
+const MAIL_CONFIG_MODULE = path.join('features', 'mail', 'config.ts');
+const MAIL_SECRET_ENVS = [
+  ['RESEND', 'API', 'KEY'].join('_'),
+  ['RESEND', 'WEBHOOK', 'SECRET'].join('_'),
+];
+
+describe('Resend secret confinement (secret-grep)', () => {
+  it.each(MAIL_SECRET_ENVS)('references %s in only the server-only mail config', (envName) => {
+    const offenders = FILES.filter(
+      (f) => !f.endsWith(MAIL_CONFIG_MODULE) && readFileSync(f, 'utf8').includes(envName)
+    ).map((f) => path.relative(SRC, f));
+    expect(offenders).toEqual([]);
+    const config = readFileSync(path.join(SRC, MAIL_CONFIG_MODULE), 'utf8');
+    expect(config).toContain(envName);
+    expect(config).toMatch(/import\s+['"]server-only['"]/);
+  });
+
+  it('no NEXT_PUBLIC_ variant of a Resend secret exists anywhere in src/', () => {
+    const offenders = FILES.filter((f) => /NEXT_PUBLIC_RESEND/.test(readFileSync(f, 'utf8'))).map((f) =>
+      path.relative(SRC, f)
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('the mail module is never imported by a Client Component', () => {
+    const offenders = FILES.filter((f) => {
+      const src = readFileSync(f, 'utf8');
+      if (!/^\s*['"]use client['"]/m.test(src)) return false;
+      return /from\s+['"][^'"]*features\/mail\//.test(src);
+    }).map((f) => path.relative(SRC, f));
+    expect(offenders).toEqual([]);
+  });
+});
