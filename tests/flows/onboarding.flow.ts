@@ -70,13 +70,13 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
   if (await club.count()) await club.first().click();
   await agree(page);
   await flow.shot('company-filled');
-  await page.getByRole('button', { name: /Create venue|Create company/i }).first().click();
+  await page.getByRole('button', { name: 'Create company' }).click();
 
   const planHeading = page.getByText(/Pick your plan/i).first();
   const skipTeam = page.getByRole('button', { name: /Skip for now/i }).first();
-  const trialStart = page.getByText(/Getting your (venue|company) ready/i).first();
+  const trialStart = page.getByText(/Getting your company ready/i).first();
 
-  await flow.check(4, 'Company step creates the venue and moves on', async () => {
+  await flow.check(4, 'Company step creates the company and moves on', async () => {
     await expect(planHeading.or(skipTeam).or(trialStart)).toBeVisible();
   });
 
@@ -111,7 +111,7 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
     await expect(page).toHaveURL(/\/app/);
   });
 
-  await flow.check(8, `The new venue ("${VENUE}") is the active one in the app`, async () => {
+  await flow.check(8, `The new company ("${VENUE}") is the active one in the app`, async () => {
     await page.goto(new URL('/app/more', baseURL).toString());
     await expect(page.getByText(VENUE).first()).toBeVisible();
   });
