@@ -524,6 +524,30 @@ describe('DoorProvider — group-first check-in as an absolute count (z8uq9m2vg6
     expect(voidCalls).toBe(1);
   });
 
+  it('a queued "+1" on a check-in undone meanwhile settles once, never retried (review #423 point 2)', async () => {
+    serverCheckIns = [serverRow(GUEST_C, 0)];
+    const h = renderDoor();
+    await settle();
+    await waitFor(() => expect(insideIds(h.api())).toEqual([GUEST_C]));
+    // Someone undid it on the server; the RESTRICTIVE policy refuses the
+    // still-voided row for this doorhost with 42501.
+    rejects.set(GUEST_C, {
+      code: '42501',
+      message: 'new row violates row-level security policy "check_ins_void_requires_uncheck" for table "check_ins"',
+    });
+    await act(async () => {
+      h.api().checkInOne(GUEST_C);
+    });
+    await waitFor(() => expect(h.api().toast).toBe(t.door.checkInReversedToast));
+    expect(outbox.getSnapshot().some((e) => e.status === 'error' || e.status === 'pending')).toBe(false);
+    const calls = insertCalls.length;
+    await act(async () => {
+      h.sync().forceSync();
+    });
+    await settle();
+    expect(insertCalls).toHaveLength(calls);
+  });
+
   it('a user without the undo right never queues an undo (the screen hides it; the provider refuses too)', async () => {
     canUncheck = false;
     serverCheckIns = [serverRow(GUEST_A, 0)];

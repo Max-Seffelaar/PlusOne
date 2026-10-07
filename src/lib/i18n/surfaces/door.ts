@@ -100,6 +100,9 @@ export const door = {
   uncheckDisabled: 'Only admins and user managers can undo check-ins here.',
   // Toast after sync when the database refused a queued undo (setting off).
   undoDeniedToast: "Undo not saved. Only admins and user managers can undo check-ins here.",
+  // Toast after sync when a queued check-in reached a check-in someone undid
+  // in the meantime: nothing was saved, the guest shows as outside again.
+  checkInReversedToast: 'Check-in not saved. It was undone in the meantime, so check them in again.',
   reCheckInTitle: 'Check in again?',
   reCheckIn: 'Check in again',
   checkIn: 'Check in',

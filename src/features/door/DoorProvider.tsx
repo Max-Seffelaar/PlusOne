@@ -27,7 +27,7 @@ import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { addOnSpotSchema } from '@/features/guests/schemas';
 import { getDeviceId, getDoorClient } from './offline/device';
 import { t, fmt } from '@/lib/i18n';
-import { drainOutbox, guestKeyOf } from './outbox/replay';
+import { CHECKIN_ON_REVERSED, drainOutbox, guestKeyOf } from './outbox/replay';
 import { coalesceTarget, openCheckInId } from './outbox/dedup';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
@@ -427,7 +427,11 @@ export function DoorProvider({
       // A queued undo the database refused for this user (z8uq9m2vg6). Settled
       // as `denied` — not retried, not a dead letter — and said once, here; the
       // refetch below puts the guest back inside where the server has them.
-      if (summary.denied > 0) showToast(t.door.undoDeniedToast);
+      // A queued check-in that reached a row undone meanwhile settles the same
+      // way (review of PR #423); the toast says which of the two happened.
+      if (summary.denied > 0) {
+        showToast(summary.lastDenied === CHECKIN_ON_REVERSED ? t.door.checkInReversedToast : t.door.undoDeniedToast);
+      }
       // The entry that JUST failed, carried out of the drain itself. Scanning the
       // store for the first `error` entry (the old code) returns the OLDEST one
       // still queued — since tombstones were never pruned, that meant a doorhost

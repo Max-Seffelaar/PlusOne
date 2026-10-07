@@ -51,6 +51,20 @@ export interface ReplayResult {
  */
 export const UNDO_DENIED = 'undo_denied';
 
+/**
+ * Settled outcome of a queued check-in ("+1", "Check in all") that reached a
+ * row someone undid in the meantime, for a user without the undo right: the
+ * RESTRICTIVE check_ins_void_requires_uncheck policy refuses the resulting
+ * (still voided) row with 42501. Retrying can never succeed and it is not a
+ * broken write, so it settles like `duplicate`: the refetch shows the guest
+ * outside and the doorhost checks them in again (review of PR #423, point 2).
+ * With the undo right the trigger turns the same write into a no-op instead.
+ */
+export const CHECKIN_ON_REVERSED = 'checkin_on_reversed';
+
+/** The policy a 42501 names when the resulting row is a void this user may not make. */
+const VOID_POLICY = 'check_ins_void_requires_uncheck';
+
 export function classifyError(error: DbError | null): ReplayResult {
   if (!error) return { status: 'synced' };
   const code = error.code ?? '';
@@ -140,6 +154,9 @@ export async function replayEntry(
         device_id: deviceId,
         offline_synced: true,
       });
+      if (error?.code === '42501' && `${error.message ?? ''} ${error.details ?? ''}`.includes(VOID_POLICY)) {
+        return { status: 'denied', message: CHECKIN_ON_REVERSED };
+      }
       return classifyError(error);
     }
     case 'check_in_topup': {
@@ -230,8 +247,11 @@ export interface DrainSummary {
   errors: number;
   /** Coded rejects that gave up after MAX_ATTEMPTS and were dead-lettered (C9). */
   deadLettered: number;
-  /** Undos the database refused for this user (z8uq9m2vg6) — settled, reported once. */
+  /** Writes settled as `denied` (z8uq9m2vg6): refused undos, and check-ins that
+   *  landed on a row undone meanwhile — settled, reported once. */
   denied: number;
+  /** Message of the last `denied` entry (UNDO_DENIED / CHECKIN_ON_REVERSED). */
+  lastDenied?: string;
   /** A code-less (network/offline) failure paused the drain early. */
   interrupted: boolean;
   /**
@@ -335,7 +355,10 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
     summary.processed++;
     if (result.status === 'synced') summary.synced++;
     if (result.status === 'duplicate') summary.duplicates++;
-    if (result.status === 'denied') summary.denied++;
+    if (result.status === 'denied') {
+      summary.denied++;
+      summary.lastDenied = result.message;
+    }
     if (result.status === 'error') {
       summary.errors++;
       if (result.message) summary.lastError = result.message;

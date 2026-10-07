@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CheckInRow, DbError, DoorGateway } from './gateway';
-import { classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, UNDO_DENIED, type DrainDeps } from './replay';
+import { CHECKIN_ON_REVERSED, classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, UNDO_DENIED, type DrainDeps } from './replay';
 import { resumeStuckEntries, type OutboxEntry } from './types';
 
 const UID = '66666666-6666-4666-8666-666666666666';
@@ -180,6 +180,15 @@ describe('replayEntry', () => {
       payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: '2026-06-20T23:40:00.000Z' },
     }, UID, DEVICE);
     expect(result).toEqual({ status: 'denied', message: UNDO_DENIED });
+  });
+
+  it('a "+1" that lands on a row undone meanwhile settles as denied, not a retried error (review #423 point 2)', async () => {
+    const VOIDED_ROW: DbError = {
+      code: '42501',
+      message: 'new row violates row-level security policy "check_ins_void_requires_uncheck" for table "check_ins"',
+    };
+    const result = await replayEntry(gatewayReturning(VOIDED_ROW), checkInEntry(), UID, DEVICE);
+    expect(result).toEqual({ status: 'denied', message: CHECKIN_ON_REVERSED });
   });
 
   it('a 42501 on anything other than an undo stays a terminal error (only the undo is "denied")', async () => {
