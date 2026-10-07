@@ -144,6 +144,21 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Create-from-template: the template's own settings apply (the RPC copies
   // them), so the form shows the template's values read-only.
   const fromTemplate = isNew && !!templateId;
+  // Picking a template prefills its location (still editable); un-picking
+  // clears it back to the company fallback (z8uq9m2vqc).
+  const pickTemplate = (next: string | null): void => {
+    // The picker fires on every chip tap, including the active one.
+    if (next === templateId) return;
+    // Prefill only over what a template put there: empty fields, or the
+    // previous template's values left untouched. Never over typed input.
+    const prev = templateId ? templates.data?.find((x) => x.id === templateId) : undefined;
+    const untouched = locName === (prev?.location_name ?? '') && locAddress === (prev?.location_address ?? '');
+    setTemplateId(next);
+    if (!untouched) return;
+    const tpl = next ? templates.data?.find((x) => x.id === next) : undefined;
+    setLocName(tpl?.location_name ?? '');
+    setLocAddress(tpl?.location_address ?? '');
+  };
   const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
   // Placeholders show what an empty location falls back to: the company.
@@ -161,7 +176,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Anything the Save button would commit that differs from the loaded state.
   const fieldsDirty = ((): boolean => {
     if (!writable || saving) return false;
-    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locName.trim() || locAddress.trim());
+    // A template's prefilled location is not an edit (only a change to it is).
+    const locEdited =
+      locName.trim() !== (pickedTemplate?.location_name ?? '') || locAddress.trim() !== (pickedTemplate?.location_address ?? '');
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited);
     if (!ev) return false;
     const [d0, t0] = splitLocal(ev.startsAt);
     const [ed0, et0] = splitLocal(ev.endsAt);
@@ -232,11 +250,14 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         const newId = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
           : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress });
-        // The template RPC takes no location; set it on the new event after.
-        // The event exists by now, so a failed location write must never keep
-        // the form open (a second Save would create a SECOND event): move on
-        // to the new event regardless and say what didn't stick.
-        if (templateId && (locationName || locationAddress)) {
+        // The template RPC copies the template's CURRENT DB location
+        // (20261007135000), which can differ from the cached one the form
+        // showed (no realtime on templates). So after a template create we
+        // always write what the user saw in the form — never diff against the
+        // cache. The event exists by now, so a failed write must never keep the
+        // form open (a second Save would create a SECOND event): move on
+        // regardless and say what didn't stick.
+        if (templateId) {
           try {
             await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress });
           } catch {
@@ -357,7 +378,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         )}
 
         {isNew && isAdmin && (templates.data?.length ?? 0) > 0 && (
-          <TemplatePicker templates={templates.data ?? []} templateId={templateId} onChange={setTemplateId} />
+          <TemplatePicker templates={templates.data ?? []} templateId={templateId} onChange={pickTemplate} />
         )}
 
         {/* Company above Name (ADE UX round, item B), edit mode only: a new

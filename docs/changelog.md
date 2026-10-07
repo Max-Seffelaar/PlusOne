@@ -42,6 +42,24 @@ Milestone **Now** (onboarding programme okt 2026, wave C, task 2). Decision #32 
 
 ---
 
+## 2026-10-07 — Templates keep the event location (z8uq9m2vqc, PR B)
+
+Max's prod report ("an event from a template loses its location") traced via the edge logs to **Save as template**:
+`event_templates` had no location, so `create_template_from_event` dropped it.
+
+- **Migration `20261007135000_template_location.sql`:** `event_templates.location_name/location_address` (nullable, same
+  120/200 CHECKs as events, no RLS or grant change: table-level grants only). `create_template_from_event` copies the
+  event location; `create_event_from_template` puts the template location on the new event. Both stay SECURITY DEFINER
+  with `search_path ''`, the same role checks and the same grants (restated).
+- **App:** the template editor has the two location fields. Picking a template on New event prefills its location
+  (editable; picking "blank" clears it); only a changed location is written as a second step after the RPC. Save as
+  template's hint now says "location". Zod caps shared with events.
+- **Tests:** pgTAP `template_location.test.sql` (15: copy both ways, NULL stays NULL, staff/anon denied, RLS on the new
+  columns, CHECKs, function hygiene); vitest prefill/override/no-second-write + schema caps; flow Q17 (desktop: Save as
+  template from an event with a location → the template prefills it → the new event has it in the DB).
+
+---
+
 ## 2026-10-07 — Follow-up to #414: no Company field on New event, magic-link copy (z8uq9m2vqc)
 
 - **New event form:** the read-only "Company" field is gone in create mode. An event is always created in the active
