@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
-import { getAuthContext } from '@/lib/auth/context';
+import { getAuthContext, getMyProfile } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
@@ -607,11 +607,29 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
     return { ok: false, code: 'noop', message: "Couldn't find this person's e-mail." };
   }
 
-  // Invite-first, magic-link fallback (shared with the venue-invite resend).
-  // The order matters: a crew member who never accepted is an UNCONFIRMED
-  // account, and signInWithOtp refuses those ("Signups not allowed") — only a
-  // re-invite reaches them; a confirmed account takes the magic-link path.
-  const sent = await sendInviteEmail(profile.email);
+  // Display context for the crew reminder a CONFIRMED account gets (Mail-infra
+  // F0): the caller's own name and the venue name, both through RLS. No venue
+  // name = no context = the magic-link fallback below, unchanged.
+  const [myProfile, { data: venue }] = await Promise.all([
+    getMyProfile(),
+    supabase.from('venues').select('name').eq('id', venueId).maybeSingle(),
+  ]);
+  const existingAccountMail = venue?.name
+    ? {
+        template: 'team_resend' as const,
+        kind: 'event' as const,
+        venueId,
+        inviterName: myProfile?.full_name ?? null,
+        companyName: venue.name,
+      }
+    : undefined;
+
+  // Invite-first, then the team mail or the magic-link fallback (shared with
+  // the venue-invite resend). The order matters: a crew member who never
+  // accepted is an UNCONFIRMED account, and signInWithOtp refuses those
+  // ("Signups not allowed") — only a re-invite reaches them; a confirmed
+  // account takes the team-mail (or magic-link) path.
+  const sent = await sendInviteEmail(profile.email, { existingAccountMail });
   if (!sent.ok) {
     return { ok: false, code: 'invite', message: "Couldn't send the e-mail. Try again." };
   }

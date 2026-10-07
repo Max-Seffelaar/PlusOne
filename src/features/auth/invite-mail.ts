@@ -2,6 +2,9 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/lib/supabase/service';
 import { requiredServerEnv } from '@/lib/env';
 import type { Database } from '@/lib/database.types';
+import { teamMailActive } from '@/features/mail/config';
+import { sendTeamMail } from '@/features/mail/send';
+import type { TeamMailContent } from '@/features/mail/templates';
 
 // Shared invite/resend e-mail plumbing for the server actions (invite-actions +
 // events/actions). Server-side only — it reaches the service client, which is
@@ -38,6 +41,14 @@ export interface SendInviteEmailOptions {
    * the payload would overwrite an existing unconfirmed user's metadata.
    */
   seedName?: boolean;
+  /**
+   * Team/crew context for an already-CONFIRMED account (Mail-infra F0): with
+   * it, that account gets the PlusOne team mail ("X invited you to join Y")
+   * through Resend instead of a bare magic-link login. Without it (platform
+   * invites) the magic-link path is exactly as before. Only display data: it
+   * is rendered into the mail and never read as authorization.
+   */
+  existingAccountMail?: TeamMailContent;
 }
 
 export type InviteMailResult =
@@ -54,10 +65,12 @@ export type InviteMailResult =
  * Notify an invitee by e-mail (invite + every resend, venue AND crew). For a
  * NEW or invited-but-never-accepted address, inviteUserByEmail provisions/
  * re-invites and sends the "You've been invited" mail in one step; an already-
- * CONFIRMED address gets a magic-link login instead (invite-only — no public
- * signups, #20). The confirmed path matters: signInWithOtp refuses unconfirmed
- * accounts outright ("Signups not allowed for this instance"), so the order is
- * invite-first — that's what makes resend work for never-accepted accounts.
+ * CONFIRMED address gets either the team mail (when the caller passes
+ * `existingAccountMail` and team mail is active, see `teamMailActive`) or, as
+ * before, a magic-link login (invite-only — no public signups, #20). The
+ * confirmed path matters: signInWithOtp refuses unconfirmed accounts outright
+ * ("Signups not allowed for this instance"), so the order is invite-first —
+ * that's what makes resend work for never-accepted accounts.
  */
 export async function sendInviteEmail(
   email: string,
@@ -74,6 +87,12 @@ export async function sendInviteEmail(
     options.seedName === false ? undefined : { data: { full_name: email.split('@')[0] } }
   );
   if (inviteMailError && alreadyRegistered(inviteMailError)) {
+    if (options.existingAccountMail && teamMailActive()) {
+      // Best effort by contract: sendTeamMail never throws. A failed send is a
+      // 'notify' failure, the same contract as a failed magic link below.
+      const sent = await sendTeamMail({ ...options.existingAccountMail, to: email });
+      return sent.ok ? { ok: true } : { ok: false, reason: 'notify' };
+    }
     const mailer = createAnonClient();
     const { error: otpError } = await mailer.auth.signInWithOtp({
       email,

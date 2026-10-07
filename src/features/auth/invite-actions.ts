@@ -2,9 +2,10 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { getSessionUser } from '@/lib/auth/context';
+import { getMyProfile, getSessionUser } from '@/lib/auth/context';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { sendInviteEmail } from './invite-mail';
+import type { TeamMailContent } from '@/features/mail/templates';
 import { inviteSchema, revokeInviteSchema, resendInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
 import { isDemoReviewUser } from './review-window';
@@ -31,6 +32,27 @@ async function callerRolesAt(venueId: string, userId: string): Promise<VenueRole
   return data?.roles ?? [];
 }
 
+/**
+ * Display context for the team mail an EXISTING account gets (Mail-infra F0):
+ * the caller's own name (RLS: own profile) and the venue name (RLS: member).
+ * Null when the venue name can't be read; sendInviteEmail then keeps the
+ * magic-link path rather than send a mail with a hole in it.
+ */
+async function teamMailContext(
+  venueId: string,
+  template: 'join' | 'resend'
+): Promise<TeamMailContent | null> {
+  const supabase = await createClient();
+  const [profile, { data: venue }] = await Promise.all([
+    getMyProfile(),
+    supabase.from('venues').select('name').eq('id', venueId).maybeSingle(),
+  ]);
+  if (!venue?.name) return null;
+  const base = { venueId, inviterName: profile?.full_name ?? null, companyName: venue.name };
+  return template === 'join'
+    ? { template: 'team_join', ...base }
+    : { template: 'team_resend', kind: 'join', ...base };
+}
 
 /**
  * Invite a user to a venue with a set of roles (decision #20/#24). Security
@@ -136,7 +158,8 @@ export async function inviteUserAction(
   //    actually grants access — a transient notify failure for an EXISTING
   //    account must not surface as a hard error; sendInviteEmail can be
   //    retried via resendInviteAction either way.
-  const sent = await sendInviteEmail(email);
+  const existingAccountMail = (await teamMailContext(venueId, 'join')) ?? undefined;
+  const sent = await sendInviteEmail(email, { existingAccountMail });
   if (!sent.ok && sent.reason === 'provision') {
     return { ok: false, error: "Couldn't send the invite. Try again." };
   }
@@ -211,7 +234,8 @@ export async function resendInviteAction(
     return { ok: false, error: "Couldn't resend the invite (no access)." };
   }
 
-  const sent = await sendInviteEmail(invite.email);
+  const existingAccountMail = (await teamMailContext(invite.venue_id, 'resend')) ?? undefined;
+  const sent = await sendInviteEmail(invite.email, { existingAccountMail });
   if (!sent.ok) return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
 
   revalidatePath('/admin/team');

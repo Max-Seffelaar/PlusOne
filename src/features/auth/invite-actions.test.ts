@@ -43,6 +43,7 @@ interface MembershipsChain {
 function makeClient(opts: {
   insertError?: { code?: string; message: string } | null;
   user?: { id: string; email?: string };
+  venueName?: string | null;
 }) {
   const callLog: string[] = [];
 
@@ -59,9 +60,23 @@ function makeClient(opts: {
     }),
   };
 
+  // Mail-infra F0: the team-mail display context (caller's name + venue name).
+  const single = (data: unknown) => {
+    const chain = {
+      select: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      maybeSingle: vi.fn(async () => ({ data })),
+    };
+    return chain;
+  };
+  const venuesChain = single(opts.venueName === null ? null : { name: opts.venueName ?? 'Club Vesper' });
+  const profilesChain = single({ full_name: 'Max' });
+
   const from = vi.fn((table: string) => {
     if (table === 'venue_memberships') return membershipsChain;
     if (table === 'invites') return invitesChain;
+    if (table === 'venues') return venuesChain;
+    if (table === 'user_profiles') return profilesChain;
     throw new Error(`unexpected table ${table}`);
   });
 
@@ -167,5 +182,46 @@ describe('inviteUserAction / resendInviteAction — demo account', () => {
 
     expect(result.ok).toBe(true);
     expect(callLog).toEqual(['insert']);
+  });
+});
+
+// Mail-infra F0 (z8uq9m2yvt): the action hands sendInviteEmail the display
+// context for the team mail an EXISTING account gets. Whether that mail or the
+// magic link goes out is sendInviteEmail's call (invite-mail.test.ts).
+describe('inviteUserAction — team mail context', () => {
+  it('passes inviter + company for the existing-account team mail', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result.ok).toBe(true);
+    expect(sendInviteEmail).toHaveBeenCalledWith('newcrew@venue.com', {
+      existingAccountMail: {
+        template: 'team_join',
+        venueId: VENUE_ID,
+        inviterName: 'Max',
+        companyName: 'Club Vesper',
+      },
+    });
+  });
+
+  it('passes no context when the venue name is unreadable (magic-link fallback stays)', async () => {
+    const { client } = makeClient({ venueName: null });
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(sendInviteEmail).toHaveBeenCalledWith('newcrew@venue.com', { existingAccountMail: undefined });
+  });
+
+  it('a failed team mail (notify) never fails the invite itself', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'notify' });
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result.ok).toBe(true);
   });
 });
