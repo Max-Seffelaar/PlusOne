@@ -93,7 +93,6 @@ describe('TeamStep', () => {
 describe('OnboardingWizard', () => {
   it.each([
     ['venue', null, t.auth.demoNoVenues],
-    ['plan', VENUE, t.auth.demoNoInvites],
     ['team', VENUE, t.auth.demoNoInvites],
   ] as const)('opens the demo account on a refusal from step %s, never a form', (initialStep, venueId, reason) => {
     render(<OnboardingWizard initialStep={initialStep} venueId={venueId} owner={owner} demoAccount />);

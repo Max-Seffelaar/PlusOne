@@ -1,7 +1,7 @@
 'use client';
 
 /** Onboarding step 1 — create the venue (#40a). On success the caller becomes
- *  Admin and we advance to the plan step with the new venue id. The store-review
+ *  Admin and we advance to the team step with the new venue id. The store-review
  *  demo account (86ey6bfug) gets the refusal instead of the form: the server
  *  action and the DB guard refuse it anyway, so a form would only fail on submit. */
 import { type JSX, useState, useTransition } from 'react';
