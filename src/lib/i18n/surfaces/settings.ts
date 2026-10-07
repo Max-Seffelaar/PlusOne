@@ -53,6 +53,10 @@ export const settings = {
     importSub: 'Paste, CSV, or phone contacts',
     billingTitle: 'Billing',
     billingDefault: 'Manage your subscription',
+    // Row subtitle: plan + state, never a price (also in the native shell).
+    billingTrialEndsIn: '{plan} · Trial ends in {days} days',
+    billingTrialEnded: '{plan} · Trial ended',
+    billingAlwaysFree: '{plan} · Always free',
   },
 
   // Team (Gebruikers) + invite sub-form + member sheet.
@@ -324,7 +328,7 @@ export const settings = {
     empty: 'No subscription for this company yet.',
     statusTrialing: 'TRIAL',
     statusActive: 'ACTIVE',
-    statusComped: 'COMPED · PILOT',
+    statusComped: 'ALWAYS FREE',
     statusPastDue: 'PAST DUE',
     statusCanceled: 'CANCELED',
     fieldEvents: 'Events',
@@ -333,9 +337,9 @@ export const settings = {
     fieldStatus: 'Status',
     pastDueBanner: "Your payment's overdue. Update it to keep things running.",
     paymentMethodLabel: 'Payment method',
-    paymentMethodTitle: 'SEPA Direct Debit & iDEAL',
+    paymentMethodTitle: 'Card, SEPA Direct Debit or iDEAL',
     paymentMethodSub: 'Managed by the payment provider',
-    paymentNote: 'Payments by SEPA Direct Debit & iDEAL. We never store your IBAN. The payment provider handles that.',
+    paymentNote: 'Pay by card, SEPA Direct Debit or iDEAL. We never store your card or IBAN. The payment provider handles that.',
     invoicesLabel: 'Invoices',
     invoicesSoon: 'Invoices and the billing portal show up here once billing goes live.',
     invoicesPortal: 'Your invoices live in the billing portal. Open it with the button above.',
@@ -344,6 +348,16 @@ export const settings = {
     reactivate: 'Reactivate subscription',
     managePortal: 'Manage payment & invoices',
     redirecting: 'One sec…',
+    // One plan, monthly or yearly (Billing G). Amounts come live from Stripe
+    // (lookup keys pro_monthly / pro_yearly); never typed here. Browser only.
+    intervalLabel: 'Billing period',
+    intervalMonthly: 'Monthly',
+    intervalYearly: 'Yearly',
+    perMonth: '/ month',
+    perYear: '/ year',
+    yearlySave: 'Save {pct}%',
+    exclVat: 'excl. VAT',
+    priceAtCheckout: 'Price shown at checkout',
     trialEndsIn: 'Trial ends in {days} days. Set up your payment to keep things running.',
     trialEnded: 'Your trial has ended. Set up your payment to keep everything running.',
     // Native shell (store-tax, #32/#37): status only. No price, no payment

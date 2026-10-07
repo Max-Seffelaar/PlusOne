@@ -26,6 +26,7 @@ import {
   toPoProfile,
   toPoVenueSettings,
   toPoSubscription,
+  toPlatformBilling,
   type EventCounts,
   resolveEventLocation,
   formatCompanyAddress,
@@ -941,19 +942,24 @@ describe('toPoVenueSettings', () => {
 });
 
 describe('toPoSubscription', () => {
-  // created_at/stripe_subscription_id feed the trial countdown + checkout CTA
-  // (fase 13 PR 2); base rows below are the common "fresh venue, no Stripe" shape.
-  const base = { created_at: '2026-07-01T00:00:00Z', stripe_subscription_id: null };
+  // Billing G: one plan (Pro); prices are not part of the row (live from
+  // Stripe), the interval and trial override are. Base rows below are the
+  // common "fresh company, no Stripe" shape.
+  const base = {
+    created_at: '2026-07-01T00:00:00Z',
+    stripe_subscription_id: null,
+    billing_interval: null,
+    trial_ends_at: null,
+  };
   it('returns null when there is no subscription row', () => {
     expect(toPoSubscription(null, 'LOFI')).toBeNull();
   });
-  it('resolves the plan via the catalog and formats the renewal', () => {
-    const row: PoSubscriptionRow = { ...base, status: 'active', plan_id: 'premium', current_period_end: '2025-01-01T00:00:00Z', stripe_subscription_id: 'sub_x' };
+  it('shows Pro with the Stripe interval and formats the renewal', () => {
+    const row: PoSubscriptionRow = { ...base, status: 'active', plan_id: 'pro', billing_interval: 'year', current_period_end: '2025-01-01T00:00:00Z', stripe_subscription_id: 'sub_x' };
     expect(toPoSubscription(row, 'LOFI')).toEqual({
-      plan: 'Premium',
-      priceLabel: '€49',
-      period: 'month',
+      plan: 'Pro',
       status: 'active',
+      billingInterval: 'year',
       renews: '1 Jan 2025',
       events: 'Unlimited',
       venueLabel: 'LOFI',
@@ -961,28 +967,47 @@ describe('toPoSubscription', () => {
       trialEndsAt: null,
     });
   });
-  it('handles an unknown/absent plan and no renewal date', () => {
-    const row: PoSubscriptionRow = { ...base, status: 'trialing', plan_id: null, current_period_end: null };
-    expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'No subscription', priceLabel: '—', renews: '—', status: 'trialing' });
+  it.each(['indie', 'premium', 'pilot', 'basic', null])('relabels legacy plan id %s as Pro', (plan_id) => {
+    const row: PoSubscriptionRow = { ...base, status: 'comped', plan_id, current_period_end: null };
+    expect(toPoSubscription(row, 'Club Vesper')).toMatchObject({ plan: 'Pro', renews: '—', status: 'comped' });
   });
-  it('labels an indie plan as a single active event', () => {
-    const row: PoSubscriptionRow = { ...base, status: 'comped', plan_id: 'indie', current_period_end: null };
-    expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'Indie', priceLabel: 'Free', events: '1 active event' });
-  });
-  it('humanises an out-of-catalog plan id (e.g. the seed pilot/comped venue)', () => {
-    const row: PoSubscriptionRow = { ...base, status: 'comped', plan_id: 'pilot', current_period_end: null };
-    expect(toPoSubscription(row, 'Club Vesper')).toMatchObject({ plan: 'Pilot', priceLabel: '—', status: 'comped' });
+  it('drops an interval value outside month|year', () => {
+    const row: PoSubscriptionRow = { ...base, status: 'active', plan_id: 'pro', billing_interval: 'week', current_period_end: null };
+    expect(toPoSubscription(row, 'LOFI')?.billingInterval).toBeNull();
   });
   it('computes the trial end exactly 14 days after creation (trialing only)', () => {
-    const row: PoSubscriptionRow = { ...base, status: 'trialing', plan_id: 'premium', current_period_end: null };
+    const row: PoSubscriptionRow = { ...base, status: 'trialing', plan_id: 'pro', current_period_end: null };
     expect(toPoSubscription(row, 'LOFI')).toMatchObject({
       stripeLinked: false,
       trialEndsAt: '2026-07-15T00:00:00.000Z',
     });
   });
+  it('takes the platform-admin override as the trial end (same rule as the gate)', () => {
+    const row: PoSubscriptionRow = { ...base, status: 'trialing', plan_id: 'pro', current_period_end: null, trial_ends_at: '2026-09-30T21:59:59Z' };
+    expect(toPoSubscription(row, 'LOFI')?.trialEndsAt).toBe('2026-09-30T21:59:59.000Z');
+  });
   it('reports no trial end for non-trialing statuses', () => {
-    const row: PoSubscriptionRow = { ...base, status: 'canceled', plan_id: 'premium', current_period_end: null };
+    const row: PoSubscriptionRow = { ...base, status: 'canceled', plan_id: 'pro', current_period_end: null, trial_ends_at: '2026-09-30T21:59:59Z' };
     expect(toPoSubscription(row, 'LOFI')).toMatchObject({ trialEndsAt: null });
+  });
+});
+
+describe('toPlatformBilling', () => {
+  const row = { venue_id: 'v1', created_at: '2026-07-01T00:00:00Z', trial_ends_at: null, stripe_subscription_id: null };
+  it('reports the effective trial end while trialing', () => {
+    expect(toPlatformBilling({ ...row, status: 'trialing' })).toEqual({
+      venueId: 'v1',
+      status: 'trialing',
+      trialEndsAt: '2026-07-15T00:00:00.000Z',
+      stripeLinked: false,
+    });
+    expect(toPlatformBilling({ ...row, status: 'trialing', trial_ends_at: '2026-12-31T22:59:59Z' }).trialEndsAt).toBe(
+      '2026-12-31T22:59:59.000Z'
+    );
+  });
+  it('no trial end for comped; flags a Stripe link', () => {
+    expect(toPlatformBilling({ ...row, status: 'comped' }).trialEndsAt).toBeNull();
+    expect(toPlatformBilling({ ...row, status: 'active', stripe_subscription_id: 'sub_x' }).stripeLinked).toBe(true);
   });
 });
 

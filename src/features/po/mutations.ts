@@ -121,6 +121,8 @@ import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/aut
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
+import { setVenueCompedAction, setVenueTrialEndAction } from '@/features/billing/platform-actions';
+import type { BillingInterval } from '@/features/billing/plans';
 import {
   inviteBetaCustomerAction,
   resendBetaInviteAction,
@@ -1644,10 +1646,10 @@ export function usePoUpdateVenueSettings() {
 /** Start Stripe Checkout for the active venue; resolves to the hosted URL. */
 export function usePoBillingCheckout() {
   const { venueId } = usePoIdentity();
-  return useMutation<string, Error, void>({
-    mutationFn: async () => {
+  return useMutation<string, Error, BillingInterval>({
+    mutationFn: async (interval) => {
       if (!venueId) throw new Error('No active venue selected.');
-      const res = await createCheckoutSessionAction({ venueId });
+      const res = await createCheckoutSessionAction({ venueId, interval });
       if (!res.ok) throw new Error(res.message);
       return res.url;
     },
@@ -1664,6 +1666,40 @@ export function usePoBillingPortal() {
       if (!res.ok) throw new Error(res.message);
       return res.url;
     },
+  });
+}
+
+// ── Platform > Companies: trial / always free (Billing G) ───────────────────
+// set_venue_trial_end / set_venue_comped re-check is_platform_admin() in the
+// database; the audit trigger logs the write under the caller. On success the
+// page's billing read and the active venue's own subscription (when a platform
+// admin changes the company they are switched into) refetch.
+
+function invalidatePlatformBilling(qc: QueryClient, venueId: string): void {
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-billing'] });
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-venues'] });
+  void qc.invalidateQueries({ queryKey: poKeys.subscription(venueId) });
+}
+
+export function usePoSetVenueTrialEnd() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { venueId: string; trialEndsOn: string }>({
+    mutationFn: async (input) => {
+      const res = await setVenueTrialEndAction(input);
+      if (!res.ok) throw new Error(res.message);
+    },
+    onSuccess: (_d, { venueId }) => invalidatePlatformBilling(qc, venueId),
+  });
+}
+
+export function usePoSetVenueComped() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { venueId: string; comped: boolean }>({
+    mutationFn: async (input) => {
+      const res = await setVenueCompedAction(input);
+      if (!res.ok) throw new Error(res.message);
+    },
+    onSuccess: (_d, { venueId }) => invalidatePlatformBilling(qc, venueId),
   });
 }
 

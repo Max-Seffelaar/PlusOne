@@ -111,6 +111,10 @@ export const poKeys = {
   platformVenuesCount: (search?: string) =>
     [...poKeys.all, 'platform-venues-count', search ?? ''] as const,
   platformVenueOptions: () => [...poKeys.all, 'platform-venue-options'] as const,
+  // Billing G: the billing state of one page of companies (keyed by the ids
+  // shown) and the live Stripe prices (not venue-scoped: one price list).
+  platformBilling: (venueIds: readonly string[]) => [...poKeys.all, 'platform-billing', venueIds] as const,
+  billingPrices: () => [...poKeys.all, 'billing-prices'] as const,
   platformAudit: (params: {
     venueId?: string;
     since?: string;

@@ -65,6 +65,7 @@ import {
   fetchPlatformInvites,
   fetchPlatformFunnel,
   fetchPlatformVenueOverview,
+  fetchPlatformSubscriptions,
   fetchPlatformVenueOverviewCount,
   fetchPlatformVenueOptions,
   fetchPlatformAuditOverview,
@@ -113,6 +114,7 @@ import {
   toPlatformInvite,
   toPlatformFunnel,
   toPlatformVenue,
+  toPlatformBilling,
   toPlatformVenueOption,
   toPlatformAuditEntry,
   toPlatformAccessLogEntry,
@@ -120,6 +122,7 @@ import {
   type PlatformInvite,
   type PlatformInviteStage,
   type PlatformVenue,
+  type PlatformBilling,
   type PlatformVenueOptionItem,
   type PlatformAuditEntry,
   type PoContact,
@@ -146,6 +149,8 @@ import {
   type ContactCandidate,
 } from '@/features/guests/contact-match';
 import { usePoIdentity } from './PoLiveProvider';
+import { billingBlockReason, type BillingPrices } from '@/features/billing/plans';
+import { getBillingPricesAction } from '@/features/billing/actions';
 import { canWorkDoor } from '@/features/auth/roles';
 import { fetchEventStats } from '@/features/stats/data';
 import {
@@ -1375,16 +1380,49 @@ export function usePoSubscription() {
 export function useBillingBlocked(): { blocked: boolean; reason: 'canceled' | 'trial_expired' | null } {
   const { data: sub } = usePoSubscription();
   if (!sub) return { blocked: false, reason: null };
-  if (sub.status === 'canceled') return { blocked: true, reason: 'canceled' };
-  if (
-    sub.status === 'trialing' &&
-    !sub.stripeLinked &&
-    sub.trialEndsAt &&
-    new Date(sub.trialEndsAt).getTime() < Date.now()
-  ) {
-    return { blocked: true, reason: 'trial_expired' };
-  }
-  return { blocked: false, reason: null };
+  // The SAME pure rule as the server gate (gate.ts). sub.trialEndsAt is already
+  // the effective end (override or created_at + 14 d), so it goes in as the
+  // override and createdAt is never consulted.
+  const reason = billingBlockReason({
+    status: sub.status,
+    createdAt: sub.trialEndsAt ?? new Date(0),
+    trialEndsAt: sub.trialEndsAt,
+    stripeSubscriptionId: sub.stripeLinked ? 'linked' : null,
+  });
+  return { blocked: reason !== null, reason };
+}
+
+/**
+ * The two Pro prices, live from Stripe (Billing G) — browser only: the caller
+ * passes `enabled: !isNativeShell()`, so the native shell never even asks
+ * (store-tax seam). `null` data = no billing configured or Stripe unreachable;
+ * the screen then says "Price shown at checkout".
+ */
+export function usePoBillingPrices(options?: { enabled?: boolean }) {
+  return useQuery<BillingPrices | null>({
+    queryKey: poKeys.billingPrices(),
+    enabled: options?.enabled ?? true,
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const res = await getBillingPricesAction();
+      return res.ok ? res.prices : null;
+    },
+  });
+}
+
+/** Billing state for the companies on one Platform > Companies page. */
+export function usePoPlatformBilling(venueIds: readonly string[], options?: { enabled?: boolean }) {
+  return useQuery<Map<string, PlatformBilling>>({
+    queryKey: poKeys.platformBilling(venueIds),
+    enabled: (options?.enabled ?? true) && venueIds.length > 0,
+    queryFn: async () =>
+      new Map(
+        (await fetchPlatformSubscriptions(createClient(), venueIds)).map((row) => {
+          const b = toPlatformBilling(row);
+          return [b.venueId, b] as const;
+        })
+      ),
+  });
 }
 
 // ── Audit log (S10) reads ────────────────────────────────────────────────────
