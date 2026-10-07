@@ -281,9 +281,9 @@ export function Gebruikers(): JSX.Element {
   const teamCount = team.data?.length ?? 0;
   const crewCount = crewQ.data?.length ?? 0;
   const inviteCount = invitesQ.data?.length ?? 0;
-  // "Open" in the header = not yet accepted (the list itself also shows
-  // accepted invites, with their status, per T8).
-  const openInviteCount = (invitesQ.data ?? []).filter((iv) => iv.status !== 'accepted').length;
+  // "Open" in the header = not yet accepted or declined (the list itself also
+  // shows those invites, with their status, per T8).
+  const openInviteCount = (invitesQ.data ?? []).filter((iv) => iv.status !== 'accepted' && iv.status !== 'declined').length;
   return (
     <div className={col}>
       <Top
@@ -418,6 +418,9 @@ export function Gebruikers(): JSX.Element {
                       {iv.status === 'expired' && (
                         <span className="font-semibold text-red-300">{t.settings.team.statusExpired} · </span>
                       )}
+                      {iv.status === 'declined' && (
+                        <span className="font-semibold text-red-300">{t.settings.team.statusDeclined} · </span>
+                      )}
                       {fmt(t.settings.team.invitedRoles, { roles: iv.rolesLabel, when: iv.sentAt })}
                     </div>
                   </div>
@@ -429,9 +432,11 @@ export function Gebruikers(): JSX.Element {
                   ) : (
                     caps.manageTeam && (
                       <div className="flex shrink-0 items-center gap-[6px]">
-                        <MiniChip disabled={demo} onClick={() => resendInvite.mutate(iv.id)}>
-                          {resendBusy ? t.settings.team.resending : resendDone ? t.settings.team.resent : t.settings.team.resend}
-                        </MiniChip>
+                        {iv.status !== 'declined' && (
+                          <MiniChip disabled={demo} onClick={() => resendInvite.mutate(iv.id)}>
+                            {resendBusy ? t.settings.team.resending : resendDone ? t.settings.team.resent : t.settings.team.resend}
+                          </MiniChip>
+                        )}
                         <MiniChip
                           onClick={() => {
                             // AAL1 → open the MFA step-up sheet and retry the revoke after.

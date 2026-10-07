@@ -100,7 +100,7 @@ export async function sendInviteEmail(
   const service = createServiceClient();
   // `data` OVERWRITES raw_user_meta_data on an existing but unconfirmed account,
   // so it is opt-in (security review 2026-09-23, F5). Venue/crew invites keep
-  // seeding a placeholder name because `accept_pending_invites()` reads
+  // seeding a placeholder name because `ensure_my_profile()` reads
   // `raw_user_meta_data ->> 'full_name'`; platform invites, which can target an
   // arbitrary address, pass `seedName: false` and write nothing.
   const { error: inviteMailError } = await service.auth.admin.inviteUserByEmail(

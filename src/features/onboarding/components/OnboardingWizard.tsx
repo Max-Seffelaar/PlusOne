@@ -14,21 +14,21 @@ import { type JSX, useCallback, useState } from 'react';
 import { DEFAULT_PLAN_ID, type PlanId } from '@/features/billing/plans';
 import { useIsNativeShell } from '@/lib/use-native-shell';
 import { WelkomStep } from './steps/WelkomStep';
-import { CrewInviteStep } from './steps/CrewInviteStep';
+import { InviteStep, type OnboardingInvite } from './steps/InviteStep';
 import { VenueStep } from './steps/VenueStep';
 import { PlanStep } from './steps/PlanStep';
 import { BetalingStep } from './steps/BetalingStep';
 import { TeamStep } from './steps/TeamStep';
 import { TrialStartStep } from './steps/TrialStartStep';
 
-type WizardStep = 'crew' | 'welkom' | 'venue' | 'plan' | 'betaling' | 'team';
+type WizardStep = 'invites' | 'welkom' | 'venue' | 'plan' | 'betaling' | 'team';
 
 export function OnboardingWizard({
   initialStep,
   venueId: initialVenueId,
   owner,
   demoAccount = false,
-  crewInvites = [],
+  invites = [],
 }: {
   initialStep: 'venue' | 'plan' | 'team';
   venueId: string | null;
@@ -36,9 +36,10 @@ export function OnboardingWizard({
   /** The store-review demo account (86ey6bfug, `isDemoReviewUser` server side):
    *  the venue and team steps show the refusal instead of their form. UX only. */
   demoAccount?: boolean;
-  /** Open crew invites (z8uq9m2yvp), one banner line each. With any, a person
-   *  without a company first sees CrewInviteStep instead of company setup. */
-  crewInvites?: string[];
+  /** Open invites, team or crew (z8uq9m2yvp), one line each. With any, a person
+   *  without a company first sees InviteStep (accept or decline each one)
+   *  instead of company setup. Login never accepts them. */
+  invites?: OnboardingInvite[];
 }): JSX.Element {
   // The demo account skips straight to the two steps that carry its refusal:
   // no welcome, no plan pick, no payment (86ey6bfug).
@@ -48,8 +49,8 @@ export function OnboardingWizard({
         ? 'team'
         : 'venue'
       : initialStep === 'venue'
-        ? crewInvites.length > 0
-          ? 'crew'
+        ? invites.length > 0
+          ? 'invites'
           : 'welkom'
         : initialStep
   );
@@ -69,8 +70,8 @@ export function OnboardingWizard({
   );
 
   switch (step) {
-    case 'crew':
-      return <CrewInviteStep invites={crewInvites} onSkip={() => setStep('welkom')} />;
+    case 'invites':
+      return <InviteStep invites={invites} onSkip={() => setStep('welkom')} />;
     case 'welkom':
       return <WelkomStep owner={owner} onNext={() => setStep('venue')} />;
     case 'venue':

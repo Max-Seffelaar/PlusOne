@@ -130,5 +130,10 @@ export const resendInviteSchema = z.object({
   inviteId: uuidSchema,
 });
 
+/** The invitee's own accept / decline of ONE invite (z8uq9m2yvp). */
+export const respondInviteSchema = z.object({
+  inviteId: uuidSchema,
+});
+
 export type InviteInput = z.infer<typeof inviteSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;

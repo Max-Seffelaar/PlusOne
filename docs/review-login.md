@@ -105,7 +105,7 @@ gewoon account en zou wél een venue kunnen maken (de tenant ontstaat dan één 
 later). Daarom weigert een `before insert`-trigger op `invites` elke invite in de
 demo-venue met 42501, voor iedereen, service role incluis (migratie
 `20260925130100_review_demo_no_invites.sql`, pgTAP `review_demo_no_invites.test.sql`).
-Zonder invite kan `accept_pending_invites` niemand aan de demo-venue toevoegen. Er is
+Zonder invite kan `accept_invite` niemand aan de demo-venue toevoegen (en login accepteert sowieso niets meer). Er is
 geen legitiem pad dat in de demo-venue uitnodigt: de seed maakt de ene membership direct
 aan.
 
@@ -126,7 +126,7 @@ Dezelfde migratie (ronde 9) sluit nog twee gaten:
   keyde alleen op `venue_id`; de admin van een willekeurige andere venue kon
   `app-review@demo.plus-one.io` uitnodigen. Dan weigert de review-login
   (`venue_not_isolated`) en de reviewer staat buiten, en bij de consent-stap zou
-  `accept_pending_invites` het demo-account lid maken van een echte venue. De functie
+  `accept_invite` het demo-account lid maken van een echte venue. De functie
   weigert nu ook `lower(btrim(email)) = 'app-review@demo.plus-one.io'` (42501), voor
   iedereen, service role incluis. De invite-reads in de review-login blijven als defence
   in depth (invites van vóór de migratie).

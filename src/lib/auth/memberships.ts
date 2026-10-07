@@ -147,6 +147,7 @@ export async function getPendingInvitesForVenue(venueId: string): Promise<Pendin
     .select('id, venue_id, email, roles, expires_at, created_at')
     .eq('venue_id', venueId)
     .is('accepted_at', null)
+    .is('declined_at', null)
     .order('created_at', { ascending: false });
 
   return (data ?? []).map((row) => ({
@@ -172,6 +173,7 @@ export async function getMyPendingInvites(): Promise<PendingInvite[]> {
     .from('invites')
     .select('id, venue_id, email, roles, expires_at, created_at, venues(name)')
     .is('accepted_at', null)
+    .is('declined_at', null)
     .gt('expires_at', nowIso)
     .ilike('email', user.email)
     .order('created_at', { ascending: false });

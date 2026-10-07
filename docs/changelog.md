@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Explicit invite accept and decline, nothing accepts at login (z8uq9m2yvp, follow-up to #412)
+
+Milestone **Now** (golf B, task 0d follow-up). Max's rule ("data only becomes visible once the user has been added and the invite has been accepted") held for crew after #412, but a TEAM invite still auto-accepted at login: any company admin could make an existing account a member (and read its profile) by typing its address. This closes that, for team and crew alike.
+
+- **Migration `20261007150000_explicit_invite_accept`** (not on prod yet): `invites.declined_at` / `declined_by` (not both accepted and declined); the two pending-unique indexes ignore declined rows, so a company can invite again. `accept_pending_invites()` (login, consent, dev-login) is now a deprecated shim that only ensures the profile and returns 0; the app calls the new `ensure_my_profile()`. `accept_invite(id)` accepts ONE invite addressed to the caller (body unchanged from #412: team = membership + quota + event scopes, crew = one `event_organizers` row + quota on a new row, nothing for a member of that company); `decline_invite(id)` closes one and returns true only on the open to declined transition. `accept_my_invites()` stays for one release (the deployed banner still calls it) and goes in a follow-up migration. `declined_invite_mail_context(id)` is service_role only (it hands out the inviter's address). `my_pending_invites()` and `invites_update_resend` skip declined rows; `mail_log.type` gains the two decline types.
+- **App:** `acceptInviteAction(id)` / `declineInviteAction(id)` replace the accept-all action. The Home banner and the /onboarding step (now for team AND crew invites, `InviteStep`) show each invite with its own Accept and Decline. Decline confirms in place, and `notifyInviteDeclined` (`src/features/mail/declined.ts`) mails the inviter ("{typed address} declined ...", never a profile name) and the decliner, venue-less so a decline never eats the company's 25-per-day invitation cap. Mail is best effort. The Team screen shows a "Declined" status; crew "Waiting to accept" drops the invite.
+- **Comments fixed:** the banner header, `inviteExternalCrew`, the callback/confirm routes, consent-actions and `invite-mail.ts` still said login accepts invites.
+- Tests: pgTAP `explicit_invite_accept.test.sql` (41), `crew_invites` and `auth.invites` moved to the per-invite accept; vitest for the actions, the mail, the step and the templates; flow `crew-existing-account` Q1-Q22 (adds the decline path); e2e `invite-accept` now proves the first login accepts nothing. The flow's cleanup keeps its hard deletes as a documented QA exception (see its header).
+- Spec #24 updated (replaces "accepteren = eerste OTP-login"). Open, copy for the orchestrator: the Supabase invite and magic-link templates (`supabase/templates/*.html`, mirrored by hand into the prod dashboard) still say "Accept invite" / "Added to a new company? You'll find it in the app"; the button only logs in. Not changed here; the Resend team mails were reworded.
+
+---
+
 ## 2026-10-07 — Crew via invite + accept, existing accounts included (z8uq9m2yvp)
 
 Milestone **Now** (golf B, task 0d). First version of this PR (#412) resolved an existing account by e-mail with the service role and wrote `event_organizers` straight away; the reviewer showed that this let anyone who creates a company read any account's name, phone and platform-admin flag by typing its address (the organizer leg of `can_view_profile`). Rebuilt on Max's rule (2026-10-07): data becomes visible only once the person has been added AND accepted.

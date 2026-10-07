@@ -782,6 +782,7 @@ const inside = (eventId) => db.check_ins.filter((c) => c.event_id === eventId &&
 const rpcs = {
   current_user_requires_mfa: () => false,
   accept_pending_invites: () => null,
+  ensure_my_profile: () => null,
   list_own_sessions: () => [
     {
       session_id: uid(),
