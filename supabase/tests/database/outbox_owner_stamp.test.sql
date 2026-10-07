@@ -141,9 +141,22 @@ $$, '42501', null, 'C2 a refusal cannot be attributed to a non-door role');
 -- an existing check-in to an arbitrary uuid. `reviveCheckIn` writes that column
 -- on exactly this path.
 
+--
+-- Since z8uq9m2vg6 (20261010120000) a plain UPDATE cannot move checked_by at all:
+-- check_in_stale_guard pins it to the first arrival (#11), silently. The only
+-- update that may still re-attribute a check-in is a revive (voided -> active),
+-- so that is where the actor guard below is exercised. The pin itself is proven
+-- in check_ins_absolute_count.test.sql.
+reset role;
+update public.check_ins
+   set voided_at = now(), voided_by = '11111111-1111-4111-8111-111111111111'
+ where guest_id = (select id from public.guests where full_name = 'Nina Driessen');
+select pg_temp.login('66666666-6666-4666-8666-666666666666');
+
 select throws_ok($$
   update public.check_ins
-     set checked_by = '55555555-5555-4555-8555-555555555555'
+     set voided_at = null, voided_by = null,
+         checked_by = '55555555-5555-4555-8555-555555555555'
    where guest_id = (select id from public.guests where full_name = 'Nina Driessen')
 $$, '42501', null, 'D1 a door user can no longer rewrite checked_by to a non-door role');
 
@@ -156,7 +169,8 @@ select is(
 -- fix bounds the column without breaking the outbox write that uses it.
 select lives_ok($$
   update public.check_ins
-     set checked_by = '66666666-6666-4666-8666-666666666666'
+     set voided_at = null, voided_by = null,
+         checked_by = '66666666-6666-4666-8666-666666666666'
    where guest_id = (select id from public.guests where full_name = 'Nina Driessen')
 $$, 'D3 a door-capable actor is still an accepted value on UPDATE');
 
