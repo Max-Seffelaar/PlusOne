@@ -1,11 +1,14 @@
 // Local-dev helper — get the local stack ready for onboarding testing.
 //
 // Does three things, all idempotent:
-//   1. Re-applies the onboarding migration's RPCs + reloads PostgREST. The local
-//      Supabase stack is SHARED by every git worktree, so another branch's
-//      `supabase db reset` silently drops this branch's functions — after which
-//      "Venue aanmaken" fails with a generic error (PGRST202, no console error).
-//      Re-running this fixes it without a disruptive reset.
+//   1. Checks the onboarding RPCs exist exactly once + reloads PostgREST. It
+//      used to re-apply 20260615000000_onboarding_venue_creation.sql, but a
+//      historical migration is not the current schema: replaying it brought
+//      back the dropped `p_comped` overloads of create_venue_with_owner /
+//      set_venue_plan (20260713180000) next to the live ones, so named-arg
+//      calls went ambiguous (PGRST203) and the client-settable comped hole
+//      reopened locally. A missing or duplicated RPC now means: reset
+//      (`pnpm db:fresh`), never a partial replay.
 //   2. Stamps a fixed TOTP secret on the MFA accounts (see below).
 //   3. Mints a one-click magic-link login for a venue-less owner.
 //   4. Flags admin@plusone.test as a PLATFORM admin (P-02/P-04) so the Platform
@@ -143,20 +146,35 @@ function ensureOwner() {
   return id;
 }
 
-// Re-apply the onboarding migration (create-or-replace functions + grants) and
-// reload PostgREST, so a shared-stack reset by another worktree can't leave the
-// venue-creation RPC missing.
+// The onboarding RPCs must exist exactly once each (one overload — a stale
+// replay once left two and broke every named-arg call). Report, never repair:
+// the only correct repair is a reset onto the full migration set.
+const ONBOARDING_RPCS = ['create_venue_with_owner', 'set_venue_plan', 'mark_onboarding_complete'];
+
 function ensureOnboardingRpcs() {
   try {
-    const sql = readFileSync(
-      new URL('../supabase/migrations/20260615000000_onboarding_venue_creation.sql', import.meta.url),
-      'utf8'
+    const rows = psqlValue(
+      `select p.proname || '=' || count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname in (${ONBOARDING_RPCS.map((f) => `'${f}'`).join(', ')})
+       group by p.proname;`
     );
-    psql(sql);
+    const counts = Object.fromEntries(
+      rows.split('\n').filter(Boolean).map((r) => {
+        const [name, n] = r.split('=');
+        return [name, Number(n)];
+      })
+    );
+    const off = ONBOARDING_RPCS.filter((f) => counts[f] !== 1);
     psql(`notify pgrst, 'reload schema';`);
-    console.log('• onboarding RPCs re-applied + PostgREST reloaded');
+    if (off.length) {
+      console.warn(
+        `• onboarding RPCs off (${off.map((f) => `${f}=${counts[f] ?? 0}`).join(', ')}): run \`pnpm db:fresh\` to reset onto the full migration set`
+      );
+    } else {
+      console.log('• onboarding RPCs present (one overload each) + PostgREST reloaded');
+    }
   } catch (e) {
-    console.warn('• could not re-apply onboarding RPCs:', e.message);
+    console.warn('• could not check onboarding RPCs:', e.message);
   }
 }
 
