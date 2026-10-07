@@ -3,10 +3,10 @@
 /** External crew (event_organizers) management — split from events.tsx (FE-5). */
 import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { t } from '@/lib/i18n';
-import { usePoCrew, usePoAssignableCrew, usePoEvent, usePoEventForEdit } from '@/features/po/hooks';
-import type { PoCrewMember } from '@/features/po/queries';
-import { usePoAssignCrew, usePoInviteExternalCrew, usePoSetCrewQuota, usePoRemoveCrew } from '@/features/po/mutations';
+import { fmt, t } from '@/lib/i18n';
+import { usePoCrew, usePoCrewInvites, usePoAssignableCrew, usePoEvent, usePoEventForEdit } from '@/features/po/hooks';
+import type { PoCrewInvite, PoCrewMember } from '@/features/po/queries';
+import { usePoAssignCrew, usePoInviteExternalCrew, usePoRevokeCrewInvite, usePoSetCrewQuota, usePoRemoveCrew } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
@@ -77,6 +77,62 @@ export function CrewMemberRow({ eventId, member, canManage }: { eventId: string;
   );
 }
 
+/** Days until an invite expires, rounded, for "Expires in N days" (0 = today):
+ *  a fresh 7-day invite reads 7, the last few hours read "today". */
+export function daysLeft(expiresAt: string, now = Date.now()): number {
+  return Math.max(0, Math.round((Date.parse(expiresAt) - now) / 86_400_000));
+}
+
+function expiresLabel(expiresAt: string): string {
+  const n = daysLeft(expiresAt);
+  if (n === 0) return t.events.crew.pendingExpiresToday;
+  return n === 1 ? t.events.crew.pendingExpiresOne : fmt(t.events.crew.pendingExpiresMany, { n });
+}
+
+/** An open crew invite (z8uq9m2yvp): the address, the quota, when it expires,
+ *  and Revoke behind a confirm step. Admin-only (the caller renders it so). */
+export function CrewInviteRow({ eventId, invite }: { eventId: string; invite: PoCrewInvite }): JSX.Element {
+  const revoke = usePoRevokeCrewInvite(eventId);
+  const [confirming, setConfirming] = useState(false);
+  const quota =
+    invite.quota === null || invite.quota === 0
+      ? null
+      : invite.quota === 1
+        ? t.events.crew.pendingQuotaOne
+        : fmt(t.events.crew.pendingQuota, { n: invite.quota });
+  return (
+    <div className="rounded-[16px] border border-dashed border-line bg-elev p-[13px]" data-testid="crew-invite-row">
+      <div className="flex items-center gap-[12px]">
+        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-elev2 text-faint">
+          <Icon name="mail" size={18} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-display text-[15px] font-bold text-text">{invite.email}</div>
+          <div className="mt-0.5 text-[12px] text-faint">
+            {[quota, expiresLabel(invite.expiresAt)].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        {!confirming && <MiniChip onClick={() => setConfirming(true)}>{t.events.crew.revoke}</MiniChip>}
+      </div>
+      {confirming && (
+        <div className="mt-3 rounded-[13px] bg-acc-dim px-[12px] py-[10px]">
+          <p className="m-0 text-[12.5px] leading-[1.45] text-dim">{t.events.crew.revokeConfirm}</p>
+          <div className="mt-2.5 flex items-center justify-end gap-2">
+            <MiniChip onClick={() => setConfirming(false)}>{t.events.crew.revokeKeep}</MiniChip>
+            <MiniChip
+              onClick={() => revoke.mutate({ inviteId: invite.id }, { onSuccess: () => setConfirming(false) })}
+              className="border-transparent bg-acc text-on-acc"
+            >
+              {revoke.isPending ? t.events.crew.revoking : t.events.crew.revokeConfirmCta}
+            </MiniChip>
+          </div>
+        </div>
+      )}
+      <CrewError show={revoke.isError} text={t.events.crew.revokeError} />
+    </div>
+  );
+}
+
 /** A returning external person from the pool: a quota input + Add. */
 export function CrewPoolRow({ eventId, member, defaultQuota }: { eventId: string; member: PoCrewMember; defaultQuota: number }): JSX.Element {
   const assign = usePoAssignCrew(eventId);
@@ -121,6 +177,8 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const isAdmin = roles.includes('admin');
 
   const crewQ = usePoCrew(id);
+  // Open crew invites (z8uq9m2yvp): admin-only, like inviting and revoking.
+  const invitesQ = usePoCrewInvites(id, isAdmin);
   // The returning-crew pool is only needed for the admin "add" path.
   const poolQ = usePoAssignableCrew(isAdmin ? id : '');
   // Prefill new crew quotas from THIS event's default (T10) — not the venue
@@ -190,6 +248,17 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
               <CrewMemberRow key={m.userId} eventId={id} member={m} canManage={isAdmin} />
             ))}
           </div>
+        )}
+
+        {isAdmin && (invitesQ.data ?? []).length > 0 && (
+          <>
+            <Label className="mb-[10px] mt-1">{t.events.crew.pendingLabel}</Label>
+            <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
+              {(invitesQ.data ?? []).map((iv) => (
+                <CrewInviteRow key={iv.id} eventId={id} invite={iv} />
+              ))}
+            </div>
+          </>
         )}
 
         {!isAdmin ? (

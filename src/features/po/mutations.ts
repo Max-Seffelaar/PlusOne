@@ -72,6 +72,7 @@ import {
   assignOrganizer,
   inviteExternalCrew,
   removeOrganizer,
+  revokeCrewInvite,
   resendCrewInvite,
   setEventUserQuota,
   setEventDefaultMemberQuota,
@@ -98,6 +99,7 @@ import type {
   AssignOrganizerInput,
   InviteExternalCrewInput,
   RemoveOrganizerInput,
+  RevokeCrewInviteInput,
   SetEventUserQuotaInput,
   SetEventDefaultMemberQuotaInput,
 } from '@/features/events/schemas';
@@ -1221,15 +1223,18 @@ export function usePoAssignCrew(eventId: string) {
   });
 }
 
-/** Invite a brand-new external crew member by email to one or more events, with a
- *  guest quota. Provisions a login with no venue access; they activate it on first
- *  login. Used by the per-event crew screen (eventIds=[id]) and the settings fork. */
+/** Invite someone as external crew by email to one or more events, with a guest
+ *  quota (z8uq9m2yvp): an open invite they accept, for a new or an existing
+ *  account. Used by the per-event crew screen (eventIds=[id]) and the settings fork. */
 export function usePoInviteExternalCrew() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: InviteExternalCrewInput) => throwOnError(await inviteExternalCrew(input)),
     onSuccess: (_res, input) => {
-      for (const id of input.eventIds) invalidateCrew(qc, id);
+      for (const id of input.eventIds) {
+        invalidateCrew(qc, id);
+        void qc.invalidateQueries({ queryKey: poKeys.crewInvites(id) });
+      }
     },
   });
 }
@@ -1249,6 +1254,15 @@ export function usePoRemoveCrew(eventId: string) {
   return useMutation({
     mutationFn: async (input: RemoveOrganizerInput) => throwOnError(await removeOrganizer(input)),
     onSuccess: () => invalidateCrew(qc, eventId),
+  });
+}
+
+/** Revoke an open crew invite (z8uq9m2yvp); refreshes the event's Pending list. */
+export function usePoRevokeCrewInvite(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: RevokeCrewInviteInput) => throwOnError(await revokeCrewInvite(input)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.crewInvites(eventId) }),
   });
 }
 

@@ -35,7 +35,7 @@ import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { effectiveTrialEndsAt, isBillingInterval, PLAN_NAME, type BillingInterval } from '@/features/billing/plans';
 import { deviceLabel } from '@/lib/ua';
-import { t } from '@/lib/i18n';
+import { t, fmt as fmtCopy } from '@/lib/i18n';
 import { formatVenueAddress } from '@/features/requests/status-view';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
@@ -978,14 +978,18 @@ export interface PoMyInvite {
   id: string;
   venueName: string;
   rolesLabel: string;
+  /** One banner line: "Club Vesper (Staff)", or for crew "Crew · Vesper Fridays at Club Vesper". */
+  label: string;
 }
 
 export function toPoMyInvite(row: PoMyInviteRow): PoMyInvite {
-  return {
-    id: row.id,
-    venueName: row.venue_name ?? t.shared.invites.companyFallback,
-    rolesLabel: rolesLabel(row.roles),
-  };
+  const venueName = row.venue_name ?? t.shared.invites.companyFallback;
+  const roles = rolesLabel(row.roles);
+  const label =
+    row.roles.length === 0
+      ? fmtCopy(t.shared.invites.crewLine, { event: row.event_name ?? t.shared.invites.eventFallback, company: venueName })
+      : `${venueName} (${roles})`;
+  return { id: row.id, venueName, rolesLabel: roles, label };
 }
 
 export interface PoSession {

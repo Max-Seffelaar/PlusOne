@@ -87,6 +87,9 @@ export const shared = {
     error: "Couldn't accept the invite. Try again.",
     /** Stand-in when the inviting company's name can't be read (z8uq9m2vqc). */
     companyFallback: 'a company',
+    /** A crew invite (z8uq9m2yvp): one event at one company. */
+    crewLine: 'Crew · {event} at {company}',
+    eventFallback: 'an event',
   },
 
   // ── Country picker (country-select.tsx) ───────────────────────────────────

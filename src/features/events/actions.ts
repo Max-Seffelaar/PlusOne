@@ -1,8 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { createServiceClient } from '@/lib/supabase/service';
-import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
+import { sendInviteEmail } from '@/features/auth/invite-mail';
 import { inviteMailCapReached } from '@/features/mail/limits';
 import { getAuthContext, getMyProfile } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
@@ -26,6 +25,7 @@ import {
   assignOrganizerSchema,
   inviteExternalCrewSchema,
   removeOrganizerSchema,
+  revokeCrewInviteSchema,
   resendCrewInviteSchema,
   setEventUserQuotaSchema,
   setEventDefaultMemberQuotaSchema,
@@ -50,6 +50,7 @@ import {
   type AssignOrganizerInput,
   type InviteExternalCrewInput,
   type RemoveOrganizerInput,
+  type RevokeCrewInviteInput,
   type ResendCrewInviteInput,
   type SetEventUserQuotaInput,
   type SetEventDefaultMemberQuotaInput,
@@ -417,14 +418,35 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   return { ok: true };
 }
 
+const CREW_INVITE_TTL_DAYS = 7;
+
+/** The per-crew-invite mail outcome as the crew sheet should show it. */
+function crewMailFailure(reason: 'provision' | 'notify' | 'recent' | 'cap'): ActionResult | null {
+  if (reason === 'cap') return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
+  if (reason === 'provision') return { ok: false, code: 'invite', message: "Couldn't send the invite. Try again." };
+  // 'recent' is a success here (review round 2): only an EXISTING account can
+  // hit the 60-second window (a new address gets Supabase's invite, which is
+  // not throttled per address), so a distinct message would tell the admin the
+  // account exists. The address had a mail under a minute ago, and the invite
+  // row is what grants access on accept.
+  // 'notify': the account exists and the invite row is what grants access on
+  // accept; a lost notification is not a failed invite (same as a team invite).
+  return null;
+}
+
 /**
- * Invite a brand-new external (#24) crew member by e-mail and add them to one or
- * more events, each with an optional guest quota. Mirrors the venue invite flow:
- * the auth identity + profile are provisioned server-side (service role — the
- * documented exception, so invite-only OTP login works and the FK resolves), then
- * each event_organizers scope + event_quotas override is written through the
- * USER-scoped client so RLS (admin) re-validates. No venue membership is created —
- * external crew stay out of the venue (#24).
+ * Invite someone as external crew (#6/#24) on one or more events, each with an
+ * optional guest quota (z8uq9m2yvp, decision Max 2026-10-07). ONE path for a new
+ * and an existing account: an open crew invite per event (invites with no venue
+ * roles, one event id, crew_quota), written through the USER-scoped client so
+ * RLS (invites_insert: admin of the venue, every event in that venue) is the
+ * boundary, then the invitation mail. Nothing about the target changes until
+ * THEY accept (accept_my_invites in the Home banner; a brand-new account accepts
+ * at its first login): only then does an event_organizers row exist, so only
+ * then can the company see their profile (can_view_profile). The server never
+ * looks an account up by e-mail, and the result is the same for a new address,
+ * an existing account, a member of this company (nothing written) and someone
+ * already on the crew (nothing written): no enumeration oracle.
  */
 export async function inviteExternalCrew(input: InviteExternalCrewInput): Promise<ActionResult> {
   const parsed = inviteExternalCrewSchema.safeParse(input);
@@ -434,27 +456,21 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  // The store-review demo account never invites (86ey6bfug). Unlike an invite
-  // row, this path mints a real account through the service role, which the
-  // invites trigger never sees: without this stop a code holder could make
-  // their own mailbox crew on a demo event, log in by OTP and create a venue as
-  // that account (a permanent tenant on invite-only prod). So here the app check
-  // IS the boundary for the demo account; it runs before any side effect.
+  // The store-review demo account never invites (86ey6bfug). The invites
+  // trigger refuses the demo venue too; this gives the UI the clear message and
+  // keeps the provisioning mail below from ever running for it.
   if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
 
-  // C1 (security review 7/7): authorize BEFORE any service-role side effect.
-  // Provisioning an auth account + sending the invite mail must never run for a
-  // caller who isn't an admin of the venue(s) owning the target events — else any
-  // authenticated user could drive an invite-only bypass, spam mail, and probe
-  // account existence. Mirror resendCrewInvite: read through the USER-scoped
-  // client so RLS backs the evidence. A non-admin, or an event id in a venue the
-  // caller can't see, fails here generically (no oracle) — before line 470's
-  // inviteUserByEmail.
+  // C1 (security review 7/7): authorize BEFORE any service-role side effect (the
+  // invitation mail provisions an auth account). The caller must be an admin of
+  // the venue(s) owning every target event, read through the USER-scoped client
+  // so RLS backs the evidence; a non-admin, or an event in a venue the caller
+  // can't see, fails here generically. RLS on the invite insert re-checks.
   const supabase = await createClient();
   const uniqueEventIds = [...new Set(eventIds)];
   const { data: targetEvents, error: eventsError } = await supabase
     .from('events')
-    .select('id, venue_id')
+    .select('id, venue_id, name')
     .in('id', uniqueEventIds);
   if (eventsError) return mapMutationError(eventsError);
   if (!targetEvents || targetEvents.length !== uniqueEventIds.length) return unauthorized();
@@ -471,57 +487,105 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
   );
   if (!venueIds.every((v) => adminVenues.has(v))) return unauthorized();
 
-  const fullName = email.split('@')[0];
-  const service = createServiceClient();
-  // inviteUserByEmail provisions the account AND sends the "You've been
-  // invited" mail in one step (T8 fix — createUser sent no e-mail at all, so
-  // external crew never heard about their access).
-  const { data: created, error: createError } = await service.auth.admin.inviteUserByEmail(email, {
-    data: { full_name: fullName },
-  });
-
-  if (createError) {
-    if (alreadyRegistered(createError)) {
-      // The account already exists. We deliberately don't resolve their id
-      // server-side (no enumeration); steer the admin to the returning-crew list.
-      return {
-        ok: false,
-        code: 'exists',
-        message:
-          'This email already has an account. If they’ve worked here before, add them from the returning-crew list instead.',
-      };
+  // Daily invitation-mail cap per company (decision Max 2026-10-07): refuse
+  // before anything is created, so no invite row is left without its mail.
+  for (const venueId of venueIds) {
+    if (await inviteMailCapReached(venueId)) {
+      return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
     }
-    console.error('inviteExternalCrew: createUser failed', createError.message);
-    return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
   }
 
-  const crewUserId = created?.user?.id;
-  if (!crewUserId) {
-    return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
-  }
-
-  // Pre-provision the profile so event_organizers.user_id FK resolves. The user
-  // owns it from first login (decision #24); accept_pending_invites leaves it be.
-  const { error: profileError } = await service
-    .from('user_profiles')
-    .upsert({ id: crewUserId, full_name: fullName, email }, { onConflict: 'id', ignoreDuplicates: true });
-  if (profileError) {
-    console.error('inviteExternalCrew: profile upsert failed', profileError.message);
-    return { ok: false, code: 'invite', message: "Couldn't record the invite." };
-  }
-
-  for (const eventId of eventIds) {
-    const { error } = await supabase
+  // Who is already in: a member of the venue never becomes crew of its own
+  // company's event (review should-fix), and someone already on an event's crew
+  // gets no new invite (their quota stays as it is). Both read through RLS: the
+  // admin already sees their own team and their own events' crew, so this
+  // learns nothing new. Profile e-mail is owner-editable, so this is a
+  // convenience; accept_invites_for_caller re-checks membership at accept time.
+  const [{ data: memberRows }, { data: crewRows }] = await Promise.all([
+    supabase
+      .from('venue_memberships')
+      .select('venue_id, user_profiles!inner(email)')
+      .in('venue_id', venueIds)
+      .ilike('user_profiles.email', likeLiteral(email)),
+    supabase
       .from('event_organizers')
-      .insert({ event_id: eventId, user_id: crewUserId });
-    // A fresh account can't already be crew; tolerate 23505 defensively per event.
-    if (error && error.code !== '23505') return mapMutationError(error);
-    if (quota !== undefined) {
-      const { error: qErr } = await upsertCrewQuota(supabase, eventId, crewUserId, quota);
-      if (qErr) return mapMutationError(qErr);
+      .select('event_id, user_profiles!inner(email)')
+      .in('event_id', uniqueEventIds)
+      .ilike('user_profiles.email', likeLiteral(email)),
+  ]);
+  const memberVenues = new Set((memberRows ?? []).map((r) => r.venue_id));
+  const crewEvents = new Set((crewRows ?? []).map((r) => r.event_id));
+
+  const expiresAt = new Date(Date.now() + CREW_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  // Events per venue that got a new or refreshed invite: one mail per venue.
+  const invitedByVenue = new Map<string, string[]>();
+  for (const ev of targetEvents) {
+    if (memberVenues.has(ev.venue_id) || crewEvents.has(ev.id)) continue;
+    const { error } = await supabase.from('invites').insert({
+      venue_id: ev.venue_id,
+      email,
+      roles: [],
+      event_ids: [ev.id],
+      crew_quota: quota ?? null,
+      invited_by: ctx.user.id,
+      expires_at: expiresAt,
+    });
+    if (error) {
+      if (error.code !== '23505') {
+        // The invites trigger refuses the demo account's address (20260925150000).
+        if (error.code === '42501' && /demo/i.test(error.message)) {
+          return { ok: false, code: '42501', message: t.auth.demoCannotJoin };
+        }
+        return mapMutationError(error);
+      }
+      // An open invite for this person and event exists: re-inviting is a
+      // resend. Fresh expiry (RLS invites_update_resend), quota untouched.
+      const { error: bumpError } = await supabase
+        .from('invites')
+        .update({ expires_at: expiresAt })
+        .eq('venue_id', ev.venue_id)
+        .ilike('email', likeLiteral(email))
+        .is('accepted_at', null)
+        .filter('roles', 'eq', '{}')
+        .contains('event_ids', [ev.id]);
+      if (bumpError) return mapMutationError(bumpError);
+    }
+    invitedByVenue.set(ev.venue_id, [...(invitedByVenue.get(ev.venue_id) ?? []), ev.name]);
+  }
+
+  // The invitation mail, per venue. New or never-accepted address: Supabase's
+  // invite mail (provisions the account; counted toward the company's cap).
+  // Confirmed account: the crew mail ("invited you … accept in the app") or,
+  // with no venue name, the magic-link fallback. The mail is identical in
+  // shape for both, and the response below does not depend on which went out.
+  if (invitedByVenue.size > 0) {
+    const myProfile = await getMyProfile();
+    for (const [venueId, eventNames] of invitedByVenue) {
+      const { data: venue } = await supabase.from('venues').select('name').eq('id', venueId).maybeSingle();
+      const existingAccountMail = venue?.name
+        ? {
+            template: 'team_added_to_event' as const,
+            venueId,
+            inviterName: myProfile?.full_name ?? null,
+            companyName: venue.name,
+            eventName: eventNames.join(', '),
+            quota,
+          }
+        : undefined;
+      const sent = await sendInviteEmail(email, { existingAccountMail, mailCapVenueId: venueId });
+      if (!sent.ok) {
+        const failure = crewMailFailure(sent.reason);
+        if (failure) return failure;
+      }
     }
   }
   return { ok: true };
+}
+
+/** `_`, `%` and `\` taken literally in an ILIKE pattern (crewEmail lower-cases
+ *  and refuses `%`/`\`; `_` is legal in an address). */
+function likeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /**
@@ -641,8 +705,35 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
   // account takes the team-mail (or magic-link) path.
   const sent = await sendInviteEmail(profile.email, { existingAccountMail, mailCapVenueId: venueId });
   if (!sent.ok) {
+    if (sent.reason === 'recent') return { ok: false, code: 'mail_recent', message: t.auth.inviteMailRecent };
+    if (sent.reason === 'cap') return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
     return { ok: false, code: 'invite', message: "Couldn't send the e-mail. Try again." };
   }
+  return { ok: true };
+}
+
+/**
+ * Revoke an open crew invite (z8uq9m2yvp, review round 2): a typo or a change of
+ * mind no longer leaves a 7-day invite nobody can withdraw. Through the
+ * USER-scoped client, so RLS invites_delete is the boundary: an admin of the
+ * invite's company only (the same gate as creating it), open invites only.
+ * Scoped to crew-only rows so this action can never drop a team invite.
+ */
+export async function revokeCrewInvite(input: RevokeCrewInviteInput): Promise<ActionResult> {
+  const parsed = revokeCrewInviteSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error, count } = await supabase
+    .from('invites')
+    .delete({ count: 'exact' })
+    .eq('id', parsed.data.inviteId)
+    .filter('roles', 'eq', '{}');
+  if (error) return mapMutationError(error);
+  if (!count) return { ok: false, code: 'noop', message: t.events.crew.revokeError };
   return { ok: true };
 }
 

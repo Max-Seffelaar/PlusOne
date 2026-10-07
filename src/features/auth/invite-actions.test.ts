@@ -276,6 +276,49 @@ describe('team mail refused by the send limits', () => {
   });
 });
 
+// A second mail to the same address within a minute (z8uq9m2yvp): the resend
+// says so instead of the generic error; the send-time cap keeps the cap copy.
+describe('resend within the 60-second window', () => {
+  it('resendInviteAction answers "re-sent", like for a new address (review round 2: no account oracle)', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'recent' });
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+    const recent = await resendInviteAction({ ok: false }, fd);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: true });
+    const sent = await resendInviteAction({ ok: false }, fd);
+    expect(recent).toEqual(sent);
+    expect(recent.ok).toBe(true);
+  });
+
+  it('inviteUserAction: "recent" reads like a sent invite, the send-time cap is an error, never "Invite sent"', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: true });
+    const sent = await inviteUserAction({ ok: false }, inviteFormData());
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'recent' });
+    expect(await inviteUserAction({ ok: false }, inviteFormData())).toEqual(sent);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'cap' });
+    expect(await inviteUserAction({ ok: false }, inviteFormData())).toEqual({
+      ok: false,
+      error: "You've hit today's limit for inviting team members and crew. Need more today? Mail support@plus-one.io.",
+    });
+  });
+
+  it('the cap hit at send time keeps the cap copy', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'cap' });
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+    expect(await resendInviteAction({ ok: false }, fd)).toEqual({
+      ok: false,
+      error: "You've hit today's limit for inviting team members and crew. Need more today? Mail support@plus-one.io.",
+    });
+  });
+});
+
 // Daily invitation-mail cap per company (decision Max 2026-10-07): refused
 // BEFORE anything is created, with the cap copy.
 describe('invitation-mail cap reached', () => {
