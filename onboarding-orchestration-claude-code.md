@@ -34,6 +34,7 @@
 | 0d | Crew-bug (bestaand account als crew) | z8uq9m2yvp | Opus | 0b | gemerged; `staff@` (bestaand account) is als crew toe te voegen aan een event van de andere seed-company en ziet alleen dat event | — |
 | 0e | Mail-infra F0 (Resend + team-invite mails) | z8uq9m2yvt | Opus | 0d; Max: Resend-key | gemerged; prod-push; team-invite naar een bestaand account en crew-toevoeging geven een echte mail (geen magic link meer); webhook idempotent | — |
 | 0f | Sentry-hygiene S1 | zie ClickUp "Sentry-hygiene S1" | Sonnet | 0b | gemerged; verwachte gebruikersfouten (42501, exists, validatie, already_handled, billing_*) komen niet meer in Sentry; Supabase-fouten hebben een leesbare titel en `code`-tag; EvalError-bron bekend | — |
+| 0g | Last-admin-guard (bug: eigenaar kan zichzelf verwijderen) | n.n.b. | Opus | 0b | gemerged; prod-push; de laatste admin van een company kan zichzelf niet verwijderen of degraderen, ook niet via de API; knop verborgen in Team |
 | 1 | Venue → Company | z8uq9m2vqc | Opus | 0 | gemerged; `pnpm e2e:layout` groen; geen "venue" meer zichtbaar in de UI; event met eigen locatie zichtbaar op de eventkaart | — |
 | 2 | Billing G | z8uq9m2vrz | Opus | 1 | gemerged; prod-push; onboarding zonder plan/betaalstap; Platform-tab kan trial verlengen en "always free" zetten; native toont alleen status en de neutrale zin (e2e-guard native-shell groen); Max' Stripe-stappen (§6) klaar vóór de env-vars live gaan | — |
 | 2b | Platform R | z8uq9m2ybj | Opus | 2 | gemerged; prod-push; invite-rij toont company-chip met Switch, events, status, activiteit; Overview toont status-tellingen, MRR/ARR, trial-funnel, gebruik; manager@ ziet niets | — |
@@ -209,6 +210,9 @@ GOLF B — parallel; wacht op golf A gemerged (P1 raakt events/actions.ts; QA-0 
     Raakt: src/features/mail/** (nieuw), src/app/api/webhooks/resend/route.ts (nieuw), src/features/auth/invite-mail.ts (bestaand-account-tak), src/features/events/actions.ts (alleen de crew-mail-aanroep; rebase na 0d), .env.example, docs/mail-deliverability.md, docs/legal/README.md, tests.
     Verboden: gastmail, notificatie-voorkeuren, digest (taak 6); Supabase-templates (taak 3); src/features/door/**.
     High-risk (webhook + service-role-verzending) → reviewer-sessie verplicht. Max vooraf: RESEND_API_KEY, RESEND_WEBHOOK_SECRET, copy voor drie team-mails.
+0g  n.n.b.       Last-admin-guard                   Opus    branch claude/last-admin-guard
+    Timestamp: 20261007140000_last_admin_guard. Raakt: de migratie (trigger + pgTAP), src/features/venues/actions.ts (removeMemberAction en updateMemberRolesAction: nette fout vóór de DB-weigering), src/features/venues/components/RemoveMemberButton.tsx en settings/team.tsx (knop/rol-wissel verborgen voor de laatste admin), i18n, tests.
+    Verboden: invites, crew, alles buiten memberships. HIGH-RISK (trigger op een auth-tabel).
 1   z8uq9m2vqc   Venue → Company                    Opus    branch claude/z8uq9m2vqc-company-rename
     Timestamp: 20261007120000_event_location.
     Raakt: src/lib/i18n/**, screens (alleen strings), settings/venue*.tsx (Type-veld), events/edit.tsx (locatie), src/features/po/adapters.ts + queries.ts, src/features/events/actions.ts + schemas (location), database.types.ts, gastenlijst-app-spec.md, design-system.md, copy-deck.md.
@@ -315,6 +319,7 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 0b | `20261007100100_guests_venue_created_idx.sql` (was `…100000`, dat slot bleek bezet door `contacts_freeze_anonymized`) | index `guests(venue_id, created_at desc, id desc)` |
 | 0b | `20261007100200_invites_select_initplan.sql` | `invites_select` met `(select auth.uid())` (advisor auth_rls_initplan) |
 | 0c | `20261007110000_notification_throttle.sql` | `notification_throttle`, `notification_outbox.collapse_key` + `deliver_after`, trigger-telling (>10 in 60 min → 24 uur per uur bundelen) |
+| 0g | `20261007140000_last_admin_guard.sql` | BEFORE DELETE/UPDATE-trigger op `venue_memberships`: weigert als de rij de laatste admin van de venue is (delete, of roles zonder admin); pgTAP allowed/denied |
 | 1 | `20261007120000_event_location.sql` | `events.location_name text`, `events.location_address text` (nullable, expand-only); geen RLS-wijziging |
 | 2 | `20261008120000_single_plan_pro.sql` | `update subscriptions set plan_id = 'pro'`; `create_venue_with_owner` zet `plan_id = 'pro'`; `set_venue_plan` blijft bestaan maar accepteert alleen `pro` |
 | 2 | `20261008120100_billing_interval.sql` | `subscriptions.billing_interval text check in ('month','year')` nullable; `apply_stripe_subscription_update` krijgt `p_billing_interval` |
@@ -419,6 +424,28 @@ Scope-hek:
 Wat je bouwt: de taakbeschrijving. Kern: in de alreadyRegistered-tak het account opzoeken via de service-client op user_profiles (gedocumenteerde uitzondering; de admin-check ervoor blijft de boundary) en daarna exact het bestaande pad: event_organizers via de user-scoped client, quota, revalidate. Geen venue-membership (#24).
 
 Klaar als: vitest nieuw/bestaand/niet-admin; crew-user ziet alleen de gekozen events; test-handoff met staff@ als bestaand account.
+```
+
+### Taak 0g — Last-admin-guard (ClickUp n.n.b., Opus; trigger op venue_memberships → reviewer)
+
+```
+Scope-hek:
+- Raakt: supabase/migrations/20261007140000_last_admin_guard.sql, supabase/tests/database/last_admin_guard.test.sql, src/features/venues/actions.ts (alleen removeMemberAction + updateMemberRolesAction), src/features/venues/components/RemoveMemberButton.tsx, src/components/po/screens/settings/team.tsx (alleen de verberg-conditie), src/lib/i18n settings-surface, gastenlijst-app-spec.md (#24 verfijning).
+- Verboden: invites, crew, platform, alles buiten venue_memberships.
+- Deps: taak 0b gemerged.
+
+Bug (Max, 2026-10-07): een company-eigenaar kan zichzelf uit zijn company verwijderen; daarna heeft de company geen admin meer en kan niemand nog iemand uitnodigen. Max deed dit per ongeluk bij "Giorke Kantoor".
+
+Wat je bouwt:
+1. Database is de boundary: BEFORE DELETE en BEFORE UPDATE OF roles op public.venue_memberships weigeren (raise met een eigen SQLSTATE, bijv. 'P0LA1', en een duidelijke message) als de rij de laatste membership met 'admin' in roles van die venue is. Platform-admins krijgen GEEN uitzondering (een company zonder admin is nooit de bedoeling); het demo-venue-trigger-patroon uit 20260925150000 is het voorbeeld.
+2. Server actions: removeMemberAction en updateMemberRolesAction geven de nette fout terug ("You're the only admin. Make someone else admin first.") en mappen de SQLSTATE in db-errors.ts.
+3. UI: in Team is "Remove" en de admin-rol-wissel verborgen voor de laatste admin (zelf én door anderen), met een hint waarom.
+4. Spec #24: "een company houdt altijd minstens één admin; de laatste admin kan zichzelf niet verwijderen of degraderen".
+
+Klaar als:
+- pgTAP: laatste admin delete → geweigerd; laatste admin roles zonder admin → geweigerd; tweede admin aanwezig → beide toegestaan; niet-admin-rij verwijderen → toegestaan; via de REST-API als venue-admin dezelfde weigering (RLS laat de delete toe, de trigger weigert).
+- Vitest op de actions; `pnpm db:test` groen.
+- Test-handoff: manager@ in de seed-company (enige admin) ziet geen Remove bij zichzelf; na een tweede admin wel.
 ```
 
 ### Taak 0e — Mail-infra F0 (z8uq9m2yvt, Opus; webhook + service-role-verzending → reviewer)
@@ -772,6 +799,7 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | Check-in | Groep-eerst; één rij per gast met absoluut aantal; uitchecken per venue instelbaar (RLS) | #22/#25 |
 | Requests | Inkorten, splitsen over tiers, deels afwijzen, verplichte opmerking; statusmail | #10, nieuw |
 | Legal | Eenmanszaak, geen BV/VOF | legal docs |
+| Last-admin-guard | Een company houdt altijd minstens één admin; de laatste admin kan zichzelf niet verwijderen of degraderen (trigger, niet alleen UI) | #24 |
 | Share-import | Delen vanuit WhatsApp/Mail/Notes/Excel naar PlusOne landt op Paste a list met event- en tier-keuze; +N en e-mail herkend; Android (PWA + shell) nu, iOS Share Extension in het Capacitor-programma; gedeelde tekst nooit in URL of server-log | #33, #37 |
 | Quota-aanvraag | Melding terug op Home (reden verplicht bij afwijzen); gast optioneel meegeven; akkoord zet de gast direct op de lijst | nieuw |
 | Deep link | Event van een andere company: uitleg + "Switch to {company}", nooit stil wisselen | nieuw |

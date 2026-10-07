@@ -55,7 +55,11 @@ select tables_are(
     'public_throttle_trusted_callers',
     -- Notificaties N1 (z8uq9m2yvk): push bundling state per (venue, kind).
     -- RLS on, no policies, no app-role grants.
-    'notification_throttle'
+    'notification_throttle',
+    -- Mail-infra F0 (z8uq9m2yvt): one row per app-sent mail (no content,
+    -- hashed recipient; platform admins read) + the Resend webhook ledger
+    -- (RLS on, no policies, no grants). Writes only via service_role RPCs.
+    'mail_log', 'resend_webhook_events'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );

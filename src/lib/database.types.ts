@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       audit_log: {
@@ -1043,6 +1018,50 @@ export type Database = {
         }
         Relationships: []
       }
+      mail_log: {
+        Row: {
+          created_at: string
+          error_code: string | null
+          id: string
+          provider_message_id: string | null
+          recipient_hash: string
+          status: string
+          type: string
+          updated_at: string
+          venue_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_hash: string
+          status?: string
+          type: string
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_hash?: string
+          status?: string
+          type?: string
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mail_log_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_outbox: {
         Row: {
           attempts: number
@@ -1222,6 +1241,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      public_throttle_trusted_callers: {
+        Row: {
+          created_at: string
+          label: string
+          secret_sha256: string
+        }
+        Insert: {
+          created_at?: string
+          label: string
+          secret_sha256: string
+        }
+        Update: {
+          created_at?: string
+          label?: string
+          secret_sha256?: string
+        }
+        Relationships: []
       }
       push_dispatch_tokens: {
         Row: {
@@ -1587,6 +1624,27 @@ export type Database = {
           },
         ]
       }
+      resend_webhook_events: {
+        Row: {
+          id: string
+          processed_at: string
+          provider_message_id: string | null
+          type: string
+        }
+        Insert: {
+          id: string
+          processed_at?: string
+          provider_message_id?: string | null
+          type: string
+        }
+        Update: {
+          id?: string
+          processed_at?: string
+          provider_message_id?: string | null
+          type?: string
+        }
+        Relationships: []
+      }
       stripe_webhook_events: {
         Row: {
           id: string
@@ -1906,6 +1964,14 @@ export type Database = {
         }[]
       }
       admin_revoke_session: { Args: { p_session_id: string }; Returns: boolean }
+      apply_resend_webhook_event: {
+        Args: {
+          p_event_id: string
+          p_event_type: string
+          p_provider_message_id?: string
+        }
+        Returns: boolean
+      }
       apply_stripe_subscription_update: {
         Args: {
           p_current_period_end?: string
@@ -2239,6 +2305,10 @@ export type Database = {
           user_agent: string
         }[]
       }
+      log_mail_attempt: {
+        Args: { p_recipient_hash: string; p_type: string; p_venue_id: string }
+        Returns: string
+      }
       log_venue_export: {
         Args: {
           p_contacts: number
@@ -2250,6 +2320,9 @@ export type Database = {
         }
         Returns: string
       }
+      mail_recipient_window: { Args: never; Returns: string }
+      mail_venue_cap_reached: { Args: { p_venue_id: string }; Returns: boolean }
+      mail_venue_daily_cap: { Args: never; Returns: number }
       mark_guest_regular: { Args: { p_guest_id: string }; Returns: undefined }
       mark_onboarding_complete: {
         Args: { p_venue_id: string }
@@ -2365,9 +2438,22 @@ export type Database = {
       push_dispatch_setting: { Args: { p_name: string }; Returns: string }
       push_dispatch_token_valid: { Args: { p_token: string }; Returns: boolean }
       push_outbox_sweep: { Args: never; Returns: number }
+      record_auth_invite_mail: {
+        Args: { p_recipient_hash: string; p_venue_id: string }
+        Returns: string
+      }
       record_link_pageview: {
         Args: { p_ip_hash: string; p_slug: string }
         Returns: undefined
+      }
+      record_mail_send_result: {
+        Args: {
+          p_error_code?: string
+          p_id: string
+          p_provider_message_id?: string
+          p_status: string
+        }
+        Returns: boolean
       }
       redact_anonymized_audit_pii: {
         Args: { p_guest_ids: string[] }
@@ -2375,6 +2461,14 @@ export type Database = {
       }
       redact_anonymized_contact_audit_pii: {
         Args: { p_contact_ids: string[] }
+        Returns: number
+      }
+      redact_anonymized_platform_invite_audit_pii: {
+        Args: never
+        Returns: number
+      }
+      redact_anonymized_request_audit_pii: {
+        Args: { p_request_ids?: string[] }
         Returns: number
       }
       redact_audit_diff: {
@@ -2417,6 +2511,10 @@ export type Database = {
           id: string
           preferred_role: Database["public"]["Enums"]["contact_role"]
         }[]
+      }
+      seed_platform_admin_by_email_hash: {
+        Args: { p_hash: string }
+        Returns: string
       }
       set_platform_admin: {
         Args: { p_user_id: string; p_value: boolean }
@@ -2588,12 +2686,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2617,11 +2715,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2642,11 +2740,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2667,11 +2765,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2684,11 +2782,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2698,9 +2796,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],
@@ -2729,4 +2824,3 @@ export const Constants = {
     },
   },
 } as const
-
