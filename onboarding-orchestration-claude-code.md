@@ -109,6 +109,19 @@ Open follow-ups uit golf B (geen golf-B-scope): door-header toont de event-locat
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
+### Status golf C (orchestrator, 2026-10-07; wacht op Max)
+
+Gestart parallel aan de rest van golf B (#412 nog open), besluit Max 2026-10-07. ClickUp was de hele golf onbereikbaar (daglimiet): geen comments of statussen; dit blok en de PR-bodies zijn het verslag.
+
+| Taak | PR | Status | Prod |
+|---|---|---|---|
+| 2 Billing G | [#422](https://github.com/Max-Seffelaar/PlusOne/pull/422) | ready for review (head `324d7f7`), CI groen. Orchestrator-review: New company-scherm toonde in de shell nog betaalcopy (weg, e2e-guard uitgebreid), seed-plan-ids naar `pro`, restricted-key-rechten in `docs/stripe-setup.md`. Reviewer: blocker `set_venue_plan` alleen `pro` brak de live app tussen prod-push en merge → accepteert `indie`/`premium`/`pro`, slaat `pro` op; trial-cap 730 dagen. Delta-review: approve. `pnpm db:test` lokaal groen. | `20261008120000`, `…120100`, `…120200` vóór merge pushen |
+| 4 Check-in D | [#423](https://github.com/Max-Seffelaar/PlusOne/pull/423) | ready for review (head `373b43e`), CI groen. Orchestrator-review: `client_timestamp` werd blind vertrouwd (geplante toekomst-stempel bevroor een rij, ook tegen een admin-undo) → clamp op `now()`, alleen void/revive geordend. Reviewer: blockers `guest_id` verplaatsbaar (verkapte undo + cap-omzeiling) en tik verloren tijdens drain → opgelost; stale void/revive geeft nu `PO409` (geen stille no-op), same-actor coalescing. Delta-review: approve. `pnpm db:test` lokaal groen (2121). Besluit Max: backfill `allow_uncheck = false` ook voor bestaande companies (A). Spec-beslissing #55 (#54 is van Ticketing 0, #424). | `20261010120000`, `…120100` vóór merge pushen |
+
+Stripe (§6, Max 2026-10-07): live én sandbox ingericht — product Pro met lookup keys `pro_monthly`/`pro_yearly`, BTW 21% exclusive, Portal (wisselen maand/jaar, opzeggen per periode-einde), dunning (Smart Retries 2 weken → cancel), klantmails, branding, restricted key zonder View-only, webhook met zes events (incl. `customer.subscription.created`). `STRIPE_PRICE_PREMIUM_MONTHLY` pas ná de merge van #422 uit Vercel.
+
+Open follow-ups uit golf C (niet blokkerend): `set_venue_plan` de oude plannamen weer laten weigeren in een latere migratie (contract-stap); Billing toont voor een betalende company de huidige Stripe-prijs, niet de gefactureerde; foutcopy "up to two years" vs. 730-dagen-cap en geen max op de datumkiezer; online undo van een device met achterlopende klok krijgt `PO409` met de melding "changed on another device"; ongebruikte cockpit-strings in `cockpit.ts`; label van de per-event-undo-toggle ongewijzigd.
+
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
 Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. **Aanbevolen gebruik: per golf een verse sessie met deze zelfde prompt** (context en kosten blijven klein; de prompt vindt zelf de lopende golf), met bovenaan één regel welke golf het is. Rename: `/rename Onboarding okt 2026 — orchestrator golf <X>`.
