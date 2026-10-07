@@ -88,19 +88,24 @@ Lessen golf A voor de volgende orchestrator:
 - P2-notities uit de P1-review staan in `docs/perf-audit-2026-10.md` (eigen organizer-wijziging ververst de layout niet; single-event headcount met `p_since`; staff-gastenvenster loopt bij 30k gasten in de statement-timeout, ook op main).
 - Follow-ups (geen golf-A-scope): `po/mutations.ts` gooit `new Error(res.message)` en verliest de MutationError-`code` (S1 matcht daarom op copy; een `MutationFailure extends Error { code }` maakt dat overbodig); `pnpm dev:mfa` brengt de gedropte `set_venue_plan(uuid,text,boolean)`-overload terug en breekt de plan-stap lokaal (QA-0-vondst); P1 liet `usePoEvents`-staleTime staan omdat guest-mutaties `poKeys.events` niet invalideren (P2).
 
-### Status golf B (orchestrator, 2026-10-07; loopt)
+### Status golf B (orchestrator, 2026-10-07; loopt nog)
 
 | Taak | PR | Status | Prod |
 |---|---|---|---|
-| 0d Crew-bug | [#412](https://github.com/Max-Seffelaar/PlusOne/pull/412) | reviewer blokkeerde (cross-tenant PII: een bestaand account als crew toevoegen opende direct naam + telefoon). Herbouw volgens besluit (a): crew altijd via een uitnodiging, zichtbaar pas na accepteren; banner toont companynaam + event. Nieuwe migratie `20261007140000`, nieuwe reviewer-ronde volgt. | `20261007140000` vóór merge pushen |
-| 0e Mail-infra F0 | [#413](https://github.com/Max-Seffelaar/PlusOne/pull/413) | reviewer blokkeerde (geen throttle; Resend-quotum gedeeld met login-OTP's). Opgelost (60 s per ontvanger + cap per company, delta-review schoon); daarna besluit Max: cap 25/dag over álle uitnodigingsmails (ook Supabase-invites), actie weigert vóór aanmaken met een duidelijke melding. Copy goedgekeurd (login-stappen, company-wissel, geen afbeeldingen). | `20261007130000` vóór merge pushen; env-vars staan al in Vercel |
-| 1 Venue → Company | [#414](https://github.com/Max-Seffelaar/PlusOne/pull/414) | CI groen, contact sheets bekeken (geen regressie), reviewer: `get_landing_event` schoon, should-fix verwerkt. | **`20261007120000` vóór merge pushen** (anders 42703 op Events voor elke company) |
+| 1 Venue → Company | [#414](https://github.com/Max-Seffelaar/PlusOne/pull/414) | gemerged (`0ab6f36`); handoff 14 ✅ | `20261007120000` op prod (geverifieerd) |
+| 1 follow-up A | [#417](https://github.com/Max-Seffelaar/PlusOne/pull/417) | gemerged (`fd685e6`): Company-veld uit New event, magic-link-copy "company" (Max plakte het dashboardtemplate), flow Q16 | n.v.t. |
+| 1 follow-up B | [#419](https://github.com/Max-Seffelaar/PlusOne/pull/419) | templates bewaren de event-locatie; reviewer: DB/security schoon, should-fix in verwerking; daarna handoff 15 | `20261007135000` vóór merge pushen |
+| 0e Mail-infra F0 | [#413](https://github.com/Max-Seffelaar/PlusOne/pull/413) | gemerged (`ba0bdfa`) na drie schone reviewer-rondes; handoff 5 ✅ 6 ✅ 7 ✅ | `20261007130000` op prod (geverifieerd); env-vars in Vercel |
+| 0d Crew-bug | [#412](https://github.com/Max-Seffelaar/PlusOne/pull/412) | herbouw volgens besluit (a): crew via uitnodiging + accepteren, banner met companynaam/event, aansluiting op mail-cap en crew-mail, aparte melding bij 60-s-weigering; daarna nieuwe reviewer-ronde | `20261007140000` vóór merge pushen |
+| docs | [#415](https://github.com/Max-Seffelaar/PlusOne/pull/415) | gemerged (`20a04de`) | n.v.t. |
+
+Incident golf B (2026-10-07, ~09:15–09:25 UTC): de prod-push voor #414 werd per ongeluk vanaf de branch van #413 gedaan, waarna #414 gemerged werd zonder `…120000` op prod; Events/Home/event-edit gaven ~10 min 42703 tot de push met `--include-all`. Les: bij "prod-push vóór merge" eerst `git branch --show-current` + `supabase db push --dry-run` lezen (de lijst moet exact de migratie van díe PR bevatten), en de orchestrator verifieert `schema_migrations` op prod vóór hij merget.
 
 Besluiten Max 2026-10-07 (golf B): geen `/code-review ultra`, één reviewer-sessie per high-risk PR; crew-invites volgens (a) met de regel "gegevens pas zichtbaar als ze zijn ingevuld, de gebruiker is toegevoegd én de uitnodiging is geaccepteerd"; de banner blijft (geen auto-accept); mail-cap 25 per company per dag; Resend Pro pas bij meer tractie (Max houdt het quotum in de gaten); testmails via de echte route na de merge van #413; event-locatie zie §7 en taak 3b (golf D).
 
-Volgorde van mergen en prod-pushen in golf B: #414 (`…120000`) → #413 (`…130000`) → #412 (`…140000`). Bij #414 eerst de prod-push, dan de merge (de app leest de nieuwe kolommen direct).
+Volgorde rest golf B: #419 (`…135000`) → #412 (`…140000`), telkens eerst prod-push, dan merge. Golf C mag parallel starten (besluit Max 2026-10-07): geen bestandsoverlap met #419/#412; golf-C-migraties (`20261008…`, `20261010…`) liggen ná die van golf B, maar mergen ze eerder, dan vraagt de push van `…135000`/`…140000` `--include-all`.
 
-Open follow-ups uit golf B (geen golf-B-scope): door-header toont de event-locatie (taak 4); quick-add/bulk-add/profile-sheets tonen de companynaam i.p.v. de event-locatie; template-RPC neemt de locatie niet mee (tweede call); `can_view_profile` laat crew-relaties telefoon en `is_platform_admin` zien (apart ticket); `resend_webhook_events` opschonen (> 30 dagen, taak 2c); Type-veld in Company settings (kleine vervolgtaak).
+Open follow-ups uit golf B (geen golf-B-scope): door-header toont de event-locatie (taak 4); quick-add/bulk-add/profile-sheets tonen de companynaam i.p.v. de event-locatie; `can_view_profile` laat crew-relaties telefoon en `is_platform_admin` zien (apart ticket); `resend_webhook_events` opschonen (> 30 dagen, taak 2c); Type-veld in Company settings (kleine vervolgtaak); hint onder het locatieveld ("Empty means your company address…") aanpassen in taak 3b; footer-tagline "venues & events" in de Supabase-templates in taak 3.
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
