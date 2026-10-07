@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const H = vi.hoisted(() => ({
   from: vi.fn(),
   sendInviteEmail: vi.fn(),
+  capReached: false,
 }));
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
@@ -18,6 +19,7 @@ vi.mock('@/features/auth/invite-mail', () => ({
   sendInviteEmail: H.sendInviteEmail,
   alreadyRegistered: () => false,
 }));
+vi.mock('@/features/mail/limits', () => ({ inviteMailCapReached: async () => H.capReached }));
 vi.mock('@/lib/auth/context', () => ({
   getAuthContext: async () => ({ user: { id: '44444444-4444-4444-8444-444444444444', email: 'admin@plusone.test' } }),
   getMyProfile: async () => ({ full_name: 'Max' }),
@@ -55,6 +57,7 @@ function tables(opts: { roles?: string[]; venueName?: string | null }) {
 beforeEach(() => {
   H.from.mockReset();
   H.sendInviteEmail.mockReset().mockResolvedValue({ ok: true });
+  H.capReached = false;
 });
 
 describe('resendCrewInvite — team mail context', () => {
@@ -69,6 +72,7 @@ describe('resendCrewInvite — team mail context', () => {
         inviterName: 'Max',
         companyName: 'Club Vesper',
       },
+      mailCapVenueId: VENUE_ID,
     });
   });
 
@@ -81,12 +85,28 @@ describe('resendCrewInvite — team mail context', () => {
   it('no readable venue name = no context (magic-link fallback)', async () => {
     tables({ venueName: null });
     await resendCrewInvite({ venueId: VENUE_ID, userId: CREW_ID });
-    expect(H.sendInviteEmail).toHaveBeenCalledWith('crew@example.test', { existingAccountMail: undefined });
+    expect(H.sendInviteEmail).toHaveBeenCalledWith('crew@example.test', {
+      existingAccountMail: undefined,
+      mailCapVenueId: VENUE_ID,
+    });
   });
 
   it('a failed mail surfaces on resend (the mail is the whole point)', async () => {
     tables({});
     H.sendInviteEmail.mockResolvedValue({ ok: false, reason: 'notify' });
     expect(await resendCrewInvite({ venueId: VENUE_ID, userId: CREW_ID })).toMatchObject({ ok: false, code: 'invite' });
+  });
+});
+
+describe('resendCrewInvite — invitation-mail cap', () => {
+  it('refuses with the cap copy and sends nothing', async () => {
+    tables({});
+    H.capReached = true;
+    expect(await resendCrewInvite({ venueId: VENUE_ID, userId: CREW_ID })).toEqual({
+      ok: false,
+      code: 'mail_cap',
+      message: "You've hit today's limit for inviting team members and crew. Need more today? Mail support@plus-one.io.",
+    });
+    expect(H.sendInviteEmail).not.toHaveBeenCalled();
   });
 });

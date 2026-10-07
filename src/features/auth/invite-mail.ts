@@ -4,6 +4,7 @@ import { requiredServerEnv } from '@/lib/env';
 import type { Database } from '@/lib/database.types';
 import { teamMailActive } from '@/features/mail/config';
 import { sendTeamMail } from '@/features/mail/send';
+import { recordAuthInviteMail } from '@/features/mail/limits';
 import type { TeamMailContent } from '@/features/mail/templates';
 
 // Shared invite/resend e-mail plumbing for the server actions (invite-actions +
@@ -49,6 +50,13 @@ export interface SendInviteEmailOptions {
    * is rendered into the mail and never read as authorization.
    */
   existingAccountMail?: TeamMailContent;
+  /**
+   * The company this invitation mail counts against (daily cap, decision Max
+   * 2026-10-07). Set by team/crew invites and resends; when Supabase sends its
+   * own invite mail (new or unconfirmed account) the mail is recorded for this
+   * company. Platform invites leave it unset and count nowhere.
+   */
+  mailCapVenueId?: string;
 }
 
 export type InviteMailResult =
@@ -105,6 +113,9 @@ export async function sendInviteEmail(
   } else if (inviteMailError) {
     console.error('sendInviteEmail: inviteUserByEmail failed', inviteMailError.message);
     return { ok: false, reason: 'provision' };
+  } else if (options.mailCapVenueId) {
+    // Supabase just sent its invite mail over the shared Resend account.
+    await recordAuthInviteMail(options.mailCapVenueId, email);
   }
   return { ok: true };
 }

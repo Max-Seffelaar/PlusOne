@@ -19,6 +19,11 @@ vi.mock('@/features/billing/gate', () => ({
   assertVenueBillingActive: vi.fn(async () => null),
 }));
 
+const capReached = vi.hoisted(() => ({ value: false }));
+vi.mock('@/features/mail/limits', () => ({
+  inviteMailCapReached: async () => capReached.value,
+}));
+
 vi.mock('./invite-mail', () => ({
   sendInviteEmail: vi.fn(async () => ({ ok: true })),
 }));
@@ -31,6 +36,7 @@ const VENUE_ID = '11111111-1111-1111-1111-111111111111';
 // pass or fail based on test order rather than this test's own scenario.
 afterEach(() => {
   vi.resetAllMocks();
+  capReached.value = false;
   (sendInviteEmail as Mock).mockResolvedValue({ ok: true });
 });
 
@@ -216,6 +222,7 @@ describe('inviteUserAction — team mail context', () => {
         inviterName: 'Max',
         companyName: 'Club Vesper',
       },
+      mailCapVenueId: VENUE_ID,
     });
   });
 
@@ -225,7 +232,10 @@ describe('inviteUserAction — team mail context', () => {
 
     await inviteUserAction({ ok: false }, inviteFormData());
 
-    expect(sendInviteEmail).toHaveBeenCalledWith('newcrew@venue.com', { existingAccountMail: undefined });
+    expect(sendInviteEmail).toHaveBeenCalledWith('newcrew@venue.com', {
+      existingAccountMail: undefined,
+      mailCapVenueId: VENUE_ID,
+    });
   });
 
   it('a failed team mail (notify) never fails the invite itself', async () => {
@@ -261,6 +271,42 @@ describe('team mail refused by the send limits', () => {
         inviterName: 'Max',
         companyName: 'Club Vesper',
       },
+      mailCapVenueId: VENUE_ID,
     });
+  });
+});
+
+// Daily invitation-mail cap per company (decision Max 2026-10-07): refused
+// BEFORE anything is created, with the cap copy.
+describe('invitation-mail cap reached', () => {
+  const CAP_COPY = "You've hit today's limit for inviting team members and crew. Need more today? Mail support@plus-one.io.";
+
+  it('inviteUserAction refuses before the invite insert and before any mail', async () => {
+    capReached.value = true;
+    const { client, callLog } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result).toEqual({ ok: false, error: CAP_COPY });
+    expect(callLog).toEqual([]);
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('resendInviteAction refuses before bumping expires_at', async () => {
+    capReached.value = true;
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+
+    const result = await resendInviteAction({ ok: false }, fd);
+
+    expect(result).toEqual({ ok: false, error: CAP_COPY });
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+    const invites = (client.from as Mock).mock.results
+      .map((r) => r.value)
+      .find((v) => v && 'update' in v);
+    expect(invites?.update).not.toHaveBeenCalled();
   });
 });

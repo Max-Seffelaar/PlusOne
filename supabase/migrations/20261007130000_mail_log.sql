@@ -38,14 +38,20 @@
 -- login down with it. log_mail_attempt enforces, before it logs anything:
 --   * one mail per recipient per MAIL_RECIPIENT_WINDOW (60 s, GoTrue's own
 --     per-address spacing for OTP mail);
---   * at most MAIL_VENUE_DAILY_CAP (50) app mails per venue per UTC day,
---     i.e. at most half the Free daily quota for any single venue.
--- Raise the cap together with the Resend plan. A refusal raises SQLSTATE
--- 'PM429'; the sender treats it as a failed send (an initial invite still
--- succeeds, a resend shows its usual error).
+--   * at most MAIL_VENUE_DAILY_CAP (25, decision Max 2026-10-07) invitation
+--     mails per venue per UTC day. That counts EVERY invitation mail a venue
+--     causes: the Resend team mail (existing account) logged here AND the
+--     Supabase invite mail (new/unconfirmed account, sent over the same Resend
+--     account via SMTP) recorded by record_auth_invite_mail. Platform invites
+--     carry no venue and never count.
+-- The invite/resend actions ask mail_venue_cap_reached() BEFORE they create
+-- anything and refuse with a clear message; the check in log_mail_attempt is
+-- the backstop for the race between that check and the send. Raise the cap
+-- together with the Resend plan. A refusal here raises SQLSTATE 'PM429'; the
+-- sender treats it as a failed send.
 
 create or replace function public.mail_venue_daily_cap()
-returns integer language sql immutable set search_path = '' as $$ select 50 $$;
+returns integer language sql immutable set search_path = '' as $$ select 25 $$;
 
 create or replace function public.mail_recipient_window()
 returns interval language sql immutable set search_path = '' as $$ select interval '60 seconds' $$;
@@ -62,7 +68,7 @@ create table public.mail_log (
   -- Named constraint so a later migration (2c, task 6) can widen the set.
   type text not null
     constraint mail_log_type_check
-    check (type in ('team_join', 'team_added_to_event', 'team_resend')),
+    check (type in ('team_join', 'team_added_to_event', 'team_resend', 'auth_invite')),
   venue_id uuid references public.venues (id) on delete cascade,
   recipient_hash text not null
     constraint mail_log_recipient_hash_check check (recipient_hash ~ '^[0-9a-f]{64}$'),
@@ -125,6 +131,57 @@ create policy mail_log_select_platform_admin on public.mail_log
 -- 3. Write path — SECURITY DEFINER, service_role only
 -- ---------------------------------------------------------------------------
 
+-- Has this venue used its invitation-mail budget for the current UTC day?
+-- Called by log_mail_attempt (backstop) and, through the service client, by
+-- the invite/resend actions BEFORE they create anything (src/features/mail/
+-- limits.ts). Rows of every type count, including auth_invite.
+create or replace function public.mail_venue_cap_reached(p_venue_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select count(*) >= public.mail_venue_daily_cap()
+    from public.mail_log m
+   where m.venue_id = p_venue_id
+     and m.created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC';
+$$;
+
+comment on function public.mail_venue_cap_reached(uuid) is
+  'True when the venue sent mail_venue_daily_cap() invitation mails (any '
+  'mail_log type) in the current UTC day. service_role only.';
+
+-- After Supabase Auth sent its own invite mail (inviteUserByEmail, new or
+-- unconfirmed account) for a venue: count it toward that venue's daily cap.
+-- No throttle here: the mail is already out (GoTrue throttles per address),
+-- the row only keeps the budget honest. Platform invites never call this.
+create or replace function public.record_auth_invite_mail(
+  p_venue_id uuid,
+  p_recipient_hash text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  if p_venue_id is null then
+    raise exception 'venue is required' using errcode = '22004';
+  end if;
+  insert into public.mail_log (type, venue_id, recipient_hash, status)
+  values ('auth_invite', p_venue_id, p_recipient_hash, 'sent')
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+comment on function public.record_auth_invite_mail(uuid, text) is
+  'Invite actions (service_role): count a Supabase invite mail toward the '
+  'venue''s daily invitation-mail cap. Logged as sent, never throttled.';
+
 -- Sender, before the provider call. Returns the row id the sender passes to
 -- Resend as Idempotency-Key.
 create or replace function public.log_mail_attempt(
@@ -152,11 +209,7 @@ begin
     raise exception 'mail throttled: recipient' using errcode = 'PM429';
   end if;
 
-  if p_venue_id is not null and (
-    select count(*) from public.mail_log m
-     where m.venue_id = p_venue_id
-       and m.created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC'
-  ) >= public.mail_venue_daily_cap() then
+  if p_venue_id is not null and public.mail_venue_cap_reached(p_venue_id) then
     raise exception 'mail throttled: venue daily cap' using errcode = 'PM429';
   end if;
 
@@ -287,11 +340,15 @@ revoke all on table public.resend_webhook_events from anon, authenticated, servi
 revoke execute on function
   public.log_mail_attempt(text, uuid, text),
   public.record_mail_send_result(uuid, text, text, text),
-  public.apply_resend_webhook_event(text, text, text)
+  public.apply_resend_webhook_event(text, text, text),
+  public.mail_venue_cap_reached(uuid),
+  public.record_auth_invite_mail(uuid, text)
 from public, anon, authenticated;
 
 grant execute on function
   public.log_mail_attempt(text, uuid, text),
   public.record_mail_send_result(uuid, text, text, text),
-  public.apply_resend_webhook_event(text, text, text)
+  public.apply_resend_webhook_event(text, text, text),
+  public.mail_venue_cap_reached(uuid),
+  public.record_auth_invite_mail(uuid, text)
 to service_role;

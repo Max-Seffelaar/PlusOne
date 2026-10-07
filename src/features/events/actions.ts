@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
+import { inviteMailCapReached } from '@/features/mail/limits';
 import { getAuthContext, getMyProfile } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
@@ -607,6 +608,11 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
     return { ok: false, code: 'noop', message: "Couldn't find this person's e-mail." };
   }
 
+  // Daily invitation-mail cap per company (decision Max 2026-10-07).
+  if (await inviteMailCapReached(venueId)) {
+    return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
+  }
+
   // Display context for the crew reminder a CONFIRMED account gets (Mail-infra
   // F0): the caller's own name and the venue name, both through RLS. No venue
   // name = no context = the magic-link fallback below, unchanged.
@@ -629,7 +635,7 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
   // accepted is an UNCONFIRMED account, and signInWithOtp refuses those
   // ("Signups not allowed") — only a re-invite reaches them; a confirmed
   // account takes the team-mail (or magic-link) path.
-  const sent = await sendInviteEmail(profile.email, { existingAccountMail });
+  const sent = await sendInviteEmail(profile.email, { existingAccountMail, mailCapVenueId: venueId });
   if (!sent.ok) {
     return { ok: false, code: 'invite', message: "Couldn't send the e-mail. Try again." };
   }

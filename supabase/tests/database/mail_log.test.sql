@@ -54,7 +54,7 @@ begin
 end;
 $fn$;
 
-select plan(47);
+select plan(54);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner)
@@ -235,8 +235,41 @@ reset role;
 
 select ok(
   not has_function_privilege('authenticated', 'public.mail_venue_daily_cap()', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.mail_recipient_window()', 'EXECUTE'),
-  'T7 the limit constants are not callable by app roles');
+  and not has_function_privilege('anon', 'public.mail_recipient_window()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.mail_venue_cap_reached(uuid)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.record_auth_invite_mail(uuid, text)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.mail_venue_cap_reached(uuid)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.record_auth_invite_mail(uuid, text)', 'EXECUTE'),
+  'T7 the limit functions are service_role-only');
+
+select is(public.mail_venue_daily_cap(), 25, 'T8 the company cap is 25 invitation mails per UTC day');
+
+-- Supabase invite mails count toward the same cap. Fresh venue: 24 team mails
+-- + 1 auth_invite = 25 = cap.
+insert into public.venues (id, name, slug) values
+  ('ac000000-0000-7000-8000-0000000000c3', 'Cap Club', 'cap-club');
+insert into public.mail_log (type, venue_id, recipient_hash)
+select 'team_join', 'ac000000-0000-7000-8000-0000000000c3', encode(extensions.digest('c3-' || i, 'sha256'), 'hex')
+  from generate_series(1, public.mail_venue_daily_cap() - 1) as i;
+select pg_temp.login_service();
+select is(public.mail_venue_cap_reached('ac000000-0000-7000-8000-0000000000c3'), false,
+  'T9 one below the cap: not reached');
+select lives_ok(
+  $$ select public.record_auth_invite_mail('ac000000-0000-7000-8000-0000000000c3', repeat('7', 64)) $$,
+  'T10 a Supabase invite mail is recorded (no throttle, the mail is already out)');
+select is(public.mail_venue_cap_reached('ac000000-0000-7000-8000-0000000000c3'), true,
+  'T11 ...and it counts: the cap is reached');
+select throws_ok(
+  $$ select public.log_mail_attempt('team_join', 'ac000000-0000-7000-8000-0000000000c3', repeat('8', 64)) $$,
+  'PM429', null, 'T12 the team mail backstop refuses past the shared cap');
+select throws_ok(
+  $$ select public.record_auth_invite_mail(null, repeat('7', 64)) $$,
+  '22004', null, 'T13 an auth invite without a company (platform invite) is never recorded');
+reset role;
+select is(
+  (select row(type, status)::text from public.mail_log
+    where venue_id = 'ac000000-0000-7000-8000-0000000000c3' and recipient_hash = repeat('7', 64)),
+  '(auth_invite,sent)', 'T14 the Supabase invite row is typed auth_invite, status sent');
 
 -- ---------------------------------------------------------------------------
 -- C. Webhook RPC (as service_role)

@@ -6,6 +6,7 @@ import { getMyProfile, getSessionUser } from '@/lib/auth/context';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { sendInviteEmail } from './invite-mail';
 import type { TeamMailContent } from '@/features/mail/templates';
+import { inviteMailCapReached } from '@/features/mail/limits';
 import { inviteSchema, revokeInviteSchema, resendInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
 import { isDemoReviewUser } from './review-window';
@@ -108,6 +109,9 @@ export async function inviteUserAction(
   // no team; existing members keep working.
   const billingBlocked = await assertVenueBillingActive(venueId);
   if (billingBlocked) return { ok: false, error: billingBlocked.message };
+  // Daily invitation-mail cap per company (decision Max 2026-10-07): refuse
+  // before anything is created, so no invite row is left without its mail.
+  if (await inviteMailCapReached(venueId)) return { ok: false, error: t.auth.inviteMailCapReached };
   // Event-organizer scope is an admin-only grant (mirrors assignOrganizer, #6/#24);
   // RLS (invites_insert) re-enforces this, but check up front for a clear message.
   if (eventIds.length > 0 && !callerRoles.includes('admin')) {
@@ -159,7 +163,7 @@ export async function inviteUserAction(
   //    account must not surface as a hard error; sendInviteEmail can be
   //    retried via resendInviteAction either way.
   const existingAccountMail = (await teamMailContext(venueId, 'join')) ?? undefined;
-  const sent = await sendInviteEmail(email, { existingAccountMail });
+  const sent = await sendInviteEmail(email, { existingAccountMail, mailCapVenueId: venueId });
   if (!sent.ok && sent.reason === 'provision') {
     return { ok: false, error: "Couldn't send the invite. Try again." };
   }
@@ -224,6 +228,7 @@ export async function resendInviteAction(
   // Same soft-block as inviting (#32): a canceled/lapsed venue grows no team.
   const billingBlocked = await assertVenueBillingActive(invite.venue_id);
   if (billingBlocked) return { ok: false, error: billingBlocked.message };
+  if (await inviteMailCapReached(invite.venue_id)) return { ok: false, error: t.auth.inviteMailCapReached };
 
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { error, count } = await supabase
@@ -235,7 +240,7 @@ export async function resendInviteAction(
   }
 
   const existingAccountMail = (await teamMailContext(invite.venue_id, 'resend')) ?? undefined;
-  const sent = await sendInviteEmail(invite.email, { existingAccountMail });
+  const sent = await sendInviteEmail(invite.email, { existingAccountMail, mailCapVenueId: invite.venue_id });
   if (!sent.ok) return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
 
   revalidatePath('/admin/team');

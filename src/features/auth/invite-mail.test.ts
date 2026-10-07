@@ -15,6 +15,7 @@ const H = vi.hoisted(() => ({
   inviteUserByEmail: vi.fn(),
   signInWithOtp: vi.fn(),
   sendTeamMail: vi.fn(),
+  recordAuthInviteMail: vi.fn(),
   active: true,
 }));
 
@@ -27,6 +28,7 @@ vi.mock('@supabase/supabase-js', () => ({
 vi.mock('@/lib/env', () => ({ requiredServerEnv: (n: string) => `env:${n}` }));
 vi.mock('@/features/mail/config', () => ({ teamMailActive: () => H.active }));
 vi.mock('@/features/mail/send', () => ({ sendTeamMail: H.sendTeamMail }));
+vi.mock('@/features/mail/limits', () => ({ recordAuthInviteMail: H.recordAuthInviteMail }));
 
 import { sendInviteEmail } from './invite-mail';
 import type { TeamMailContent } from '@/features/mail/templates';
@@ -44,6 +46,7 @@ beforeEach(() => {
   H.inviteUserByEmail.mockReset().mockResolvedValue({ data: {}, error: null });
   H.signInWithOtp.mockReset().mockResolvedValue({ error: null });
   H.sendTeamMail.mockReset().mockResolvedValue({ ok: true });
+  H.recordAuthInviteMail.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -102,5 +105,36 @@ describe('sendInviteEmail', () => {
     });
     expect(H.sendTeamMail).not.toHaveBeenCalled();
     expect(H.signInWithOtp).not.toHaveBeenCalled();
+  });
+});
+
+// Daily company cap (decision Max 2026-10-07): a Supabase invite mail sent for a
+// company counts toward its cap; a platform invite counts nowhere; the team
+// mail for an existing account is logged by sendTeamMail itself.
+describe('sendInviteEmail — invitation-mail cap bookkeeping', () => {
+  const VENUE = '3f1c8a52-9d6b-4f2e-8a11-7c0d5e9b4a63';
+
+  it('records a Supabase invite mail against the company', async () => {
+    await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT, mailCapVenueId: VENUE });
+    expect(H.recordAuthInviteMail).toHaveBeenCalledWith(VENUE, 'new@example.test');
+  });
+
+  it('a platform invite (no company) is never recorded', async () => {
+    await sendInviteEmail('klant@venue.test', { seedName: false });
+    expect(H.recordAuthInviteMail).not.toHaveBeenCalled();
+  });
+
+  it('the existing-account team mail is not double-counted here', async () => {
+    H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
+    await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT, mailCapVenueId: VENUE });
+    expect(H.sendTeamMail).toHaveBeenCalledTimes(1);
+    expect(H.recordAuthInviteMail).not.toHaveBeenCalled();
+  });
+
+  it('a failed provisioning call records nothing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    H.inviteUserByEmail.mockResolvedValue({ data: null, error: { status: 500, message: 'down' } });
+    await sendInviteEmail('x@example.test', { mailCapVenueId: VENUE });
+    expect(H.recordAuthInviteMail).not.toHaveBeenCalled();
   });
 });

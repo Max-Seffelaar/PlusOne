@@ -117,13 +117,21 @@ login mail for existing accounts, so prod does not regress before the key is set
   status only moves forward. Without the secret the route answers 503 and processes nothing.
   Auth (SMTP) mail from the same account also triggers events; those match no `mail_log`
   row and are only ledgered.
-- **Send limits (review of PR #413):** login OTPs used to be the only mail to an existing
-  account, and GoTrue throttles those per address. App mail has its own limits in
-  `log_mail_attempt`: one mail per recipient per 60 s and at most 50 app mails per company
-  per UTC day (half the Free daily quota, so one company can never drain the login OTPs of
-  all the others). A refusal is SQLSTATE `PM429`, logged as `sendTeamMail: throttled`; the
-  invite itself still succeeds, a resend shows its usual error. Raise the cap
-  (`mail_venue_daily_cap()`, new migration) together with the Resend plan.
+- **Send limits (review of PR #413, cap decided by Max 2026-10-07):** login OTPs used to be
+  the only mail to an existing account, and GoTrue throttles those per address. Invitation
+  mail now has its own limits, enforced in the database (`20261007130000`):
+  - **Per company: 25 invitation mails per UTC day** (`mail_venue_daily_cap()`). That counts
+    every invitation mail a company causes: the Resend team mail (existing account) and the
+    Supabase invite mail (new or unconfirmed account, `auth_invite` rows via
+    `record_auth_invite_mail`), for team invites, crew and resends alike. Platform invites
+    count nowhere. The invite and resend actions call `inviteMailCapReached`
+    (`src/features/mail/limits.ts`) **before** they create anything; at the cap the admin
+    sees "You've hit today's limit for inviting team members and crew. Need more today?
+    Mail support@plus-one.io." and no invite row or account is made. `log_mail_attempt`
+    refuses past the cap too (`PM429`), as the backstop for a race.
+  - **Per recipient: one team mail per 60 s.** Silent: an initial invite still succeeds,
+    a resend shows its usual error.
+  - Raise the cap (`mail_venue_daily_cap()`, new migration) together with the Resend plan.
 - **Accepted residual risk: URL-like text in a company name.** Names are HTML-escaped,
   control and bidi characters are stripped and each name is capped at 80 characters, but a
   company admin can still name the company e.g. "Acme. Verify at example.com", and Gmail or

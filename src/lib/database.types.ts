@@ -2320,6 +2320,7 @@ export type Database = {
         Returns: string
       }
       mail_recipient_window: { Args: never; Returns: string }
+      mail_venue_cap_reached: { Args: { p_venue_id: string }; Returns: boolean }
       mail_venue_daily_cap: { Args: never; Returns: number }
       mark_guest_regular: { Args: { p_guest_id: string }; Returns: undefined }
       mark_onboarding_complete: {
@@ -2436,6 +2437,10 @@ export type Database = {
       push_dispatch_setting: { Args: { p_name: string }; Returns: string }
       push_dispatch_token_valid: { Args: { p_token: string }; Returns: boolean }
       push_outbox_sweep: { Args: never; Returns: number }
+      record_auth_invite_mail: {
+        Args: { p_recipient_hash: string; p_venue_id: string }
+        Returns: string
+      }
       record_link_pageview: {
         Args: { p_ip_hash: string; p_slug: string }
         Returns: undefined
