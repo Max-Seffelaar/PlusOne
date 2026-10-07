@@ -21,7 +21,7 @@ const nav = { push: vi.fn(), replace: vi.fn(), back: vi.fn(), setTab: vi.fn(), o
 const createEvent = vi.fn().mockResolvedValue(NEW_ID);
 const createFromTemplate = vi.fn().mockResolvedValue(NEW_ID);
 
-let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean }> = [];
+let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean; location_name?: string | null; location_address?: string | null }> = [];
 
 const mutation = () => ({ mutateAsync: vi.fn(), isPending: false });
 const updateEvent = vi.fn().mockResolvedValue(undefined);
@@ -223,5 +223,43 @@ describe('EventEdit template path, location write fails', () => {
     expect(createFromTemplate).toHaveBeenCalledTimes(1);
     expect(toast).toHaveBeenCalledWith(t.events.locationNotSaved);
     expect(screen.queryByText('network')).not.toBeInTheDocument();
+  });
+});
+
+// Templates keep the location (20261007135000): the RPC copies the template's
+// location onto the event, the form prefills it on pick, and only a change the
+// user made is written in a second step.
+describe('EventEdit template location prefill', () => {
+  const withLoc = { id: 'tpl-loc', name: 'Offsite', tierCount: 1, landing_active: true, location_name: 'Paradiso', location_address: 'Weteringschans 6' };
+
+  it('prefills the location from the picked template and clears it when un-picked', () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Paradiso');
+    expect(screen.getByRole('textbox', { name: t.events.locationAddressAria })).toHaveValue('Weteringschans 6');
+    fireEvent.click(screen.getByRole('button', { name: t.events.templateBlank }));
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('');
+  });
+
+  it('leaves the location to the RPC when the prefilled value is kept (no second write)', async () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    fillAndCreate();
+    await waitFor(() => expect(createFromTemplate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalled());
+    expect(updateEvent).not.toHaveBeenCalled();
+  });
+
+  it('writes an overridden location after the template create, empty = back to the company', async () => {
+    templates = [withLoc];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: 'Melkweg' } });
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationAddressAria }), { target: { value: '' } });
+    fillAndCreate();
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null });
   });
 });

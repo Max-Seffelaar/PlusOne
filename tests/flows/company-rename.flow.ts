@@ -228,6 +228,48 @@ test('company rename: wizard → More → Company settings → events with a loc
   const own = (evs ?? []).find((e) => e.name === EV_OWN)!;
   const plain = (evs ?? []).find((e) => e.name === EV_PLAIN)!;
 
+  // ── Save as template keeps the location (20261007135000) ─────────────────
+  if (flow.variant === 'desktop-browser') {
+    await flow.check(17, 'Save as template keeps the location: the template prefills it and a new event gets it (DB truth)', async () => {
+      const TPL2 = `From offsite ${tag}`;
+      const EV_FROM = `From template ${tag}`;
+      await goApp(page, `/app/events/${own.id}/edit`, baseURL);
+      await page.getByRole('button', { name: 'Save as template' }).click();
+      await page.getByPlaceholder('Template name, e.g. "Lofi, open air"').fill(TPL2);
+      await page.getByRole('button', { name: 'Save template' }).click();
+      await expect(page.getByText(`"${TPL2}" is saved.`)).toBeVisible();
+      await expect
+        .poll(async () => {
+          const { data } = await db.from('event_templates').select('location_name, location_address').eq('name', TPL2).maybeSingle();
+          return data ? `${data.location_name}|${data.location_address}` : null;
+        })
+        .toBe(`${OWN_NAME}|${OWN_ADDRESS}`);
+
+      await goApp(page, '/app/events/new', baseURL);
+      await page.getByRole('button', { name: TPL2 }).click();
+      await expect(page.getByRole('textbox', { name: 'Location name' })).toHaveValue(OWN_NAME);
+      await expect(page.getByRole('textbox', { name: 'Location address' })).toHaveValue(OWN_ADDRESS);
+      await flow.shot('template-prefill');
+      await page.getByPlaceholder('e.g. FRENZY').fill(EV_FROM);
+      const date = page.getByLabel('Pick a date').first();
+      await date.fill(typedDate(6));
+      await date.press('Enter');
+      const hour = page.getByLabel('Hour').first();
+      await hour.fill('22:00');
+      await hour.press('Enter');
+      await page.getByRole('button', { name: 'Create event' }).click();
+      await page.waitForURL(/\/app\/events\/[^/]+/);
+      await expect
+        .poll(async () => {
+          const { data } = await db.from('events').select('location_name, location_address').eq('name', EV_FROM).maybeSingle();
+          return data ? `${data.location_name}|${data.location_address}` : null;
+        })
+        .toBe(`${OWN_NAME}|${OWN_ADDRESS}`);
+    });
+  } else {
+    flow.skip(17, 'Save as template keeps the location — desktop variant only');
+  }
+
   // ── Cards, detail ─────────────────────────────────────────────────────────
   await goApp(page, '/app/events', baseURL);
   await flow.check(9, 'Events cards: own location on one, the company address on the other', async () => {

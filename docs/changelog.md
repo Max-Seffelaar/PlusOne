@@ -8,6 +8,24 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Templates keep the event location (z8uq9m2vqc, PR B)
+
+Max's prod report ("an event from a template loses its location") traced via the edge logs to **Save as template**:
+`event_templates` had no location, so `create_template_from_event` dropped it.
+
+- **Migration `20261007135000_template_location.sql`:** `event_templates.location_name/location_address` (nullable, same
+  120/200 CHECKs as events, no RLS or grant change: table-level grants only). `create_template_from_event` copies the
+  event location; `create_event_from_template` puts the template location on the new event. Both stay SECURITY DEFINER
+  with `search_path ''`, the same role checks and the same grants (restated).
+- **App:** the template editor has the two location fields. Picking a template on New event prefills its location
+  (editable; picking "blank" clears it); only a changed location is written as a second step after the RPC. Save as
+  template's hint now says "location". Zod caps shared with events.
+- **Tests:** pgTAP `template_location.test.sql` (15: copy both ways, NULL stays NULL, staff/anon denied, RLS on the new
+  columns, CHECKs, function hygiene); vitest prefill/override/no-second-write + schema caps; flow Q17 (desktop: Save as
+  template from an event with a location → the template prefills it → the new event has it in the DB).
+
+---
+
 ## 2026-10-07 — Mail-infra F0 + team-invite mails (z8uq9m2yvt)
 
 Milestone **Now** (onboarding programme okt 2026, wave B, task 0e). The app now sends its own mail through Resend's HTTP API, behind a `MailProvider` interface in `src/features/mail/` (billing pattern: Resend adapter + keyless stub; a vitest guard keeps `resend` and the API host inside that directory and the mail module out of `src/features/door/`). Plain `fetch` instead of the `resend` SDK: one POST, no new dependency; the Svix signature is verified with `node:crypto` against Svix's published test vector.

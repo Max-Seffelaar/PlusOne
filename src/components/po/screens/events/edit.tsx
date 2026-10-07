@@ -144,6 +144,14 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Create-from-template: the template's own settings apply (the RPC copies
   // them), so the form shows the template's values read-only.
   const fromTemplate = isNew && !!templateId;
+  // Picking a template prefills its location (still editable); un-picking
+  // clears it back to the company fallback (z8uq9m2vqc).
+  const pickTemplate = (next: string | null): void => {
+    setTemplateId(next);
+    const tpl = next ? templates.data?.find((x) => x.id === next) : undefined;
+    setLocName(tpl?.location_name ?? '');
+    setLocAddress(tpl?.location_address ?? '');
+  };
   const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
   // Placeholders show what an empty location falls back to: the company.
@@ -232,11 +240,16 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         const newId = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
           : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress });
-        // The template RPC takes no location; set it on the new event after.
-        // The event exists by now, so a failed location write must never keep
-        // the form open (a second Save would create a SECOND event): move on
-        // to the new event regardless and say what didn't stick.
-        if (templateId && (locationName || locationAddress)) {
+        // The template RPC copies the TEMPLATE's location onto the new event
+        // (20261007135000). The form prefills that location on pick, so only a
+        // change the user made needs a second write. The event exists by now,
+        // so a failed write must never keep the form open (a second Save would
+        // create a SECOND event): move on regardless and say what didn't stick.
+        const tplLocChanged =
+          !!pickedTemplate &&
+          (locationName !== (pickedTemplate.location_name ?? null) ||
+            locationAddress !== (pickedTemplate.location_address ?? null));
+        if (templateId && tplLocChanged) {
           try {
             await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress });
           } catch {
@@ -357,7 +370,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         )}
 
         {isNew && isAdmin && (templates.data?.length ?? 0) > 0 && (
-          <TemplatePicker templates={templates.data ?? []} templateId={templateId} onChange={setTemplateId} />
+          <TemplatePicker templates={templates.data ?? []} templateId={templateId} onChange={pickTemplate} />
         )}
 
         {/* Venue above Name (ADE UX round, item B): the venue is the context you

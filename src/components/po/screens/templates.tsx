@@ -22,6 +22,7 @@ import {
   usePoDeleteTemplateTier,
   usePoUpdateTemplate,
 } from '@/features/po/mutations';
+import { LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { parseAutoLockOffsetMinutes } from '@/features/events/auto-lock-hours';
 import { TIER_ALIASES_UI } from '@/features/guests/tiers';
@@ -104,7 +105,7 @@ export function Templates(): JSX.Element {
 // ── Template editor ──────────────────────────────────────────────────────────
 export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Element {
   const nav = useNav();
-  const { venueId } = usePoIdentity();
+  const { venueId, venueName } = usePoIdentity();
   const canManage = usePoCanManageTemplates();
 
   // A brand-new template has no id; after the first save we hold the new id so the
@@ -126,6 +127,10 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
   const [allowUncheck, setAllowUncheck] = useState<boolean | null>(null);
   const [autoOn, setAutoOn] = useState(false);
   const [autoHours, setAutoHours] = useState('');
+  // Event location the template hands to new events (z8uq9m2vqc). '' = none,
+  // so its events follow the company address.
+  const [locName, setLocName] = useState('');
+  const [locAddress, setLocAddress] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
   // Hydrate from the loaded template (edit mode, and once after a fresh create).
@@ -138,6 +143,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
     setAllowUncheck(d.allow_uncheck);
     setAutoOn(d.auto_lock_offset_minutes != null);
     setAutoHours(d.auto_lock_offset_minutes != null ? String(Math.abs(d.auto_lock_offset_minutes) / 60) : '');
+    setLocName(d.location_name ?? '');
+    setLocAddress(d.location_address ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.data?.id]);
 
@@ -152,6 +159,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
     allowUncheck: boolean | null;
     landingActive: boolean;
     autoLockOffsetMinutes: number | null;
+    locationName: string | null;
+    locationAddress: string | null;
   } => {
     const capNum = capacity.trim() === '' ? NaN : Number.parseInt(capacity, 10);
     const offset = autoOn ? parseAutoLockOffsetMinutes(autoHours) : null;
@@ -160,6 +169,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
       allowUncheck,
       landingActive: landingOn,
       autoLockOffsetMinutes: offset ?? null,
+      locationName: locName.trim() || null,
+      locationAddress: locAddress.trim() || null,
     };
   };
 
@@ -242,6 +253,29 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
           className="mb-1.5"
         />
         <p className="mb-[18px] text-[12px] leading-[1.5] text-faint">{t.templates.capacityHint}</p>
+
+        {/* Event location (z8uq9m2vqc): copied onto every event made from this
+            template; the event form can still change it. */}
+        <Label className="mb-2">{t.events.fieldLocation}</Label>
+        <Field
+          icon="building"
+          ariaLabel={t.events.locationNameAria}
+          placeholder={venueName || t.events.locationNamePlaceholder}
+          value={locName}
+          onChange={writable ? setLocName : undefined}
+          maxLength={LOCATION_NAME_MAX}
+          className="mb-2"
+        />
+        <Field
+          icon="pin"
+          ariaLabel={t.events.locationAddressAria}
+          placeholder={t.events.locationAddressPlaceholder}
+          value={locAddress}
+          onChange={writable ? setLocAddress : undefined}
+          maxLength={LOCATION_ADDRESS_MAX}
+          className="mb-1.5"
+        />
+        <p className="mb-[18px] text-[12px] leading-[1.5] text-faint">{t.templates.locationHint}</p>
 
         <Label className="mb-[10px]">{t.templates.settingsLabel}</Label>
         <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">
