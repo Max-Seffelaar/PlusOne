@@ -39,6 +39,7 @@
 | 2b | Platform R | z8uq9m2ybj | Opus | 2 | gemerged; prod-push; invite-rij toont company-chip met Switch, events, status, activiteit; Overview toont status-tellingen, MRR/ARR, trial-funnel, gebruik; manager@ ziet niets | — |
 | 2c | Billing-mails B1 | z8uq9m2z19 | Opus | 0e, 2, 2b; copy gekozen | gemerged; prod-push; seed-trials op dag 7/12/14/21 krijgen elk precies één mail per run; Platform-tab toont de tijdlijn per company | — |
 | 3 | Onboarding A | z8uq9m2vg5 | Opus | 2 | gemerged; comped-invite werkt end-to-end; Places op het adresveld; één DPA-checkbox; nieuwe invite-mail in Mailpit en in prod gezien | — |
+| 3b | Event-locaties L (opgeslagen locaties per company; publiek altijd de event-locatie) | n.n.b. | Opus | 3 | gemerged; prod-push; deellink en statuspagina tonen altijd de event-locatie, nooit het companyadres; per event een opgeslagen locatie kiezen | — |
 | 4 | Check-in D | z8uq9m2vg6 | Opus | 0 (ontwerp), 1 | gemerged; groep-knop en per-persoon-knop; doorhost kan niet uitchecken tenzij de setting aan staat, ook niet via de API | — |
 | 5 | Event C + Dashboard B | z8uq9m2vg7 + z8uq9m2vg8 | Opus | 1 | één PR, twee taken; gemerged; test-handoff beantwoord | — |
 | 5b | Share-import S2 (deel vanuit WhatsApp/Mail/Notes/Excel naar PlusOne) | n.n.b. | Opus | 1 | gemerged; een gedeelde tekst uit WhatsApp landt op Paste a list met event- en tier-keuze, +N en e-mail herkend, telling "6 entries = 9 guests (2 with email)"; werkt als Android-PWA en in de Android-shell; iOS Share Extension naar het Capacitor-programma |
@@ -85,6 +86,20 @@ Lessen golf A voor de volgende orchestrator:
 - ClickUp-ID's voor QA-0 en S1 stonden niet in de repo; zet taak-ID's in §2 vóór de golf start.
 - P2-notities uit de P1-review staan in `docs/perf-audit-2026-10.md` (eigen organizer-wijziging ververst de layout niet; single-event headcount met `p_since`; staff-gastenvenster loopt bij 30k gasten in de statement-timeout, ook op main).
 - Follow-ups (geen golf-A-scope): `po/mutations.ts` gooit `new Error(res.message)` en verliest de MutationError-`code` (S1 matcht daarom op copy; een `MutationFailure extends Error { code }` maakt dat overbodig); `pnpm dev:mfa` brengt de gedropte `set_venue_plan(uuid,text,boolean)`-overload terug en breekt de plan-stap lokaal (QA-0-vondst); P1 liet `usePoEvents`-staleTime staan omdat guest-mutaties `poKeys.events` niet invalideren (P2).
+
+### Status golf B (orchestrator, 2026-10-07; loopt)
+
+| Taak | PR | Status | Prod |
+|---|---|---|---|
+| 0d Crew-bug | [#412](https://github.com/Max-Seffelaar/PlusOne/pull/412) | reviewer blokkeerde (cross-tenant PII: een bestaand account als crew toevoegen opende direct naam + telefoon). Herbouw volgens besluit (a): crew altijd via een uitnodiging, zichtbaar pas na accepteren; banner toont companynaam + event. Nieuwe migratie `20261007140000`, nieuwe reviewer-ronde volgt. | `20261007140000` vóór merge pushen |
+| 0e Mail-infra F0 | [#413](https://github.com/Max-Seffelaar/PlusOne/pull/413) | reviewer blokkeerde (geen throttle; Resend-quotum gedeeld met login-OTP's). Opgelost (60 s per ontvanger + cap per company, delta-review schoon); daarna besluit Max: cap 25/dag over álle uitnodigingsmails (ook Supabase-invites), actie weigert vóór aanmaken met een duidelijke melding. Copy goedgekeurd (login-stappen, company-wissel, geen afbeeldingen). | `20261007130000` vóór merge pushen; env-vars staan al in Vercel |
+| 1 Venue → Company | [#414](https://github.com/Max-Seffelaar/PlusOne/pull/414) | CI groen, contact sheets bekeken (geen regressie), reviewer: `get_landing_event` schoon, should-fix verwerkt. | **`20261007120000` vóór merge pushen** (anders 42703 op Events voor elke company) |
+
+Besluiten Max 2026-10-07 (golf B): geen `/code-review ultra`, één reviewer-sessie per high-risk PR; crew-invites volgens (a) met de regel "gegevens pas zichtbaar als ze zijn ingevuld, de gebruiker is toegevoegd én de uitnodiging is geaccepteerd"; de banner blijft (geen auto-accept); mail-cap 25 per company per dag; Resend Pro pas bij meer tractie (Max houdt het quotum in de gaten); testmails via de echte route na de merge van #413; event-locatie zie §7 en taak 3b (golf D).
+
+Volgorde van mergen en prod-pushen in golf B: #414 (`…120000`) → #413 (`…130000`) → #412 (`…140000`). Bij #414 eerst de prod-push, dan de merge (de app leest de nieuwe kolommen direct).
+
+Open follow-ups uit golf B (geen golf-B-scope): door-header toont de event-locatie (taak 4); quick-add/bulk-add/profile-sheets tonen de companynaam i.p.v. de event-locatie; template-RPC neemt de locatie niet mee (tweede call); `can_view_profile` laat crew-relaties telefoon en `is_platform_admin` zien (apart ticket); `resend_webhook_events` opschonen (> 30 dagen, taak 2c); Type-veld in Company settings (kleine vervolgtaak).
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
@@ -236,6 +251,11 @@ GOLF D — parallel; wacht op golf C gemerged (set_venue_comped, listPrices, bil
     Raakt: src/features/platform/invite-actions.ts + platform-screens (comped), src/features/auth/invite-mail.ts (metadata kind/invited_by/company), docs/email-templates/invite.html (nieuw), supabase/config.toml (invite-template), VenueStep.tsx (DPA-checkbox, Places), src/app/api/places/route.ts + src/lib/places/** (nieuw), events/edit.tsx (Places op de locatie), docs/legal/README.md, .env.example (GOOGLE_PLACES_API_KEY), gastenlijst-app-spec.md (#40).
     Verboden: src/features/billing/** behalve het aanroepen van set_venue_comped; door; requests. Spike 4 negatief → geen hook-route, template statisch, melden.
     High-risk (invite-metadata, publieke proxy) → reviewer-sessie verplicht. Max vooraf: Google Cloud-project + Places-key, Supabase invite-expiry 7 dagen, template geplakt na de merge, copy.
+3b  n.n.b.       Event-locaties L                   Opus    branch claude/event-locations
+    Timestamp: 20261009130000_event_locations. Start na de merge van 3 (gebruikt de Places-component).
+    Raakt: migratie, settings/venue.tsx (sectie Locations), events/edit.tsx (locatie kiezen), src/features/po/adapters.ts (resolveEventLocation zonder company-fallback in publieke weergave), src/app/e/[slug]/**, src/features/requests/status-view.ts + statuspagina, i18n, tests, tests/flows, gastenlijst-app-spec.md (#48(c) herzien).
+    Verboden: billing, door (door-header zit in taak 4), invite-mail, andere migraties.
+    High-risk (get_request_status = SECURITY DEFINER, anon) → reviewer-sessie verplicht. Besluit Max 2026-10-07, zie §7 "Event-locatie (herzien)".
 5   z8uq9m2vg7 + z8uq9m2vg8   Event C + Dashboard B  Opus  branch claude/z8uq9m2vg7-event-screens
     Raakt: home.tsx, events/*.tsx, settings/quota.tsx, settings/team.tsx (invite-sheet exporteren), templates.tsx (terugknop-bug), i18n, bijbehorende tests, tests/flows.
     Verboden: src/features/**, migraties, door. Eén PR, beide taken bijgehouden.
@@ -245,7 +265,7 @@ GOLF D — parallel; wacht op golf C gemerged (set_venue_comped, listPrices, bil
     Verboden: iOS Share Extension (Capacitor-programma, na de store-review), server-side opslag van de gedeelde tekst (alles client-side tot de import), src/features/door/**.
     Geen migratie. Sequentieel na taak 5 (zelfde guests-screens) of in dezelfde worker als 5.
 
-Exit: alle vier gemerged; test-handoffs beantwoord; comped-invite werkt end-to-end; Overview toont de cijfers; een WhatsApp-tekst gedeeld naar PlusOne staat na twee tikken op de lijst.
+Exit: alle vijf gemerged (2b, 3, 3b, 5, 5b); test-handoffs beantwoord; comped-invite werkt end-to-end; deellink en statuspagina tonen altijd de event-locatie en nooit het companyadres; Overview toont de cijfers; een WhatsApp-tekst gedeeld naar PlusOne staat na twee tikken op de lijst.
 ```
 
 ### Golf E
@@ -303,9 +323,11 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 2c | `20261008140000_billing_mail_types.sql` | zeven `mail_log.type`-waarden, unique `(venue_id, type)` voor trial-mails, `subscriptions.billing_mails_paused`, RPC `platform_billing_mail_timeline` |
 | 3 | `20261009120000_platform_invite_comped.sql` | `platform_invites.comped boolean not null default false`; `create_venue_with_owner` roept `set_venue_comped` aan als de invite comped is |
 | 3 | `20261009120100_places_throttle.sql` | throttle-wrapper voor de Places-proxy + grant + pgTAP allowed/denied (spike 9.6) |
+| 3b | `20261009130000_event_locations.sql` | `company_locations` (opgeslagen locaties per company) + RLS + grant matrix; `get_request_status` geeft de event-locatie terug i.p.v. het companyadres (expand: companyadres-kolommen pas in een latere migratie droppen); zie taak 3b |
 | 4 | `20261010120000_checkin_absolute_count_guard.sql` | check `plus_ones_arrived <= guest.plus_ones` (trigger); stale-guard op `client_timestamp` in de check-in-RPC |
 | 4 | ~~`20261010120100_door_checkout_permission.sql`~~ | **Vervalt (spike 9.2):** uitchecken bestaat al als `venues.allow_uncheck` + `events.allow_uncheck` + RESTRICTIVE policy `check_ins_void_requires_uncheck`; taak 4 maakt die rolafhankelijk binnen `20261010120000` of een `…120100`-slot met die inhoud. |
 | 0e | `20261007130000_mail_log.sql` | `mail_log` (append-only, type + ontvanger-hash + status + provider-id, geen inhoud), `resend_webhook_events`-ledger, grant matrix |
+| 0d | `20261007140000_crew_invites.sql` | crew-only uitnodigingen (`invites` zonder venue-rol, met event_ids + crew-quotum), `accept_pending_invites` maakt dan alleen event_organizers/event_quotas, SECURITY DEFINER-RPC voor de eigen openstaande uitnodigingen (companynaam + eventnamen voor de banner); besluit (a), 2026-10-07 |
 | 6 | `20261013120000_guest_mail_types.sql` | nieuwe `mail_log.type`-waarden voor gastmail; geen nieuwe tabel |
 | 6 | `20261013120100_company_contact_channels.sql` | `venues.contact_email` (verplicht vóór eerste live event, afgedwongen in de publish-actie, niet als NOT NULL), `venues.contact_channels jsonb` |
 | 6 | `20261013120200_guest_mail_optout.sql` | `contact_mail_optout` (per contact per venue, publieke token-route), RLS |
@@ -534,6 +556,30 @@ Klaar als:
 Test-handoff: admin@ (platform) → Platform → Invite met comped; de uitgenodigde via Mailpit; manager@ → Company settings → adres via Places.
 ```
 
+### Taak 3b — Event-locaties L (ClickUp n.n.b., Opus; SECURITY DEFINER → reviewer)
+
+```
+Scope-hek:
+- Raakt: supabase/migrations/20261009130000_event_locations.sql, src/components/po/screens/settings/venue.tsx (sectie Locations: lijst, toevoegen met de Places-component uit taak 3, bewerken, archiveren), src/components/po/screens/events/edit.tsx (locatie kiezen uit de opgeslagen locaties of eenmalig invullen), src/features/po/adapters.ts + queries.ts, src/features/events/actions.ts + schemas (location), src/features/venues/actions.ts + schemas (locations), src/app/e/[slug]/**, src/features/requests/status-view.ts + de publieke statuspagina, src/lib/i18n, src/lib/database.types.ts, pgTAP, vitest, tests/flows, gastenlijst-app-spec.md (#48(c) herzien + beslistabel), docs/changelog.md.
+- Verboden: src/features/billing/**, src/features/door/** (door-header = taak 4), src/features/auth/**, invite-mail, andere migraties.
+- Deps: taak 3 gemerged (Places-component + proxy); taak 1 gemerged (events.location_name/location_address).
+
+Besluit Max (2026-10-07), bindend:
+- De deellink (/e/[slug]) en de statuspagina tonen ALTIJD de locatie van het event (naam + adres). Het companyadres wordt daar nooit getoond. Event-locatie en companyadres mogen gelijk zijn, maar wat zichtbaar is, is altijd het adres van het event. Het event-adres is bewust publiek (het is een deellink); dit vervangt de oude regel uit #48(c) "adres pas na goedkeuring".
+- Een company kan meerdere locaties opslaan en kiest er per event één (of vult eenmalig een andere in).
+
+Wat je bouwt:
+1. `company_locations` (venue_id, name, address_line, postal_code, city, country, place_id nullable, archived_at): RLS lezen voor leden van de venue, schrijven alleen admin; grant matrix (revoke eerst, dan grant); pgTAP allowed/denied per rol.
+2. Event-formulier: kies een opgeslagen locatie (default: de eerste/standaardlocatie, bij een nieuwe company gevuld vanuit het companyadres) of vul eenmalig in. Opgeslagen wordt altijd een kopie op het event (`location_name`/`location_address`), zodat het wijzigen of archiveren van een opgeslagen locatie geen bestaande events verandert.
+3. Publiek: /e/[slug] en de statuspagina tonen alleen de event-locatie. `get_request_status` (SECURITY DEFINER, anon) geeft de event-locatie terug; de app leest de companyadres-kolommen niet meer (expand–contract: droppen in een latere migratie). Bestaande events zonder locatie: de migratie vult `location_name`/`location_address` eenmalig vanuit het companyadres (besluit Max 2026-10-07: nog niet live, de testende organisatoren gebruiken het niet, dus geen risico). Daarna heeft elk event een eigen locatie; een nieuw event krijgt de standaardlocatie voorgevuld.
+4. Tests: pgTAP op company_locations en de nieuwe get_request_status-signature (exacte kolommen, SECURITY DEFINER + search_path, grants, geen companyadres in de output); vitest op de adapter; flow: Company settings → locatie toevoegen → event met die locatie → /e/[slug] en de goedgekeurde statuspagina tonen de event-locatie.
+5. Deploy-volgorde in de PR-body: prod-push vóór merge als de app de nieuwe kolommen/RPC-output leest.
+
+Klaar als: een company met twee opgeslagen locaties kiest per event een locatie; /e/[slug] en de statuspagina tonen die en nooit het companyadres; bestaande events zijn eenmalig gevuld vanuit het companyadres; reviewer-ronde schoon; spec #48(c) herzien.
+
+Test-handoff: admin@ → Company settings → Locations (twee toevoegen) → nieuw event met de tweede locatie → deellink → aanvraag goedkeuren → statuspagina.
+```
+
 ### Taak 4 — Check-in D (z8uq9m2vg6, Opus; RLS → reviewer)
 
 ```
@@ -736,6 +782,10 @@ Alle bevindingen als review-comments op de PR; blokkerend = "Request changes". G
 | Notificaties | Push bundelen per company en per soort (>10 in 60 min → 24 uur één per uur met aantal). Teammail via Resend: aanvraag direct (gebundeld), quota direct, besluit naar aanvrager, dagelijkse samenvatting; voorkeuren per gebruiker, afmeldlink | nieuw |
 | Platform | Per invite: company-chip met Switch, events, status, activiteit. Overview: companies per status, MRR/ARR uit eigen DB × Stripe-prijzen (excl. kortingen/dunning, gelabeld), trial-funnel, gebruik 30 dagen. Direct na Billing G | #49 |
 | PostHog | Plan gemerged (PR #108, docs/posthog-implementation-plan.md). Bouw als laatste taak van golf F, niet vóór ADE; consent-gated, opt-out in Profile, subprocessor C → A bij de code | #49, legal |
+| Event-locatie (herzien 2026-10-07) | Deellink en statuspagina tonen altijd de locatie van het event, nooit het companyadres (mogen gelijk zijn, maar zichtbaar is het event-adres). Het event-adres is publiek; vervangt "adres pas na goedkeuring". Meerdere opgeslagen locaties per company, per event kiezen; bestaande events eenmalig gevuld vanuit het companyadres. Bouw in taak 3b (golf D) | #48(c) herzien, nieuw |
+| Crew-uitnodiging (2026-10-07) | Bestaand en nieuw account worden crew via een uitnodiging die geaccepteerd moet worden; gegevens pas zichtbaar als ze zijn ingevuld, de gebruiker is toegevoegd én de uitnodiging is geaccepteerd. Banner op Home blijft (geen auto-accept) | #24 |
+| Mail-limiet (2026-10-07) | Per adres 1 mail per 60 s; per company 25 uitnodigingsmails per dag (team + crew, Supabase-invite + Resend-teammail); daarboven weigert de actie met een melding naar support. Resend Pro pas bij meer tractie | #20 |
+| Review (2026-10-07) | Geen `/code-review ultra`; één verse reviewer-sessie per high-risk PR, zoals CLAUDE.md | — |
 | Werkwijze | Sequentieel, geen orchestrator; dit document is de orchestrator | — |
 | Sentry | Alleen onverwachte fouten rapporteren; gebruikersfouten zijn breadcrumbs; Supabase-fouten met leesbare titel; Android-pushfouten horen bij het Capacitor-programma | — |
 | Testen | Elke UI-PR levert flow-screenshots per device (incl. native-shell) als CI-artifact en automatiseert de handoff-vragen die kunnen; Max beantwoordt alleen de rest (QA-0, vóór alle bouwtaken) | — |
