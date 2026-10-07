@@ -289,6 +289,9 @@ export const createTemplateSchema = z.object({
   // Same default as a new event (z8uq9m0hw3, item 6): sign-up link on.
   landingActive: z.boolean().default(true),
   autoLockOffsetMinutes,
+  // Same location fields + caps as an event (z8uq9m2vqc).
+  locationName,
+  locationAddress,
 });
 export type CreateTemplateInput = z.input<typeof createTemplateSchema>;
 
@@ -299,6 +302,8 @@ export const updateTemplateSchema = z.object({
   allowUncheck: z.boolean().nullable().optional(),
   landingActive: z.boolean().optional(),
   autoLockOffsetMinutes,
+  locationName,
+  locationAddress,
 });
 export type UpdateTemplateInput = z.input<typeof updateTemplateSchema>;
 
