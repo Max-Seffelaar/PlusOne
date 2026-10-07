@@ -7,8 +7,11 @@
 --
 -- 1. event_templates.location_name / location_address: nullable, expand-only,
 --    the SAME length caps as events (120 / 200, mirrored in Zod). No RLS
---    change: the existing event_templates policies (admin of the venue) cover
---    the new columns. Grant matrix: event_templates carries TABLE-level grants
+--    change: the existing event_templates policies cover the new columns —
+--    insert/update/delete = has_venue_role(admin) OR
+--    organizes_event_at_venue(venue_id) (20260624091000), so an event-scoped
+--    organizer can set a template location too, the same trust it already has
+--    over capacity, tiers and landing_active. Grant matrix: event_templates carries TABLE-level grants
 --    only (authenticated select/insert/update/delete — it is on the config
 --    allowlist of grant_matrix.test.sql; no column-level grants exist), so the
 --    new columns are covered by them; nothing to revoke or restate.
