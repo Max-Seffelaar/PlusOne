@@ -246,3 +246,14 @@ describe('event location fields', () => {
     expect(createEventSchema.safeParse({ ...base, locationName: 'x'.repeat(LOCATION_NAME_MAX) }).success).toBe(true);
   });
 });
+
+// Templates carry the event location too (20261007135000): same caps and '' → null.
+describe('template location fields', () => {
+  it('trims, nulls empties and caps like an event', () => {
+    const r = createTemplateSchema.parse({ venueId: VENUE, name: 'Offsite', locationName: ' Paradiso ', locationAddress: '' });
+    expect(r.locationName).toBe('Paradiso');
+    expect(r.locationAddress).toBeNull();
+    expect(updateTemplateSchema.safeParse({ templateId: TEMPLATE, locationName: 'x'.repeat(LOCATION_NAME_MAX + 1) }).success).toBe(false);
+    expect(updateTemplateSchema.parse({ templateId: TEMPLATE }).locationName).toBeUndefined();
+  });
+});

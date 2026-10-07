@@ -82,6 +82,8 @@ export const FLOWS = {
       'src/components/po/landing',
       'src/app/e/',
       'src/app/onboarding/',
+      // Q17 walks Save as template → create from template (the two RPCs).
+      'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
   'native-shell-guard': {
