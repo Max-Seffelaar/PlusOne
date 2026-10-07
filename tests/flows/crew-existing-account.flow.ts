@@ -155,6 +155,8 @@ test.afterAll(async () => {
 });
 
 test('crew: an existing account is invited, accepts in the banner, and sees only that event', async ({ page, context, flow, baseURL }) => {
+  // Three invites each wait out the 60 s per-address mail window, on top of the screens.
+  test.setTimeout(540_000);
   await clearCrewState();
   const a = adminClient();
   const staffId = (await getUserIdByEmail(STAFF)) ?? '';
@@ -339,7 +341,8 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
   await page.goto(`/auth/dev-login?email=${encodeURIComponent(ADMIN)}&next=/app/events/${CREW_EVENT}/crew`);
   await page.waitForURL(new RegExp(`/app/events/${CREW_EVENT}/crew`));
   await flow.check(22, "The admin's \"Waiting to accept\" list no longer shows the declined invite", async () => {
-    await expect(pending.filter({ hasText: CREW_ONLY })).toBeVisible();
+    // crewonly@ accepted earlier (Q17), so only the declined row could still be listed.
     await expect(pending.filter({ hasText: DECLINER })).toHaveCount(0);
+    await expect(pending.filter({ hasText: CREW_ONLY })).toHaveCount(0);
   });
 });
