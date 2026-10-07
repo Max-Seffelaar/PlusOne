@@ -35,7 +35,9 @@ beforeEach(() => {
   );
   H.send.mockResolvedValue({ ok: true, providerMessageId: 're_1' });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('sendTeamMail', () => {
   it('logs a hashed recipient, sends with the row id as Idempotency-Key, settles as sent', async () => {

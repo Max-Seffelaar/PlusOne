@@ -45,7 +45,9 @@ beforeEach(() => {
   H.signInWithOtp.mockReset().mockResolvedValue({ error: null });
   H.sendTeamMail.mockReset().mockResolvedValue({ ok: true });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('sendInviteEmail', () => {
   it('a new address is provisioned + invited by Supabase only', async () => {

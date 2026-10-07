@@ -62,7 +62,7 @@ function makeClient(opts: {
 
   // Mail-infra F0: the team-mail display context (caller's name + venue name).
   const single = (data: unknown) => {
-    const chain = {
+    const chain: MembershipsChain = {
       select: vi.fn(() => chain),
       eq: vi.fn(() => chain),
       maybeSingle: vi.fn(async () => ({ data })),

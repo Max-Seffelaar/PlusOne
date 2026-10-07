@@ -44,7 +44,9 @@ beforeEach(() => {
   H.rpc.mockReset();
   H.rpc.mockResolvedValue({ data: true, error: null });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('verifySvixSignature', () => {
   it('accepts Svix\'s published test vector', () => {
