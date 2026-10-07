@@ -133,6 +133,16 @@ describe('Stripe adapter — prices by lookup key', () => {
     expect(arg.metadata).toMatchObject({ venue_id: 'v', plan_id: 'pro', billing_interval: 'year' });
   });
 
+  it('collects and saves the billing address (tax ID collection on an existing customer)', async () => {
+    S.pricesList.mockResolvedValue({ data: [stripePrice('pro_monthly', 'month', 4900)] });
+    const { billing } = await loadProvider();
+    await billing.createCheckoutSession(checkoutInput('month'));
+    const arg = (S.sessionsCreate.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(arg.tax_id_collection).toEqual({ enabled: true });
+    expect(arg.billing_address_collection).toBe('required');
+    expect(arg.customer_update).toEqual({ name: 'auto', address: 'auto' });
+  });
+
   it('misconfiguration guard: no price under the lookup key refuses the checkout, no session', async () => {
     S.pricesList.mockResolvedValue({ data: [stripePrice('pro_monthly', 'month', 4900)] });
     const { billing } = await loadProvider();

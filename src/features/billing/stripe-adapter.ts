@@ -136,8 +136,13 @@ export class StripeAdapter implements BillingProvider {
       },
       client_reference_id: input.venueId,
       tax_id_collection: { enabled: true },
-      // Required by Stripe when tax_id_collection is on with an existing customer.
-      customer_update: { name: 'auto' },
+      // A NL B2B invoice with VAT must show the customer's address, so Checkout
+      // always asks for it. With tax_id_collection on and an existing customer,
+      // Stripe also requires customer_update.address = 'auto' (400 otherwise —
+      // the customer we create has no address), which saves the collected name
+      // and address back onto the customer for the renewal invoices.
+      billing_address_collection: 'required',
+      customer_update: { name: 'auto', address: 'auto' },
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
     });
