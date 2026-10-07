@@ -504,7 +504,7 @@ describe('DoorProvider — group-first check-in as an absolute count (z8uq9m2vg6
 
   it('an undo the database refuses is settled quietly and reported once, never retried', async () => {
     serverCheckIns = [serverRow(GUEST_A, 0)];
-    voidError = { code: '42501', message: 'new row violates row-level security policy' };
+    voidError = { code: '42501', message: 'new row violates row-level security policy "check_ins_void_requires_uncheck" for table "check_ins"' };
     const h = renderDoor();
     await settle();
     await waitFor(() => expect(insideIds(h.api())).toEqual([GUEST_A]));
@@ -529,16 +529,16 @@ describe('DoorProvider — group-first check-in as an absolute count (z8uq9m2vg6
     const h = renderDoor();
     await settle();
     await waitFor(() => expect(insideIds(h.api())).toEqual([GUEST_C]));
-    // Someone undid it on the server; the RESTRICTIVE policy refuses the
-    // still-voided row for this doorhost with 42501.
+    // Someone undid it on the server; the guard refuses any change to the
+    // voided row with PO409, for every role.
     rejects.set(GUEST_C, {
-      code: '42501',
-      message: 'new row violates row-level security policy "check_ins_void_requires_uncheck" for table "check_ins"',
+      code: 'PO409',
+      message: 'This check-in was undone on another device. Showing the latest.',
     });
     await act(async () => {
       h.api().checkInOne(GUEST_C);
     });
-    await waitFor(() => expect(h.api().toast).toBe(t.door.checkInReversedToast));
+    await waitFor(() => expect(h.api().toast).toBe(t.door.supersededToast));
     expect(outbox.getSnapshot().some((e) => e.status === 'error' || e.status === 'pending')).toBe(false);
     const calls = insertCalls.length;
     await act(async () => {

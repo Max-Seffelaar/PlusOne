@@ -141,6 +141,9 @@ vi.mock('@/components/po/context', () => ({
   useNav: () => ({ push: vi.fn(), setTab: vi.fn(), openDoor: vi.fn() }),
 }));
 vi.mock('@/components/po/screens/door', () => ({ DoorEventPicker: () => null }));
+// The ✗'s undo right is a separate React Query read (useCanUncheck, z8uq9m2vg6);
+// this file mocks the cockpit's data hooks wholesale, so answer it here too.
+vi.mock('./useCanUncheck', () => ({ useCanUncheck: (_eventId: string, fallback: boolean) => fallback }));
 
 const { EventDayCockpitGate } = await import('./EventDayCockpit');
 

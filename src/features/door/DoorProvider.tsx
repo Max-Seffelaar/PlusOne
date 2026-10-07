@@ -27,7 +27,7 @@ import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { addOnSpotSchema } from '@/features/guests/schemas';
 import { getDeviceId, getDoorClient } from './offline/device';
 import { t, fmt } from '@/lib/i18n';
-import { CHECKIN_ON_REVERSED, drainOutbox, guestKeyOf } from './outbox/replay';
+import { SUPERSEDED, drainOutbox, guestKeyOf } from './outbox/replay';
 import { coalesceTarget, openCheckInId } from './outbox/dedup';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
@@ -103,8 +103,6 @@ interface DoorContextValue {
   checkIn: (guestId: string, totalPeople: number) => void;
   /** "Check in 1": one more person of the party inside (the guest first). */
   checkInOne: (guestId: string) => void;
-  /** Raise an already-checked-in guest's arrivals by `addArrived` ("nog inchecken"). */
-  topUp: (guestId: string, addArrived: number) => void;
   /** Soft-void a mistaken check-in — the guest returns to "onderweg" (#3). */
   voidCheckIn: (guestId: string) => void;
   /** Re-checkin a previously voided guest (clears the void, re-sets arrivals). */
@@ -430,7 +428,7 @@ export function DoorProvider({
       // A queued check-in that reached a row undone meanwhile settles the same
       // way (review of PR #423); the toast says which of the two happened.
       if (summary.denied > 0) {
-        showToast(summary.lastDenied === CHECKIN_ON_REVERSED ? t.door.checkInReversedToast : t.door.undoDeniedToast);
+        showToast(summary.lastDenied === SUPERSEDED ? t.door.supersededToast : t.door.undoDeniedToast);
       }
       // The entry that JUST failed, carried out of the drain itself. Scanning the
       // store for the first `error` entry (the old code) returns the OLDEST one
@@ -592,9 +590,11 @@ export function DoorProvider({
       const toastMsg = `${g?.name ?? 'Guest'} · ${fmt(t.door.partyCount, { inside: 1 + target, total: 1 + allotment })} inside ✓`;
       // Two taps offline = one row online: a still-pending entry for this same
       // row is overwritten in place (last wins) rather than queued twice.
-      const coalesce = coalesceTarget(outbox.getSnapshot(), eventId, payload);
+      const coalesce = coalesceTarget(outbox.getSnapshot(), eventId, payload, meId ?? undefined);
       if (coalesce) {
-        outbox.update(coalesce, { payload, ownerId: meId ?? undefined } as Partial<OutboxEntry>);
+        // Payload only: the entry keeps the ownerId it was queued with, and
+        // coalesceTarget only matched it when that is this same actor (S4).
+        outbox.update(coalesce, { payload } as Partial<OutboxEntry>);
         patchSnapshot(patch);
         showToast(toastMsg);
         maybeFlush();
@@ -613,16 +613,6 @@ export function DoorProvider({
       const row = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
       if (!row || row.voided_at) setInside(guestId, 1);
       else setInside(guestId, 2 + row.plus_ones_arrived);
-    },
-    [readSnapshot, setInside],
-  );
-
-  // "Nog inchecken": `addArrived` more of the party, on top of what is inside.
-  const topUp = useCallback(
-    (guestId: string, addArrived: number) => {
-      const row = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
-      if (!row || row.voided_at) return;
-      setInside(guestId, 1 + row.plus_ones_arrived + Math.max(0, addArrived));
     },
     [readSnapshot, setInside],
   );
@@ -881,7 +871,6 @@ export function DoorProvider({
       guestById,
       checkIn,
       checkInOne,
-      topUp,
       voidCheckIn,
       reviveCheckIn,
       refuse,
@@ -889,7 +878,7 @@ export function DoorProvider({
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, pendingCount, outboxByGuest, guestById, checkIn, checkInOne, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, pendingCount, outboxByGuest, guestById, checkIn, checkInOne, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
   );
 
   // Narrow contexts (see the comments on DoorFiltersContext/DoorToastContext

@@ -22,13 +22,15 @@ Milestone **Now** (onboarding programme okt 2026, wave C, task 4). Design: spike
   row's id from the snapshot. Void, revive and top-up now send `client_timestamp`. `check_in_topup` stays parseable and
   replayable for entries an older bundle already queued; new taps never enqueue it.
 - **Database, `20261010120000_checkin_absolute_count_guard.sql`:** BEFORE INSERT/UPDATE trigger
-  `check_ins_a_stale_guard` (client writes only, sorts before the cap trigger). Tightened after the orchestrator review
-  of PR #423, because `client_timestamp` is the device clock: it is clamped to `now()` on every client write (a planted
-  2099 can no longer freeze a row against an admin's undo); only a write that flips the void state (void/revive) is
-  dropped when older, as a no-op with no audit row; count-only writes always land (monotonic via the cap trigger, so a
-  behind-clock colleague keeps their "+1") and the stored stamp never moves back; a count change on a voided row is a
-  no-op. `checked_by`/`checked_at`/`device_id`/`offline_synced`/`synced_by` stay first-wins except on a revive. Above
-  `1 + plus_ones` the count is clamped, not refused (decision Max 2026-10-06).
+  `check_ins_a_stale_guard` (client writes only, sorts before the cap trigger), tightened by two reviews of PR #423:
+  - `client_timestamp` (the device clock) is clamped to `now()`. It is the stamp of the last void-state change; a
+    count-only write ("+1") never reads or moves it, so a colleague's later "+1" cannot make an offline undo stale.
+  - A superseded void/revive, and any change to a voided row, raise SQLSTATE `PO409` for every role, never a silent
+    success. A void/revive that sends no fresh stamp (`check_out_guest`) is stamped `now()` by the server.
+  - A check-in cannot move to another guest (that was an undo without the right, past the cap) and cannot be
+    inserted already undone (42501).
+  - `checked_by`/`checked_at`/`device_id`/`offline_synced`/`synced_by` stay first-wins except on a revive. Above
+    `1 + plus_ones` the count is clamped, not refused (decision Max 2026-10-06).
 - **Database, `20261010120100_door_checkout_permission.sql`:** `can_uncheck_check_in(event)` makes the existing
   RESTRICTIVE policy role-dependent: admin and user_manager always, doorhost/crew/staff only with the setting on.
   `check_out_guest` inherits it (pgTAP). **Behaviour change for every existing company:** `venues.allow_uncheck`
@@ -37,9 +39,11 @@ Milestone **Now** (onboarding programme okt 2026, wave C, task 4). Design: spike
   affected. The backfill is audited (one `update` per company, actor NULL = system).
   **Besluit Max 2026-10-07: bestaande companies ook uit (A)** (review point 3 on PR #423, relayed by the
   orchestrator).
-- **"+1" on a row undone meanwhile:** without the undo right the RESTRICTIVE policy refuses it (42501 naming
-  `check_ins_void_requires_uncheck`); the outbox settles it as `denied` with its own toast ("Check-in not saved. It was
-  undone in the meantime, so check them in again.") instead of a retried error / dead letter.
+- **Superseded writes (PO409):** settled as `denied` with their own toast ("Not saved. This check-in changed on another
+  device, so the list now shows the latest.") and a refetch, never a retried error or a dead letter. The outbox drain
+  re-reads each entry right before sending it, so a tap coalesced into a still-pending entry goes up with its newest
+  count; coalescing only merges the same actor's own taps. "Only admins…" is shown only for the 42501 that names the
+  uncheck policy. The cockpit asks `can_uncheck_check_in` too. New kit primitive `CountPill`.
 - **Refused undo:** a queued undo the database refuses (42501) settles as the new outbox status `denied`: never retried,
   not a dead letter, pruned on the next clear, one toast ("Undo not saved. Only admins and user managers can undo
   check-ins here."). The refetch shows the guest inside again. The undo button is hidden for a user without the right

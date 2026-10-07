@@ -51,13 +51,17 @@ export function openCheckInId(entries: readonly OutboxEntry[], eventId: string, 
  * Only when that entry is the LAST queued write for this guest: replacing an
  * earlier one would move the new count in front of a later void or revive and
  * change what the queue means. A `syncing` entry is already on the wire and is
- * never touched; the new tap then queues behind it (same id, newer timestamp,
- * so the server keeps the later one either way).
+ * never touched; the new tap then queues behind it (same id, absolute count,
+ * monotonic on the server). Neither is an entry queued by another actor.
  */
 export function coalesceTarget(
   entries: readonly OutboxEntry[],
   eventId: string,
   payload: Pick<CheckInPayload, 'id' | 'guestId'>,
+  /** Who is tapping (`ownerId`). Only that actor's own pending tap is merged:
+   *  on a shared tablet, doorhost A's queued check-in stays A's (86ey9et0h,
+   *  review of PR #423, S4). */
+  actor?: string,
 ): string | null {
   let last: OutboxEntry | null = null;
   for (const e of entries) {
@@ -66,5 +70,6 @@ export function coalesceTarget(
     if (guest === payload.guestId) last = e;
   }
   if (!last || last.kind !== 'check_in' || last.status !== 'pending') return null;
+  if (last.ownerId !== actor) return null;
   return last.payload.id === payload.id ? last.clientId : null;
 }

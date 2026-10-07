@@ -52,18 +52,25 @@ export interface ReplayResult {
 export const UNDO_DENIED = 'undo_denied';
 
 /**
- * Settled outcome of a queued check-in ("+1", "Check in all") that reached a
- * row someone undid in the meantime, for a user without the undo right: the
- * RESTRICTIVE check_ins_void_requires_uncheck policy refuses the resulting
- * (still voided) row with 42501. Retrying can never succeed and it is not a
- * broken write, so it settles like `duplicate`: the refetch shows the guest
- * outside and the doorhost checks them in again (review of PR #423, point 2).
- * With the undo right the trigger turns the same write into a no-op instead.
+ * Settled outcome of a door write the database refused as SUPERSEDED (SQLSTATE
+ * PO409, check_ins_a_stale_guard): an undo or re-check-in that is older than
+ * the last change to that check-in, or any write that reached a check-in
+ * someone undid in the meantime ("+1", "Check in all"). Raised for every role
+ * (reviews of PR #423), never a silent success: retrying can never succeed, so
+ * it settles, the toast says so and the refetch shows what the server has.
  */
-export const CHECKIN_ON_REVERSED = 'checkin_on_reversed';
+export const SUPERSEDED = 'superseded';
+
+/** The SQLSTATE the guard raises for a superseded write. */
+const SUPERSEDED_CODE = 'PO409';
 
 /** The policy a 42501 names when the resulting row is a void this user may not make. */
 const VOID_POLICY = 'check_ins_void_requires_uncheck';
+
+/** A check-in write (check-in, top-up, undo, re-check-in) the guard superseded. */
+function superseded(error: DbError | null): ReplayResult | null {
+  return error?.code === SUPERSEDED_CODE ? { status: 'denied', message: SUPERSEDED } : null;
+}
 
 export function classifyError(error: DbError | null): ReplayResult {
   if (!error) return { status: 'synced' };
@@ -154,17 +161,14 @@ export async function replayEntry(
         device_id: deviceId,
         offline_synced: true,
       });
-      if (error?.code === '42501' && `${error.message ?? ''} ${error.details ?? ''}`.includes(VOID_POLICY)) {
-        return { status: 'denied', message: CHECKIN_ON_REVERSED };
-      }
-      return classifyError(error);
+      return superseded(error) ?? classifyError(error);
     }
     case 'check_in_topup': {
       const p = entry.payload;
       // Absolute target; the trigger keeps it monotonic + capped, so a re-send or
       // a row owned by another checker (0 rows) is a harmless no-op = synced.
       const { error } = await gw.topUpCheckIn(p.guestId, p.plusOnesArrived, p.clientTimestamp);
-      return classifyError(error);
+      return superseded(error) ?? classifyError(error);
     }
     case 'check_in_void': {
       // Idempotent: re-voiding (or a row already voided) matches 0 rows = synced.
@@ -173,20 +177,22 @@ export async function replayEntry(
       const p = entry.payload;
       // voided_by = the doorhost who sent the guest back out, not the courier.
       const { error } = await gw.voidCheckIn(p.guestId, actor, p.checkInId ?? null, p.clientTimestamp);
-      // 42501 on an undo = the database says this user may not undo here (the
-      // company/event setting is off and they are not admin/user manager — the
-      // RESTRICTIVE check_ins_void_requires_uncheck policy, z8uq9m2vg6). That
-      // will never change on retry, and it is not a broken write either: settle
-      // it as `denied` so it is neither retried by "sync now" nor parked as a
-      // dead letter. The guest is still inside on the server; the refetch after
-      // the drain shows them inside again.
-      if (error?.code === '42501') return { status: 'denied', message: UNDO_DENIED };
-      return classifyError(error);
+      // 42501 NAMING the RESTRICTIVE check_ins_void_requires_uncheck policy = the
+      // database says this user may not undo here (setting off, not admin/user
+      // manager — z8uq9m2vg6). That will never change on retry and is not a
+      // broken write: settle it as `denied` (not retried by "sync now", not a
+      // dead letter); the refetch shows the guest inside again. Any OTHER 42501
+      // (the actor guard on a hand-off, the synced_by pin) is a real error and
+      // keeps the ordinary terminal path (review of PR #423, S3).
+      if (error?.code === '42501' && `${error.message ?? ''} ${error.details ?? ''}`.includes(VOID_POLICY)) {
+        return { status: 'denied', message: UNDO_DENIED };
+      }
+      return superseded(error) ?? classifyError(error);
     }
     case 'check_in_revive': {
       const p = entry.payload;
       const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, actor, p.checkInId ?? null, p.clientTimestamp);
-      return classifyError(error);
+      return superseded(error) ?? classifyError(error);
     }
     case 'refusal': {
       const p = entry.payload;
@@ -250,7 +256,7 @@ export interface DrainSummary {
   /** Writes settled as `denied` (z8uq9m2vg6): refused undos, and check-ins that
    *  landed on a row undone meanwhile — settled, reported once. */
   denied: number;
-  /** Message of the last `denied` entry (UNDO_DENIED / CHECKIN_ON_REVERSED). */
+  /** Message of the last `denied` entry (UNDO_DENIED / SUPERSEDED). */
   lastDenied?: string;
   /** A code-less (network/offline) failure paused the drain early. */
   interrupted: boolean;
@@ -304,7 +310,14 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
   // rather than replayed out of order (O2). A guest with no blocked predecessor
   // is unaffected, so C9's cross-guest skip-ahead still holds.
   const blockedChains = new Set<string>();
-  for (const entry of deps.list().filter(isPending)) {
+  for (const listed of deps.list().filter(isPending)) {
+    // Re-read the entry right before sending it (review of PR #423, B2): a tap
+    // that coalesced into this still-pending entry after the drain took its
+    // list must go up with the NEW payload, not the one captured at the start.
+    // From `syncing` on, coalesceTarget refuses the entry, so a later tap
+    // queues a fresh entry instead — nothing is lost in between.
+    const entry = deps.list().find((e) => e.clientId === listed.clientId);
+    if (!entry || !isPending(entry)) continue;
     const chainKey = `${entry.eventId}:${guestKeyOf(entry)}`;
     if (blockedChains.has(chainKey)) continue;
 

@@ -100,9 +100,10 @@ export const door = {
   uncheckDisabled: 'Only admins and user managers can undo check-ins here.',
   // Toast after sync when the database refused a queued undo (setting off).
   undoDeniedToast: "Undo not saved. Only admins and user managers can undo check-ins here.",
-  // Toast after sync when a queued check-in reached a check-in someone undid
-  // in the meantime: nothing was saved, the guest shows as outside again.
-  checkInReversedToast: 'Check-in not saved. It was undone in the meantime, so check them in again.',
+  // Toast after sync when the database refused a queued door action as
+  // superseded: someone changed that check-in after it was tapped (an undo, a
+  // re-check-in, a colleague's undo before a "+1"). The list refetches.
+  supersededToast: 'Not saved. This check-in changed on another device, so the list now shows the latest.',
   reCheckInTitle: 'Check in again?',
   reCheckIn: 'Check in again',
   checkIn: 'Check in',

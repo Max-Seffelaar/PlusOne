@@ -18,7 +18,7 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Btn, IconBtn, Label, PayChip, Scroll, Top, press } from '@/components/po/kit';
+import { Avatar, Btn, CountPill, IconBtn, Label, PayChip, Scroll, Top, press } from '@/components/po/kit';
 import { BottomBar, Sheet } from '@/components/po/shell';
 import { PlusOnesSheet } from '@/components/po/screens/guests/profile-sheets';
 import { useDoor, useDoorSyncStatus } from '../DoorProvider';
@@ -258,12 +258,9 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
               // watches the count climb (3/4); "Check in all" is the way out.
               <Btn kind="ghost" full className="mt-[9px]" onClick={() => checkInOne(g.id)}>
                 {t.door.checkInOneBtn}
-                <span
-                  aria-label={fmt(t.door.partyCountAria, { inside: insideNow, total: party })}
-                  className="rounded-full bg-elev2 px-[9px] py-[2px] font-display text-[13px] font-bold text-dim"
-                >
+                <CountPill ariaLabel={fmt(t.door.partyCountAria, { inside: insideNow, total: party })}>
                   {fmt(t.door.partyCount, { inside: insideNow, total: party })}
-                </span>
+                </CountPill>
               </Btn>
             )}
           </>

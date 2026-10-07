@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CheckInRow, DbError, DoorGateway } from './gateway';
-import { CHECKIN_ON_REVERSED, classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, UNDO_DENIED, type DrainDeps } from './replay';
+import { SUPERSEDED, classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, UNDO_DENIED, type DrainDeps } from './replay';
 import { resumeStuckEntries, type OutboxEntry } from './types';
 
 const UID = '66666666-6666-4666-8666-666666666666';
@@ -182,13 +182,36 @@ describe('replayEntry', () => {
     expect(result).toEqual({ status: 'denied', message: UNDO_DENIED });
   });
 
-  it('a "+1" that lands on a row undone meanwhile settles as denied, not a retried error (review #423 point 2)', async () => {
-    const VOIDED_ROW: DbError = {
-      code: '42501',
-      message: 'new row violates row-level security policy "check_ins_void_requires_uncheck" for table "check_ins"',
-    };
-    const result = await replayEntry(gatewayReturning(VOIDED_ROW), checkInEntry(), UID, DEVICE);
-    expect(result).toEqual({ status: 'denied', message: CHECKIN_ON_REVERSED });
+  it('PO409 (superseded) settles as denied for every check-in write, never a silent synced (review #423 S1c/S2)', async () => {
+    const PO409: DbError = { code: 'PO409', message: 'This check-in was undone on another device. Showing the latest.' };
+    const expected = { status: 'denied', message: SUPERSEDED };
+    expect(await replayEntry(gatewayReturning(PO409), checkInEntry(), UID, DEVICE)).toEqual(expected);
+    const base = { clientId: 'x', eventId: 'ev1', status: 'pending' as const, attempts: 0, createdAt: 't' };
+    expect(
+      await replayEntry(gatewayReturning(PO409), { ...base, kind: 'check_in_void', payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: 't' } }, UID, DEVICE),
+    ).toEqual(expected);
+    expect(
+      await replayEntry(
+        gatewayReturning(PO409),
+        { ...base, kind: 'check_in_revive', payload: { guestId: 'g1', plusOnesArrived: 0, checkInId: 'ci1', clientTimestamp: 't' } },
+        UID,
+        DEVICE,
+      ),
+    ).toEqual(expected);
+    expect(
+      await replayEntry(gatewayReturning(PO409), { ...base, kind: 'check_in_topup', payload: { guestId: 'g1', plusOnesArrived: 1, clientTimestamp: 't' } }, UID, DEVICE),
+    ).toEqual(expected);
+  });
+
+  it('a 42501 on an undo that is NOT the uncheck policy (actor guard on a hand-off) stays a terminal error (review #423 S3)', async () => {
+    const ACTOR_GUARD: DbError = { code: '42501', message: 'Je mag een uitcheck niet op naam van deze gebruiker zetten.' };
+    const result = await replayEntry(
+      gatewayReturning(ACTOR_GUARD),
+      { clientId: 'x', eventId: 'ev1', kind: 'check_in_void', status: 'pending', attempts: 0, createdAt: 't', payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: 't' } },
+      UID,
+      DEVICE,
+    );
+    expect(result.status).toBe('error');
   });
 
   it('a 42501 on anything other than an undo stays a terminal error (only the undo is "denied")', async () => {
@@ -418,7 +441,9 @@ describe('drainOutbox', () => {
   });
 
   it('a denied undo is counted once, never becomes lastError, and is not retried by later drains (z8uq9m2vg6)', async () => {
-    const voidCheckIn = vi.fn(async () => ({ error: RLS_DENY }));
+    const voidCheckIn = vi.fn(async () => ({
+      error: { code: '42501', message: 'new row violates row-level security policy "check_ins_void_requires_uncheck" for table "check_ins"' },
+    }));
     const store = fakeStore([
       {
         clientId: 'v1',
@@ -438,6 +463,37 @@ describe('drainOutbox', () => {
     const second = await drainOutbox(deps);
     expect(second.processed).toBe(0);
     expect(voidCheckIn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the LATEST payload of an entry a tap coalesced into while the drain was busy (review #423 B2)', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const sent: { id: string; n: number }[] = [];
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'ciA', guestId: 'gA', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'ciB', guestId: 'gB', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      upsertCheckIn: async (row) => {
+        if (row.id === 'ciA') await held;
+        sent.push({ id: row.id!, n: row.plus_ones_arrived ?? 0 });
+        return { error: null };
+      },
+    };
+    const drain = drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    // A is on the wire; the doorhost taps "Check in 1" on B, which coalesces
+    // into B's still-pending entry.
+    await Promise.resolve();
+    store.update('b', { payload: { id: 'ciB', guestId: 'gB', plusOnesArrived: 1, clientTimestamp: 't2' } } as Partial<OutboxEntry>);
+    release();
+    await drain;
+    expect(sent).toEqual([
+      { id: 'ciA', n: 0 },
+      { id: 'ciB', n: 1 },
+    ]);
   });
 
   it('leaves lastError undefined when nothing failed', async () => {

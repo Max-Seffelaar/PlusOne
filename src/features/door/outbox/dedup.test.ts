@@ -71,6 +71,12 @@ describe('coalesceTarget — a second tap replaces a still-pending one (last win
     expect(coalesceTarget([checkIn('a'), voidEntry('v')], EVENT, { id: 'ci-a', guestId: GUEST })).toBeNull();
   });
 
+  it('only merges the same actor\'s own tap: a hand-off on a shared tablet keeps A\'s entry A\'s (S4)', () => {
+    const fromA = { ...checkIn('a'), ownerId: 'user-a' } as OutboxEntry;
+    expect(coalesceTarget([fromA], EVENT, { id: 'ci-a', guestId: GUEST }, 'user-b')).toBeNull();
+    expect(coalesceTarget([fromA], EVENT, { id: 'ci-a', guestId: GUEST }, 'user-a')).toBe('a');
+  });
+
   it('does not merge different rows', () => {
     expect(coalesceTarget([checkIn('a')], EVENT, { id: 'ci-other', guestId: GUEST })).toBeNull();
   });

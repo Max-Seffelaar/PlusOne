@@ -16,7 +16,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Label, Btn, Card, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
+import { Avatar, Label, Btn, Card, CountPill, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
 import { tierInk } from '@/lib/po/tier-colors';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
@@ -40,6 +40,7 @@ import { StaleResumeOverlay } from '@/features/door/components/StaleResumeOverla
 import { useStaleResumeGuard } from '@/features/door/sync/useStaleResumeGuard';
 import type { QueryFreshness } from './cockpitFreshness';
 import { useCockpitSync } from './useCockpitSync';
+import { useCanUncheck } from './useCanUncheck';
 import { CockpitTasksCard } from './CockpitTasksCard';
 import { CockpitRefuseModal } from './CockpitRefuseModal';
 import { CockpitGuestRow } from './CockpitGuestRow';
@@ -296,8 +297,12 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   // role-dependent in z8uq9m2vg6: admins and user managers may always undo,
   // door hosts and crew only with the setting on. Mirrors can_uncheck_check_in;
   // the RESTRICTIVE check_ins policy is the boundary, this only hides the ✗.
-  const allowUncheck =
-    (editRow?.allowUncheck ?? false) || roles.includes('admin') || roles.includes('user_manager');
+  // The database answers (useCanUncheck); the role-based guess only covers
+  // the moment before that answer arrives.
+  const allowUncheck = useCanUncheck(
+    eventId,
+    (editRow?.allowUncheck ?? false) || roles.includes('admin') || roles.includes('user_manager'),
+  );
 
   const evGuestReqs = guestRequests.filter((r) => r.eventId === eventId && r.status === 'pending');
   const evQuotaReqs = quotaRequests.filter((r) => r.eventId === eventId);
@@ -806,12 +811,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                       </Btn>
                       <Btn desktop full kind="ghost" className="justify-center" onClick={() => confirmIn(g, ps.insideHeads + 1)}>
                         {t.door.checkInOneBtn}
-                        <span
-                          aria-label={fmt(t.door.partyCountAria, { inside: ps.insideHeads, total: ps.totalHeads })}
-                          className="rounded-full bg-elev2 px-[9px] py-[2px] font-display text-[13px] font-bold text-dim"
-                        >
+                        <CountPill ariaLabel={fmt(t.door.partyCountAria, { inside: ps.insideHeads, total: ps.totalHeads })}>
                           {fmt(t.door.partyCount, { inside: ps.insideHeads, total: ps.totalHeads })}
-                        </span>
+                        </CountPill>
                       </Btn>
                       <Btn desktop full kind="ghost" className="justify-center" onClick={() => setModal(null)}>
                         {t.cockpit.modalCancel}
