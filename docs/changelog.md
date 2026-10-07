@@ -8,6 +8,19 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Mail-infra F0 + team-invite mails (z8uq9m2yvt)
+
+Milestone **Now** (onboarding programme okt 2026, wave B, task 0e). The app now sends its own mail through Resend's HTTP API, behind a `MailProvider` interface in `src/features/mail/` (billing pattern: Resend adapter + keyless stub; a vitest guard keeps `resend` and the API host inside that directory and the mail module out of `src/features/door/`). Plain `fetch` instead of the `resend` SDK: one POST, no new dependency; the Svix signature is verified with `node:crypto` against Svix's published test vector.
+
+- **Team mails:** a CONFIRMED existing account invited to a company (`inviteUserAction`, `resendInviteAction`) or reminded as crew (`resendCrewInvite`) gets "<inviter> invited you to join <company>" (or the resend/crew variant) with a plain `/login` link instead of a magic link. New/unconfirmed accounts still get Supabase's invite template; platform invites are untouched. `InviteMailResult` (provision/notify) unchanged; a failed mail never fails an initial invite.
+- **No key = no regression:** `teamMailActive()` is true with `RESEND_API_KEY`, or outside a production build (stub logs type + `mail_log` id, never the address). A production build without the key (prod until Max sets it) keeps the magic-link path.
+- **Migration `20261007130000_mail_log`:** `mail_log` (type, venue, sha256 of the recipient, status, Resend id; no content/subject/names; platform admins read, nobody writes directly) and the `resend_webhook_events` ledger; three service_role-only SECURITY DEFINER RPCs (`log_mail_attempt`, `record_mail_send_result`, `apply_resend_webhook_event`). Idempotency-Key per `mail_log` row; a 429 (rate/daily/monthly quota) settles the row `failed` with no retry.
+- **Send limits (review round, decision Max):** at most 25 invitation mails per company per UTC day, counting the Resend team mail AND the Supabase invite mail (`auth_invite` rows); the invite/resend actions refuse before creating anything, with a clear message. One team mail per recipient per 60 s. The Resend account is shared with every login OTP, so one company can never drain everyone's login.
+- **Webhook `POST /api/webhooks/resend`:** Svix signature over the raw body, 5-minute tolerance, 503 without the secret, replay = no-op via the ledger, status only moves forward.
+- **Not done here:** the crew-added mail (`team_added_to_event`) in `inviteExternalCrew` waits on 0d (`z8uq9m2yvp`); the template and catalogue strings already exist. Max: `RESEND_API_KEY` + `RESEND_WEBHOOK_SECRET` in Vercel after the merge, Resend plan check (Free shares a 100/day quota with login OTPs), prod-push of the migration.
+
+---
+
 ## 2026-10-07 — Venue → Company + event location (z8uq9m2vqc)
 
 Milestone **Now** (onboarding programme okt 2026, wave B, task 1). Decision Max + Joeri 2026-10-06; spec #53 + a

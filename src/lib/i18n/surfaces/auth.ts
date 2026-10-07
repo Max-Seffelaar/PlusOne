@@ -99,6 +99,8 @@ export const auth = {
   // What the demo account is refused (86ey6bfug). Store reviewers read these, so
   // each one names the demo account: a generic error reads as a bug (guideline 2.1).
   demoNoInvites: 'Invites are turned off for the demo account.',
+  /** A company reached its daily invitation-mail cap (mail_venue_daily_cap, 25). */
+  inviteMailCapReached: "You've hit today's limit for inviting team members and crew. Need more today? Mail support@plus-one.io.",
   demoNoVenues: "The demo account can't create companies.",
   demoNoEmailChange: "The demo account's email can't be changed.",
   demoNoOwnMembership: "The demo account's roles and company access can't be changed.",

@@ -19,6 +19,11 @@ vi.mock('@/features/billing/gate', () => ({
   assertVenueBillingActive: vi.fn(async () => null),
 }));
 
+const capReached = vi.hoisted(() => ({ value: false }));
+vi.mock('@/features/mail/limits', () => ({
+  inviteMailCapReached: async () => capReached.value,
+}));
+
 vi.mock('./invite-mail', () => ({
   sendInviteEmail: vi.fn(async () => ({ ok: true })),
 }));
@@ -31,6 +36,7 @@ const VENUE_ID = '11111111-1111-1111-1111-111111111111';
 // pass or fail based on test order rather than this test's own scenario.
 afterEach(() => {
   vi.resetAllMocks();
+  capReached.value = false;
   (sendInviteEmail as Mock).mockResolvedValue({ ok: true });
 });
 
@@ -43,6 +49,7 @@ interface MembershipsChain {
 function makeClient(opts: {
   insertError?: { code?: string; message: string } | null;
   user?: { id: string; email?: string };
+  venueName?: string | null;
 }) {
   const callLog: string[] = [];
 
@@ -52,16 +59,43 @@ function makeClient(opts: {
     maybeSingle: vi.fn(async () => ({ data: { roles: ['admin'] } })),
   };
 
-  const invitesChain = {
+  const invitesChain: {
+    insert: Mock;
+    select: Mock;
+    eq: Mock;
+    maybeSingle: Mock;
+    update: Mock;
+  } = {
     insert: vi.fn(async () => {
       callLog.push('insert');
       return { error: opts.insertError ?? null };
     }),
+    // resendInviteAction: read the pending invite, then bump expires_at.
+    select: vi.fn(() => invitesChain),
+    eq: vi.fn(() => invitesChain),
+    maybeSingle: vi.fn(async () => ({
+      data: { id: 'inv-1', email: 'crew@venue.com', venue_id: VENUE_ID, accepted_at: null },
+    })),
+    update: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null, count: 1 })) })),
   };
+
+  // Mail-infra F0: the team-mail display context (caller's name + venue name).
+  const single = (data: unknown) => {
+    const chain: MembershipsChain = {
+      select: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      maybeSingle: vi.fn(async () => ({ data })),
+    };
+    return chain;
+  };
+  const venuesChain = single(opts.venueName === null ? null : { name: opts.venueName ?? 'Club Vesper' });
+  const profilesChain = single({ full_name: 'Max' });
 
   const from = vi.fn((table: string) => {
     if (table === 'venue_memberships') return membershipsChain;
     if (table === 'invites') return invitesChain;
+    if (table === 'venues') return venuesChain;
+    if (table === 'user_profiles') return profilesChain;
     throw new Error(`unexpected table ${table}`);
   });
 
@@ -167,5 +201,112 @@ describe('inviteUserAction / resendInviteAction — demo account', () => {
 
     expect(result.ok).toBe(true);
     expect(callLog).toEqual(['insert']);
+  });
+});
+
+// Mail-infra F0 (z8uq9m2yvt): the action hands sendInviteEmail the display
+// context for the team mail an EXISTING account gets. Whether that mail or the
+// magic link goes out is sendInviteEmail's call (invite-mail.test.ts).
+describe('inviteUserAction — team mail context', () => {
+  it('passes inviter + company for the existing-account team mail', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result.ok).toBe(true);
+    expect(sendInviteEmail).toHaveBeenCalledWith('newcrew@venue.com', {
+      existingAccountMail: {
+        template: 'team_join',
+        venueId: VENUE_ID,
+        inviterName: 'Max',
+        companyName: 'Club Vesper',
+      },
+      mailCapVenueId: VENUE_ID,
+    });
+  });
+
+  it('passes no context when the venue name is unreadable (magic-link fallback stays)', async () => {
+    const { client } = makeClient({ venueName: null });
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(sendInviteEmail).toHaveBeenCalledWith('newcrew@venue.com', {
+      existingAccountMail: undefined,
+      mailCapVenueId: VENUE_ID,
+    });
+  });
+
+  it('a failed team mail (notify) never fails the invite itself', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'notify' });
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result.ok).toBe(true);
+  });
+});
+
+// Review of PR #413: a throttled team mail (log_mail_attempt PM429) reaches the
+// actions as sendInviteEmail's 'notify'. An initial invite still succeeds (the
+// invite row grants access); a resend shows its existing error.
+describe('team mail refused by the send limits', () => {
+  it('resendInviteAction shows its usual error and passes the resend context', async () => {
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'notify' });
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+
+    const result = await resendInviteAction({ ok: false }, fd);
+
+    expect(result).toEqual({ ok: false, error: "Couldn't send the invite e-mail. Try again." });
+    expect(sendInviteEmail).toHaveBeenCalledWith('crew@venue.com', {
+      existingAccountMail: {
+        template: 'team_resend',
+        kind: 'join',
+        venueId: VENUE_ID,
+        inviterName: 'Max',
+        companyName: 'Club Vesper',
+      },
+      mailCapVenueId: VENUE_ID,
+    });
+  });
+});
+
+// Daily invitation-mail cap per company (decision Max 2026-10-07): refused
+// BEFORE anything is created, with the cap copy.
+describe('invitation-mail cap reached', () => {
+  const CAP_COPY = "You've hit today's limit for inviting team members and crew. Need more today? Mail support@plus-one.io.";
+
+  it('inviteUserAction refuses before the invite insert and before any mail', async () => {
+    capReached.value = true;
+    const { client, callLog } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result).toEqual({ ok: false, error: CAP_COPY });
+    expect(callLog).toEqual([]);
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('resendInviteAction refuses before bumping expires_at', async () => {
+    capReached.value = true;
+    const { client } = makeClient({});
+    (createClient as Mock).mockResolvedValue(client);
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+
+    const result = await resendInviteAction({ ok: false }, fd);
+
+    expect(result).toEqual({ ok: false, error: CAP_COPY });
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+    const invites = (client.from as Mock).mock.results
+      .map((r) => r.value)
+      .find((v) => v && 'update' in v);
+    expect(invites?.update).not.toHaveBeenCalled();
   });
 });
