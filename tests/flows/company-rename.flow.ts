@@ -166,8 +166,8 @@ test('company rename: wizard → More → Company settings → events with a loc
   await goApp(page, '/app/events/new', baseURL);
   const locName = page.getByRole('textbox', { name: 'Location name' });
   const locAddress = page.getByRole('textbox', { name: 'Location address' });
-  await flow.check(7, 'New event: "Company" field, and the location placeholders are the company name + address', async () => {
-    await expect(page.getByText('Company', { exact: true }).first()).toBeVisible();
+  await flow.check(7, 'New event: no "Company" field (always the active company), and the location placeholders are the company name + address', async () => {
+    await expect(page.getByText('Company', { exact: true })).toHaveCount(0);
     await expect(locName).toHaveAttribute('placeholder', COMPANY);
     await expect(locAddress).toHaveAttribute('placeholder', COMPANY_ADDRESS);
     expect(await visibleVenueWords(page)).toEqual([]);
@@ -199,8 +199,44 @@ test('company rename: wizard → More → Company settings → events with a loc
         })
         .toBe(`${OWN_NAME}|${OWN_ADDRESS}`);
     });
+    // Created from a TEMPLATE (follow-up fix): the template RPC takes no
+    // location, so the form writes it in a second step. Prod showed it lost.
+    await flow.check(16, 'An event created from a template keeps a location typed in the form (DB truth)', async () => {
+      const TPL = `Tpl ${tag}`;
+      const EV_TPL = `Template night ${tag}`;
+      // With a tier, like a real template: the form then lands on the event
+      // detail instead of the guided tiers step.
+      const { data: tpl, error: tplErr } = await db.from('event_templates').insert({ venue_id: venueId, name: TPL }).select('id').single();
+      expect(tplErr).toBeNull();
+      const { error: tierErr } = await db
+        .from('event_template_tiers')
+        .insert({ template_id: (tpl as { id: string }).id, venue_id: venueId, name: 'Guest' });
+      expect(tierErr).toBeNull();
+      await goApp(page, '/app/events/new', baseURL);
+      await page.getByRole('button', { name: TPL }).click();
+      await page.getByPlaceholder('e.g. FRENZY').fill(EV_TPL);
+      await page.getByRole('textbox', { name: 'Location name' }).fill(OWN_NAME);
+      await page.getByRole('textbox', { name: 'Location address' }).fill(OWN_ADDRESS);
+      const date = page.getByLabel('Pick a date').first();
+      await date.fill(typedDate(5));
+      await date.press('Enter');
+      const hour = page.getByLabel('Hour').first();
+      await hour.fill('22:00');
+      await hour.press('Enter');
+      await page.getByRole('button', { name: 'Create event' }).click();
+      await page.waitForURL(/\/app\/events\/[^/]+/);
+      await expect
+        .poll(async () => {
+          const { data } = await db.from('events').select('location_name, location_address').eq('name', EV_TPL).maybeSingle();
+          return data ? `${data.location_name}|${data.location_address}` : null;
+        })
+        .toBe(`${OWN_NAME}|${OWN_ADDRESS}`);
+      await expect(page.getByText("the location didn't save")).toHaveCount(0);
+      await flow.shot('template-event-location');
+    });
   } else {
     flow.skip(8, 'Saving the form writes the location to the event (DB truth) — desktop variant only');
+    flow.skip(16, 'An event created from a template keeps a location typed in the form (DB truth) — desktop variant only');
     const startsAt = new Date(Date.now() + 3 * 86_400_000).toISOString();
     const { error } = await db.from('events').insert({
       venue_id: venueId,

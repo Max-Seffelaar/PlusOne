@@ -373,10 +373,15 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           <TemplatePicker templates={templates.data ?? []} templateId={templateId} onChange={pickTemplate} />
         )}
 
-        {/* Venue above Name (ADE UX round, item B): the venue is the context you
-            read first; the name is what you then type. Name keeps autofocus. */}
-        <Label className="mb-2">{t.events.fieldVenue}</Label>
-        <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
+        {/* Company above Name (ADE UX round, item B), edit mode only: a new
+            event is always created in the active company, so the read-only
+            field said nothing on create (Max, 2026-10-07). */}
+        {!isNew && (
+          <>
+            <Label className="mb-2">{t.events.fieldVenue}</Label>
+            <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
+          </>
+        )}
 
         <Label className="mb-2">{t.events.fieldName}</Label>
         <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
