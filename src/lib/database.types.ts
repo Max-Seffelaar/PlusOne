@@ -1037,6 +1037,50 @@ export type Database = {
         }
         Relationships: []
       }
+      mail_log: {
+        Row: {
+          created_at: string
+          error_code: string | null
+          id: string
+          provider_message_id: string | null
+          recipient_hash: string
+          status: string
+          type: string
+          updated_at: string
+          venue_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_hash: string
+          status?: string
+          type: string
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_hash?: string
+          status?: string
+          type?: string
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mail_log_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_outbox: {
         Row: {
           attempts: number
@@ -1581,6 +1625,27 @@ export type Database = {
           },
         ]
       }
+      resend_webhook_events: {
+        Row: {
+          id: string
+          processed_at: string
+          provider_message_id: string | null
+          type: string
+        }
+        Insert: {
+          id: string
+          processed_at?: string
+          provider_message_id?: string | null
+          type: string
+        }
+        Update: {
+          id?: string
+          processed_at?: string
+          provider_message_id?: string | null
+          type?: string
+        }
+        Relationships: []
+      }
       stripe_webhook_events: {
         Row: {
           id: string
@@ -1900,6 +1965,14 @@ export type Database = {
         }[]
       }
       admin_revoke_session: { Args: { p_session_id: string }; Returns: boolean }
+      apply_resend_webhook_event: {
+        Args: {
+          p_event_id: string
+          p_event_type: string
+          p_provider_message_id?: string
+        }
+        Returns: boolean
+      }
       apply_stripe_subscription_update: {
         Args: {
           p_current_period_end?: string
@@ -2231,6 +2304,10 @@ export type Database = {
           user_agent: string
         }[]
       }
+      log_mail_attempt: {
+        Args: { p_recipient_hash: string; p_type: string; p_venue_id: string }
+        Returns: string
+      }
       log_venue_export: {
         Args: {
           p_contacts: number
@@ -2360,6 +2437,15 @@ export type Database = {
       record_link_pageview: {
         Args: { p_ip_hash: string; p_slug: string }
         Returns: undefined
+      }
+      record_mail_send_result: {
+        Args: {
+          p_error_code?: string
+          p_id: string
+          p_provider_message_id?: string
+          p_status: string
+        }
+        Returns: boolean
       }
       redact_anonymized_audit_pii: {
         Args: { p_guest_ids: string[] }
