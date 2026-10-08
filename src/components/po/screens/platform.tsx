@@ -120,7 +120,7 @@ function PlatformConsole(): JSX.Element {
   const companiesQ = usePoPlatformCompanies(companyIds);
   const { switchToVenue } = usePo();
   const { venueId: activeVenueId } = usePoIdentity();
-  // "Switch" and "3 events · last: …" both go through the shell's switch path
+  // "Switch" and "3 events · latest: …" both go through the shell's switch path
   // (platform_access_log row for a non-member). The active company needs no
   // switch: switchToVenue no-ops on it, so open its event list directly.
   const openEvents = useCallback(

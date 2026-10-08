@@ -180,7 +180,7 @@ test('platform-overview: Overview numbers, invite chip → Switch, Companies det
     await expect(venue.getByText('No events yet')).toBeVisible();
     await expect(venue.getByText(/never logged in|Last login/)).toBeVisible();
     const vesper = page.locator('div.rounded-\\[16px\\]').filter({ hasText: 'Club Vesper' }).first();
-    await expect(vesper.getByText(/^\d+ events? · last: /)).toBeVisible();
+    await expect(vesper.getByText(/^\d+ events? · latest: /)).toBeVisible();
   });
   await flow.shot('companies');
 

@@ -88,7 +88,7 @@ describe('company lines', () => {
     const c = toPlatformCompany(
       row({ event_count: 3, last_event_name: 'Nova Night', last_event_starts_at: '2026-10-04T20:00:00.000Z' }),
     );
-    expect(companyEventsLine(c)).toBe('3 events · last: Nova Night, 4 Oct');
+    expect(companyEventsLine(c)).toBe('3 events · latest: Nova Night, 4 Oct');
   });
 
   it('activity line: owner login + last check-in', () => {

@@ -184,7 +184,7 @@ export const platform = {
   companyPaid: 'Paid',
   companyEvent: '{count} event',
   companyEvents: '{count} events',
-  companyLatestEvent: 'last: {name}, {date}',
+  companyLatestEvent: 'latest: {name}, {date}',
   companyNoEvents: 'No events yet',
   companyLastLogin: 'Last login {ago}',
   companyNoLogin: 'Owner never logged in',

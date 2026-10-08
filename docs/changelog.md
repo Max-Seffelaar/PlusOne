@@ -24,7 +24,7 @@ Milestone **Now** (decision Max 2026-10-06: right after Billing G). Draft PR, no
   - Cancelled events are excluded from both event count and latest event.
   - The trial chip counts calendar days, and shows "billing via Stripe" for Stripe-linked trials.
   - No Switch for the already-active company.
-  - Open for Max: last event can lie in the future; the funnel's "converted" counts `past_due`.
+  - Max decided: "last event" is the newest by start, also in the future; copy reads "latest: …". Still open: the funnel's "converted" counts `past_due`.
 - **Daily digest (§9 item 19): not built.** It needs a scheduler and a service-role send path; the design proposal is in the PR body for Max to decide.
 
 ---
