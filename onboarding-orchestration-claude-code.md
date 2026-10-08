@@ -133,6 +133,48 @@ Follow-ups toegevoegd bij de afsluiting (2026-10-08, geen golf-B-scope):
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
+### Status golf C (orchestrator, 2026-10-07/08; afgerond)
+
+Gestart parallel aan de rest van golf B, besluit Max 2026-10-07. ClickUp was de hele golf onbereikbaar (daglimiet): geen comments of statussen; dit blok en de PR-bodies zijn het verslag. Exit-criterium gehaald: beide gemerged en geprod-pusht; de Platform-tab kan een trial verlengen en "Always free" zetten; de native-shell-guard is groen; een doorhost kan niet uitchecken zonder de setting, ook niet via de API.
+
+| Taak | PR | Status | Prod |
+|---|---|---|---|
+| 2 Billing G | [#422](https://github.com/Max-Seffelaar/PlusOne/pull/422) | gemerged (`e1d1428`, 2026-10-08), na orchestrator-review, reviewer-ronde en delta-review. Orchestrator-review: New company-scherm toonde in de shell nog betaalcopy (weg, e2e-guard uitgebreid), seed-plan-ids naar `pro`, restricted-key-rechten in `docs/stripe-setup.md`. Reviewer-blocker: `set_venue_plan` accepteerde alleen `pro` en brak daarmee de live app tussen prod-push en merge; nu worden `indie`/`premium`/`pro` geaccepteerd en als `pro` opgeslagen. Trial-cap 730 dagen. Max' Stripe-sandboxtest vond een bug die sinds fase 13 bestond: Checkout weigerde (400) omdat tax-ID-collection zonder adres op de customer niet mag. Fix: `billing_address_collection: 'required'` en `customer_update.address: 'auto'`; daarna een betaling met adres en SEPA-mandaat bevestigd. `pnpm db:test` 89 bestanden / 2239 asserts. Handoff: 12, 13, 15 ✅; 14 (native, echt toestel) ✅ leeg. | `20261008120000`, `…120100`, `…120200` op prod (2026-10-07) |
+| 4 Check-in D | [#423](https://github.com/Max-Seffelaar/PlusOne/pull/423) | gemerged (`7f4e7e5`, 2026-10-08), na orchestrator-review, reviewer-ronde en delta-review. Orchestrator-review: `client_timestamp` werd blind vertrouwd (een geplante toekomst-stempel bevroor een rij, ook tegen een admin-undo); nu clamp op `now()` en alleen void/revive geordend. Reviewer-blockers, opgelost: `guest_id` kon worden verplaatst (verkapte undo en cap-omzeiling), en een tik ging verloren tijdens de drain. Een stale void/revive geeft nu `PO409` (geen stille no-op); coalescen alleen binnen dezelfde actor. Besluit Max: backfill `allow_uncheck = false` ook voor bestaande companies (A). Spec-beslissing #55 (#54 = Ticketing 0, #424). Handoff 1–13 ✅. | `20261010120000`, `…120100` op prod (2026-10-07) |
+
+Prod-push: de vijf migraties in één keer gepusht vanaf een lokale combinatie (G + D + de crew-migratie die al op prod stond). Vooraf groen: `pnpm db:test` op die gecombineerde set (88 bestanden / 2166 asserts, orchestrator-container). Na de merges heeft main exact de 144 migraties van prod (geverifieerd in `schema_migrations`), dus `db push` vanaf main zegt weer "up to date".
+
+Stripe (§6, Max 2026-10-07): live én sandbox ingericht:
+- product Pro met lookup keys `pro_monthly`/`pro_yearly` en BTW 21% exclusive;
+- Portal: wisselen maand/jaar en opzeggen per periode-einde;
+- dunning: Smart Retries 2 weken, daarna cancel;
+- klantmails, inclusief de factuurmail, en branding;
+- restricted key zonder View-only;
+- webhook met zes events (incl. `customer.subscription.created`).
+
+`STRIPE_PRICE_PREMIUM_MONTHLY` stond nooit in Vercel.
+
+Lessen golf C:
+- **Een poort is een checkout.** Max' lokale test liep twee keer tegen een oude server uit een andere map (`plusone-test`) op poort 7000. Herkenbaar aan copy die nergens meer bestaat ("Basic", "Venue"). Eerst `git log -1` en de poort uit `pnpm dev` controleren.
+- **Een sandboxtest met echte Stripe-sleutels vindt wat de stub niet kan.** De adres-bug zat sinds fase 13 in main. Plan die test vóór de merge van elke billing-PR.
+- **Een prod-push vóór de merge maakt main tijdelijk ongeldig voor `db push`.** Dat werd verergerd doordat golf B parallel migraties op prod zette. Combineer de branches lokaal om in één keer te pushen, en merge daarna zo snel mogelijk.
+- **Parallelle golven geven per merge een changelog-conflict.** Elke worker moest drie keer main mergen. Bij parallel werk: de PR's direct na elkaar mergen.
+- **Een reviewer-sessie op hetzelfde GitHub-account kan geen "Request changes" of "Approve" geven.** De oordeelregel staat bovenaan de comment.
+
+**Voor golf D (gevonden bij de afronding, 2026-10-08):**
+- **Tijdstempels.** Prod en main hebben al `20261011120000_mail_failed_rows_free` (golf B, #430). De gereserveerde golf-D-slots in §3 zijn ouder: 2b `20261008130000`, 3 `20261009120000`/`…120100`, 3b `20261009130000`. Een oudere migratie na een nieuwere pushen kan alleen met `supabase db push --include-all`. Advies: de golf-D-orchestrator geeft vóór het spawnen nieuwe slots ná `20261011120000` (bijv. `20261012…`) en werkt §3 bij in zijn eigen docs-PR. Kan dat niet, dan bij elke push eerst een dry-run die exact de migraties van die PR toont, en dan `--include-all`.
+- **Invite-link maximaal 24 uur.** Supabase staat op `Email OTP Expiration` niet meer toe dan 86400 s; 7 dagen kan dus niet. Taak 3 bouwt daarom de knop "Resend invite" in de Platform-tab (los eindje 10).
+- **Max heeft al gedaan:** `GOOGLE_PLACES_API_KEY` staat in Vercel, beperkt tot Places API (New), met usage alerts. De quota zijn niet aanpasbaar op het gratis proefaccount; de throttle in taak 3 vangt dat op.
+- **Nog open bij Max:** de copy van de invite-mail (company- en team-variant; de worker mag ook drie varianten voorstellen), en na de merge van taak 3 de template-HTML in Supabase plakken.
+
+Open follow-ups uit golf C (niet blokkerend):
+- `set_venue_plan` de oude plannamen weer laten weigeren in een latere migratie (de contract-stap).
+- Billing toont voor een betalende company de huidige Stripe-prijs, niet de gefactureerde; uit het subscription item lezen vóór de eerste prijswijziging.
+- Foutcopy "up to two years" tegenover de 730-dagen-cap, en geen maximum op de datumkiezer.
+- Een online undo van een device met achterlopende klok krijgt `PO409` met de melding "changed on another device".
+- Ongebruikte cockpit-strings in `cockpit.ts`; het label van de per-event-undo-toggle is ongewijzigd.
+- Insert van een al-gevoide check-in wordt nu geweigerd: noteren in de spec bij #55 als die vraag terugkomt.
+
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
 Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. **Aanbevolen gebruik: per golf een verse sessie met deze zelfde prompt** (context en kosten blijven klein; de prompt vindt zelf de lopende golf), met bovenaan één regel welke golf het is. Rename: `/rename Onboarding okt 2026 — orchestrator golf <X>`.

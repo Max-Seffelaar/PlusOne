@@ -8,6 +8,31 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-08 — Onboarding programme wave C closed: Billing G + Check-in D (orchestrator)
+
+Wave C of the October 2026 onboarding programme (`onboarding-orchestration-claude-code.md` §2b) ran in parallel
+with the tail of wave B. Both tasks are merged and on prod; the per-task entries below carry the detail.
+
+- **Billing G (z8uq9m2vrz), #422 → `e1d1428`:** one plan Pro (monthly/yearly by Stripe lookup key), card next to SEPA
+  and iDEAL, finance gets billing rights, Platform-tab "Trial until" and "Always free", wizard Welcome → Company →
+  Team everywhere, native shell read-only (new e2e native-shell guard). A Stripe sandbox checkout by Max found a bug
+  that had been in main since fase 13 (tax ID collection with an addressless customer → Stripe 400); fixed with
+  `billing_address_collection: 'required'` + `customer_update.address: 'auto'`, then a paid checkout with address and
+  SEPA mandate was confirmed.
+- **Check-in D (z8uq9m2vg6), #423 → `7f4e7e5`:** "Check in all (N)" / "Check in 1" with an absolute count on one row,
+  device-clock clamp and void/revive ordering in the database (`PO409` instead of silent no-ops), guest_id pinned,
+  undo per role (admin/user manager always; doorhost/staff/crew only with the setting). Decision Max: the setting is
+  off for every existing company too (option A).
+- **Reviews:** orchestrator review, one fresh reviewer session per PR (both found blockers, both fixed) and a delta
+  review per PR (approve).
+- **Prod:** the five migrations (`20261008120000`–`120200`, `20261010120000`–`120100`) were pushed on 2026-10-07 from a
+  local combination of both branches plus the crew migration already on prod, after `pnpm db:test` on that set
+  (88 files / 2166 assertions). Since the merges, main and prod both hold the same 144 migrations.
+- **Max, done:** Stripe live + sandbox (product Pro, lookup keys, VAT, Portal, dunning, customer mails incl. invoices,
+  branding, restricted key, six webhook events), Google Places key (Places API (New) only, usage alerts; quota not
+  adjustable on the free trial), Supabase invite/OTP expiry at its 86400 s maximum.
+- **Follow-ups (not blocking):** contract `set_venue_plan` to `pro`; show the billed price for paying companies;
+  "two years" copy vs the 730-day cap; `PO409` toast wording for a behind-clock undo; unused cockpit strings.
 ## 2026-10-08 — One invite mail: a new address gets our team/crew mail too (z8uq9m2yvp, follow-up B, #430)
 
 Milestone **Now** (golf B, task 0d follow-up B). Handoff Q21 of #412 showed that a brand-new address still got Supabase's generic "You've been invited to PlusOne" mail, while an existing account got ours.
