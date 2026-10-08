@@ -84,8 +84,8 @@ test('platform-billing: Platform → Companies → always free / trial until', a
   await flow.check(1, 'The app seam reports native exactly in the native variants', async () => {
     expect(await reportsNative(page)).toBe(flow.native);
   });
-  await flow.check(2, 'De Marktzaal reads "Trial until <date>", "Always free" off; Club Vesper reads "Always free"', async () => {
-    await expect(marktzaal.getByText(/^Trial until \d+ \w+$/)).toBeVisible();
+  await flow.check(2, 'De Marktzaal reads "Trial · N days left", "Always free" off; Club Vesper reads "Always free"', async () => {
+    await expect(marktzaal.getByText(/^Trial · \d+ days left$/)).toBeVisible();
     await expect(marktzaal.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
     await expect(card(page, 'Club Vesper').getByRole('switch')).toHaveAttribute('aria-checked', 'true');
   });
@@ -102,7 +102,7 @@ test('platform-billing: Platform → Companies → always free / trial until', a
   await flow.check(4, '"Always free" off → trialing again, trial ends today + 14 days', async () => {
     await marktzaal.getByRole('switch').click();
     await expect(marktzaal.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
-    await expect(marktzaal.getByText(/^Trial until \d+ \w+$/)).toBeVisible();
+    await expect(marktzaal.getByText(/^Trial · \d+ days left$/)).toBeVisible();
     const sub = await subscription();
     expect(sub.status).toBe('trialing');
     const days = (new Date(sub.trial_ends_at ?? 0).getTime() - Date.now()) / 86_400_000;
@@ -111,13 +111,13 @@ test('platform-billing: Platform → Companies → always free / trial until', a
   });
 
   const target = new Date(Date.now() + 40 * 86_400_000).toISOString().slice(0, 10);
-  await flow.check(5, '"Set trial end" stores the picked day (end of that day, Amsterdam)', async () => {
+  await flow.check(5, '"Set trial end" stores the picked day (end of that day, Amsterdam); chip reads the new countdown', async () => {
     await marktzaal.locator('input[type="date"]').fill(target);
     await marktzaal.getByRole('button', { name: /Set trial end/ }).click();
     await expect
       .poll(async () => (await subscription()).trial_ends_at?.slice(0, 10))
       .toBe(target);
-    await expect(marktzaal.getByText(/^Trial until \d+ \w+$/)).toBeVisible();
+    await expect(marktzaal.getByText(/^Trial · \d+ days left$/)).toBeVisible();
   });
   await flow.shot('trial-extended');
 

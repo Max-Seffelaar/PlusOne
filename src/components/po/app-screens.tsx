@@ -98,6 +98,10 @@ const PlatformAudit = dynamic(
   () => import('./screens/platform-audit').then((m) => m.PlatformAudit),
   { loading: ScreenLoading, ssr: false },
 );
+const PlatformOverview = dynamic(
+  () => import('./screens/platform-overview').then((m) => m.PlatformOverview),
+  { loading: ScreenLoading, ssr: false },
+);
 const PlatformAccessLog = dynamic(
   () => import('./screens/platform-access-log').then((m) => m.PlatformAccessLog),
   { loading: ScreenLoading, ssr: false },
@@ -193,6 +197,8 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav): ReactNode {
       return <PlatformAudit venueId={p.id} />;
     case 'platformaccess':
       return <PlatformAccessLog venueId={p.id} />;
+    case 'platformoverview':
+      return <PlatformOverview />;
     default:
       return null;
   }

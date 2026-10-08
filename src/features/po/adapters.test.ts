@@ -26,7 +26,6 @@ import {
   toPoProfile,
   toPoVenueSettings,
   toPoSubscription,
-  toPlatformBilling,
   type EventCounts,
   resolveEventLocation,
   formatCompanyAddress,
@@ -1002,25 +1001,6 @@ describe('toPoSubscription', () => {
   it('reports no trial end for non-trialing statuses', () => {
     const row: PoSubscriptionRow = { ...base, status: 'canceled', plan_id: 'pro', current_period_end: null, trial_ends_at: '2026-09-30T21:59:59Z' };
     expect(toPoSubscription(row, 'LOFI')).toMatchObject({ trialEndsAt: null });
-  });
-});
-
-describe('toPlatformBilling', () => {
-  const row = { venue_id: 'v1', created_at: '2026-07-01T00:00:00Z', trial_ends_at: null, stripe_subscription_id: null };
-  it('reports the effective trial end while trialing', () => {
-    expect(toPlatformBilling({ ...row, status: 'trialing' })).toEqual({
-      venueId: 'v1',
-      status: 'trialing',
-      trialEndsAt: '2026-07-15T00:00:00.000Z',
-      stripeLinked: false,
-    });
-    expect(toPlatformBilling({ ...row, status: 'trialing', trial_ends_at: '2026-12-31T22:59:59Z' }).trialEndsAt).toBe(
-      '2026-12-31T22:59:59.000Z'
-    );
-  });
-  it('no trial end for comped; flags a Stripe link', () => {
-    expect(toPlatformBilling({ ...row, status: 'comped' }).trialEndsAt).toBeNull();
-    expect(toPlatformBilling({ ...row, status: 'active', stripe_subscription_id: 'sub_x' }).stripeLinked).toBe(true);
   });
 });
 
