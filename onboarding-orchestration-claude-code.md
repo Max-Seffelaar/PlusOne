@@ -195,6 +195,8 @@ Besluiten Max 2026-10-08 (startcheck):
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
 | 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | **gemerged**; handoff 10–15 beantwoord (13 ✅ lokaal met Stripe-sandbox; 15 = "latest"; 15b `past_due` telt mee als converted). Vervolgen (besluit Max): A tegel "Trial, payment set up", B dagelijkse digest (high-risk) | `20261012130000` **op prod** (geverifieerd: functies + grants) |
+| 2b-A tegel "Trial, payment set up" | `session_01UbwAGHr1WcV7rff36rdKdm` | — | in bouw (verse sessie; de 2b-worker weigerde terecht nieuwe scope via de orchestrator) | `20261012150000` |
+| 2b-B dagelijkse digest (HIGH-RISK) | `session_01TSU99HJy5NuhTaEQtQaLEq` | — | in bouw; merget na 2b-A | `20261012160000` |
 | 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | [#437](https://github.com/Max-Seffelaar/PlusOne/pull/437) | opgeleverd (`1a40fd6`, CI groen); bouwer: `pnpm db:test` 96 bestanden / 2403, `CI=1 pnpm test` 3177; reviewer-sessie `session_01Bu6w5MQPNse56ZFGfNx7m3` loopt. Buiten scope: DPA-checkbox ook op "New company" (besluit Max) | `20261012140000` + `…140100`, ná `…130000` |
 | 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | [#438](https://github.com/Max-Seffelaar/PlusOne/pull/438) | opgeleverd (`dc4d8a6`), CI rood (e2e core-flow) → terug naar de bouwer. Niet gebouwd: Tasks-tab (zit in door-bestanden, verboden); deep link matcht op naam (op id = één regel in `src/features/po/queries.ts`, verboden) → besluit Max | geen migratie |
 | 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012170000` |
