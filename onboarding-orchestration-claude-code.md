@@ -194,11 +194,13 @@ Besluiten Max 2026-10-08 (startcheck):
 
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
-| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | **klaar voor merge** (`ff5ab1b`, CI groen, ready for review). Reviewer SCHOON; should-fix (MRR `paid_unknown`, één statusbron) + nits verwerkt; vraag 15 = "latest" (Max). Handoff Max: 10–13 ✅ (13 lokaal met Stripe-sandbox: Paid yearly 1, MRR €39,20, ARR €470,40). Digest niet gebouwd (voorstel in PR, besluit Max) | `20261012130000` direct na merge, buiten een eventavond; vóór de migraties van #437 |
+| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | **gemerged**; handoff 10–15 beantwoord (13 ✅ lokaal met Stripe-sandbox; 15 = "latest"; 15b `past_due` telt mee als converted). Vervolgen (besluit Max): A tegel "Trial, payment set up", B dagelijkse digest (high-risk) | `20261012130000` **op prod** (geverifieerd: functies + grants) |
 | 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | [#437](https://github.com/Max-Seffelaar/PlusOne/pull/437) | opgeleverd (`1a40fd6`, CI groen); bouwer: `pnpm db:test` 96 bestanden / 2403, `CI=1 pnpm test` 3177; reviewer-sessie `session_01Bu6w5MQPNse56ZFGfNx7m3` loopt. Buiten scope: DPA-checkbox ook op "New company" (besluit Max) | `20261012140000` + `…140100`, ná `…130000` |
 | 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | [#438](https://github.com/Max-Seffelaar/PlusOne/pull/438) | opgeleverd (`dc4d8a6`), CI rood (e2e core-flow) → terug naar de bouwer. Niet gebouwd: Tasks-tab (zit in door-bestanden, verboden); deep link matcht op naam (op id = één regel in `src/features/po/queries.ts`, verboden) → besluit Max | geen migratie |
-| 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012150000` |
+| 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012170000` |
 | 5b Share-import S2 | nog niet gestart (na 5) | — | wacht | geen migratie |
+
+Besluiten Max (avond): Tasks-tab in een aparte mini-PR (door-bestanden); deep link matcht op id (één regel in `src/features/po/queries.ts` toegestaan).
 
 Aandachtspunten: 3 en 5 raken allebei `events/edit.tsx` (3 alleen het locatieveld, 5 tijdkiezer/tier-stap); 2b en 3 raken allebei de platform-schermen (3 alleen comped-vinkje/resend). De digest van 2b wordt alleen gebouwd als hij zonder nieuw service-role- of cron-pad op de mail-infra past; anders een ontwerpvoorstel in de PR. Na de merge van 3 werkt de orchestrator de CLAUDE.md-regel "Platform invites … keep the Supabase path" bij (docs-PR).
 
@@ -427,7 +429,9 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 2c | `20261008140000_billing_mail_types.sql` | zeven `mail_log.type`-waarden, unique `(venue_id, type)` voor trial-mails, `subscriptions.billing_mails_paused`, RPC `platform_billing_mail_timeline` |
 | 3 | `20261012140000_platform_invite_comped.sql` (was `20261009120000`, idem) | `platform_invites.comped boolean not null default false`; `create_venue_with_owner` roept `set_venue_comped` aan als de invite comped is |
 | 3 | `20261012140100_places_throttle.sql` (was `20261009120100`, idem) | throttle-wrapper voor de Places-proxy + grant + pgTAP allowed/denied (spike 9.6) |
-| 3b | `20261012150000_event_locations.sql` (was `20261009130000`, idem) | `company_locations` (opgeslagen locaties per company) + RLS + grant matrix; `get_request_status` geeft de event-locatie terug i.p.v. het companyadres (expand: companyadres-kolommen pas in een latere migratie droppen); zie taak 3b |
+| 2b-A | `20261012150000_platform_counts_trial_paid.sql` | `platform_subscription_counts()` splitst trialing in zonder/met ingestelde betaling (tegel "Trial, payment set up") |
+| 2b-B | `20261012160000_platform_digest.sql` | dagelijkse platform-digest: pg_cron 07:45 → Edge Function `platform-digest`, service-role-only wrappers, venue-loze mail-log |
+| 3b | `20261012170000_event_locations.sql` (was `20261009130000`, daarna `…150000`; verschoven voor de 2b-vervolgen) | `company_locations` (opgeslagen locaties per company) + RLS + grant matrix; `get_request_status` geeft de event-locatie terug i.p.v. het companyadres (expand: companyadres-kolommen pas in een latere migratie droppen); zie taak 3b |
 | 4 | `20261010120000_checkin_absolute_count_guard.sql` | check `plus_ones_arrived <= guest.plus_ones` (trigger); stale-guard op `client_timestamp` in de check-in-RPC |
 | 4 | ~~`20261010120100_door_checkout_permission.sql`~~ | **Vervalt (spike 9.2):** uitchecken bestaat al als `venues.allow_uncheck` + `events.allow_uncheck` + RESTRICTIVE policy `check_ins_void_requires_uncheck`; taak 4 maakt die rolafhankelijk binnen `20261010120000` of een `…120100`-slot met die inhoud. |
 | 0e | `20261007130000_mail_log.sql` | `mail_log` (append-only, type + ontvanger-hash + status + provider-id, geen inhoud), `resend_webhook_events`-ledger, grant matrix |
