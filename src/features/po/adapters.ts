@@ -956,6 +956,9 @@ export interface PoVenueCrewMember {
   /** False until the person completes a first login — renders as a pending
    *  invite with a resend action. */
   hasAccepted: boolean;
+  /** Each event they're crew on, soonest first, with its guest quota: the Team
+   *  screen's Manage sheet (z8uq9m2yvp). */
+  events: { eventId: string; name: string; quota: number }[];
 }
 
 export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
@@ -968,6 +971,7 @@ export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
     eventsLabel: first ? (extra > 0 ? `${first} +${extra}` : first) : '—',
     eventCount: row.event_names.length,
     hasAccepted: row.terms_accepted_at !== null,
+    events: row.events.map((e) => ({ eventId: e.event_id, name: e.name, quota: e.quota })),
   };
 }
 

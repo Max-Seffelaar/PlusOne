@@ -25,6 +25,7 @@ import { BottomBar, Sheet } from '../../shell';
 import { useIsDemoVenue } from '../../app-shell-data';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { col, FormError, RolePicker } from './_shared';
+import { CrewManageSheet } from './team-crew-sheet';
 
 // ── GEBRUIKERS (pushed) — S6 Team-beheer, live ───────────────────────────────
 export function Gebruikers(): JSX.Element {
@@ -58,6 +59,8 @@ export function Gebruikers(): JSX.Element {
   const [inviteEvents, setInviteEvents] = useState<string[]>([]);
   const [quota, setQuota] = useState('');
   const [sheetMember, setSheetMember] = useState<PoTeamMember | null>(null);
+  // External crew member whose Manage sheet is open (z8uq9m2yvp): admin-only.
+  const [crewSheetUserId, setCrewSheetUserId] = useState<string | null>(null);
 
   const resetInviteForm = (): void => {
     setEmail('');
@@ -389,6 +392,12 @@ export function Gebruikers(): JSX.Element {
                       {busy ? t.settings.team.resending : sent ? t.settings.team.resent : t.settings.team.resend}
                     </MiniChip>
                   )}
+                  {/* Manage (z8uq9m2yvp): quota + Remove from crew per event, admin-only like every crew write. */}
+                  {callerIsAdmin && (
+                    <MiniChip onClick={() => setCrewSheetUserId(cm.userId)} ariaLabel={fmt(t.settings.team.manageAria, { name: cm.name })}>
+                      {t.settings.team.manage}
+                    </MiniChip>
+                  )}
                 </div>
               );
             })}
@@ -454,6 +463,7 @@ export function Gebruikers(): JSX.Element {
         <FormError error={resendInvite.isError ? resendInvite.error : null} />
       </Scroll>
       {sheetMember && <MemberSheet member={sheetMember} callerRoles={roles} onClose={() => setSheetMember(null)} />}
+      {crewSheetUserId && callerIsAdmin && <CrewManageSheet userId={crewSheetUserId} onClose={() => setCrewSheetUserId(null)} />}
       {mfa.sheet}
     </div>
   );

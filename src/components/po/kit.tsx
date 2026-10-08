@@ -1132,12 +1132,15 @@ export function MiniChip({
   className,
   onClick,
   disabled,
+  ariaLabel,
 }: {
   children: ReactNode;
   className?: string;
   onClick?: () => void;
   /** Visible but inert: rendered as a disabled button (pair with a `Note` saying why). */
   disabled?: boolean;
+  /** Accessible name when the visible text is ambiguous in a list (e.g. "Manage {name}"). */
+  ariaLabel?: string;
 }): JSX.Element {
   const cls = cn(
     'inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-line bg-transparent px-[9px] py-[4px] font-body text-[10.5px] font-bold tracking-[0.03em] text-dim',
@@ -1149,6 +1152,7 @@ export function MiniChip({
         type="button"
         onClick={onClick}
         disabled={disabled}
+        aria-label={ariaLabel}
         className={cn(
           cls,
           'cursor-pointer',
