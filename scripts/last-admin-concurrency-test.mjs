@@ -20,6 +20,11 @@
 //
 // RESIDUE: fixtures are permanent (audit_log rows reference the venue with
 // ON DELETE RESTRICT, by design) and named "🧪 last-admin-concurrency".
+// The two admins are this script's OWN throwaway accounts
+// (last-admin-race-a/b@plusone.test, fixed ids, created idempotently). No seed
+// user ever gets a role here: CI runs this before `pnpm e2e:smoke`, which logs
+// in as seed users, and an extra admin role on e.g. door@ triggers the MFA
+// recommendation (/mfa/enroll) and breaks those specs.
 // Loopback-only unless ALLOW_REMOTE_PGURL=1, same as the quota script.
 //
 // USAGE
@@ -41,10 +46,36 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
   }
 }
 
-// Seed users (supabase/seed.sql): any two existing profiles will do — the
-// fresh venue below is theirs only.
-const ADA = '55555555-5555-4555-8555-555555555555';
-const BO = '66666666-6666-4666-8666-666666666666';
+// This script's own two accounts (never seed users, see header).
+const ADA = '1a7ead00-0000-4000-8000-0000000000a1';
+const BO = '1a7ead00-0000-4000-8000-0000000000b1';
+const RACE_USERS = [
+  [ADA, 'last-admin-race-a@plusone.test'],
+  [BO, 'last-admin-race-b@plusone.test'],
+];
+
+// Idempotent: reuse the accounts when a previous run already made them.
+async function ensureRaceUsers(setup) {
+  for (const [id, email] of RACE_USERS) {
+    await setup.query(
+      `insert into auth.users (
+         instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+         raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+         confirmation_token, recovery_token, email_change, email_change_token_new,
+         email_change_token_current, phone_change, phone_change_token, reauthentication_token)
+       values ('00000000-0000-0000-0000-000000000000', $1, 'authenticated', 'authenticated', $2, '', now(),
+         '{"provider": "email", "providers": ["email"]}'::jsonb, '{}'::jsonb, now(), now(),
+         '', '', '', '', '', '', '', '')
+       on conflict (id) do nothing`,
+      [id, email]
+    );
+    await setup.query(
+      `insert into public.user_profiles (id, full_name, email) values ($1, $2, $3)
+       on conflict (id) do nothing`,
+      [id, `🧪 ${email.split('@')[0]}`, email]
+    );
+  }
+}
 
 let failures = 0;
 function assertion(cond, message) {
@@ -139,6 +170,7 @@ async function race({ label, setup, observer, firstSql, isolation, expected }) {
 const setup = await connect();
 const observer = await connect();
 try {
+  await ensureRaceUsers(setup);
   const DELETE_FIRST = 'delete from public.venue_memberships where venue_id = $1 and user_id = $2';
   const DEMOTE_FIRST = `update public.venue_memberships set roles = '{staff}' where venue_id = $1 and user_id = $2`;
   await race({
