@@ -945,6 +945,8 @@ export type Database = {
           accepted_by: string | null
           created_at: string
           crew_quota: number | null
+          declined_at: string | null
+          declined_by: string | null
           default_quota: number | null
           email: string
           event_ids: string[]
@@ -959,6 +961,8 @@ export type Database = {
           accepted_by?: string | null
           created_at?: string
           crew_quota?: number | null
+          declined_at?: string | null
+          declined_by?: string | null
           default_quota?: number | null
           email: string
           event_ids?: string[]
@@ -973,6 +977,8 @@ export type Database = {
           accepted_by?: string | null
           created_at?: string
           crew_quota?: number | null
+          declined_at?: string | null
+          declined_by?: string | null
           default_quota?: number | null
           email?: string
           event_ids?: string[]
@@ -986,6 +992,13 @@ export type Database = {
           {
             foreignKeyName: "invites_accepted_by_fkey"
             columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_declined_by_fkey"
+            columns: ["declined_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
@@ -1948,9 +1961,10 @@ export type Database = {
       }
     }
     Functions: {
-      accept_invites_for_caller: {
-        Args: { p_include_crew: boolean }
-        Returns: number
+      accept_invite: { Args: { p_invite_id: string }; Returns: boolean }
+      accept_invite_for_caller: {
+        Args: { p_invite_id: string }
+        Returns: boolean
       }
       accept_my_invites: { Args: never; Returns: number }
       accept_pending_invites: { Args: never; Returns: number }
@@ -2116,6 +2130,18 @@ export type Database = {
         Returns: string
       }
       current_user_requires_mfa: { Args: never; Returns: boolean }
+      decline_invite: { Args: { p_invite_id: string }; Returns: boolean }
+      declined_invite_mail_context: {
+        Args: { p_invite_id: string }
+        Returns: {
+          company_name: string
+          event_name: string
+          invitee_email: string
+          inviter_email: string
+          is_crew: boolean
+        }[]
+      }
+      ensure_my_profile: { Args: never; Returns: undefined }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_capacity_consumption: {
         Args: { p_event_id: string }

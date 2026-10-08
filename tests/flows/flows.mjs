@@ -71,14 +71,26 @@ export const FLOWS = {
     ],
   },
   'crew-existing-account': {
-    title: 'Crew — an existing account is invited, accepts in the Home banner, sees only that event (#24)',
+    title: 'Crew — an existing account is invited, accepts or declines per invite (Home banner, onboarding), sees only that event (#24)',
     paths: [
       'src/components/po/screens/events/crew',
       'src/components/po/pending-invites-banner.tsx',
       'src/features/events/actions.ts',
       'src/features/auth/invite-actions.ts',
-      'src/features/onboarding/components/steps/CrewInviteStep',
+      'src/features/mail/declined.ts',
+      'src/features/onboarding/components/steps/InviteStep',
       'src/app/onboarding/',
+    ],
+  },
+  'team-crew-manage': {
+    title: 'Team — an admin manages external crew per event: quota and remove from crew (z8uq9m2yvp)',
+    paths: [
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/events/crew',
+      'src/features/po/queries.ts',
+      'src/features/po/adapters.ts',
+      'src/features/po/mutations.ts',
+      'src/features/events/actions.ts',
     ],
   },
   'company-rename': {

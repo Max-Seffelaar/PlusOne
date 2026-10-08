@@ -96,13 +96,15 @@ select is(
                 and user_id = '55555555-5555-4555-8555-555555555555'$$),
   1, 'C1 AAL1 admin may grant quota (role-only, MFA no longer required)');
 
--- Role grant: role-only since 20260702120000 → the AAL1 admin may grant.
--- (Was an AAL2-denial test; deliberately flipped with the optional-MFA decision.)
-select lives_ok($$
+-- Role grant: since 20261007150200 NO app role inserts a membership directly (only
+-- the invitee's own accept_invite, create_venue_with_owner, or a platform admin),
+-- so even the admin is refused, at AAL1 and at AAL2 alike. (Was "AAL1 admin may
+-- grant", flipped with the explicit-accept rule: no one is added without accepting.)
+select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000001',
           '44444444-4444-4444-8444-444444444444', '{staff}')
-$$, 'C2 AAL1 admin may grant a membership (role-only, MFA optional)');
+$$, '42501', null, 'C2 an admin cannot insert a membership directly (accept-only, 20261007150200)');
 
 -- Organizer assignment is now role-only — an AAL1 admin may assign.
 select lives_ok($$

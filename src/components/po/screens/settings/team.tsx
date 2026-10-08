@@ -25,6 +25,7 @@ import { BottomBar, Sheet } from '../../shell';
 import { useIsDemoVenue } from '../../app-shell-data';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { col, FormError, RolePicker } from './_shared';
+import { CrewManageSheet } from './team-crew-sheet';
 
 // ── GEBRUIKERS (pushed) — S6 Team-beheer, live ───────────────────────────────
 export function Gebruikers(): JSX.Element {
@@ -58,6 +59,8 @@ export function Gebruikers(): JSX.Element {
   const [inviteEvents, setInviteEvents] = useState<string[]>([]);
   const [quota, setQuota] = useState('');
   const [sheetMember, setSheetMember] = useState<PoTeamMember | null>(null);
+  // External crew member whose Manage sheet is open (z8uq9m2yvp): admin-only.
+  const [crewSheetUserId, setCrewSheetUserId] = useState<string | null>(null);
 
   const resetInviteForm = (): void => {
     setEmail('');
@@ -281,9 +284,9 @@ export function Gebruikers(): JSX.Element {
   const teamCount = team.data?.length ?? 0;
   const crewCount = crewQ.data?.length ?? 0;
   const inviteCount = invitesQ.data?.length ?? 0;
-  // "Open" in the header = not yet accepted (the list itself also shows
-  // accepted invites, with their status, per T8).
-  const openInviteCount = (invitesQ.data ?? []).filter((iv) => iv.status !== 'accepted').length;
+  // "Open" in the header = not yet accepted or declined (the list itself also
+  // shows those invites, with their status, per T8).
+  const openInviteCount = (invitesQ.data ?? []).filter((iv) => iv.status !== 'accepted' && iv.status !== 'declined').length;
   return (
     <div className={col}>
       <Top
@@ -389,6 +392,12 @@ export function Gebruikers(): JSX.Element {
                       {busy ? t.settings.team.resending : sent ? t.settings.team.resent : t.settings.team.resend}
                     </MiniChip>
                   )}
+                  {/* Manage (z8uq9m2yvp): quota + Remove from crew per event, admin-only like every crew write. */}
+                  {callerIsAdmin && (
+                    <MiniChip onClick={() => setCrewSheetUserId(cm.userId)} ariaLabel={fmt(t.settings.team.manageAria, { name: cm.name })}>
+                      {t.settings.team.manage}
+                    </MiniChip>
+                  )}
                 </div>
               );
             })}
@@ -418,6 +427,9 @@ export function Gebruikers(): JSX.Element {
                       {iv.status === 'expired' && (
                         <span className="font-semibold text-red-300">{t.settings.team.statusExpired} · </span>
                       )}
+                      {iv.status === 'declined' && (
+                        <span className="font-semibold text-red-300">{t.settings.team.statusDeclined} · </span>
+                      )}
                       {fmt(t.settings.team.invitedRoles, { roles: iv.rolesLabel, when: iv.sentAt })}
                     </div>
                   </div>
@@ -426,7 +438,9 @@ export function Gebruikers(): JSX.Element {
                       <Icon name="check" size={13} sw={2.6} />
                       {t.settings.team.statusAccepted}
                     </span>
-                  ) : (
+                  ) : iv.status === 'declined' ? null : (
+                    // A declined invite is closed and keeps its "Declined" status on
+                    // the row: nothing to resend, and no Revoke that would erase it.
                     caps.manageTeam && (
                       <div className="flex shrink-0 items-center gap-[6px]">
                         <MiniChip disabled={demo} onClick={() => resendInvite.mutate(iv.id)}>
@@ -454,6 +468,7 @@ export function Gebruikers(): JSX.Element {
         <FormError error={resendInvite.isError ? resendInvite.error : null} />
       </Scroll>
       {sheetMember && <MemberSheet member={sheetMember} callerRoles={roles} onClose={() => setSheetMember(null)} />}
+      {crewSheetUserId && callerIsAdmin && <CrewManageSheet userId={crewSheetUserId} onClose={() => setCrewSheetUserId(null)} />}
       {mfa.sheet}
     </div>
   );

@@ -41,6 +41,18 @@ begin
 end;
 $fn$;
 
+-- z8uq9m2yvp: the app accepts ONE invite per tap (accept_invite). A test "accepts"
+-- by calling it for each open invite the signed-in user sees in the banner read.
+create function pg_temp.accept_open() returns int language plpgsql as $fn$
+declare r record; n int := 0;
+begin
+  for r in select id from public.my_pending_invites() order by cardinality(roles) desc, created_at loop
+    if public.accept_invite(r.id) then n := n + 1; end if;
+  end loop;
+  return n;
+end;
+$fn$;
+
 create function pg_temp.mk_user(p_id uuid, p_email text, p_profile boolean) returns void language plpgsql as $fn$
 begin
   insert into auth.users (
@@ -180,7 +192,7 @@ select results_eq(
   $$ values ('Mallory Club'::text, '{}'::text, 'Mallory Night'::text) $$,
   'B5 the banner read gives the company and event name of the invitee''s own open invite');
 
-select is((select public.accept_my_invites()), 1, 'B6 the explicit accept (banner) takes the crew invite');
+select is((select pg_temp.accept_open()), 1, 'B6 the explicit accept (banner) takes the crew invite');
 reset role;
 select is((select count(*)::int from public.event_organizers
             where user_id = '55555555-5555-4555-8555-555555555555'
@@ -215,7 +227,7 @@ values ('c4e00000-0000-7000-8000-0000000000f3', 'staff@plusone.test', '{}',
         '{c4e00000-0000-7000-8000-0000000000e3}', 2,
         'c4e00000-0000-4000-8000-0000000000a1', now() + interval '7 days');
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'staff@plusone.test');
-select is((select public.accept_my_invites()), 1, 'C1 the second invite is consumed');
+select is((select pg_temp.accept_open()), 1, 'C1 the second invite is consumed');
 reset role;
 select is((select quota_override from public.event_quotas
             where user_id = '55555555-5555-4555-8555-555555555555'
@@ -233,7 +245,9 @@ values ('aa000000-0000-7000-8000-000000000001', 'door@plusone.test', '{}',
 select pg_temp.login('66666666-6666-4666-8666-666666666666', 'door@plusone.test');
 select is((select count(*)::int from public.my_pending_invites()), 0,
           'D1 a crew invite to the user''s own company is not shown in the banner');
-select is((select public.accept_my_invites()), 1, 'D2 accept consumes it');
+select is(public.accept_invite((select id from public.invites
+                                  where lower(email) = 'door@plusone.test' and cardinality(roles) = 0 and accepted_at is null)),
+          true, 'D2 accept consumes it');
 reset role;
 select is((select count(*)::int from public.event_organizers
             where user_id = '66666666-6666-4666-8666-666666666666'
@@ -262,7 +276,7 @@ select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test
 select is((select count(*)::int from public.user_profiles where id = 'c4e00000-0000-4000-8000-0000000000b1'),
           0, 'E3 ... and the inviting company cannot read the profile it filled in');
 select pg_temp.login('c4e00000-0000-4000-8000-0000000000b1', 'fresh@crew.test');
-select is((select public.accept_my_invites()), 1, 'E4 the explicit accept takes the crew invite');
+select is((select pg_temp.accept_open()), 1, 'E4 the explicit accept takes the crew invite');
 reset role;
 select is((select count(*)::int from public.event_organizers
             where user_id = 'c4e00000-0000-4000-8000-0000000000b1'
@@ -288,7 +302,7 @@ values ('c4e00000-0000-7000-8000-0000000000f3', 'finance@plusone.test', '{}',
 select pg_temp.login('66666666-6666-4666-8666-666666666666', 'finance@plusone.test');
 select is((select count(*)::int from public.my_pending_invites()), 0,
           'F1 my_pending_invites returns only invites addressed to the caller''s own auth e-mail');
-select throws_ok($$ select public.accept_invites_for_caller(true) $$, '42501', null,
+select throws_ok($$ select public.accept_invite_for_caller('00000000-0000-4000-8000-000000000000') $$, '42501', null,
                  'F2 the internal accept worker is not callable by an app role');
 reset role;
 select ok(not has_function_privilege('anon', 'public.my_pending_invites()', 'execute'),
@@ -334,7 +348,7 @@ values ('c4e00000-0000-7000-8000-0000000000f3', 'staff@plusone.test', '{}',
         '{c4e00000-0000-7000-8000-0000000000e3}', 7,
         'c4e00000-0000-4000-8000-0000000000a1', now() + interval '7 days');
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'staff@plusone.test');
-select is((select public.accept_my_invites()), 1, 'H1 the new invite is accepted');
+select is((select pg_temp.accept_open()), 1, 'H1 the new invite is accepted');
 reset role;
 select is((select quota_override from public.event_quotas
             where user_id = '55555555-5555-4555-8555-555555555555'

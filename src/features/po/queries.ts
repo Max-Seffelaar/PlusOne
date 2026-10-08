@@ -987,6 +987,7 @@ export async function fetchEventCrewInvites(client: Client, eventId: string): Pr
     .filter('roles', 'eq', '{}')
     .contains('event_ids', [eventId])
     .is('accepted_at', null)
+    .is('declined_at', null)
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -1047,6 +1048,9 @@ export interface PoVenueCrewRow {
   email: string;
   /** Names of this venue's events the person is crew on, soonest first. */
   event_names: string[];
+  /** The same events with id and guest quota (event_quotas.quota_override, 0 =
+   *  none), soonest first: the Team screen's crew sheet (z8uq9m2yvp). */
+  events: { event_id: string; name: string; quota: number }[];
   /** Whether the person ever completed a first login (terms accepted at app
    *  entry) — null means the crew invite is still unanswered. */
   terms_accepted_at: string | null;
@@ -1060,43 +1064,52 @@ export interface PoVenueCrewRow {
  * screen itself is gated to viewTeam.
  */
 export async function fetchVenueCrew(client: Client, venueId: string): Promise<PoVenueCrewRow[]> {
-  const [{ data: orgRows, error: orgErr }, { data: members, error: membersErr }] = await Promise.all([
-    client
-      .from('event_organizers')
-      .select('user_id, user_profiles(full_name, email, terms_accepted_at), events!inner(name, starts_at, venue_id)')
-      .eq('events.venue_id', venueId),
-    client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
-  ]);
+  const [{ data: orgRows, error: orgErr }, { data: members, error: membersErr }, { data: quotas, error: quotasErr }] =
+    await Promise.all([
+      client
+        .from('event_organizers')
+        .select('user_id, user_profiles(full_name, email, terms_accepted_at), events!inner(id, name, starts_at, venue_id)')
+        .eq('events.venue_id', venueId),
+      client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
+      // event_quotas RLS: admin/finance read the venue's rows; anyone else sees
+      // only their own, so their crew quotas read 0 (the sheet is admin-only).
+      client
+        .from('event_quotas')
+        .select('user_id, event_id, quota_override, events!inner(venue_id)')
+        .eq('events.venue_id', venueId),
+    ]);
   if (orgErr) throw orgErr;
   if (membersErr) throw membersErr;
+  if (quotasErr) throw quotasErr;
 
   const memberIds = new Set((members ?? []).map((m) => m.user_id));
-  const byUser = new Map<string, PoVenueCrewRow & { starts: string[] }>();
+  const quotaOf = new Map((quotas ?? []).map((q) => [`${q.user_id}:${q.event_id}`, q.quota_override]));
+  const byUser = new Map<string, Omit<PoVenueCrewRow, 'event_names' | 'events'> & { events: { event_id: string; name: string; quota: number; at: string }[] }>();
   for (const r of orgRows ?? []) {
     if (memberIds.has(r.user_id)) continue;
     const entry = byUser.get(r.user_id) ?? {
       user_id: r.user_id,
       full_name: r.user_profiles?.full_name ?? '—',
       email: r.user_profiles?.email ?? '—',
-      event_names: [],
       terms_accepted_at: r.user_profiles?.terms_accepted_at ?? null,
-      starts: [],
+      events: [],
     };
     if (r.events) {
-      entry.event_names.push(r.events.name);
-      entry.starts.push(r.events.starts_at);
+      entry.events.push({
+        event_id: r.events.id,
+        name: r.events.name,
+        quota: quotaOf.get(`${r.user_id}:${r.events.id}`) ?? 0,
+        at: r.events.starts_at,
+      });
     }
     byUser.set(r.user_id, entry);
   }
 
   return Array.from(byUser.values())
-    .map(({ starts, ...row }) => ({
-      ...row,
-      event_names: row.event_names
-        .map((name, i) => ({ name, at: starts[i] ?? '' }))
-        .sort((a, b) => a.at.localeCompare(b.at))
-        .map((e) => e.name),
-    }))
+    .map((row) => {
+      const events = [...row.events].sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...e }) => e);
+      return { ...row, events, event_names: events.map((e) => e.name) };
+    })
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 }
 
@@ -1731,16 +1744,17 @@ export async function fetchVenueMembers(client: Client, venueId: string): Promis
 export type PoInviteRow = Pick<
   Tables['invites']['Row'],
   'id' | 'email' | 'roles' | 'expires_at' | 'created_at' | 'accepted_at'
->;
+> &
+  Partial<Pick<Tables['invites']['Row'], 'declined_at'>>;
 
-/** Invites for a venue, accepted ones included so the team screen can show the
- *  accepted/pending/expired status per invite (T8). Newest first, capped — old
- *  accepted invites are audit history, not team-screen material. RLS: managers
- *  + finance. */
+/** Invites for a venue, accepted and declined ones included so the team screen
+ *  can show the accepted/declined/pending/expired status per invite (T8,
+ *  z8uq9m2yvp). Newest first, capped — old accepted invites are audit history,
+ *  not team-screen material. RLS: managers + finance. */
 export async function fetchVenueInvites(client: Client, venueId: string): Promise<PoInviteRow[]> {
   const { data, error } = await client
     .from('invites')
-    .select('id, email, roles, expires_at, created_at, accepted_at')
+    .select('id, email, roles, expires_at, created_at, accepted_at, declined_at')
     .eq('venue_id', venueId)
     // Crew invites (no roles, z8uq9m2yvp) belong to the event's crew, not the team.
     .filter('roles', 'neq', '{}')

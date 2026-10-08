@@ -6,7 +6,7 @@ import { TERMS_VERSION } from '@/lib/legal';
 
 // First-login consent gate (#20/#40): every user must accept the Terms + Privacy
 // Policy before using the app. State lives on their own user_profiles row (created
-// on first login by accept_pending_invites), read under RLS user_profiles_select.
+// on first login by ensure_my_profile), read under RLS user_profiles_select.
 
 interface ConsentRow {
   terms_accepted_at: string | null;

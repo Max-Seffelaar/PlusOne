@@ -441,9 +441,10 @@ function crewMailFailure(reason: 'provision' | 'notify' | 'recent' | 'cap'): Act
  * roles, one event id, crew_quota), written through the USER-scoped client so
  * RLS (invites_insert: admin of the venue, every event in that venue) is the
  * boundary, then the invitation mail. Nothing about the target changes until
- * THEY accept (accept_my_invites in the Home banner; a brand-new account accepts
- * at its first login): only then does an event_organizers row exist, so only
- * then can the company see their profile (can_view_profile). The server never
+ * THEY accept (accept_invite, from the Home banner or the onboarding invite step;
+ * login accepts nothing, for a new account either): only then does an
+ * event_organizers row exist, so only then can the company see their profile
+ * (can_view_profile). They can decline instead. The server never
  * looks an account up by e-mail, and the result is the same for a new address,
  * an existing account, a member of this company (nothing written) and someone
  * already on the crew (nothing written): no enumeration oracle.
@@ -546,6 +547,7 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
         .eq('venue_id', ev.venue_id)
         .ilike('email', likeLiteral(email))
         .is('accepted_at', null)
+        .is('declined_at', null)
         .filter('roles', 'eq', '{}')
         .contains('event_ids', [ev.id]);
       if (bumpError) return mapMutationError(bumpError);
