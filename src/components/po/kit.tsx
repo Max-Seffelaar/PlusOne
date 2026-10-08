@@ -169,6 +169,18 @@ export function CountBadge({ n, pulse, className }: { n: number; pulse?: boolean
   );
 }
 
+/**
+ * A small running count inside a button, e.g. "3/4" beside "Check in 1"
+ * (group-first check-in, z8uq9m2vg6). Inline, so it never adds hit-box height.
+ */
+export function CountPill({ children, ariaLabel }: { children: ReactNode; ariaLabel?: string }): JSX.Element {
+  return (
+    <span aria-label={ariaLabel} className="rounded-full bg-elev2 px-[9px] py-[2px] font-display text-[13px] font-bold text-dim">
+      {children}
+    </span>
+  );
+}
+
 export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   if (pay !== 'pay') return null;
   return (

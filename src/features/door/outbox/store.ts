@@ -178,7 +178,11 @@ export class OutboxStore {
     // by that merge. Passing the removed ids through lets persistMerged() strip
     // them again *after* merging, so the clear actually sticks.
     const removed = new Set(
-      this.entries.filter((e) => e.status === 'synced' || isExpiredTombstone(e)).map((e) => e.clientId),
+      // `denied` (a refused undo) is settled for good and was reported by the
+      // drain that produced it; keeping it would only be dead-letter noise.
+      this.entries
+        .filter((e) => e.status === 'synced' || e.status === 'denied' || isExpiredTombstone(e))
+        .map((e) => e.clientId),
     );
     // Nothing settled since the last call: skip the commit entirely rather than
     // paying a read-merge-write of the whole queue for a no-op.

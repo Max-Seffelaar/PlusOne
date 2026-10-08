@@ -112,6 +112,17 @@ export const FLOWS = {
       'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
+  'door-checkin': {
+    title: 'Door check-in D — Check in all / Check in 1 (3/4), one row, undo refused with the setting off',
+    paths: [
+      'src/features/door/',
+      'src/features/po/eventday/',
+      'src/features/po/mutations.ts',
+      'src/components/po/screens/door',
+      'src/components/po/door-',
+      'src/components/po/screens/settings/venue.tsx',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [

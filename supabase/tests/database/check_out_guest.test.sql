@@ -28,6 +28,11 @@ $fn$;
 -- row), so testing the whole record would misreport a perfectly good result.
 select plan(15);
 
+-- Since z8uq9m2vg6 the company default is OFF for doorhosts (default false);
+-- this file exercises doorhost voids, so it turns the setting on explicitly.
+-- The role split itself is proven in check_ins_uncheck_roles.test.sql.
+update public.venues set allow_uncheck = true where id = 'aa000000-0000-7000-8000-000000000001';
+
 -- ── Fixture: a +3 guest, whole party of 4 inside, checked in by ADMIN Max ────
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by)
