@@ -8,6 +8,33 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-08 — A company always keeps one admin: last-admin guard in the database (task 0g, #433)
+
+Milestone **Now** (golf B). Max removed himself from "Giorke Kantoor" on 2026-10-07. The prod audit log shows a second admin existed at that moment, so the company never had zero admins; the existing app check was right. The real gap: RLS let any admin, and every platform admin, delete or demote any admin row straight through PostgREST. The app check was also read-then-write without a lock, so two admins removing each other at once both passed it.
+
+- **Migration `20261012120000_last_admin_guard`** (on prod, pushed before the merge): BEFORE UPDATE OF venue_id, roles OR DELETE trigger `refuse_last_admin_removal` on `venue_memberships`. It raises P0LA1 when the row is the venue's last admin and the change takes admin away (delete, demote, or a move to another venue).
+  - No exception for platform admins or service_role.
+  - A per-venue advisory lock, plus FOR UPDATE under RR/SERIALIZABLE, against races.
+  - Lets an FK cascade through when the venue or profile row is gone. Today every FK is RESTRICT, so no cascade reaches the table.
+  - SECURITY DEFINER, empty search_path, execute revoked from app roles.
+- **App:**
+  - `db-errors` maps P0LA1 to the existing copy ("This is the last admin. Make someone else an admin first."), as an expected error with no Sentry noise.
+  - Both venues actions return that copy on a DB refusal too.
+  - The Team sheet hides "Revoke access" and locks the Admin chip for the only admin, with a hint ("You're the only admin of this company…" / "{name} is the only admin…", chip "only admin"; copy approved by Max).
+- **Tests:**
+  - pgTAP `last_admin_guard.test.sql` (45). In `review_demo_no_new_members`, T31–T33 now prove the service role can no longer delete the demo venue's only admin; the seed never did.
+  - `scripts/last-admin-concurrency-test.mjs` runs as part of `db:test:concurrency`: 3 races, each ending with exactly one admin. It uses its own throwaway users; the first version used seed users and broke `e2e:smoke`.
+  - Vitest for the actions and the mapping; flow `last-admin-guard` on 4 variants.
+- One fresh reviewer round, clean. Non-blocking note: under REPEATABLE READ on a direct connection, a deadlock (40P01) is also possible, with no effect on data. The header only names 40001.
+
+---
+
+## 2026-10-08 — Invite mail: the fallback link wraps inside the card (z8uq9m2yvp, #432)
+
+Handoff 30 of #430: the "Button not working? Open <url>" line carried the long `/auth/confirm` URL for a new address and ran past the 480px card, which made the mail scroll sideways on a phone. The fallback paragraph in `src/features/mail/templates.ts` now has `word-break:break-all;overflow-wrap:anywhere`. A template test covers both the invite and the login variant.
+
+---
+
 ## 2026-10-08 — Onboarding programme wave C closed: Billing G + Check-in D (orchestrator)
 
 Wave C of the October 2026 onboarding programme (`onboarding-orchestration-claude-code.md` §2b) ran in parallel
