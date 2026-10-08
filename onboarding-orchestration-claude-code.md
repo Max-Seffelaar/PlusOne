@@ -179,6 +179,27 @@ Open follow-ups uit golf C (niet blokkerend):
 - Ongebruikte cockpit-strings in `cockpit.ts`; het label van de per-event-undo-toggle is ongewijzigd.
 - Insert van een al-gevoide check-in wordt nu geweigerd: noteren in de spec bij #55 als die vraag terugkomt.
 
+### Status golf D (orchestrator, gestart 2026-10-08)
+
+Startcheck 2026-10-08 (`origin/main` = `ac850a0`): golf C staat in de code (`PLAN_IDS = ['pro']`, comped/trial-RPC's, `listPrices`, check_ins-migraties); geen open PR of lopende taak met een golf-D-id; ClickUp bereikbaar. Het overdrachtsbericht van golf C was leeg; "Status golf C" hierboven is de overdracht.
+
+Besluiten Max 2026-10-08 (startcheck):
+- **Timestamps na prod:** 2b `20261012130000`, 3 `20261012140000` + `…140100`, 3b `20261012150000` (§3 bijgewerkt). Geen `--include-all` nodig.
+- **Invite-mail company-tak via `generateLink` + Resend**, zelfde pad als team/crew (#430): geen Supabase-template, geen `docs/email-templates/invite.html`, geen `config.toml`, geen metadata in `user_metadata`. De §6-stap "template plakken" vervalt voor de invite.
+- **Copy invite-mail:** de A-worker stelt drie varianten voor; Max kiest in de handoff.
+- **Invite-geldigheid:** maximaal 24 uur (Supabase); "Resend invite" in Platform dekt een verlopen link.
+- **3b en 5b horen bij golf D:** 3b start na de merge van 3, 5b na de merge van 5.
+
+| Taak | Worker-sessie | PR | Status | Prod |
+|---|---|---|---|---|
+| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | — | in bouw (HIGH-RISK → reviewer) | `20261012130000` na merge |
+| 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | — | in bouw (HIGH-RISK → reviewer) | `20261012140000` + `…140100` na merge |
+| 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | — | in bouw | geen migratie |
+| 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012150000` |
+| 5b Share-import S2 | nog niet gestart (na 5) | — | wacht | geen migratie |
+
+Aandachtspunten: 3 en 5 raken allebei `events/edit.tsx` (3 alleen het locatieveld, 5 tijdkiezer/tier-stap); 2b en 3 raken allebei de platform-schermen (3 alleen comped-vinkje/resend). De digest van 2b wordt alleen gebouwd als hij zonder nieuw service-role- of cron-pad op de mail-infra past; anders een ontwerpvoorstel in de PR. Na de merge van 3 werkt de orchestrator de CLAUDE.md-regel "Platform invites … keep the Supabase path" bij (docs-PR).
+
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
 Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. **Aanbevolen gebruik: per golf een verse sessie met deze zelfde prompt** (context en kosten blijven klein; de prompt vindt zelf de lopende golf), met bovenaan één regel welke golf het is. Rename: `/rename Onboarding okt 2026 — orchestrator golf <X>`.
@@ -400,11 +421,11 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 2 | `20261008120000_single_plan_pro.sql` | `update subscriptions set plan_id = 'pro'`; `create_venue_with_owner` zet `plan_id = 'pro'`; `set_venue_plan` blijft bestaan maar accepteert alleen `pro` |
 | 2 | `20261008120100_billing_interval.sql` | `subscriptions.billing_interval text check in ('month','year')` nullable; `apply_stripe_subscription_update` krijgt `p_billing_interval` |
 | 2 | `20261008120200_platform_trial_override.sql` | `subscriptions.trial_ends_at timestamptz` nullable; RPC's `set_venue_trial_end`, `set_venue_comped` (SECURITY DEFINER, `is_platform_admin()`), grants, pgTAP |
-| 2b | `20261008130000_platform_overview_rpcs.sql` | `platform_invite_overview()` + companies per invite; `platform_subscription_counts()`, `platform_usage_30d()`, trial-funnel-RPC; alle SECURITY DEFINER met `is_platform_admin()` binnenin |
+| 2b | `20261012130000_platform_overview_rpcs.sql` (was `20261008130000`; verschoven, besluit Max 2026-10-08: prod staat al op `20261012120000`) | `platform_invite_overview()` + companies per invite; `platform_subscription_counts()`, `platform_usage_30d()`, trial-funnel-RPC; alle SECURITY DEFINER met `is_platform_admin()` binnenin |
 | 2c | `20261008140000_billing_mail_types.sql` | zeven `mail_log.type`-waarden, unique `(venue_id, type)` voor trial-mails, `subscriptions.billing_mails_paused`, RPC `platform_billing_mail_timeline` |
-| 3 | `20261009120000_platform_invite_comped.sql` | `platform_invites.comped boolean not null default false`; `create_venue_with_owner` roept `set_venue_comped` aan als de invite comped is |
-| 3 | `20261009120100_places_throttle.sql` | throttle-wrapper voor de Places-proxy + grant + pgTAP allowed/denied (spike 9.6) |
-| 3b | `20261009130000_event_locations.sql` | `company_locations` (opgeslagen locaties per company) + RLS + grant matrix; `get_request_status` geeft de event-locatie terug i.p.v. het companyadres (expand: companyadres-kolommen pas in een latere migratie droppen); zie taak 3b |
+| 3 | `20261012140000_platform_invite_comped.sql` (was `20261009120000`, idem) | `platform_invites.comped boolean not null default false`; `create_venue_with_owner` roept `set_venue_comped` aan als de invite comped is |
+| 3 | `20261012140100_places_throttle.sql` (was `20261009120100`, idem) | throttle-wrapper voor de Places-proxy + grant + pgTAP allowed/denied (spike 9.6) |
+| 3b | `20261012150000_event_locations.sql` (was `20261009130000`, idem) | `company_locations` (opgeslagen locaties per company) + RLS + grant matrix; `get_request_status` geeft de event-locatie terug i.p.v. het companyadres (expand: companyadres-kolommen pas in een latere migratie droppen); zie taak 3b |
 | 4 | `20261010120000_checkin_absolute_count_guard.sql` | check `plus_ones_arrived <= guest.plus_ones` (trigger); stale-guard op `client_timestamp` in de check-in-RPC |
 | 4 | ~~`20261010120100_door_checkout_permission.sql`~~ | **Vervalt (spike 9.2):** uitchecken bestaat al als `venues.allow_uncheck` + `events.allow_uncheck` + RESTRICTIVE policy `check_ins_void_requires_uncheck`; taak 4 maakt die rolafhankelijk binnen `20261010120000` of een `…120100`-slot met die inhoud. |
 | 0e | `20261007130000_mail_log.sql` | `mail_log` (append-only, type + ontvanger-hash + status + provider-id, geen inhoud), `resend_webhook_events`-ledger, grant matrix |
