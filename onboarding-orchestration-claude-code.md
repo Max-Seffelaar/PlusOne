@@ -192,7 +192,7 @@ Besluiten Max 2026-10-08 (startcheck):
 
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
-| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | — | in bouw (HIGH-RISK → reviewer) | `20261012130000` na merge |
+| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | opgeleverd (`2ec0c15`); bouwer lokaal groen: `pnpm db:test` 95 bestanden / 2409 asserts, `CI=1 pnpm test` 3160, `e2e:layout` 1063; orchestrator-review zonder blocker (index-lock bij prod-push, "last"-event kan in de toekomst liggen); reviewer-sessie `session_019HjtnRJ6NjG8p7RKtsmTLS` loopt; digest niet gebouwd (vraagt scheduler + cron-secret + service-role-verzending; voorstel in PR-body, besluit Max) | `20261012130000` na merge, buiten een eventavond |
 | 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | — | in bouw (HIGH-RISK → reviewer) | `20261012140000` + `…140100` na merge |
 | 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | — | in bouw | geen migratie |
 | 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012150000` |
