@@ -1,18 +1,25 @@
 /**
- * sendInviteEmail branch matrix (Mail-infra F0, z8uq9m2yvt):
- *   - new / unconfirmed address → inviteUserByEmail only (Supabase template);
- *   - confirmed address + team context + team mail active → Resend team mail,
- *     NO magic link;
- *   - confirmed address without context (platform invites) → magic link,
- *     exactly as before;
- *   - confirmed address with context but team mail inactive (prod without a
- *     key) → magic link, so prod never regresses.
- * The InviteMailResult contract (provision / notify) is unchanged.
+ * sendInviteEmail branch matrix (Mail-infra F0, z8uq9m2yvt; one invite mail,
+ * z8uq9m2yvp):
+ *   - team/crew context + team mail active → OUR mail for every address: a
+ *     new or never-confirmed one gets a one-time sign-in link (generateLink,
+ *     resolved only after the send is logged), a confirmed one the /login
+ *     button. GoTrue sends nothing: no inviteUserByEmail, no magic link;
+ *   - platform invites (no context) → the Supabase path exactly as before;
+ *   - team mail inactive (prod without a key) → the Supabase path too, so
+ *     prod never regresses to "no mail".
+ * The InviteMailResult (ok / recent / cap) is the same for a new and an
+ * existing address, so it never reveals an account. One exception, by review
+ * of PR #430: a provider failure after a sign-in link was minted is
+ * 'provision' (the new address has no other way in), for a confirmed account
+ * 'notify'. The admin does not choose when the provider fails.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TeamMailCta, TeamMailOptions, TeamMailResult } from '@/features/mail/send';
 
 const H = vi.hoisted(() => ({
   inviteUserByEmail: vi.fn(),
+  generateLink: vi.fn(),
   signInWithOtp: vi.fn(),
   sendTeamMail: vi.fn(),
   recordAuthInviteMail: vi.fn(),
@@ -20,7 +27,7 @@ const H = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ auth: { admin: { inviteUserByEmail: H.inviteUserByEmail } } }),
+  createServiceClient: () => ({ auth: { admin: { inviteUserByEmail: H.inviteUserByEmail, generateLink: H.generateLink } } }),
 }));
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({ auth: { signInWithOtp: H.signInWithOtp } }),
@@ -40,40 +47,144 @@ const CONTEXT: TeamMailContent = {
   inviterName: 'Max',
   companyName: 'Club Vesper',
 };
+const TOKEN_HASH = 'pkce_9f2c0d7e41b84a5f9c3e6d1a2b7f8e05';
+const linkFor = (verification_type: string) => ({
+  data: { properties: { hashed_token: TOKEN_HASH, verification_type, action_link: `https://x/verify?token=${TOKEN_HASH}` }, user: {} },
+  error: null,
+});
+
+/** The send outcome the mocked sendTeamMail reports once its cta resolved. */
+let sendOutcome: TeamMailResult = { ok: true };
+/** The cta the mocked sendTeamMail resolved (what the mail's button became). */
+let resolvedCta: TeamMailCta | null = null;
 
 beforeEach(() => {
   H.active = true;
+  sendOutcome = { ok: true };
+  resolvedCta = null;
   H.inviteUserByEmail.mockReset().mockResolvedValue({ data: {}, error: null });
+  H.generateLink.mockReset().mockResolvedValue(linkFor('invite'));
   H.signInWithOtp.mockReset().mockResolvedValue({ error: null });
-  H.sendTeamMail.mockReset().mockResolvedValue({ ok: true });
+  // Mirrors sendTeamMail's order: the window/cap refusals happen BEFORE the cta
+  // is resolved (no token minted), the cta before the provider send.
+  H.sendTeamMail.mockReset().mockImplementation(async (_mail: unknown, options: TeamMailOptions = {}) => {
+    if (!sendOutcome.ok && (sendOutcome.reason === 'recipient_window' || sendOutcome.reason === 'venue_cap')) return sendOutcome;
+    resolvedCta = options.cta ? await options.cta() : { kind: 'login' };
+    if (resolvedCta.kind === 'unavailable') return { ok: false, reason: 'cta_unavailable' };
+    return sendOutcome;
+  });
   H.recordAuthInviteMail.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('sendInviteEmail', () => {
-  it('a new address is provisioned + invited by Supabase only', async () => {
+describe('sendInviteEmail — one invite mail (team mail active, team/crew context)', () => {
+  it('a new address: generateLink provisions it, our mail carries the link, GoTrue sends nothing', async () => {
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT, mailCapVenueId: CONTEXT.venueId })).toEqual({ ok: true });
+    expect(H.generateLink).toHaveBeenCalledWith({ type: 'invite', email: 'new@example.test', options: { data: { full_name: 'new' } } });
+    expect(H.sendTeamMail).toHaveBeenCalledWith({ ...CONTEXT, to: 'new@example.test' }, { cta: expect.any(Function) });
+    expect(resolvedCta).toEqual({ kind: 'invite', link: { tokenHash: TOKEN_HASH, verifyType: 'invite' } });
+    expect(H.inviteUserByEmail).not.toHaveBeenCalled();
+    expect(H.signInWithOtp).not.toHaveBeenCalled();
+    // Counted through its own mail_log row, never a second time here.
+    expect(H.recordAuthInviteMail).not.toHaveBeenCalled();
+  });
+
+  it('a never-confirmed address keeps the slot GoTrue filed the token in (signup)', async () => {
+    H.generateLink.mockResolvedValue(linkFor('signup'));
+    await sendInviteEmail('pending@example.test', { existingAccountMail: CONTEXT });
+    expect(resolvedCta).toEqual({ kind: 'invite', link: { tokenHash: TOKEN_HASH, verifyType: 'signup' } });
+  });
+
+  it('a confirmed account gets the same mail with the /login button, no magic link', async () => {
+    H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: EXISTS });
+    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: true });
+    expect(H.sendTeamMail).toHaveBeenCalledWith({ ...CONTEXT, to: 'staff@example.test' }, { cta: expect.any(Function) });
+    expect(resolvedCta).toEqual({ kind: 'login' });
+    expect(H.signInWithOtp).not.toHaveBeenCalled();
+    expect(H.inviteUserByEmail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sent', { ok: true }, { ok: true }],
+    ['the 60-second window', { ok: false, reason: 'recipient_window' }, { ok: false, reason: 'recent' }],
+    ['the company cap at send time', { ok: false, reason: 'venue_cap' }, { ok: false, reason: 'cap' }],
+  ] as const)('%s: the same answer for a new and an existing address', async (_label, outcome, expected) => {
+    sendOutcome = outcome as TeamMailResult;
+    H.generateLink.mockResolvedValue(linkFor('invite'));
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual(expected);
+    H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: EXISTS });
+    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual(expected);
+  });
+
+  // Review of PR #430: the link only exists in the mail. If the provider then
+  // fails (5xx, 429, timeout), the new address has no way in, so the admin
+  // must see an error and retry (with a fresh token), not "Invite sent".
+  it('a provider failure after a link was minted is a provision failure (an error, never ok)', async () => {
+    sendOutcome = { ok: false, reason: 'failed' };
+    H.generateLink.mockResolvedValue(linkFor('invite'));
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+    H.generateLink.mockResolvedValue(linkFor('signup'));
+    expect(await sendInviteEmail('pending@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+  });
+
+  it('a provider failure for an account that can log in stays notify (the invite row still grants access)', async () => {
+    sendOutcome = { ok: false, reason: 'failed' };
+    H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: EXISTS });
+    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'notify' });
+  });
+
+  it('the window and the cap refuse before any token is minted', async () => {
+    for (const reason of ['recipient_window', 'venue_cap'] as const) {
+      sendOutcome = { ok: false, reason };
+      await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT });
+    }
+    expect(H.generateLink).not.toHaveBeenCalled();
+  });
+
+  it('a non-"exists" provisioning error is a provision failure and nothing is sent', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: { status: 500, code: 'unexpected_failure', message: 'db down for new@example.test' } });
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+    expect(resolvedCta).toEqual({ kind: 'unavailable' });
+    expect(H.inviteUserByEmail).not.toHaveBeenCalled();
+    // Codes only: a GoTrue message can echo the address.
+    expect(JSON.stringify(error.mock.calls)).not.toContain('new@example.test');
+  });
+
+  it('a throwing generateLink is a provision failure too', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    H.generateLink.mockRejectedValue(new TypeError('fetch failed'));
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+  });
+
+  it('a link without a usable token or slot is never mailed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    H.generateLink.mockResolvedValue(linkFor('magiclink'));
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+  });
+
+  it('the sign-in link never reaches a log line', async () => {
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) =>
+      vi.spyOn(console, m).mockImplementation(() => {})
+    );
+    await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT });
+    sendOutcome = { ok: false, reason: 'failed' };
+    await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT });
+    const logged = JSON.stringify(spies.flatMap((s) => s.mock.calls));
+    expect(logged).not.toContain(TOKEN_HASH);
+  });
+});
+
+// The Supabase path: platform invites, and prod without a Resend key.
+describe('sendInviteEmail — the Supabase path (platform invites, team mail inactive)', () => {
+  it('team mail inactive: a new address is provisioned + invited by Supabase only', async () => {
+    H.active = false;
     expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: true });
     expect(H.inviteUserByEmail).toHaveBeenCalledWith('new@example.test', { data: { full_name: 'new' } });
+    expect(H.generateLink).not.toHaveBeenCalled();
     expect(H.sendTeamMail).not.toHaveBeenCalled();
-    expect(H.signInWithOtp).not.toHaveBeenCalled();
-  });
-
-  it('a confirmed account with team context gets the team mail instead of a magic link', async () => {
-    H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
-    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: true });
-    expect(H.sendTeamMail).toHaveBeenCalledWith({ ...CONTEXT, to: 'staff@example.test' });
-    expect(H.signInWithOtp).not.toHaveBeenCalled();
-  });
-
-  it('a failed team mail is a notify failure (never provision), and does not fall back', async () => {
-    H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
-    H.sendTeamMail.mockResolvedValue({ ok: false, reason: 'failed' });
-    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual({
-      ok: false,
-      reason: 'notify',
-    });
     expect(H.signInWithOtp).not.toHaveBeenCalled();
   });
 
@@ -86,6 +197,7 @@ describe('sendInviteEmail', () => {
       options: { shouldCreateUser: false },
     });
     expect(H.sendTeamMail).not.toHaveBeenCalled();
+    expect(H.generateLink).not.toHaveBeenCalled();
   });
 
   it('with team mail inactive (prod without a key) a confirmed account keeps the magic link', async () => {
@@ -97,6 +209,7 @@ describe('sendInviteEmail', () => {
   });
 
   it('a non-"exists" provisioning error stays a provision failure, no mail of any kind', async () => {
+    H.active = false;
     vi.spyOn(console, 'error').mockImplementation(() => {});
     H.inviteUserByEmail.mockResolvedValue({ data: null, error: { status: 500, message: 'smtp down' } });
     expect(await sendInviteEmail('x@example.test', { existingAccountMail: CONTEXT })).toEqual({
@@ -111,19 +224,8 @@ describe('sendInviteEmail', () => {
 // The 60-second per-address window and the send-time cap get their own
 // reasons (z8uq9m2yvp, decision Max 2026-10-07), so the actions can say which.
 describe('sendInviteEmail — recent and cap', () => {
-  it('our per-recipient window on the team mail is "recent"', async () => {
-    H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
-    H.sendTeamMail.mockResolvedValue({ ok: false, reason: 'recipient_window' });
-    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'recent' });
-  });
-
-  it('the company cap hit at send time is "cap"', async () => {
-    H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
-    H.sendTeamMail.mockResolvedValue({ ok: false, reason: 'venue_cap' });
-    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'cap' });
-  });
-
   it("GoTrue's own resend limit on the invite (429) is \"recent\", not a provisioning failure", async () => {
+    H.active = false;
     H.inviteUserByEmail.mockResolvedValue({
       data: null,
       error: { status: 429, code: 'over_email_send_rate_limit', message: 'For security purposes, you can only request this after 52 seconds.' },
@@ -144,6 +246,7 @@ describe('sendInviteEmail — recent and cap', () => {
   });
 
   it("GoTrue's project-wide hourly mail cap (same 429/code, other text) is a real failure, not \"recent\" (review round 2)", async () => {
+    H.active = false;
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const hourly = { status: 429, code: 'over_email_send_rate_limit', message: 'email rate limit exceeded' };
     H.inviteUserByEmail.mockResolvedValue({ data: null, error: hourly });
@@ -155,12 +258,13 @@ describe('sendInviteEmail — recent and cap', () => {
 });
 
 // Daily company cap (decision Max 2026-10-07): a Supabase invite mail sent for a
-// company counts toward its cap; a platform invite counts nowhere; the team
-// mail for an existing account is logged by sendTeamMail itself.
+// company (team mail inactive) counts toward its cap; a platform invite counts
+// nowhere; our own mail is logged by sendTeamMail itself.
 describe('sendInviteEmail — invitation-mail cap bookkeeping', () => {
   const VENUE = '3f1c8a52-9d6b-4f2e-8a11-7c0d5e9b4a63';
 
   it('records a Supabase invite mail against the company', async () => {
+    H.active = false;
     await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT, mailCapVenueId: VENUE });
     expect(H.recordAuthInviteMail).toHaveBeenCalledWith(VENUE, 'new@example.test');
   });
@@ -170,10 +274,11 @@ describe('sendInviteEmail — invitation-mail cap bookkeeping', () => {
     expect(H.recordAuthInviteMail).not.toHaveBeenCalled();
   });
 
-  it('the existing-account team mail is not double-counted here', async () => {
-    H.inviteUserByEmail.mockResolvedValue({ data: null, error: EXISTS });
+  it('our own mail (new or existing address) is not double-counted here', async () => {
+    await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT, mailCapVenueId: VENUE });
+    H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: EXISTS });
     await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT, mailCapVenueId: VENUE });
-    expect(H.sendTeamMail).toHaveBeenCalledTimes(1);
+    expect(H.sendTeamMail).toHaveBeenCalledTimes(2);
     expect(H.recordAuthInviteMail).not.toHaveBeenCalled();
   });
 

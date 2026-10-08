@@ -56,6 +56,46 @@ const CREW_ONLY = 'crewonly@plusone.test';
 const TYPO = 'typo-crew@plusone.test';
 // An existing account with no company that DECLINES its invite (Q19-Q22).
 const DECLINER = 'decliner@plusone.test';
+// A brand-new address per variant (one invite mail, Q24-Q29): no account until
+// the invite provisions it. Unique, because an accepted crew member's audit
+// trail pins the account; afterAll removes it where it can.
+const newCrewAddresses: string[] = [];
+const MAILPIT = process.env.INBUCKET_URL || 'http://127.0.0.1:55324';
+
+interface CaughtMail {
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** Every mail the local Mailpit caught for `email` since `sinceMs`, oldest first. */
+async function mailsTo(email: string, sinceMs: number): Promise<CaughtMail[]> {
+  const res = await fetch(`${MAILPIT}/api/v1/messages?limit=200`);
+  const list = ((await res.json()) as { messages?: Array<{ ID: string; Created: string; Subject: string; To?: Array<{ Address: string }> }> }).messages ?? [];
+  const mine = list
+    .filter((m) => Date.parse(m.Created) >= sinceMs && (m.To ?? []).some((t) => t.Address.toLowerCase() === email))
+    .sort((x, y) => Date.parse(x.Created) - Date.parse(y.Created));
+  return Promise.all(
+    mine.map(async (m) => {
+      const full = (await (await fetch(`${MAILPIT}/api/v1/message/${m.ID}`)).json()) as { Text?: string; HTML?: string };
+      return { subject: m.Subject, text: full.Text ?? '', html: full.HTML ?? '' };
+    }),
+  );
+}
+
+/** Best effort, like the other throwaway logins: an audit row may pin it. */
+async function removeNewCrewAccounts(): Promise<void> {
+  const a = adminClient();
+  for (const email of newCrewAddresses) {
+    await a.from('invites').delete().eq('venue_id', MARKTZAAL).ilike('email', email);
+    const id = await getUserIdByEmail(email);
+    if (!id) continue;
+    await a.from('event_quotas').delete().eq('user_id', id);
+    await a.from('event_organizers').delete().eq('user_id', id);
+    await a.from('user_profiles').delete().eq('id', id);
+    await a.auth.admin.deleteUser(id);
+  }
+}
 
 let adminSnoozeBefore: string | null = null;
 
@@ -142,6 +182,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await clearCrewState();
+  await removeNewCrewAccounts();
   const a = adminClient();
   const adminId = (await getUserIdByEmail(ADMIN)) ?? '';
   await a.from('user_profiles').update({ mfa_snooze_until: adminSnoozeBefore }).eq('id', adminId);
@@ -158,8 +199,9 @@ test.afterAll(async () => {
 });
 
 test('crew: an existing account is invited, accepts in the banner, and sees only that event', async ({ page, context, flow, baseURL }) => {
-  // Three invites each wait out the 60 s per-address mail window, on top of the screens.
-  test.setTimeout(540_000);
+  // Five invites each wait out the 60 s per-address mail window, on top of the screens.
+  test.setTimeout(720_000);
+  const flowStart = Date.now();
   await clearCrewState();
   const a = adminClient();
   const staffId = (await getUserIdByEmail(STAFF)) ?? '';
@@ -365,5 +407,76 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
       return data?.length ?? 0;
     }).toBe(1);
     await expect(poolRow.locator('p[role="alert"]')).toHaveCount(0);
+  });
+
+  // ── One invite mail: a brand-new address gets OUR crew mail (z8uq9m2yvp) ──
+  await page.goto(new URL(`/app/events/${CREW_EVENT}/crew`, baseURL).toString());
+  await expect(page.getByText(CREW_EVENT_NAME).first()).toBeVisible();
+  const NEW_CREW = `new-crew-${flow.variant}-${Date.now().toString(36)}@plusone.test`;
+  newCrewAddresses.push(NEW_CREW);
+  const newCrewInvitedAt = Date.now() - 1000;
+  await invite(NEW_CREW);
+  const crewSubject = `Max de Vries invited you to the crew for ${CREW_EVENT_NAME}`;
+  let newMail: CaughtMail | undefined;
+  await flow.check(24, `A new address gets our crew mail ("${crewSubject}") with a one-time "Log in to PlusOne" button, no code steps`, async () => {
+    await expect.poll(async () => (await mailsTo(NEW_CREW, newCrewInvitedAt)).length).toBeGreaterThan(0);
+    newMail = (await mailsTo(NEW_CREW, newCrewInvitedAt))[0];
+    expect(newMail.subject).toBe(crewSubject);
+    expect(newMail.text).toMatch(/\/auth\/confirm\?token_hash=[^&\s]+&type=invite&next=%2Fapp/);
+    expect(newMail.text).toContain('It logs you straight in, no code needed.');
+    expect(newMail.text).not.toContain('6-digit code');
+  });
+  await flow.check(25, "No Supabase \"You've been invited to PlusOne\" mail: exactly one mail reached the new address", async () => {
+    const all = await mailsTo(NEW_CREW, newCrewInvitedAt);
+    expect(all.map((m) => m.subject)).toEqual([crewSubject]);
+  });
+  await flow.check(26, 'An existing account (staff@, at the start) got the same crew mail, with the /login button', async () => {
+    const staffMails = await mailsTo(STAFF, flowStart);
+    const crewMail = staffMails.find((m) => m.subject === crewSubject);
+    expect(crewMail).toBeDefined();
+    expect(crewMail?.text).toMatch(/\/login\b/);
+    expect(crewMail?.text).not.toContain('/auth/confirm');
+  });
+
+  // The button, opened as nobody (the admin's cookies cleared), on this server.
+  const link = new URL((newMail?.text.match(/https?:\/\/\S+\/auth\/confirm\?\S+/) ?? [''])[0]);
+  const linkHere = new URL(`${link.pathname}${link.search}`, baseURL).toString();
+  await context.clearCookies();
+  await page.goto(linkHere);
+  await page.waitForURL(/\/consent/);
+  const first = page.getByPlaceholder('First name');
+  if (await first.count()) {
+    await first.fill('Noor');
+    await page.getByPlaceholder('Last name').fill('Nieuw');
+  }
+  const box = page.locator('input[type="checkbox"]');
+  if (await box.count()) await box.first().check();
+  else await page.getByText(/I agree to the/i).first().click();
+  await flow.shot('new-crew-consent');
+  await page.getByRole('button', { name: /Create account|Agree/i }).first().click();
+  await page.waitForURL(/\/onboarding/);
+  const newCrewId = (await getUserIdByEmail(NEW_CREW)) ?? '';
+  await flow.check(27, 'The button logs the new address in; after the terms it shows the crew invite, nothing accepted yet', async () => {
+    await expect(page.getByText(`Crew · ${CREW_EVENT_NAME} at De Marktzaal`)).toBeVisible();
+    expect(newCrewId).not.toBe('');
+    const { data } = await a.from('event_organizers').select('event_id').eq('user_id', newCrewId);
+    expect(data).toEqual([]);
+  });
+  await flow.shot('new-crew-invite');
+
+  await page.getByRole('button', { name: 'Accept', exact: true }).click();
+  await page.waitForURL(/\/app/);
+  await page.goto(new URL('/app/events', baseURL).toString());
+  await flow.check(28, 'After Accept the new crew member sees the event, and is on its crew (database)', async () => {
+    await expect(page.getByText(CREW_EVENT_NAME).first()).toBeVisible();
+    const { data } = await a.from('event_organizers').select('event_id').eq('user_id', newCrewId);
+    expect(data).toEqual([{ event_id: CREW_EVENT }]);
+  });
+  await flow.shot('new-crew-events');
+
+  await context.clearCookies();
+  await page.goto(linkHere);
+  await flow.check(29, 'The button works once: opened again it lands on the login screen with an error', async () => {
+    await page.waitForURL(/\/login\?error=link/);
   });
 });

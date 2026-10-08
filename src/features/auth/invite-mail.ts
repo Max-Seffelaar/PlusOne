@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { requiredServerEnv } from '@/lib/env';
 import type { Database } from '@/lib/database.types';
 import { teamMailActive } from '@/features/mail/config';
-import { sendTeamMail } from '@/features/mail/send';
+import { sendTeamMail, type TeamMailCta } from '@/features/mail/send';
 import { recordAuthInviteMail } from '@/features/mail/limits';
 import type { TeamMailContent } from '@/features/mail/templates';
 
@@ -43,18 +43,20 @@ export interface SendInviteEmailOptions {
    */
   seedName?: boolean;
   /**
-   * Team/crew context for an already-CONFIRMED account (Mail-infra F0): with
-   * it, that account gets the PlusOne team mail ("X invited you to join Y")
-   * through Resend instead of a bare magic-link login. Without it (platform
-   * invites) the magic-link path is exactly as before. Only display data: it
-   * is rendered into the mail and never read as authorization.
+   * Team/crew context (Mail-infra F0; one invite mail, z8uq9m2yvp): with it
+   * and team mail active, EVERY address gets the PlusOne mail ("X invited you
+   * to join Y") through Resend: a new or never-confirmed one with a one-time
+   * sign-in button, a confirmed one with the /login button. Without it
+   * (platform invites) the Supabase path is exactly as before. Only display
+   * data: it is rendered into the mail and never read as authorization.
    */
   existingAccountMail?: TeamMailContent;
   /**
    * The company this invitation mail counts against (daily cap, decision Max
-   * 2026-10-07). Set by team/crew invites and resends; when Supabase sends its
-   * own invite mail (new or unconfirmed account) the mail is recorded for this
-   * company. Platform invites leave it unset and count nowhere.
+   * 2026-10-07). Set by team/crew invites and resends. Our own mail counts
+   * through its mail_log row (content.venueId); this is only read when
+   * Supabase sends its invite mail (prod without a Resend key), which is then
+   * recorded for this company. Platform invites leave it unset.
    */
   mailCapVenueId?: string;
 }
@@ -62,11 +64,14 @@ export interface SendInviteEmailOptions {
 export type InviteMailResult =
   /** Mail sent (invite mail or magic-link fallback). */
   | { ok: true }
-  /** The address could not be provisioned/invited at all — always an error. */
+  /** The address could not be provisioned/invited at all, or a new address's
+   *  mail (its only way in) failed — always an error. */
   | { ok: false; reason: 'provision' }
-  /** The account exists; only the notify mail failed. An initial invite may
-   *  proceed anyway (access comes from the invite row, not the mail); a RESEND
-   *  must surface this, because the mail is the whole point. */
+  /** An account that can already log in did not get its mail. An initial
+   *  invite may proceed anyway (access comes from the invite row, and they can
+   *  log in without the mail); a RESEND must surface this, because the mail is
+   *  the whole point. A new address whose mail failed is 'provision' instead:
+   *  without the mail it has no way in. */
   | { ok: false; reason: 'notify' }
   /** A mail already went to this address within the last minute (our
    *  per-recipient window, or GoTrue's own resend limit). Nothing was sent. */
@@ -83,20 +88,76 @@ function rateLimited(error: { message?: string }): boolean {
 }
 
 /**
- * Notify an invitee by e-mail (invite + every resend, venue AND crew). For a
- * NEW or invited-but-never-accepted address, inviteUserByEmail provisions/
- * re-invites and sends the "You've been invited" mail in one step; an already-
- * CONFIRMED address gets either the team mail (when the caller passes
- * `existingAccountMail` and team mail is active, see `teamMailActive`) or, as
- * before, a magic-link login (invite-only — no public signups, #20). The
- * confirmed path matters: signInWithOtp refuses unconfirmed accounts outright
- * ("Signups not allowed for this instance"), so the order is invite-first —
- * that's what makes resend work for never-accepted accounts.
+ * One invite mail (z8uq9m2yvp): a team or crew invite (the caller passes
+ * `existingAccountMail`) with team mail active sends OUR mail to every address.
+ * The send is logged first (recipient window + company cap in
+ * log_mail_attempt); only then does generateLink provision a new address, or
+ * mint a fresh sign-in token for a never-confirmed one, and that link becomes
+ * the mail's button. GoTrue sends nothing on this path. An address that can
+ * already log in (generateLink: already registered) gets the same mail with
+ * the plain /login button. The link is a bearer credential: it goes into the
+ * rendered mail and nowhere else, and errors here log codes, never messages.
+ */
+async function sendOwnInviteMail(
+  email: string,
+  content: TeamMailContent,
+  seedName: boolean
+): Promise<InviteMailResult> {
+  // Set once generateLink handed out a sign-in link (a new or never-confirmed
+  // address). If the send then fails, no mail carries that link, and the
+  // admin must hear it (review of PR #430): it is a 'provision' failure, not
+  // the 'notify' a confirmed account's lost mail is.
+  let minted = false;
+  const cta = async (): Promise<TeamMailCta> => {
+    try {
+      const { data, error } = await createServiceClient().auth.admin.generateLink({
+        type: 'invite',
+        email,
+        options: seedName ? { data: { full_name: email.split('@')[0] } } : undefined,
+      });
+      if (error && alreadyRegistered(error)) return { kind: 'login' };
+      const props = data?.properties;
+      const verifyType = props?.verification_type;
+      if (error || !props?.hashed_token || (verifyType !== 'invite' && verifyType !== 'signup')) {
+        console.error('sendInviteEmail: generateLink failed', { code: error?.code, status: error?.status });
+        return { kind: 'unavailable' };
+      }
+      minted = true;
+      return { kind: 'invite', link: { tokenHash: props.hashed_token, verifyType } };
+    } catch (err) {
+      console.error('sendInviteEmail: generateLink threw', { error: err instanceof Error ? err.name : 'unknown' });
+      return { kind: 'unavailable' };
+    }
+  };
+  // Best effort by contract: sendTeamMail never throws.
+  const sent = await sendTeamMail({ ...content, to: email }, { cta });
+  if (sent.ok) return { ok: true };
+  if (sent.reason === 'recipient_window') return { ok: false, reason: 'recent' };
+  if (sent.reason === 'venue_cap') return { ok: false, reason: 'cap' };
+  if (sent.reason === 'cta_unavailable' || minted) return { ok: false, reason: 'provision' };
+  return { ok: false, reason: 'notify' };
+}
+
+/**
+ * Notify an invitee by e-mail (invite + every resend, venue AND crew). Team and
+ * crew invites with team mail active go through `sendOwnInviteMail` above: one
+ * PlusOne mail whether or not the address has an account. Otherwise (platform
+ * invites, or prod without a Resend key, see `teamMailActive`) the Supabase
+ * path is exactly as before: for a NEW or invited-but-never-accepted address,
+ * inviteUserByEmail provisions/re-invites and sends the "You've been invited"
+ * mail in one step; an already-CONFIRMED address gets a magic-link login
+ * (invite-only, no public signups, #20). The confirmed path matters:
+ * signInWithOtp refuses unconfirmed accounts outright ("Signups not allowed for
+ * this instance"), so the order is invite-first, which is what makes resend
+ * work for never-accepted accounts.
  */
 export async function sendInviteEmail(
   email: string,
   options: SendInviteEmailOptions = {}
 ): Promise<InviteMailResult> {
+  if (options.existingAccountMail && teamMailActive()) {
+    return sendOwnInviteMail(email, options.existingAccountMail, options.seedName !== false);
+  }
   const service = createServiceClient();
   // `data` OVERWRITES raw_user_meta_data on an existing but unconfirmed account,
   // so it is opt-in (security review 2026-09-23, F5). Venue/crew invites keep
@@ -108,15 +169,6 @@ export async function sendInviteEmail(
     options.seedName === false ? undefined : { data: { full_name: email.split('@')[0] } }
   );
   if (inviteMailError && alreadyRegistered(inviteMailError)) {
-    if (options.existingAccountMail && teamMailActive()) {
-      // Best effort by contract: sendTeamMail never throws. A failed send is a
-      // 'notify' failure, the same contract as a failed magic link below.
-      const sent = await sendTeamMail({ ...options.existingAccountMail, to: email });
-      if (sent.ok) return { ok: true };
-      if (sent.reason === 'recipient_window') return { ok: false, reason: 'recent' };
-      if (sent.reason === 'venue_cap') return { ok: false, reason: 'cap' };
-      return { ok: false, reason: 'notify' };
-    }
     const mailer = createAnonClient();
     const { error: otpError } = await mailer.auth.signInWithOtp({
       email,

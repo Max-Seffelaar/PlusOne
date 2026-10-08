@@ -71,13 +71,16 @@ export const FLOWS = {
     ],
   },
   'crew-existing-account': {
-    title: 'Crew — an existing account is invited, accepts or declines per invite (Home banner, onboarding), sees only that event (#24)',
+    title: 'Crew — an existing account is invited, accepts or declines per invite (Home banner, onboarding), sees only that event (#24); a new address gets the same mail',
     paths: [
       'src/components/po/screens/events/crew',
       'src/components/po/pending-invites-banner.tsx',
       'src/features/events/actions.ts',
       'src/features/auth/invite-actions.ts',
-      'src/features/mail/declined.ts',
+      // Q24-Q29: one invite mail (the mail a new address gets, its button).
+      'src/features/auth/invite-mail.ts',
+      'src/features/mail/',
+      'src/app/auth/confirm/',
       'src/features/onboarding/components/steps/InviteStep',
       'src/app/onboarding/',
     ],
