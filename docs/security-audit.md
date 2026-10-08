@@ -104,7 +104,8 @@ These bypass RLS by design, so each **re-checks authorisation itself** and pins
 | `sync_permanent_guests_into_event` | `admin`/organizer **and** `can_write_guests` | idempotent; respects list-lock + exclusions |
 | `add_contact_to_event` | `can_write_guests` | inserts `source='app'` (quota-charged normally) |
 | `create_venue_with_owner` | self (first membership, onboarding #40a) | idempotent |
-| `accept_pending_invites` | caller's own invites only | idempotent |
+| `accept_invite` / `decline_invite` | caller's own open invite only (matched on the `auth.users` e-mail), one per call | idempotent; decline returns true once (single mail trigger). `accept_pending_invites` is a deprecated shim that accepts nothing |
+| `ensure_my_profile` | caller's own profile row | idempotent; grants nothing |
 
 All quota/audit/maintenance helper functions are **not executable** by app roles
 (`revoke execute … from public, anon, authenticated, service_role`); only

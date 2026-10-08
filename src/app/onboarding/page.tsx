@@ -34,14 +34,19 @@ export default async function OnboardingPage(): Promise<JSX.Element> {
   // wizard, so every step that would open a form shows the refusal instead.
   const demoAccount = isDemoReviewUser(user);
 
-  // Open crew invites (z8uq9m2yvp): a person with no company yet accepts them
-  // here rather than being pushed into company setup. Login never accepts a
-  // crew invite, and the Home banner is behind this redirect. Best effort: a
-  // failed read just shows the wizard as before.
-  const crewInvites =
+  // Open invites, team or crew (z8uq9m2yvp): a person with no company yet
+  // accepts or declines each one here rather than being pushed into company
+  // setup. Login accepts nothing, and the Home banner is behind this redirect.
+  // Best effort: a failed read just shows the wizard as before.
+  const invites =
     state.step === 'venue' && !demoAccount
       ? await fetchMyPendingInvites(await createClient())
-          .then((rows) => rows.filter((r) => r.roles.length === 0).map((r) => toPoMyInvite(r).label))
+          .then((rows) =>
+            rows.map((r) => {
+              const invite = toPoMyInvite(r);
+              return { id: invite.id, label: invite.label, company: invite.venueName };
+            })
+          )
           .catch(() => [])
       : [];
 
@@ -51,7 +56,7 @@ export default async function OnboardingPage(): Promise<JSX.Element> {
       venueId={state.venueId}
       owner={owner}
       demoAccount={demoAccount}
-      crewInvites={crewInvites}
+      invites={invites}
     />
   );
 }

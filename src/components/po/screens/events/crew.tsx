@@ -139,7 +139,7 @@ export function CrewPoolRow({ eventId, member, defaultQuota }: { eventId: string
   const [q, setQ] = useState(String(defaultQuota));
   const add = (): void => assign.mutate({ eventId, userId: member.userId, quota: q === '' ? undefined : Number(q) });
   return (
-    <div className="rounded-[13px] border border-line bg-elev2 p-[11px]">
+    <div data-testid="crew-pool-row" className="rounded-[13px] border border-line bg-elev2 p-[11px]">
       <div className="flex items-center gap-[12px]">
         <Avatar name={member.fullName} size={36} />
         <div className="min-w-0 flex-1">

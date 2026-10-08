@@ -77,7 +77,10 @@ describe('GET /auth/confirm — first-login verify fallback', () => {
 
     expect(verifyOtp).toHaveBeenCalledTimes(1);
     expect(verifyOtp).toHaveBeenCalledWith({ type: 'invite', token_hash: 'abc' });
-    expect(rpc).toHaveBeenCalledWith('accept_pending_invites');
+    // Login makes sure the profile exists and accepts NO invite (z8uq9m2yvp).
+    expect(rpc).toHaveBeenCalledWith('ensure_my_profile');
+    expect(rpc).not.toHaveBeenCalledWith('accept_pending_invites');
+    expect(rpc).not.toHaveBeenCalledWith('accept_my_invites');
     expect(new URL(res.headers.get('location')!).pathname).toBe('/app');
   });
 

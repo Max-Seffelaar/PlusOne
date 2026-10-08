@@ -114,6 +114,8 @@ export const settings = {
     invitedRoles: '{roles} · sent {when}',
     statusAccepted: 'Accepted',
     statusExpired: 'Expired',
+    /** The invitee declined (z8uq9m2yvp); the invite is closed, revoke clears the row. */
+    statusDeclined: 'Declined',
     resending: '…',
     resend: 'Resend',
     resent: 'Sent ✓',

@@ -64,8 +64,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/login?error=link', request.url));
   }
 
-  // Pick up any invites that became acceptable on this verified session.
-  await supabase.rpc('accept_pending_invites');
+  // Make sure the profile row exists. No invite is accepted here: that is the
+  // person's own Accept tap (z8uq9m2yvp).
+  await supabase.rpc('ensure_my_profile');
 
   // One redirect straight to where the gates would land them anyway (consent /
   // onboarding), instead of a 3-hop chain of serverless round-trips.

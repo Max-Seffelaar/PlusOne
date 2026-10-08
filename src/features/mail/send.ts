@@ -48,7 +48,10 @@ export async function sendTeamMail(mail: TeamMail): Promise<TeamMailResult> {
 
     const { data: logId, error: logError } = await service.rpc('log_mail_attempt', {
       p_type: mail.template,
-      p_venue_id: mail.venueId,
+      // The decline mails carry no venue (null): the invitee caused them, so they
+      // stay out of the company's daily cap. The column is nullable; the
+      // generated RPC arg type just doesn't say so.
+      p_venue_id: mail.venueId as string,
       p_recipient_hash: recipientHash(mail.to),
     });
     if (logError || !logId) {

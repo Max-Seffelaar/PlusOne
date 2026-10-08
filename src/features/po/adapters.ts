@@ -916,7 +916,7 @@ export function toPoTeamMember(row: PoMemberRow, quota: number): PoTeamMember {
   };
 }
 
-export type PoInviteStatus = 'pending' | 'expired' | 'accepted';
+export type PoInviteStatus = 'pending' | 'expired' | 'accepted' | 'declined';
 
 export interface PoInvite {
   id: string;
@@ -925,16 +925,18 @@ export interface PoInvite {
   rolesLabel: string;
   /** Formatted invite date ("3 dec"). */
   sentAt: string;
-  /** Accepted wins; an un-accepted invite past its expiry is expired (T8). */
+  /** Accepted wins, then declined (z8uq9m2yvp); an open invite past its expiry is expired (T8). */
   status: PoInviteStatus;
 }
 
 export function toPoInvite(row: PoInviteRow, now: number = Date.now()): PoInvite {
   const status: PoInviteStatus = row.accepted_at
     ? 'accepted'
-    : new Date(row.expires_at).getTime() <= now
-      ? 'expired'
-      : 'pending';
+    : row.declined_at
+      ? 'declined'
+      : new Date(row.expires_at).getTime() <= now
+        ? 'expired'
+        : 'pending';
   return {
     id: row.id,
     email: row.email,

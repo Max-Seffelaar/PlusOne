@@ -21,10 +21,25 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  * with the invitee; admin@ shares Club Vesper with staff@ in the seed, so here
  * Q4/Q5 check what the crew screen shows and that no crew row exists.
  *
+ * Accept and decline are per invite and explicit (explicit-accept follow-up,
+ * z8uq9m2yvp): a login accepts nothing, the Home banner and the /onboarding invite
+ * step each carry Accept and Decline for ONE invite. Q19-Q22 cover the decline:
+ * an account with no company declines on /onboarding, the invite closes, nothing
+ * is granted, and the admin's "Waiting to accept" list drops it. Q23 covers the one
+ * direct crew write that remains (assignOrganizer, the returning-crew pool): since
+ * 20261007150200 RLS only lets an admin add someone already tied to the company, and
+ * a person who accepted earlier is exactly that.
+ *
  * Fixtures: two Marktzaal events with fixed ids (the seed has none there),
  * upserted through the service client. Every variant starts from no invite and
  * no crew row, and afterAll removes all of it again (and restores admin@'s MFA
  * snooze), so the shared plain seed is left as it was found.
+ *
+ * QA EXCEPTION: that cleanup (clearCrewState, afterAll) HARD-DELETES invites,
+ * event_organizers, event_quotas, events, user_profiles and auth users through
+ * the service client. App roles can never do that (soft delete only, decisions
+ * #3/#21); this runs against the local stack only, as test-fixture teardown, and
+ * is the one place hard deletes are allowed. Never copy it into app code.
  */
 
 const MARKTZAAL = 'aa000000-0000-7000-8000-000000000002';
@@ -39,6 +54,8 @@ const EVENTS = [CREW_EVENT, OTHER_EVENT];
 // round 2 finding 3), and an address the admin mistypes and revokes (finding 6).
 const CREW_ONLY = 'crewonly@plusone.test';
 const TYPO = 'typo-crew@plusone.test';
+// An existing account with no company that DECLINES its invite (Q19-Q22).
+const DECLINER = 'decliner@plusone.test';
 
 let adminSnoozeBefore: string | null = null;
 
@@ -67,7 +84,7 @@ function markInviteSent(): void {
 
 async function clearCrewState(): Promise<void> {
   const a = adminClient();
-  for (const email of [STAFF, CREW_ONLY, TYPO]) {
+  for (const email of [STAFF, CREW_ONLY, TYPO, DECLINER]) {
     const id = await getUserIdByEmail(email);
     const steps = [['invites', a.from('invites').delete().eq('venue_id', MARKTZAAL).ilike('email', email)]] as const;
     for (const [table, q] of id
@@ -83,26 +100,28 @@ async function clearCrewState(): Promise<void> {
   }
 }
 
-/** The crew-only account: an existing, consented login with no company and no
- *  crew scope. Created once (idempotent), removed again in afterAll. */
-async function ensureCrewOnlyAccount(): Promise<void> {
+/** An existing, consented login with no company and no crew scope (the crew-only
+ *  account, and the one that declines). Created once (idempotent), removed again
+ *  in afterAll. */
+async function ensureCompanylessAccount(email: string, fullName: string): Promise<void> {
   const a = adminClient();
-  if (!(await getUserIdByEmail(CREW_ONLY))) {
-    const { error } = await a.auth.admin.createUser({ email: CREW_ONLY, email_confirm: true, user_metadata: { full_name: 'Robin Crew' } });
-    if (error) throw new Error(`crew flow setup (crew-only account): ${error.message}`);
+  if (!(await getUserIdByEmail(email))) {
+    const { error } = await a.auth.admin.createUser({ email, email_confirm: true, user_metadata: { full_name: fullName } });
+    if (error) throw new Error(`crew flow setup (${email}): ${error.message}`);
   }
-  const id = (await getUserIdByEmail(CREW_ONLY)) ?? '';
+  const id = (await getUserIdByEmail(email)) ?? '';
   const { error } = await a
     .from('user_profiles')
-    .upsert({ id, full_name: 'Robin Crew', email: CREW_ONLY }, { onConflict: 'id', ignoreDuplicates: true });
-  if (error) throw new Error(`crew flow setup (crew-only profile): ${error.message}`);
-  await acceptConsent(CREW_ONLY);
+    .upsert({ id, full_name: fullName, email }, { onConflict: 'id', ignoreDuplicates: true });
+  if (error) throw new Error(`crew flow setup (${email} profile): ${error.message}`);
+  await acceptConsent(email);
 }
 
 test.beforeAll(async () => {
   await acceptConsent(ADMIN);
   await acceptConsent(STAFF);
-  await ensureCrewOnlyAccount();
+  await ensureCompanylessAccount(CREW_ONLY, 'Robin Crew');
+  await ensureCompanylessAccount(DECLINER, 'Dani Decliner');
   const a = adminClient();
   const adminId = (await getUserIdByEmail(ADMIN)) ?? '';
   const { data: prof } = await a.from('user_profiles').select('mfa_snooze_until').eq('id', adminId).maybeSingle();
@@ -130,7 +149,7 @@ test.afterAll(async () => {
   // audit trail holds on to them, they stay as harmless future events.
   await a.from('events').delete().in('id', EVENTS);
   // The two throwaway logins go again (best effort: an audit row may pin them).
-  for (const email of [CREW_ONLY, TYPO]) {
+  for (const email of [CREW_ONLY, TYPO, DECLINER]) {
     const id = await getUserIdByEmail(email);
     if (!id) continue;
     await a.from('user_profiles').delete().eq('id', id);
@@ -139,6 +158,8 @@ test.afterAll(async () => {
 });
 
 test('crew: an existing account is invited, accepts in the banner, and sees only that event', async ({ page, context, flow, baseURL }) => {
+  // Three invites each wait out the 60 s per-address mail window, on top of the screens.
+  test.setTimeout(540_000);
   await clearCrewState();
   const a = adminClient();
   const staffId = (await getUserIdByEmail(STAFF)) ?? '';
@@ -200,8 +221,8 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
   });
   await flow.shot('banner');
 
-  await page.getByRole('button', { name: /Accept invite/ }).click();
-  await flow.check(8, 'After "Accept invite" the banner is gone', async () => {
+  await page.getByRole('button', { name: 'Accept', exact: true }).click();
+  await flow.check(8, 'After "Accept" the banner is gone', async () => {
     await expect(banner).toHaveCount(0);
   });
 
@@ -243,11 +264,13 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
   }
   await invite(CREW_ONLY);
   await invite(TYPO);
+  await invite(DECLINER);
   const pending = page.getByTestId('crew-invite-row');
-  await flow.check(13, 'The crew sheet shows both open invites under "Waiting to accept", each "Expires in 7 days"', async () => {
+  await flow.check(13, 'The crew sheet shows the open invites under "Waiting to accept", each "Expires in 7 days"', async () => {
     await expect(page.getByText('Waiting to accept')).toBeVisible();
     await expect(pending.filter({ hasText: CREW_ONLY })).toContainText('Expires in 7 days');
     await expect(pending.filter({ hasText: TYPO })).toBeVisible();
+    await expect(pending.filter({ hasText: DECLINER })).toBeVisible();
   });
   await flow.shot('pending');
 
@@ -267,8 +290,8 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
   // ── A crew-only account (no company) accepts on /onboarding (finding 3) ──
   await page.goto(`/auth/dev-login?email=${encodeURIComponent(CREW_ONLY)}&next=/app`);
   await page.waitForURL(/\/onboarding/);
-  await flow.check(16, 'No company yet: login accepted nothing and shows the crew invite, not company setup', async () => {
-    await expect(page.getByText('You’re invited to the crew'.replace('’', "'"))).toBeVisible();
+  await flow.check(16, 'No company yet: login accepted nothing and shows the invite, not company setup', async () => {
+    await expect(page.getByText("You've been invited")).toBeVisible();
     await expect(page.getByText(`Crew · ${CREW_EVENT_NAME} at De Marktzaal`)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Set up my own company instead' })).toBeVisible();
     const crewOnlyId = (await getUserIdByEmail(CREW_ONLY)) ?? '';
@@ -277,7 +300,7 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
   });
   await flow.shot('onboarding-crew-invite');
 
-  await page.getByRole('button', { name: 'Accept and open PlusOne' }).click();
+  await page.getByRole('button', { name: 'Accept', exact: true }).click();
   await page.waitForURL(/\/app/);
   await page.goto(new URL('/app/events', baseURL).toString());
   await flow.check(17, 'After accept they land in the app with their event, no own company, no Marktzaal membership', async () => {
@@ -291,5 +314,56 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
   await flow.check(18, 'Crew-only screens: no link opens a new window, no sideways scroll', async () => {
     await expect(page.locator('a[target="_blank"]')).toHaveCount(0);
     expectNoHorizontalOverflow(flow);
+  });
+
+  // ── An account with no company DECLINES on /onboarding ───────────────────
+  const declinerId = (await getUserIdByEmail(DECLINER)) ?? '';
+  await page.goto(`/auth/dev-login?email=${encodeURIComponent(DECLINER)}&next=/app`);
+  await page.waitForURL(/\/onboarding/);
+  await expect(page.getByText(`Crew · ${CREW_EVENT_NAME} at De Marktzaal`)).toBeVisible();
+  await flow.shot('decliner-invite');
+  await page.getByRole('button', { name: 'Decline', exact: true }).click();
+  await expect(page.getByText('Decline this invite? You can ask De Marktzaal to invite you again later.')).toBeVisible();
+  await flow.shot('decline-confirm');
+  await page.getByRole('button', { name: 'Decline invite', exact: true }).click();
+  await flow.check(19, 'Decline asks first, then says so: "You declined the invite from De Marktzaal."', async () => {
+    await expect(page.getByRole('status')).toHaveText("You declined the invite from De Marktzaal. We'll let them know.");
+  });
+  await flow.shot('declined');
+  await flow.check(20, 'After decline, in the database: the invite is closed (declined_at set), no crew row, no membership', async () => {
+    const { data: inv } = await a.from('invites').select('declined_at, accepted_at').eq('venue_id', MARKTZAAL).ilike('email', DECLINER);
+    expect(inv).toHaveLength(1);
+    expect(inv?.[0]?.declined_at).not.toBeNull();
+    expect(inv?.[0]?.accepted_at).toBeNull();
+    const { data: org } = await a.from('event_organizers').select('event_id').eq('user_id', declinerId);
+    expect(org).toEqual([]);
+    const { data: mem } = await a.from('venue_memberships').select('venue_id').eq('user_id', declinerId);
+    expect(mem).toEqual([]);
+  });
+  await flow.check(21, 'After the last decline the way on is "Set up my own company"', async () => {
+    await expect(page.getByRole('button', { name: 'Set up my own company' })).toBeVisible();
+  });
+
+  await page.goto(`/auth/dev-login?email=${encodeURIComponent(ADMIN)}&next=/app/events/${CREW_EVENT}/crew`);
+  await page.waitForURL(new RegExp(`/app/events/${CREW_EVENT}/crew`));
+  await flow.check(22, "The admin's \"Waiting to accept\" list no longer shows the declined invite", async () => {
+    // crewonly@ accepted earlier (Q17), so only the declined row could still be listed.
+    await expect(pending.filter({ hasText: DECLINER })).toHaveCount(0);
+    await expect(pending.filter({ hasText: CREW_ONLY })).toHaveCount(0);
+  });
+
+  // ── The returning-crew pool still works under the no-direct-insert RLS ───
+  await page.goto(new URL(`/app/events/${OTHER_EVENT}/crew`, baseURL).toString());
+  await page.getByRole('button', { name: /Add external crew/ }).click();
+  const poolRow = page.getByTestId('crew-pool-row').filter({ hasText: 'Tom Bakker' });
+  await expect(poolRow).toBeVisible();
+  await flow.shot('returning-crew-pool');
+  await poolRow.getByRole('button', { name: 'Add', exact: true }).click();
+  await flow.check(23, 'Returning crew (Tom, crew on the other event) is added to this event from the pool, and no error shows', async () => {
+    await expect.poll(async () => {
+      const { data } = await a.from('event_organizers').select('event_id').eq('user_id', staffId).eq('event_id', OTHER_EVENT);
+      return data?.length ?? 0;
+    }).toBe(1);
+    await expect(poolRow.locator('p[role="alert"]')).toHaveCount(0);
   });
 });

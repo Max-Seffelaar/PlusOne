@@ -987,6 +987,7 @@ export async function fetchEventCrewInvites(client: Client, eventId: string): Pr
     .filter('roles', 'eq', '{}')
     .contains('event_ids', [eventId])
     .is('accepted_at', null)
+    .is('declined_at', null)
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -1743,16 +1744,17 @@ export async function fetchVenueMembers(client: Client, venueId: string): Promis
 export type PoInviteRow = Pick<
   Tables['invites']['Row'],
   'id' | 'email' | 'roles' | 'expires_at' | 'created_at' | 'accepted_at'
->;
+> &
+  Partial<Pick<Tables['invites']['Row'], 'declined_at'>>;
 
-/** Invites for a venue, accepted ones included so the team screen can show the
- *  accepted/pending/expired status per invite (T8). Newest first, capped — old
- *  accepted invites are audit history, not team-screen material. RLS: managers
- *  + finance. */
+/** Invites for a venue, accepted and declined ones included so the team screen
+ *  can show the accepted/declined/pending/expired status per invite (T8,
+ *  z8uq9m2yvp). Newest first, capped — old accepted invites are audit history,
+ *  not team-screen material. RLS: managers + finance. */
 export async function fetchVenueInvites(client: Client, venueId: string): Promise<PoInviteRow[]> {
   const { data, error } = await client
     .from('invites')
-    .select('id, email, roles, expires_at, created_at, accepted_at')
+    .select('id, email, roles, expires_at, created_at, accepted_at, declined_at')
     .eq('venue_id', venueId)
     // Crew invites (no roles, z8uq9m2yvp) belong to the event's crew, not the team.
     .filter('roles', 'neq', '{}')
