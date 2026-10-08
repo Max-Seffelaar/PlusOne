@@ -151,6 +151,66 @@ login mail for existing accounts, so prod does not regress before the key is set
   `error_code` (platform admin). Vercel logs show `resend send failed` with HTTP status and
   Resend's error name only.
 
+## Platform digest (z8uq9m2ybj)
+
+A daily numbers mail to the platform admins (Max, Joeri), decision §9 item 19.
+Migration `20261012160000_platform_digest.sql`, Edge Function
+`supabase/functions/platform-digest/`, pgTAP `platform_digest.test.sql`, vitest
+`tests/unit/platform-digest.test.ts`.
+
+- **Path:** pg_cron job `plusone-platform-digest` (05:45 and 06:45 UTC) runs
+  `platform_digest_tick()`, which kicks only at 07:xx Europe/Amsterdam, so the mail leaves at
+  07:45 local time in summer and winter. The kick mints a single-use token (sha256 stored,
+  10 minutes) and POSTs it via pg_net to the Edge Function, the push-dispatch pattern.
+- **Caller gate:** the function (`verify_jwt = false`) passes the `x-platform-digest-token`
+  header to `platform_digest_begin()`, which consumes it before reading anything (42501
+  otherwise, answered as 401). A token copied out of pg_net's queue buys at most one early
+  run of a mail that is already capped at one per recipient per day.
+- **Recipients:** `user_profiles.is_platform_admin` at send time (login address from
+  `auth.users`, banned or deleted accounts excluded). Never a hard-coded address.
+- **Content:** aggregates only, the same numbers as Platform > Overview (service-role
+  wrappers with a pgTAP parity check): companies per status, trial funnel, cancellations,
+  30-day usage, dormant companies. No company names, no guest or contact data.
+  **No MRR/ARR:** the only price source is `listPrices()` in the Next app behind a user
+  session, so the mail links to the Overview instead.
+- **Logging and idempotency:** one `mail_log` row per recipient (type `platform_digest`,
+  no venue, so no company cap; pruned after 90 days with the other venue-less rows),
+  written by `log_platform_digest_mail()`. The ledger `platform_digest_deliveries` makes a
+  repeated run on the same Amsterdam day send nothing; only a `failed` attempt may be tried
+  again (new row, new Resend Idempotency-Key). Settled with `record_mail_send_result()`.
+- **Without config it sleeps:** no Vault URL means no kick; no `RESEND_API_KEY` on the
+  function means a 503 `mail_not_configured` after authentication and no `mail_log` row.
+
+### Going live (Max, after the orchestrator's go)
+
+1. Merge after vervolg A (`20261012150000`) is on prod, then the normal prod-push flow
+   (CLAUDE.md) for `20261012160000`.
+2. Edge Function secrets (Dashboard → Edge Functions → Secrets, or
+   `supabase secrets set`): `RESEND_API_KEY` (the app-mail key, the same one as on
+   Vercel; never the SMTP key) and `APP_URL=https://app.plus-one.io` (for the Overview
+   link; without it the link is left out).
+3. Deploy from the linked main checkout: `supabase functions deploy platform-digest`
+   (config.toml sets `verify_jwt = false`).
+4. Vault secret, SQL editor:
+   `select vault.create_secret('https://tolxwgqhppdcvnogdpel.supabase.co/functions/v1/platform-digest', 'plusone_platform_digest_url');`
+   This is the switch: from the next 07:45 on, the digest goes out.
+5. Check: Dashboard → Edge Functions → platform-digest → Logs shows `done` with
+   `sent: 2`; `select status from mail_log where type = 'platform_digest' order by created_at desc limit 2;`.
+   Pause: `select cron.unschedule('plusone-platform-digest');` or delete the Vault secret.
+
+### Local test
+
+`pnpm stack`, then `pnpm dev:mfa` (admin@ becomes a platform admin). Serve the function with
+an env file holding `PLATFORM_DIGEST_MAIL_CATCHER_URL=http://supabase_inbucket_PlusOne_Guestlist:8025`
+and `APP_URL=http://localhost:7000`:
+`supabase functions serve platform-digest --env-file <file>`. Then in psql:
+`select vault.create_secret('http://supabase_kong_PlusOne_Guestlist:8000/functions/v1/platform-digest', 'plusone_platform_digest_url');`
+and `select public.kick_platform_digest();`. The mail lands in Mailpit
+(`http://127.0.0.1:55324`); `select status_code, content from net._http_response order by id desc limit 1;`
+shows the function's totals. A second kick answers `skipped: 1`. The catcher is honoured
+only when the function's `SUPABASE_URL` is a local host; `supabase db reset` removes the
+Vault secret again.
+
 ## How to re-verify (recipe)
 
 - **Resend dashboard:** Domains → `plus-one.io` verified, region eu-west-1; Emails → recent
