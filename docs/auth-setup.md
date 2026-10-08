@@ -140,6 +140,7 @@ it to `…&type=invite&next=/app`, the same URL as before.
   banner or the onboarding invite step (z8uq9m2yvp).
 - The **"Magic Link"** template (above) already drives the *existing-user* invite
   notification (a user from another venue, #24) — same token_hash / 6-digit code.
+- **The templates must not suggest that logging in accepts** (z8uq9m2yvp): nothing is accepted at login; the invitee taps Accept in the app. After a change to `invite.html` or `magic_link.html`, paste the file into the dashboard (Auth → Email templates → Invite user / Magic link).
 - **Local mirror (since T1 PR b):** the templates are committed under
   `supabase/templates/` and wired in `config.toml`
   (`[auth.email.template.invite]` / `[auth.email.template.magic_link]` /
