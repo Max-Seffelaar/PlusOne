@@ -123,3 +123,52 @@ describe('sendTeamMail', () => {
     expect(H.send).not.toHaveBeenCalled();
   });
 });
+
+// One invite mail (z8uq9m2yvp): the button's target is resolved only after the
+// send is logged, so a refused send never mints a sign-in token, and the
+// one-time link exists in the rendered mail and nowhere else.
+describe('sendTeamMail — the cta (one invite mail)', () => {
+  const TOKEN_HASH = 'pkce_51a0e8c3d27f4b96a1e5c0d9f3b72a64';
+  const invite = async () => ({ kind: 'invite' as const, link: { tokenHash: TOKEN_HASH, verifyType: 'invite' as const } });
+
+  it('a throttled send never resolves the cta (no token minted)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cta = vi.fn(invite);
+    H.rpc.mockResolvedValueOnce({ data: null, error: { code: 'PM429', message: 'mail throttled: recipient' } });
+    expect(await sendTeamMail(MAIL, { cta })).toEqual({ ok: false, reason: 'recipient_window' });
+    expect(cta).not.toHaveBeenCalled();
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it('an invite link becomes the button (our /auth/confirm route) and is in the mail only', async () => {
+    const logs = (['log', 'info', 'warn', 'error'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    expect(await sendTeamMail(MAIL, { cta: invite })).toEqual({ ok: true });
+    const sent = H.send.mock.calls[0][0] as { html: string; text: string };
+    expect(sent.text).toContain(`/auth/confirm?token_hash=${TOKEN_HASH}&type=invite&next=%2Fapp`);
+    expect(sent.html).toContain(`/auth/confirm?token_hash=${TOKEN_HASH}&amp;type=invite&amp;next=%2Fapp`);
+    expect(sent.text).not.toMatch(/\/login\b/);
+    expect(JSON.stringify(H.rpc.mock.calls)).not.toContain(TOKEN_HASH);
+    expect(JSON.stringify(logs.flatMap((s) => s.mock.calls))).not.toContain(TOKEN_HASH);
+  });
+
+  it('cta login (an account that can log in) keeps the /login button', async () => {
+    await sendTeamMail(MAIL, { cta: async () => ({ kind: 'login' }) });
+    const sent = H.send.mock.calls[0][0] as { text: string };
+    expect(sent.text).toContain('/login');
+    expect(sent.text).not.toContain('/auth/confirm');
+  });
+
+  it('cta unavailable sends nothing and settles the logged row as failed', async () => {
+    expect(await sendTeamMail(MAIL, { cta: async () => ({ kind: 'unavailable' }) })).toEqual({
+      ok: false,
+      reason: 'cta_unavailable',
+    });
+    expect(H.send).not.toHaveBeenCalled();
+    expect(H.rpc).toHaveBeenLastCalledWith('record_mail_send_result', {
+      p_id: LOG_ID,
+      p_status: 'failed',
+      p_provider_message_id: undefined,
+      p_error_code: 'provision_failed',
+    });
+  });
+});

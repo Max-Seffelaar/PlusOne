@@ -6,7 +6,11 @@
 //   * Subject: plain text, never HTML entities (spike 9.4: "Bar & Grill" must
 //     arrive as "Bar & Grill"). Control characters (CR/LF = header injection)
 //     are replaced by a space, and each name is capped in length.
-// No login token ever goes in a mail: the link is the bare /login page.
+// The button is the bare /login page for an account that can already log in.
+// For a new or never-confirmed address (one invite mail, z8uq9m2yvp) it is a
+// one-time sign-in link through our own /auth/confirm route, the same shape
+// as the Supabase invite template it replaces: a bearer credential that only
+// ever exists in the rendered mail, never in a log.
 
 import { fmt, t } from '@/lib/i18n';
 
@@ -57,6 +61,13 @@ export type TeamMailContent =
       crew: boolean;
       eventName: string | null;
     };
+
+/** The one-time sign-in token for a new or never-confirmed address, as GoTrue's
+ *  generateLink returns it: the hashed token and the slot it was filed in. */
+export interface InviteLink {
+  tokenHash: string;
+  verifyType: 'invite' | 'signup';
+}
 
 export interface RenderedMail {
   subject: string;
@@ -113,11 +124,15 @@ interface MailParts {
   footer?: string;
 }
 
-function partsFor(content: TeamMailContent): MailParts {
+function partsFor(content: TeamMailContent, newAccount: boolean): MailParts {
   const m = t.mail;
   switch (content.template) {
     case 'team_join':
-      return { ...m.teamJoin, intro: [m.teamJoin.intro], after: [m.joinBanner, m.joinSwitch, m.joinOpenFor] };
+      return {
+        ...m.teamJoin,
+        intro: [newAccount ? m.teamJoinNewIntro : m.teamJoin.intro],
+        after: [m.joinBanner, m.joinSwitch, m.joinOpenFor],
+      };
     case 'team_added_to_event': {
       const quota = content.quota;
       const quotaLine =
@@ -149,7 +164,14 @@ function partsFor(content: TeamMailContent): MailParts {
   }
 }
 
-export function renderTeamMail(content: TeamMailContent, appUrl: string): RenderedMail {
+/** The invite link: our /auth/confirm route (server-side session on click),
+ *  exactly as the Supabase invite template builds it. */
+function inviteUrl(base: string, link: InviteLink): string {
+  const q = new URLSearchParams({ token_hash: link.tokenHash, type: link.verifyType, next: '/app' });
+  return `${base}/auth/confirm?${q.toString()}`;
+}
+
+export function renderTeamMail(content: TeamMailContent, appUrl: string, invite?: InviteLink): RenderedMail {
   const company = cleanName(content.companyName);
   const inviterName = 'inviterName' in content ? content.inviterName : null;
   const eventName =
@@ -165,16 +187,17 @@ export function renderTeamMail(content: TeamMailContent, appUrl: string): Render
     event: cleanName(eventName),
     n: content.template === 'team_added_to_event' && typeof content.quota === 'number' ? content.quota : '',
   };
-  const parts = partsFor(content);
+  const parts = partsFor(content, Boolean(invite));
   // Only the inviter fallback ("an admin at ...") can open a sentence in lower
   // case. Never capitalise anything else: a decline mail opens with an e-mail address.
   const fill = (s: string) => (s.startsWith('{inviter}') ? capFirst(fmt(s, vars)) : fmt(s, vars));
-  const loginUrl = `${appUrl.replace(/\/+$/, '')}/login`;
+  const base = appUrl.replace(/\/+$/, '');
+  const loginUrl = invite ? inviteUrl(base, invite) : `${base}/login`;
 
   const subject = plainLine(fill(parts.subject));
   const heading = fill(parts.heading);
   const intro = parts.intro.map(fill);
-  const steps = t.mail.loginSteps;
+  const steps = (invite ? t.mail.inviteLinkSteps : t.mail.loginSteps).map(fill);
   const after = parts.after.map(fill);
   const reason = fill(parts.footer ?? t.mail.footerReason);
   const withLogin = parts.login !== false;

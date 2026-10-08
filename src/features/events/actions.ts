@@ -424,11 +424,10 @@ const CREW_INVITE_TTL_DAYS = 7;
 function crewMailFailure(reason: 'provision' | 'notify' | 'recent' | 'cap'): ActionResult | null {
   if (reason === 'cap') return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
   if (reason === 'provision') return { ok: false, code: 'invite', message: "Couldn't send the invite. Try again." };
-  // 'recent' is a success here (review round 2): only an EXISTING account can
-  // hit the 60-second window (a new address gets Supabase's invite, which is
-  // not throttled per address), so a distinct message would tell the admin the
-  // account exists. The address had a mail under a minute ago, and the invite
-  // row is what grants access on accept.
+  // 'recent' is a success here (review round 2): the address had a mail under
+  // a minute ago, and the invite row is what grants access on accept. A new
+  // and an existing address hit the same window (one invite mail, z8uq9m2yvp),
+  // and the answer is the same for both, so it never reveals an account.
   // 'notify': the account exists and the invite row is what grants access on
   // accept; a lost notification is not a failed invite (same as a team invite).
   return null;
