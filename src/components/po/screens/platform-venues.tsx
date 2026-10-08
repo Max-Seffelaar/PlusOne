@@ -24,10 +24,11 @@
  *
  * Billing (Billing G, decision #32(d) 2026-10-06): each card shows the
  * company's billing state and lets a platform admin set "Trial until <date>"
- * or "Always free". The state is a direct `subscriptions` read for the visible
- * page only (≤ PAGE_SIZE ids, RLS lets a platform admin read every row); the
- * writes are set_venue_trial_end / set_venue_comped — SECURITY DEFINER RPCs that
- * re-check is_platform_admin() and are audited by the subscriptions trigger
+ * or "Always free". The state comes from the same `platform_company_details`
+ * read as the rest of the card (Platform R, one view-model; status text from
+ * `companyStatusLabel`, the formatter Invites uses too); the writes are
+ * set_venue_trial_end / set_venue_comped — SECURITY DEFINER RPCs that re-check
+ * is_platform_admin() and are audited by the subscriptions trigger
  * under the admin's own uid. A Stripe-linked company has no controls (its
  * clock is Stripe's; the RPCs refuse it too).
  *
@@ -40,32 +41,20 @@ import { type JSX, useMemo, useState } from 'react';
 import { t, fmt } from '@/lib/i18n';
 import {
   usePoIsPlatformAdmin,
-  usePoPlatformBilling,
+  usePoPlatformCompanies,
   usePoPlatformVenues,
   usePoPlatformVenuesCount,
 } from '@/features/po/hooks';
 import { usePoSetVenueComped, usePoSetVenueTrialEnd } from '@/features/po/mutations';
-import type { PlatformBilling, PlatformVenue } from '@/features/po/adapters';
+import { platformBillingOf, type PlatformBilling, type PlatformCompany, type PlatformVenue } from '@/features/po/adapters';
 import { formatShortDate, toDateInput } from '@/features/po/format';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav, usePo } from '../context';
+import { CompanyDetail, companyStatusLabel } from './platform-company';
 import { Btn, Empty, Field, FieldErrorText, Label, MiniChip, Note, PageNav, Scroll, StatTile, ToggleRow, Top } from '../kit';
 
 const col = 'flex h-full flex-col';
 const PAGE_SIZE = 20;
-
-// subscription_status enum -> display label (review finding, z8uq9m0tnx):
-// the DB value is app vocabulary, never copy. Falls back to the raw value
-// for a status this map hasn't caught up with yet, rather than hiding it.
-const SUBSCRIPTION_STATUS_LABEL: Record<string, string> = {
-  trialing: t.platform.subscriptionTrialing,
-  active: t.platform.subscriptionActive,
-  past_due: t.platform.subscriptionPastDue,
-  canceled: t.platform.subscriptionCanceled,
-  comped: t.platform.subscriptionComped,
-};
-function subscriptionStatusLabel(status: string): string {
-  return SUBSCRIPTION_STATUS_LABEL[status] ?? status;
-}
 
 export function PlatformVenues(): JSX.Element {
   const nav = useNav();
@@ -87,6 +76,7 @@ export function PlatformVenues(): JSX.Element {
 function VenuesConsole(): JSX.Element {
   const nav = useNav();
   const { switchToVenue } = usePo();
+  const { venueId: activeVenueId } = usePoIdentity();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const offset = page * PAGE_SIZE;
@@ -97,7 +87,10 @@ function VenuesConsole(): JSX.Element {
   const venues = useMemo(() => venuesQ.data ?? [], [venuesQ.data]);
   const total = countQ.data ?? 0;
   const venueIds = useMemo(() => venues.map((v) => v.venueId), [venues]);
-  const billingQ = usePoPlatformBilling(venueIds);
+  // Platform R (z8uq9m2ybj): the same per-company detail the Invites list
+  // shows — one view-model, one adapter, one read per page. The billing
+  // controls' input is projected from it (platformBillingOf), not read again.
+  const companiesQ = usePoPlatformCompanies(venueIds);
 
   return (
     <div className={col}>
@@ -132,9 +125,11 @@ function VenuesConsole(): JSX.Element {
                 <VenueCard
                   key={v.venueId}
                   venue={v}
-                  billing={billingQ.data?.get(v.venueId) ?? null}
-                  billingError={billingQ.isError}
-                  onSwitch={() => switchToVenue(v.venueId)}
+                  company={companiesQ.data?.get(v.venueId) ?? null}
+                  companyLoading={companiesQ.isLoading}
+                  companyError={companiesQ.isError}
+                  // switchToVenue no-ops on the active company: no button.
+                  onSwitch={v.venueId === activeVenueId ? undefined : () => switchToVenue(v.venueId)}
                   onViewAudit={() => nav.push('platformaudit', { id: v.venueId })}
                 />
               ))}
@@ -160,25 +155,24 @@ function VenuesConsole(): JSX.Element {
 
 function VenueCard({
   venue,
-  billing,
-  billingError,
+  company,
+  companyLoading,
+  companyError,
   onSwitch,
   onViewAudit,
 }: {
   venue: PlatformVenue;
-  billing: PlatformBilling | null;
-  billingError: boolean;
-  onSwitch: () => void;
+  company: PlatformCompany | null;
+  companyLoading: boolean;
+  companyError: boolean;
+  onSwitch?: () => void;
   onViewAudit: () => void;
 }): JSX.Element {
   const membersCopy =
     venue.memberCount === 1
       ? fmt(t.platform.venuesMembers, { count: venue.memberCount })
       : fmt(t.platform.venuesMembersPlural, { count: venue.memberCount });
-  const eventsCopy =
-    venue.eventCount === 1
-      ? fmt(t.platform.venuesEvents, { count: venue.eventCount })
-      : fmt(t.platform.venuesEventsPlural, { count: venue.eventCount });
+  const billing = company ? platformBillingOf(company) : null;
 
   return (
     <div className="rounded-[16px] border border-line bg-elev p-[14px]">
@@ -191,46 +185,43 @@ function VenueCard({
               : t.platform.venuesNoActivity}
           </div>
         </div>
-        {billing || venue.subscriptionStatus ? (
-          <MiniChip>{billingChipLabel(billing, venue.subscriptionStatus)}</MiniChip>
-        ) : (
-          <MiniChip className="border-line2 text-faint">{t.platform.venuesNoSubscription}</MiniChip>
+        {/* Status text from the ONE formatter Invites uses too (companyStatusLabel). */}
+        {company && (
+          <MiniChip className={company.status ? undefined : 'border-line2 text-faint'}>
+            {companyStatusLabel(company)}
+          </MiniChip>
         )}
       </div>
 
+      {company && (
+        <div className="mt-[9px]">
+          <CompanyDetail company={company} showStatus={false} />
+        </div>
+      )}
+
+      {/* Events live in the detail line above; members is the one extra number. */}
       <div className="mt-[11px] grid grid-cols-2 gap-2">
         <StatTile label={membersCopy} value={venue.memberCount} />
-        <StatTile label={eventsCopy} value={venue.eventCount} />
       </div>
 
-      {billingError ? (
+      {companyError ? (
         <div className="mt-[11px] text-[12px] text-faint">{t.platform.billingLoadError}</div>
       ) : (
-        billing && <BillingControls venueId={venue.venueId} billing={billing} />
+        !companyLoading && billing && <BillingControls venueId={venue.venueId} billing={billing} />
       )}
 
       <div className="mt-[11px] flex flex-wrap gap-2">
         <Btn kind="ghost" sm icon="history" className="min-h-[44px]" onClick={onViewAudit}>
           {t.platform.venuesOpenAudit}
         </Btn>
-        <Btn kind="primary" sm icon="swap" className="min-h-[44px]" onClick={onSwitch}>
-          {t.platform.venuesSwitchInto}
-        </Btn>
+        {onSwitch && (
+          <Btn kind="primary" sm icon="swap" className="min-h-[44px]" onClick={onSwitch}>
+            {t.platform.venuesSwitchInto}
+          </Btn>
+        )}
       </div>
     </div>
   );
-}
-
-/** The chip: "Trial until 21 Oct" / "Trial ended 3 Oct" / "Always free" /
- *  the plain status — the billing read wins over the overview's status. */
-function billingChipLabel(billing: PlatformBilling | null, overviewStatus: string | null): string {
-  if (billing?.status === 'trialing' && billing.trialEndsAt && !billing.stripeLinked) {
-    const date = formatShortDate(billing.trialEndsAt);
-    return new Date(billing.trialEndsAt).getTime() >= Date.now()
-      ? fmt(t.platform.billingTrialUntil, { date })
-      : fmt(t.platform.billingTrialEnded, { date });
-  }
-  return subscriptionStatusLabel(billing?.status ?? overviewStatus ?? '');
 }
 
 /** Default for the date field: the current trial end if it is still ahead,

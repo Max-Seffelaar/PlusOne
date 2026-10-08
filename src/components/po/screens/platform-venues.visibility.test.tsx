@@ -23,6 +23,9 @@ vi.mock('../context', () => ({
   useNav: () => ({ push: vi.fn(), back: vi.fn(), canGoBack: false }),
   usePo: () => ({ switchToVenue: vi.fn() }),
 }));
+vi.mock('@/features/po/PoLiveProvider', () => ({
+  usePoIdentity: () => ({ userId: 'u1', venueId: null, roles: [] }),
+}));
 vi.mock('@/features/po/hooks', () => ({
   usePoIsPlatformAdmin: () => H.isPlatformAdmin,
   usePoPlatformVenues: () => {
@@ -33,7 +36,7 @@ vi.mock('@/features/po/hooks', () => ({
     H.countCalls += 1;
     return { data: 0 };
   },
-  usePoPlatformBilling: () => ({ data: new Map(), isError: false }),
+  usePoPlatformCompanies: () => ({ data: new Map(), isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => ({
   usePoSetVenueTrialEnd: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),

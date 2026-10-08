@@ -22,7 +22,7 @@
  * server actions (nothing here is door-adjacent, so the outbox is not
  * involved), no browser-only API without a fallback, no billing UI.
  */
-import { type JSX, useState } from 'react';
+import { type JSX, useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { ADE_LAST_FREE_DAY_LABEL, adeOfferOpen } from '@/features/platform/ade';
@@ -30,7 +30,9 @@ import {
   usePoIsPlatformAdmin,
   usePoPlatformInvites,
   usePoPlatformFunnel,
+  usePoPlatformCompanies,
 } from '@/features/po/hooks';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import {
   usePoInviteBetaCustomer,
   usePoResendBetaInvite,
@@ -38,11 +40,14 @@ import {
 } from '@/features/po/mutations';
 import {
   PLATFORM_INVITE_STAGES,
+  type PlatformCompany,
   type PlatformInvite,
   type PlatformInviteStage,
 } from '@/features/po/adapters';
 import { formatShortDate } from '@/features/po/format';
-import { useNav } from '../context';
+import { useNav, usePo } from '../context';
+import { tabPath } from '../routes';
+import { CompanyChip } from './platform-company';
 import { Icon } from '../icon';
 import {
   ActionItem,
@@ -107,7 +112,26 @@ function PlatformConsole(): JSX.Element {
   const [confirmRevoke, setConfirmRevoke] = useState<PlatformInvite | null>(null);
   const revoke = usePoRevokeBetaInvite();
 
-  const invites = invitesQ.data ?? [];
+  const invites = useMemo(() => invitesQ.data ?? [], [invitesQ.data]);
+  // Every company on the loaded invite page (≤ 500 invites by the RPC's cap,
+  // in practice a handful each) — one detail read for the whole page.
+  const companyIds = useMemo(
+    () => [...new Set(invites.flatMap((inv) => inv.companyIds))].sort(),
+    [invites],
+  );
+  const companiesQ = usePoPlatformCompanies(companyIds);
+  const { switchToVenue } = usePo();
+  const { venueId: activeVenueId } = usePoIdentity();
+  // "Switch" and "3 events · latest: …" both go through the shell's switch path
+  // (platform_access_log row for a non-member). The active company needs no
+  // switch: switchToVenue no-ops on it, so open its event list directly.
+  const openEvents = useCallback(
+    (venueId: string) => {
+      if (venueId === activeVenueId) nav.setTab('events');
+      else switchToVenue(venueId, tabPath('events'));
+    },
+    [activeVenueId, nav, switchToVenue],
+  );
 
   return (
     <div className={col}>
@@ -135,7 +159,16 @@ function PlatformConsole(): JSX.Element {
         ) : (
           <div className="flex flex-col gap-2">
             {invites.map((inv) => (
-              <InviteCard key={inv.id} invite={inv} onRevoke={() => setConfirmRevoke(inv)} />
+              <InviteCard
+                key={inv.id}
+                invite={inv}
+                companies={companiesQ.data}
+                companiesError={companiesQ.isError}
+                activeVenueId={activeVenueId}
+                onSwitch={switchToVenue}
+                onOpenEvents={openEvents}
+                onRevoke={() => setConfirmRevoke(inv)}
+              />
             ))}
           </div>
         )}
@@ -174,6 +207,12 @@ function PlatformNav(): JSX.Element {
   const nav = useNav();
   return (
     <div className="mb-[18px] flex flex-col gap-2">
+      <ActionItem
+        icon="grid"
+        label={t.platform.overviewNavTitle}
+        sub={t.platform.overviewNavSub}
+        onClick={() => nav.push('platformoverview', {})}
+      />
       <ActionItem
         icon="building"
         label={t.platform.venuesNavTitle}
@@ -342,9 +381,19 @@ function StageTrack({ invite }: { invite: PlatformInvite }): JSX.Element {
 
 function InviteCard({
   invite,
+  companies,
+  companiesError,
+  activeVenueId,
+  onSwitch,
+  onOpenEvents,
   onRevoke,
 }: {
   invite: PlatformInvite;
+  companies: Map<string, PlatformCompany> | undefined;
+  companiesError: boolean;
+  activeVenueId: string | null | undefined;
+  onSwitch: (venueId: string) => void;
+  onOpenEvents: (venueId: string) => void;
   onRevoke: () => void;
 }): JSX.Element {
   const resend = usePoResendBetaInvite();
@@ -386,6 +435,27 @@ function InviteCard({
         <div className="mt-[9px] flex flex-wrap gap-[6px]">
           {invite.venueCount > 0 && <MiniChip>{venuesCopy}</MiniChip>}
           {invite.eventCount > 0 && <MiniChip>{eventsCopy}</MiniChip>}
+        </div>
+      )}
+
+      {invite.companyIds.length > 0 && (
+        <div className="mt-[9px] flex flex-col gap-[6px]">
+          {companiesError ? (
+            <p className="px-1 text-[12px] text-faint">{t.platform.companyLoadError}</p>
+          ) : (
+            invite.companyIds.map((id) => {
+              const company = companies?.get(id);
+              return company ? (
+                <CompanyChip
+                  key={id}
+                  company={company}
+                  // switchToVenue no-ops on the active company: no button.
+                  onSwitch={id === activeVenueId ? undefined : () => onSwitch(id)}
+                  onOpenEvents={() => onOpenEvents(id)}
+                />
+              ) : null;
+            })
+          )}
         </div>
       )}
 
