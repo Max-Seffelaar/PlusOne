@@ -100,6 +100,10 @@ export const home = {
   graphComboSub: 'Open requests and approved guests, per event',
   legRequested: 'Requested',
   legOnList: 'On the list',
+  // Requests empty state (z8uq9m2vg8): no requests and no request link yet.
+  requestsEmptyTitle: 'Let guests request a spot',
+  requestsEmptyBody: 'Share a request link and new requests show up here for you to approve.',
+  requestsEmptyCta: 'Create request link',
   graphHint: 'Hover an event for exact numbers',
   // events section
   eventsHeading: 'Events',

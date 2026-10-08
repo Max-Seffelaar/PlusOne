@@ -134,6 +134,19 @@ export const FLOWS = {
       'src/components/po/screens/settings/venue.tsx',
     ],
   },
+  'event-screens': {
+    title: 'Event C + Dashboard B — Add guest, John Doe, guest Edit, deep link to another company, requests empty state, time picker, tier step, invite from Quota per event, templates Back (z8uq9m2vg7 + z8uq9m2vg8)',
+    paths: [
+      'src/components/po/screens/events',
+      'src/components/po/screens/home',
+      'src/components/po/screens/guests/profile',
+      'src/components/po/screens/guests/quick-add',
+      'src/components/po/screens/settings/quota',
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/templates',
+      'src/components/po/datetime-field',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [

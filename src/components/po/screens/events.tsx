@@ -20,12 +20,13 @@ import {
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests, canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
-import { useNav } from '../context';
+import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
 import { BillingLockNote, Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Scroll, Top, cardPress, hitRingY4, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
 import { ExportEventRow } from './settings/export';
+import { OtherCompanyEvent, otherCompanyForEvent } from './events/other-company';
 
 export { EventEdit } from './events/edit';
 export { Tiers } from './events/tiers';
@@ -238,10 +239,30 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   // Setup nudge (T2, 1/7): a fresh event has no tiers, so lead the people who can
   // fix that (admin/organizer) to the setup instead of a wall of zeroed stats.
   const tiersQ = usePoTiers(id ?? '');
-  const { canManage } = usePoEventForEdit(id ?? '');
+  // Not company-filtered (RLS-scoped by id): besides the organizer bit it also
+  // tells a deep link to another company's event apart from a missing one.
+  const editQ = usePoEventForEdit(id ?? '');
+  const { canManage } = editQ;
+  const { myVenues, activeVenueId, switchToVenue } = usePo();
+  const { venueName } = usePoIdentity();
 
   if (isLoading) return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.loading} />;
   if (isError || notFound || !event) {
+    // Deep link into another company of the user's (z8uq9m2vg7): explain +
+    // "Switch to {company}", never a silent switch. Wait for the unscoped read
+    // first, so a member never sees "not available" flash before the card.
+    if (editQ.isLoading) return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.loading} />;
+    const other = otherCompanyForEvent({ eventVenueName: editQ.data?.venueName, myVenues, activeVenueId });
+    if (other && id) {
+      return (
+        <OtherCompanyEvent
+          company={other}
+          activeName={venueName ?? ''}
+          onBack={nav.back}
+          onSwitch={() => switchToVenue(other.venueId, `/app/events/${id}`)}
+        />
+      );
+    }
     return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.eventUnavailable} />;
   }
 
@@ -255,6 +276,10 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   const openQuotaReq = isAdmin ? detail?.openQuotaRequests ?? 0 : 0;
   const openRequests = openGuestReq + openQuotaReq;
   const needsSetup = canManage && !ev.cancelled && tiersQ.data?.length === 0;
+  // The first thing you see on an open event (Event C, z8uq9m2vg7): a big
+  // "+ Add guest". Same role rule as the Events tab (role-hide, not show-and-
+  // block): a venue role that writes guests, or an organizer of this event.
+  const showAddGuest = !ev.cancelled && ev.phase !== 'past' && (canManageGuests(roles) || canManage);
   // Desktop (S3.3): the headline numbers/actions go left, the "needs attention"
   // + "laatst binnen" feed go right. When there's no secondary content the left
   // column reads as a normal centered column instead of a wide thin strip.
@@ -276,6 +301,17 @@ export function EventView({ id }: { id?: string }): JSX.Element {
               {ev.location.address}
             </span>
           </div>
+        )}
+        {showAddGuest && (
+          <Btn
+            kind="primary"
+            full
+            icon="plus"
+            className="mb-3 md:w-auto md:min-w-[260px]"
+            onClick={() => nav.push('quickadd', { id: ev.id })}
+          >
+            {t.events.addGuest}
+          </Btn>
         )}
         {needsSetup && (
           <GuideCard
@@ -313,7 +349,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             </div>
             <div className="mb-4 flex gap-[10px] md:mb-0">
               {showDoor && (
-                <Btn kind="primary" full icon="user" onClick={() => nav.openDoor(ev.id)}>
+                <Btn kind={showAddGuest ? 'dark' : 'primary'} full icon="user" onClick={() => nav.openDoor(ev.id)}>
                   {t.events.checkIn}
                 </Btn>
               )}

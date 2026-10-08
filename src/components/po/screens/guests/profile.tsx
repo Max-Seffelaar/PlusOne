@@ -8,6 +8,7 @@ import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineK
 import { guestSourceLabel } from '@/features/po/format';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isDoorOnlyRole } from '@/features/auth/roles';
+import { profileRowActions } from '@/features/guests/permissions';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
@@ -253,12 +254,14 @@ function timelineLabel(it: PoProfileTimelineItem): string {
 }
 
 /** One contact-info line (phone / email / birthday / note) in the header card. */
-function InfoRow({ icon, label, value, last }: { icon: IconName; label?: string; value: string; last?: boolean }): JSX.Element {
+function InfoRow({ icon, label, value, last }: { icon?: IconName; label?: string; value: string; last?: boolean }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[12px] py-[11px]', last ? '' : 'border-b border-line2')}>
-      <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-elev2 text-dim">
-        <Icon name={icon} size={15} sw={2} />
-      </span>
+      {icon && (
+        <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-elev2 text-dim">
+          <Icon name={icon} size={15} sw={2} />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         {label && <div className="text-[10.5px] font-bold uppercase tracking-[0.04em] text-faint">{label}</div>}
         <div className="truncate text-[13.5px] text-text">{value}</div>
@@ -303,7 +306,7 @@ export function ContactProfile({
   originEventId?: string;
 }): JSX.Element {
   const nav = useNav();
-  const { roles } = usePoIdentity();
+  const { roles, userId } = usePoIdentity();
   // G4/K-8: a door-only viewer gets the full view (header/stats/events/
   // timeline) but no contact-management action — computed up front, not
   // reactively from an RLS-hidden field, so it also covers a not-yet-linked
@@ -370,6 +373,19 @@ export function ContactProfile({
     birthdate: p.birthdate,
     note: p.note,
     preferredRole: p.preferredRole,
+  };
+  // Whether a card's button reads "Edit" (opens the actions sheet) or is a plain
+  // "Open event". Tier count is unknown here, which only hides "Change tier" —
+  // the sheet works that out itself once it opens.
+  const rowCanEdit = (e: PoProfileEvent): boolean => {
+    const a = profileRowActions({
+      viewer: { roles, userId, isOrganizer: organizerEventIds.includes(e.eventId) },
+      event: { cancelled: e.cancelled, listLocked: e.listLocked, autoLockAt: e.autoLockAt },
+      row: { addedBy: e.addedById, anonymized: e.anonymized },
+      tierCount: null,
+      nowMs: Date.now(),
+    });
+    return a.editPlusOnes || a.remove || a.blockedBy !== null;
   };
   const onStar = (): void => {
     if (p.vast) toggleVast.mutate({ contactId: p.id, isPermanent: false });
@@ -460,7 +476,10 @@ export function ContactProfile({
             </div>
             {hasInfo && (
               <div className="mb-4 rounded-[14px] border border-line bg-elev px-[14px] py-1">
-                {p.phone && <InfoRow icon="phone" value={p.phone} last={!p.email && !p.birthday && !p.note} />}
+                {/* No icon on the phone row (z8uq9m2vg7): its glyph read as a
+                    slanted arrow, a link that went nowhere. The number says
+                    what it is. */}
+                {p.phone && <InfoRow value={p.phone} last={!p.email && !p.birthday && !p.note} />}
                 {p.email && <InfoRow icon="mail" value={p.email} last={!p.birthday && !p.note} />}
                 {p.birthday && <InfoRow icon="spark" label={t.guests.contactProfile.birthday} value={p.birthday} last={!p.note} />}
                 {p.note && <InfoRow icon="note" value={p.note} last />}
@@ -510,15 +529,28 @@ export function ContactProfile({
                     <EventStatusPill e={e} />
                   </div>
                   {/* Every change to this appearance (open, +N, tier, remove)
-                      lives behind the one "…", from any entry point. What it
-                      offers mirrors the guests RLS (profileRowActions); a
-                      door-only viewer gets only "Open event" (G4). */}
-                  <IconBtn
-                    name="dots"
-                    ariaLabel={fmt(cp.rowActionsAria, { event: e.name })}
-                    onClick={() => setActionsFor(e)}
-                    className="-mr-[5px] -mt-[5px] h-[44px] w-[44px] shrink-0"
-                  />
+                      lives behind one visible "Edit" (z8uq9m2vg7: the "…" was
+                      not recognised as a button), from any entry point. What
+                      the sheet offers mirrors the guests RLS
+                      (profileRowActions); a viewer who can only open the event
+                      (door-only, G4) gets "Open event" straight away. */}
+                  {rowCanEdit(e) ? (
+                    <Btn sm kind="ghost" className="-mr-[2px] -mt-[2px] shrink-0" onClick={() => setActionsFor(e)}>
+                      {cp.rowEdit}
+                      {/* Several cards, several "Edit"s: the event name keeps each one distinct for a screen reader. */}
+                      <span className="sr-only"> {e.name}</span>
+                    </Btn>
+                  ) : (
+                    <Btn
+                      sm
+                      kind="ghost"
+                      className="-mr-[2px] -mt-[2px] shrink-0"
+                      onClick={() => nav.push(e.phase === 'past' ? 'pastevent' : 'event', { id: e.eventId })}
+                    >
+                      {cp.openEvent}
+                      <span className="sr-only"> {e.name}</span>
+                    </Btn>
+                  )}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="inline-flex items-center gap-[6px] rounded-[7px] border border-line bg-elev2 px-2 py-[3px] font-body text-[11px] font-bold text-text">
