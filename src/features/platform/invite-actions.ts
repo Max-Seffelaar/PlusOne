@@ -28,9 +28,13 @@ import { betaInviteSchema, platformInviteIdSchema } from './schemas';
  *    is a platform admin, so the action is not an existence oracle.
  *
  * SERVICE ROLE — where and why: exactly one place, `sendInviteEmail()` from
- * `@/features/auth/invite-mail`. Supabase's `auth.admin.inviteUserByEmail` is a
- * service-role-only API (provisioning an auth identity), and the magic-link
- * fallback for an already-confirmed address uses a bare anon client. Nothing in
+ * `@/features/auth/invite-mail`. With team mail active (a Resend key, or any
+ * non-prod build) it sends our own company invite mail: mail_log first, then
+ * `auth.admin.generateLink` (service-role-only: provisioning an auth identity)
+ * for the one-time sign-in button. Without it, `auth.admin.inviteUserByEmail`
+ * as before, and the magic-link fallback for an already-confirmed address uses
+ * a bare anon client. No user metadata is written on either path
+ * (seedName: false). "Always free" (comped) is stored on the invite row only. Nothing in
  * `public` is ever touched with the service client here: the invite row is
  * written through the user-scoped client precisely so RLS stays the boundary.
  * Ordering mirrors 86ey9ea00 #54 — the row FIRST, the mail only after it
@@ -71,6 +75,21 @@ async function callerIsPlatformAdmin(
   return data === true;
 }
 
+/**
+ * The acting platform admin's own profile name, for "{inviter} invited you"
+ * in the company invite mail. Read through the user-scoped client (a user
+ * always reads their own profile). Display only; null falls back to "The
+ * PlusOne team" in the template.
+ */
+async function inviterName(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string | null> {
+  const { data } = await supabase.from('user_profiles').select('full_name').eq('id', userId).maybeSingle();
+  const name = data?.full_name?.trim();
+  return name ? name : null;
+}
+
 type MailBudget = 'ok' | 'limited' | 'denied';
 
 /**
@@ -98,11 +117,12 @@ export async function inviteBetaCustomerAction(
   const parsed = betaInviteSchema.safeParse({
     email: formData.get('email'),
     note: formData.get('note') ?? undefined,
+    comped: formData.get('comped'),
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
   }
-  const { email, note } = parsed.data;
+  const { email, note, comped } = parsed.data;
 
   const supabase = await createClient();
   if (!(await callerIsPlatformAdmin(supabase))) return { ok: false, error: NOT_ALLOWED };
@@ -113,6 +133,7 @@ export async function inviteBetaCustomerAction(
     email,
     note,
     invited_by: user.id,
+    comped,
   });
 
   if (insertError) {
@@ -141,7 +162,10 @@ export async function inviteBetaCustomerAction(
   //    ANY undelivered mail is a failure: the row grants no access, so an
   //    invite whose mail never arrived did nothing at all. The row stays —
   //    it is the audit record and the Resend handle.
-  const sent = await sendInviteEmail(email, { seedName: false });
+  const sent = await sendInviteEmail(email, {
+    seedName: false,
+    companyInviteMail: { inviterName: await inviterName(supabase, user.id) },
+  });
   if (!sent.ok) {
     revalidatePath('/app');
     return { ok: false, error: MAIL_FAILED_USE_RESEND };
@@ -196,9 +220,16 @@ export async function resendBetaInviteAction(
     .is('revoked_at', null);
   if (error || !count) return { ok: false, error: NOT_ALLOWED };
 
-  const sent = await sendInviteEmail(invite.email, { seedName: false });
+  // A fresh mail with a fresh one-time link: the old one may have expired
+  // (GoTrue caps it at 24 hours), and generateLink replaces it.
+  const sent = await sendInviteEmail(invite.email, {
+    seedName: false,
+    companyInviteMail: { inviterName: await inviterName(supabase, user.id) },
+  });
   // A resend exists only to send mail, so any undelivered mail is a failure.
-  if (!sent.ok) return { ok: false, error: RESEND_MAIL_FAILED };
+  if (!sent.ok) {
+    return { ok: false, error: sent.reason === 'recent' ? RESEND_RATE_LIMITED : RESEND_MAIL_FAILED };
+  }
 
   revalidatePath('/app');
   return { ok: true, message: 'Invite re-sent.' };

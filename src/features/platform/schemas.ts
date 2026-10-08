@@ -15,9 +15,17 @@ export const inviteNoteSchema = z
   .nullable()
   .optional();
 
+// "Always free" (Onboarding A, z8uq9m2vg5): the form sends 'true' when ticked.
+// Anything else (absent, 'false') is false. Stored on platform_invites.comped;
+// create_venue_with_owner reads it from there, never from the mail or metadata.
+export const inviteCompedSchema = z
+  .union([z.literal('true'), z.literal('false'), z.null(), z.undefined()])
+  .transform((v) => v === 'true');
+
 export const betaInviteSchema = z.object({
   email: emailSchema,
   note: inviteNoteSchema,
+  comped: inviteCompedSchema,
 });
 
 export const platformInviteIdSchema = z.object({

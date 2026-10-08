@@ -28,6 +28,10 @@ export const platform = {
   noteLabel: 'Note (optional)',
   notePlaceholder: 'Where you met, who introduced you…',
   noteHint: 'Only visible here. Never shown to the person you invite.',
+  /** Onboarding A (z8uq9m2vg5): stored on the invite, applied to the first
+   *  company the invitee creates. Never shown to the invitee in the mail. */
+  compedTitle: 'Always free',
+  compedSub: 'Their first company starts on Always free. Change it later under Companies.',
   send: 'Send invite',
   sending: 'Sending…',
   emailRequired: 'Fill in an email address first.',

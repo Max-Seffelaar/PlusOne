@@ -54,6 +54,7 @@ import {
   Scroll,
   StatTile,
   TextArea,
+  ToggleRow,
   Top,
 } from '../kit';
 import { ConfirmSheet } from '../shell';
@@ -199,6 +200,7 @@ function PlatformNav(): JSX.Element {
 function InviteForm(): JSX.Element {
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
+  const [comped, setComped] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const invite = usePoInviteBetaCustomer();
 
@@ -210,11 +212,12 @@ function InviteForm(): JSX.Element {
     }
     setLocalError(null);
     invite.mutate(
-      { email: email.trim(), note },
+      { email: email.trim(), note, comped },
       {
         onSuccess: () => {
           setEmail('');
           setNote('');
+          setComped(false);
         },
       },
     );
@@ -246,6 +249,10 @@ function InviteForm(): JSX.Element {
         placeholder={t.platform.notePlaceholder}
       />
       <p className="mt-[6px] text-[11.5px] leading-[1.4] text-faint">{t.platform.noteHint}</p>
+
+      <div className="mt-[8px]">
+        <ToggleRow title={t.platform.compedTitle} sub={t.platform.compedSub} on={comped} set={setComped} last />
+      </div>
 
       <Btn
         kind="primary"
