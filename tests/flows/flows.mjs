@@ -74,8 +74,8 @@ export const FLOWS = {
       'src/lib/legal.ts',
     ],
   },
-  'onboarding-comped': {
-    title: 'Onboarding A — comped platform invite → company invite mail → wizard (DPA) → Billing "Always free", audited on the inviter',
+  'onboarding-ade-trial': {
+    title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
     paths: [
       'src/components/po/screens/platform.tsx',
       'src/features/platform/',
@@ -87,7 +87,7 @@ export const FLOWS = {
       'src/app/onboarding/',
       'src/app/consent/',
       'src/components/po/screens/settings/billing',
-      'supabase/migrations/20261012140000_platform_invite_comped.sql',
+      'supabase/migrations/20261012140000_platform_invite_ade_trial.sql',
     ],
   },
   'crew-existing-account': {

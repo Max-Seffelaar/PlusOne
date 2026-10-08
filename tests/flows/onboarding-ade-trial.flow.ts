@@ -1,15 +1,21 @@
 import pg from 'pg';
 import { test, expect } from './harness';
 import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
+import { ADE_TRIAL_END, adeOfferOpen } from '../../src/features/platform/ade';
 import type { Page } from '@playwright/test';
 
 /**
  * Flow (Onboarding A, z8uq9m2vg5): a platform admin invites an address with
- * "Always free"; the invitee opens OUR company invite mail from Mailpit
- * (generateLink + the stub provider's Mailpit hand-off, like #430), signs in
- * with its one-time button, walks Welcome → Company (DPA only) → Team and sees
- * "Always free" in Billing. The comped decision is audited on the platform
- * admin and the invite records the company it comped.
+ * "Free until end of ADE"; the invitee opens OUR company invite mail from
+ * Mailpit (generateLink + the stub provider's Mailpit hand-off, like #430),
+ * signs in with its one-time button, walks Welcome → Company (DPA only) → Team
+ * and has a trial until 27 Oct 00:00 Amsterdam (or 14 days if later). The
+ * trial end is audited on the platform admin and the invite records the
+ * company it was used for.
+ *
+ * After ADE the form no longer offers the toggle: the flow then checks that it
+ * is gone and skips the trial-length checks, so it keeps passing (the option
+ * itself goes in an expand-contract follow-up).
  *
  * Its own flow file (not a second test in onboarding.flow.ts) because the
  * harness writes one flow.json per flow and variant: a second test would
@@ -62,33 +68,41 @@ async function latestMailTo(email: string): Promise<CaughtMail | null> {
   return null;
 }
 
-test.describe('comped platform invite', () => {
+test.describe('ADE platform invite', () => {
   test.beforeAll(async () => {
     await acceptConsent(PLATFORM_ADMIN);
     const id = await getUserIdByEmail(PLATFORM_ADMIN);
     const { error } = await adminClient().from('user_profiles').update({ mfa_snooze_until: 'infinity' }).eq('id', id ?? '');
-    if (error) throw new Error(`onboarding comped setup: ${error.message}`);
+    if (error) throw new Error(`onboarding ADE setup: ${error.message}`);
     await setPlatformAdmin(true);
   });
   test.afterAll(async () => {
     await setPlatformAdmin(false);
   });
 
-  test('onboarding: comped platform invite → mail → wizard → Always free', async ({ page, flow }) => {
-    const invitee = `flow-comped-${flow.variant}-${Date.now().toString(36)}@plusone.test`;
+  test('onboarding: ADE platform invite → mail → wizard → trial until the end of ADE', async ({ page, flow }) => {
+    const invitee = `flow-ade-${flow.variant}-${Date.now().toString(36)}@plusone.test`;
+    const open = adeOfferOpen();
     const company = 'ADE Club';
 
     await page.goto(`/auth/dev-login?email=${encodeURIComponent(PLATFORM_ADMIN)}&next=/app/platform`);
     await page.waitForURL(/\/app\/platform/);
     await page.getByRole('textbox', { name: 'Email address' }).fill(invitee);
-    await page.getByRole('switch', { name: 'Always free' }).click();
-    await flow.shot('platform-invite-comped');
+    const toggle = page.getByRole('switch', { name: 'Free until end of ADE' });
+    if (open) {
+      await expect(page.getByText('Their trial runs through 26 Oct, or 14 days if that is later.')).toBeVisible();
+      await toggle.click();
+    }
+    await flow.shot('platform-invite-ade');
 
-    await flow.check(1, 'Platform → Invite with "Always free" sends the invite', async () => {
+    await flow.check(1, open
+      ? 'Platform → Invite with "Free until end of ADE" (through 26 Oct) sends the invite, flag stored'
+      : 'After ADE the form no longer offers "Free until end of ADE"; the invite still sends', async () => {
+      if (!open) await expect(toggle).toHaveCount(0);
       await page.getByRole('button', { name: 'Send invite' }).click();
       await expect(page.getByText('Invite sent.')).toBeVisible();
-      const { data } = await adminClient().from('platform_invites').select('comped').ilike('email', invitee).single();
-      expect(data?.comped).toBe(true);
+      const { data } = await adminClient().from('platform_invites').select('free_until_ade').ilike('email', invitee).single();
+      expect(data?.free_until_ade).toBe(open);
     });
     await flow.shot('platform-invite-sent');
 
@@ -132,26 +146,46 @@ test.describe('comped platform invite', () => {
     await skipTeam.click();
     await page.waitForURL(/\/app/);
 
-    await flow.check(5, 'More → Billing shows "Always free" and offers no payment', async () => {
-      await page.goto('/app/more');
-      await page.getByText(/^Billing$/).first().click();
-      await expect(page.getByText('ALWAYS FREE').first()).toBeVisible();
-      await expect(page.getByRole('button', { name: /Set up payment/i })).toHaveCount(0);
-    });
-    await flow.shot('invitee-billing-always-free');
+    const trialQ = 'More → Billing shows a TRIAL (never Always free) ending at 27 Oct 00:00 Amsterdam, or 14 days out if that is later';
+    if (open) {
+      await flow.check(5, trialQ, async () => {
+        await page.goto('/app/more');
+        await page.getByText(/^Billing$/).first().click();
+        await expect(page.getByText('TRIAL').first()).toBeVisible();
+        await expect(page.getByText('ALWAYS FREE')).toHaveCount(0);
+        const a = adminClient();
+        const { data: inv } = await a.from('platform_invites').select('ade_trial_venue_id').ilike('email', invitee).single();
+        const { data: sub } = await a
+          .from('subscriptions')
+          .select('status, trial_ends_at, created_at')
+          .eq('venue_id', inv!.ade_trial_venue_id!)
+          .single();
+        expect(sub?.status).toBe('trialing');
+        const expected = Math.max(ADE_TRIAL_END.getTime(), Date.parse(sub!.created_at) + 14 * 86_400_000);
+        expect(Math.abs(Date.parse(sub!.trial_ends_at!) - expected)).toBeLessThan(60_000);
+      });
+    } else {
+      flow.skip(5, trialQ);
+    }
+    await flow.shot('invitee-billing-trial');
 
-    await flow.check(6, 'audit_log carries the comped decision on the platform admin; the invite records the company', async () => {
-      const a = adminClient();
-      const { data: inv } = await a.from('platform_invites').select('comped_venue_id').ilike('email', invitee).single();
-      expect(inv?.comped_venue_id).toBeTruthy();
-      const adminId = await getUserIdByEmail(PLATFORM_ADMIN);
-      const { data: rows } = await a
-        .from('audit_log')
-        .select('actor_id, entity_type')
-        .eq('venue_id', inv!.comped_venue_id!)
-        .eq('action', 'comped');
-      expect(rows).toEqual([{ actor_id: adminId, entity_type: 'subscriptions' }]);
-    });
+    const auditQ = 'audit_log carries the trial end on the platform admin; the invite records the company';
+    if (open) {
+      await flow.check(6, auditQ, async () => {
+        const a = adminClient();
+        const { data: inv } = await a.from('platform_invites').select('ade_trial_venue_id').ilike('email', invitee).single();
+        expect(inv?.ade_trial_venue_id).toBeTruthy();
+        const adminId = await getUserIdByEmail(PLATFORM_ADMIN);
+        const { data: rows } = await a
+          .from('audit_log')
+          .select('actor_id, entity_type, action')
+          .eq('venue_id', inv!.ade_trial_venue_id!)
+          .eq('diff->>source', 'platform_invite_ade');
+        expect(rows).toEqual([{ actor_id: adminId, entity_type: 'subscriptions', action: 'update' }]);
+      });
+    } else {
+      flow.skip(6, auditQ);
+    }
 
     await flow.check(7, 'No link opens a new window and no uncaught page errors on this walk', async () => {
       await expect(page.locator('a[target="_blank"]')).toHaveCount(0);

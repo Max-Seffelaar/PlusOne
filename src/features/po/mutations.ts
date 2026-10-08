@@ -1722,8 +1722,8 @@ function invalidatePlatform(qc: QueryClient): void {
 export interface PlatformInviteInput {
   email: string;
   note: string;
-  /** "Always free" for the first company the invitee creates (z8uq9m2vg5). */
-  comped?: boolean;
+  /** "Free until end of ADE" for the first company the invitee creates (z8uq9m2vg5). */
+  freeUntilAde?: boolean;
 }
 
 /** Invite a customer into the open beta (e-mail + optional operator note). */
@@ -1734,7 +1734,7 @@ export function usePoInviteBetaCustomer() {
       const fd = new FormData();
       fd.set('email', input.email);
       if (input.note.trim()) fd.set('note', input.note.trim());
-      if (input.comped) fd.set('comped', 'true');
+      if (input.freeUntilAde) fd.set('free_until_ade', 'true');
       return throwOnActionError(await inviteBetaCustomerAction(NO_PREV, fd));
     },
     // Also on error: the action records the row BEFORE the mail, so a failed

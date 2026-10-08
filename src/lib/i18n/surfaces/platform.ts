@@ -29,9 +29,10 @@ export const platform = {
   notePlaceholder: 'Where you met, who introduced you…',
   noteHint: 'Only visible here. Never shown to the person you invite.',
   /** Onboarding A (z8uq9m2vg5): stored on the invite, applied to the first
-   *  company the invitee creates. Never shown to the invitee in the mail. */
-  compedTitle: 'Always free',
-  compedSub: 'Their first company starts on Always free. Change it later under Companies.',
+   *  company the invitee creates. Never shown to the invitee in the mail.
+   *  Offered until the ADE date (src/features/platform/ade.ts). */
+  freeUntilAdeTitle: 'Free until end of ADE',
+  freeUntilAdeSub: 'Their trial runs through {date}, or 14 days if that is later.',
   send: 'Send invite',
   sending: 'Sending…',
   emailRequired: 'Fill in an email address first.',

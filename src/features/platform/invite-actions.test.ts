@@ -108,11 +108,11 @@ function makeClient(opts: ClientOpts = {}) {
   };
 }
 
-function inviteForm(email = 'klant@venue.test', note?: string, comped?: string) {
+function inviteForm(email = 'klant@venue.test', note?: string, freeUntilAde?: string) {
   const fd = new FormData();
   fd.set('email', email);
   if (note !== undefined) fd.set('note', note);
-  if (comped !== undefined) fd.set('comped', comped);
+  if (freeUntilAde !== undefined) fd.set('free_until_ade', freeUntilAde);
   return fd;
 }
 
@@ -157,30 +157,30 @@ describe('inviteBetaCustomerAction', () => {
       email: 'klant@venue.test',
       note: null,
       invited_by: ADMIN_ID,
-      comped: false,
+      free_until_ade: false,
     });
   });
 
-  it('stores "Always free" on the invite row when ticked (z8uq9m2vg5)', async () => {
+  it('stores "Free until end of ADE" on the invite row when ticked (z8uq9m2vg5)', async () => {
     const { client, table } = makeClient();
     (createClient as Mock).mockResolvedValue(client);
 
     await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test', '', 'true'));
 
-    expect(table.insert).toHaveBeenCalledWith(expect.objectContaining({ comped: true }));
-    // Comped lives on the row only: the mail gets the inviter's name and
-    // nothing else (no metadata, no comped flag).
+    expect(table.insert).toHaveBeenCalledWith(expect.objectContaining({ free_until_ade: true }));
+    // The ADE trial lives on the row only: the mail gets the inviter's name
+    // and nothing else (no metadata, no free period).
     expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', COMPANY_MAIL);
   });
 
-  it.each(['false', 'on', 'yes'])('comped=%s: false stores false, anything malformed is refused', async (value) => {
+  it.each(['false', 'on', 'yes'])('free_until_ade=%s: false stores false, anything malformed is refused', async (value) => {
     const { client, table } = makeClient();
     (createClient as Mock).mockResolvedValue(client);
 
     await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test', '', value));
 
     if (value === 'false') {
-      expect(table.insert).toHaveBeenCalledWith(expect.objectContaining({ comped: false }));
+      expect(table.insert).toHaveBeenCalledWith(expect.objectContaining({ free_until_ade: false }));
     } else {
       // Anything but the literal 'true'/'false' is malformed input: refused.
       expect(table.insert).not.toHaveBeenCalled();

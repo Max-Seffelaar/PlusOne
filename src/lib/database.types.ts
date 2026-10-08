@@ -1215,11 +1215,11 @@ export type Database = {
       }
       platform_invites: {
         Row: {
+          ade_trial_venue_id: string | null
           anonymized_at: string | null
-          comped: boolean
-          comped_venue_id: string | null
           created_at: string
           email: string | null
+          free_until_ade: boolean
           id: string
           invited_by: string
           last_sent_at: string
@@ -1228,11 +1228,11 @@ export type Database = {
           revoked_by: string | null
         }
         Insert: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
-          comped?: boolean
-          comped_venue_id?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by: string
           last_sent_at?: string
@@ -1241,11 +1241,11 @@ export type Database = {
           revoked_by?: string | null
         }
         Update: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
-          comped?: boolean
-          comped_venue_id?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by?: string
           last_sent_at?: string
@@ -1255,8 +1255,8 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "platform_invites_comped_venue_id_fkey"
-            columns: ["comped_venue_id"]
+            foreignKeyName: "platform_invites_ade_trial_venue_id_fkey"
+            columns: ["ade_trial_venue_id"]
             isOneToOne: false
             referencedRelation: "venues"
             referencedColumns: ["id"]

@@ -1,20 +1,20 @@
--- pgTAP — comped platform invite (Onboarding A, z8uq9m2vg5),
--- 20261012140000_platform_invite_comped.sql.
+-- pgTAP — "Free until end of ADE" platform invite (Onboarding A, z8uq9m2vg5),
+-- 20261012140000_platform_invite_ade_trial.sql.
 --
 -- Threat model: the invitee holds an authenticated session and can call
--- create_venue_with_owner and PostgREST directly. "Always free" must come
--- only from platform_invites.comped, set by a platform admin, used once, for
--- the address the invitee actually signed in with. This file proves:
---   * a platform admin can create a comped invite, but never pre-stamp
---     comped_venue_id, and can't flip comped or comped_venue_id later;
---   * the invitee's first company starts comped (status comped, no trial
---     end), the invite records that company, and audit_log carries the comped
---     decision on the INVITER (actor = invited_by);
---   * a second company by the same invitee is a normal trial (one comp);
---   * no invite, a non-comped invite, a revoked comped invite, or a comped
---     invite whose inviter lost the platform-admin flag: a normal trial and
---     no 'comped' audit row;
---   * the Stripe webhook RPC never overwrites the comped status;
+-- create_venue_with_owner and PostgREST directly. The longer trial must come
+-- only from platform_invites.free_until_ade, set by a platform admin, used
+-- once, for the address the invitee actually signed in with. This file proves:
+--   * a platform admin can create such an invite, but never pre-stamp
+--     ade_trial_venue_id, and can't flip free_until_ade or the stamp later;
+--   * the invitee's first company starts as an ordinary trialing Pro whose
+--     trial ends at greatest(2026-10-27 00:00 Amsterdam, now() + 14 days),
+--     never comped; the invite records that company; audit_log carries the
+--     trial end on the INVITER (action 'update', like set_venue_trial_end);
+--   * a second company by the same invitee is a normal trial (one invite);
+--   * no invite, a plain invite, a revoked invite, or an invite whose
+--     inviter lost the platform-admin flag: a normal trial (trial_ends_at
+--     null) and no invite audit row;
 --   * mail_log accepts the venue-less 'platform_invite' type.
 --
 -- Everything rolls back.
@@ -76,42 +76,42 @@ select set_config('plusone.platform_admin_write', 'off', true);
 select pg_temp.login('c1000000-0000-4000-8000-000000000001');
 
 select lives_ok($$
-  insert into public.platform_invites (id, email, invited_by, comped) values
+  insert into public.platform_invites (id, email, invited_by, free_until_ade) values
     ('c2000000-0000-4000-8000-000000000011', 'ADE-Club@klant.test',
      'c1000000-0000-4000-8000-000000000001', true),
     ('c2000000-0000-4000-8000-000000000012', 'plain@klant.test',
      'c1000000-0000-4000-8000-000000000001', false),
     ('c2000000-0000-4000-8000-000000000013', 'revoked@klant.test',
      'c1000000-0000-4000-8000-000000000001', true)
-$$, 'A1 a platform admin inserts comped and plain invites');
+$$, 'A1 a platform admin inserts ADE and plain invites');
 
-select is((select comped from public.platform_invites
+select is((select free_until_ade from public.platform_invites
            where id = 'c2000000-0000-4000-8000-000000000012'),
-          false, 'A2 comped defaults to false');
+          false, 'A2 free_until_ade defaults to false');
 
 select throws_ok($$
-  insert into public.platform_invites (email, invited_by, comped, comped_venue_id) values
+  insert into public.platform_invites (email, invited_by, free_until_ade, ade_trial_venue_id) values
     ('sneaky@klant.test', 'c1000000-0000-4000-8000-000000000001', true,
      (select id from public.venues limit 1))
-$$, '42501', null, 'A3 comped_venue_id cannot be set on insert (policy)');
+$$, '42501', null, 'A3 ade_trial_venue_id cannot be set on insert (policy)');
 
 select throws_ok($$
-  update public.platform_invites set comped = true
+  update public.platform_invites set free_until_ade = true
    where id = 'c2000000-0000-4000-8000-000000000012'
-$$, '42501', null, 'A4 comped is frozen after insert');
+$$, '42501', null, 'A4 free_until_ade is frozen after insert');
 
 select throws_ok($$
-  update public.platform_invites set comped_venue_id = (select id from public.venues limit 1)
+  update public.platform_invites set ade_trial_venue_id = (select id from public.venues limit 1)
    where id = 'c2000000-0000-4000-8000-000000000011'
-$$, '42501', null, 'A5 a platform admin cannot stamp comped_venue_id directly');
+$$, '42501', null, 'A5 a platform admin cannot stamp ade_trial_venue_id directly');
 
 update public.platform_invites
    set revoked_at = now(), revoked_by = 'c1000000-0000-4000-8000-000000000001'
  where id = 'c2000000-0000-4000-8000-000000000013';
 
--- Second platform admin invites Olga comped, then loses the flag.
+-- Second platform admin invites Olga for ADE, then loses the flag.
 select pg_temp.login('c1000000-0000-4000-8000-000000000002');
-insert into public.platform_invites (email, invited_by, comped) values
+insert into public.platform_invites (email, invited_by, free_until_ade) values
   ('orphan@klant.test', 'c1000000-0000-4000-8000-000000000002', true);
 reset role;
 
@@ -121,7 +121,7 @@ update public.user_profiles set is_platform_admin = false
 select set_config('plusone.platform_admin_write', 'off', true);
 
 -- ---------------------------------------------------------------------------
--- B. The comped invitee creates a company
+-- B. The ADE invitee creates a company
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('c1000000-0000-4000-8000-000000000011');
@@ -132,25 +132,28 @@ reset role;
 
 select is((select status::text from public.subscriptions
            where venue_id = current_setting('test.cas1')::uuid),
-          'comped', 'B1 the comped invitee''s company starts comped');
+          'trialing', 'B1 the ADE invitee''s company is an ordinary trial, never comped');
 
 select is((select trial_ends_at from public.subscriptions
            where venue_id = current_setting('test.cas1')::uuid),
-          null, 'B2 a comped company has no trial end (set_venue_comped end state)');
+          greatest(timestamptz '2026-10-27 00:00:00 Europe/Amsterdam', now() + interval '14 days'),
+          'B2 the trial ends at the later of 27 Oct 00:00 Amsterdam and the normal 14 days');
 
-select is((select comped_venue_id from public.platform_invites
+select is((select ade_trial_venue_id from public.platform_invites
            where id = 'c2000000-0000-4000-8000-000000000011'),
           current_setting('test.cas1')::uuid, 'B3 the invite records the company that used it');
 
 select is((select count(*)::int from public.audit_log a
            where a.venue_id = current_setting('test.cas1')::uuid
-             and a.action = 'comped'
+             and a.action = 'update'
              and a.entity_type = 'subscriptions'
+             and a.diff ->> 'source' = 'platform_invite_ade'
              and a.actor_id = 'c1000000-0000-4000-8000-000000000001'),
-          1, 'B4 audit_log records the comped decision on the inviter');
+          1, 'B4 audit_log records the trial end on the inviter');
 
 select is((select diff ->> 'platform_invite_id' from public.audit_log a
-           where a.venue_id = current_setting('test.cas1')::uuid and a.action = 'comped'),
+           where a.venue_id = current_setting('test.cas1')::uuid
+             and a.diff ->> 'source' = 'platform_invite_ade'),
           'c2000000-0000-4000-8000-000000000011', 'B5 the audit row names the invite');
 
 select is((select count(*)::int from public.audit_log a
@@ -159,11 +162,11 @@ select is((select count(*)::int from public.audit_log a
              and a.actor_id = 'c1000000-0000-4000-8000-000000000011'),
           1, 'B6 the subscription insert itself stays audited on the creator');
 
--- The invitee can read the comped decision in their own company's audit.
+-- The invitee reads the longer trial on their own subscription.
 select pg_temp.login('c1000000-0000-4000-8000-000000000011');
-select is((select count(*)::int from public.subscriptions
-           where venue_id = current_setting('test.cas1')::uuid and status = 'comped'),
-          1, 'B7 the new owner sees their own subscription as comped');
+select ok((select trial_ends_at > now() + interval '14 days' from public.subscriptions
+           where venue_id = current_setting('test.cas1')::uuid),
+          'B7 the new owner sees a trial end past the normal 14 days (while before ADE)');
 reset role;
 
 -- A second company (switcher quick-create) is a normal trial: one invite, one comp.
@@ -173,13 +176,14 @@ select set_config('test.cas2', public.create_venue_with_owner(
   p_retention_months => 24, p_complete => true, p_terms_version => '2026-10-06')::text, false);
 reset role;
 
-select is((select status::text from public.subscriptions
+select is((select trial_ends_at from public.subscriptions
            where venue_id = current_setting('test.cas2')::uuid),
-          'trialing', 'B8 a second company of the same invitee is a normal trial');
+          null, 'B8 a second company of the same invitee is a normal trial');
 
 select is((select count(*)::int from public.audit_log a
-           where a.venue_id = current_setting('test.cas2')::uuid and a.action = 'comped'),
-          0, 'B9 and gets no comped audit row');
+           where a.venue_id = current_setting('test.cas2')::uuid
+             and a.diff ->> 'source' = 'platform_invite_ade'),
+          0, 'B9 and gets no invite audit row');
 
 -- ---------------------------------------------------------------------------
 -- C. Everyone else gets the normal trial
@@ -190,29 +194,29 @@ select set_config('test.pia', public.create_venue_with_owner(
   p_name => 'Plain Bar', p_address => null, p_venue_type => 'bar',
   p_retention_months => 24, p_terms_version => '2026-10-06')::text, false);
 reset role;
-select is((select status::text from public.subscriptions
+select is((select trial_ends_at from public.subscriptions
            where venue_id = current_setting('test.pia')::uuid),
-          'trialing', 'C1 a plain (non-comped) invite gives a normal trial');
+          null, 'C1 a plain invite gives the normal trial (no trial end set)');
 
 select pg_temp.login('c1000000-0000-4000-8000-000000000013');
 select set_config('test.rik', public.create_venue_with_owner(
   p_name => 'Revoked Venue', p_address => null, p_venue_type => 'club',
   p_retention_months => 24, p_terms_version => '2026-10-06')::text, false);
 reset role;
-select is((select status::text from public.subscriptions
+select is((select trial_ends_at from public.subscriptions
            where venue_id = current_setting('test.rik')::uuid),
-          'trialing', 'C2 a revoked comped invite gives a normal trial');
+          null, 'C2 a revoked ADE invite gives the normal trial');
 
 select pg_temp.login('c1000000-0000-4000-8000-000000000014');
 select set_config('test.olga', public.create_venue_with_owner(
   p_name => 'Orphan Org', p_address => null, p_venue_type => 'organizer',
   p_retention_months => 24, p_terms_version => '2026-10-06')::text, false);
 reset role;
-select is((select status::text from public.subscriptions
+select is((select trial_ends_at from public.subscriptions
            where venue_id = current_setting('test.olga')::uuid),
-          'trialing', 'C3 a comped invite whose inviter is no longer a platform admin gives a normal trial');
+          null, 'C3 an ADE invite whose inviter is no longer a platform admin gives the normal trial');
 
-select is((select comped_venue_id from public.platform_invites
+select is((select ade_trial_venue_id from public.platform_invites
            where lower(email) = 'orphan@klant.test'),
           null, 'C4 and that invite stays unused');
 
@@ -221,29 +225,31 @@ select set_config('test.nina', public.create_venue_with_owner(
   p_name => 'Nobody Club', p_address => null, p_venue_type => 'club',
   p_retention_months => 24, p_terms_version => '2026-10-06')::text, false);
 reset role;
-select is((select status::text from public.subscriptions
+select is((select trial_ends_at from public.subscriptions
            where venue_id = current_setting('test.nina')::uuid),
-          'trialing', 'C5 no invite at all gives a normal trial');
+          null, 'C5 no invite at all gives the normal trial');
 
 select is((select count(*)::int from public.audit_log a
            where a.venue_id in (current_setting('test.pia')::uuid, current_setting('test.rik')::uuid,
                                 current_setting('test.olga')::uuid, current_setting('test.nina')::uuid)
-             and a.action = 'comped'),
-          0, 'C6 none of them has a comped audit row');
+             and a.diff ->> 'source' = 'platform_invite_ade'),
+          0, 'C6 none of them has an invite audit row');
 
 -- ---------------------------------------------------------------------------
--- D. Stripe state never overwrites comped; mail_log type
+-- D. Never comped through this route; the Platform tab still owns the trial; mail_log type
 -- ---------------------------------------------------------------------------
 
-select is(public.apply_stripe_subscription_update(
-  p_event_id => 'evt_comped_test_1', p_event_type => 'customer.subscription.updated',
-  p_venue_id => current_setting('test.cas1')::uuid,
-  p_stripe_customer_id => 'cus_comped_test', p_status => 'past_due'),
-  true, 'D1 a webhook for the comped company is applied');
+select is((select count(*)::int from public.subscriptions
+           where status = 'comped'
+             and venue_id in (current_setting('test.cas1')::uuid, current_setting('test.cas2')::uuid,
+                              current_setting('test.pia')::uuid, current_setting('test.rik')::uuid,
+                              current_setting('test.olga')::uuid, current_setting('test.nina')::uuid)),
+          0, 'D1 no company created here is comped ("Always free" stays the Platform tab''s)');
 
-select is((select status::text from public.subscriptions
-           where venue_id = current_setting('test.cas1')::uuid),
-          'comped', 'D2 the webhook left the comped status alone');
+select pg_temp.login('c1000000-0000-4000-8000-000000000001');
+select lives_ok($$ select public.set_venue_trial_end(current_setting('test.cas1')::uuid, now() + interval '60 days') $$,
+  'D2 a platform admin can still move the ADE company''s trial end afterwards');
+reset role;
 
 select lives_ok($$ select public.log_mail_attempt('platform_invite', null, repeat('c', 64)) $$,
   'D3 mail_log accepts the venue-less platform_invite type');

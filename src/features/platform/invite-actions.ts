@@ -34,7 +34,7 @@ import { betaInviteSchema, platformInviteIdSchema } from './schemas';
  * for the one-time sign-in button. Without it, `auth.admin.inviteUserByEmail`
  * as before, and the magic-link fallback for an already-confirmed address uses
  * a bare anon client. No user metadata is written on either path
- * (seedName: false). "Always free" (comped) is stored on the invite row only. Nothing in
+ * (seedName: false). "Free until end of ADE" is stored on the invite row only. Nothing in
  * `public` is ever touched with the service client here: the invite row is
  * written through the user-scoped client precisely so RLS stays the boundary.
  * Ordering mirrors 86ey9ea00 #54 — the row FIRST, the mail only after it
@@ -117,12 +117,12 @@ export async function inviteBetaCustomerAction(
   const parsed = betaInviteSchema.safeParse({
     email: formData.get('email'),
     note: formData.get('note') ?? undefined,
-    comped: formData.get('comped'),
+    freeUntilAde: formData.get('free_until_ade'),
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
   }
-  const { email, note, comped } = parsed.data;
+  const { email, note, freeUntilAde } = parsed.data;
 
   const supabase = await createClient();
   if (!(await callerIsPlatformAdmin(supabase))) return { ok: false, error: NOT_ALLOWED };
@@ -133,7 +133,7 @@ export async function inviteBetaCustomerAction(
     email,
     note,
     invited_by: user.id,
-    comped,
+    free_until_ade: freeUntilAde,
   });
 
   if (insertError) {
