@@ -81,6 +81,17 @@ export const FLOWS = {
       'src/app/onboarding/',
     ],
   },
+  'team-crew-manage': {
+    title: 'Team — an admin manages external crew per event: quota and remove from crew (z8uq9m2yvp)',
+    paths: [
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/events/crew',
+      'src/features/po/queries.ts',
+      'src/features/po/adapters.ts',
+      'src/features/po/mutations.ts',
+      'src/features/events/actions.ts',
+    ],
+  },
   'company-rename': {
     title: 'Venue → Company — copy sweep, Type options, per-event location → cards, detail, /e/[slug]',
     paths: [
