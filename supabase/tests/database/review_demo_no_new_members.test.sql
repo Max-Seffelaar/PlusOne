@@ -148,8 +148,8 @@ select throws_ok($$
   update public.venue_memberships set user_id = '44444444-4444-4444-8444-444444444444'
    where venue_id = 'de300000-0000-7000-8000-000000000001'
      and user_id = 'de300000-0000-7000-8000-00000000a001'
-$$, '42501', 'the demo membership can only be changed by the demo seed',
-  'T7 the demo admin cannot hand its own membership row to another user');
+$$, '42501', 'permission denied for table venue_memberships',
+  'T7 the demo admin cannot hand its own membership row to another user (since 20261007150200 the column grant refuses user_id before the trigger is reached; T7b proves the trigger on its own)');
 reset role;
 
 select set_config('request.jwt.claims', '', true);
@@ -311,11 +311,15 @@ select throws_ok($$
 $$, '42501', 'the demo membership can only be changed by the demo seed',
   'T28 the demo admin cannot delete its own membership');
 
-select lives_ok($$
+-- Since 20261007150200 an app role may update venue_memberships.roles only, and no
+-- app code writes job_title (the seed uses the service role), so even this
+-- harmless edit is refused at the column grant.
+select throws_ok($$
   update public.venue_memberships set job_title = 'App review (edited)'
    where venue_id = 'de300000-0000-7000-8000-000000000001'
      and user_id = 'de300000-0000-7000-8000-00000000a001'
-$$, 'T29 a job_title-only edit of its own row still works');
+$$, '42501', 'permission denied for table venue_memberships',
+  'T29 a job_title edit is refused at the column grant (roles is the only updatable column)');
 reset role;
 
 select is(
@@ -399,8 +403,8 @@ select throws_ok($$
   update public.venue_memberships set user_id = 'de300000-0000-7000-8000-00000000a001'
    where venue_id = 'aa000000-0000-7000-8000-000000000001'
      and user_id = '55555555-5555-4555-8555-555555555555'
-$$, '42501', 'the demo account cannot join another venue',
-  'T42 nor re-point an existing membership row onto the demo user');
+$$, '42501', 'permission denied for table venue_memberships',
+  'T42 nor re-point an existing membership row onto the demo user (the column grant refuses user_id; the trigger is the second layer)');
 reset role;
 
 select pg_temp.as_service();

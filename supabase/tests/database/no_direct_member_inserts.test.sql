@@ -13,6 +13,10 @@
 --      on another event of the same company); not across companies; a non-admin
 --      cannot; a platform admin can add either
 --   C. the helper answers only for an admin of the venue asked about
+--   D. the UPDATE path (replayed by the reviewer): an app role may update only
+--      venue_memberships.roles. Eve lets a second account of hers accept a team
+--      invite, then re-points that row's user_id at a victim to read the victim's
+--      profile; the column grant stops it. event_organizers has no update at all.
 --
 -- Seed: Max (1111) admin @ v1 + v2, Noor (2222) user_manager @ v1, Tom (5555)
 -- staff @ v1, Lisa (6666) doorhost @ v1, Yusuf (4444) crew on the seed v1 event
@@ -46,7 +50,7 @@ begin
 end;
 $fn$;
 
-select plan(26);
+select plan(33);
 
 -- ── Fixtures (as the migration owner) ───────────────────────────────────────
 -- Eve: admin of her own company C with an event. Stranger: an account tied to no
@@ -54,6 +58,7 @@ select plan(26);
 select pg_temp.mk_user('f2000000-0000-4000-8000-0000000000e1', 'eve@evil.test');
 select pg_temp.mk_user('f2000000-0000-4000-8000-0000000000a1', 'stranger@nowhere.test');
 select pg_temp.mk_user('f2000000-0000-4000-8000-0000000000a2', 'priya@plusone.test');
+select pg_temp.mk_user('f2000000-0000-4000-8000-0000000000e2', 'eve-two@evil.test');
 insert into public.venues (id, name, slug) values
   ('f2000000-0000-7000-8000-0000000000c1', 'Eve Club', 'eve-club-nodirect');
 insert into public.venue_memberships (venue_id, user_id, roles) values
@@ -204,6 +209,48 @@ reset role;
 select ok(has_function_privilege('authenticated', 'public.is_tied_to_venue(uuid, uuid)', 'execute')
           and not has_function_privilege('anon', 'public.is_tied_to_venue(uuid, uuid)', 'execute'),
           'C5 callable by authenticated (the policy calls it as the caller), not by anon');
+
+-- ---------------------------------------------------------------------------
+-- D. The UPDATE path
+-- ---------------------------------------------------------------------------
+-- Eve's second account accepts a team invite from Eve's company: a legitimate
+-- membership, created by the accept path.
+insert into public.invites (id, venue_id, email, roles, invited_by, expires_at) values
+  ('f2000000-0000-7000-8000-0000000000b3', 'f2000000-0000-7000-8000-0000000000c1', 'eve-two@evil.test', '{staff}',
+   'f2000000-0000-4000-8000-0000000000e1', now() + interval '7 days');
+select pg_temp.login('f2000000-0000-4000-8000-0000000000e2', 'eve-two@evil.test');
+select is(public.accept_invite('f2000000-0000-7000-8000-0000000000b3'), true,
+          'D1 setup: Eve''s second account holds a membership in her company through the accept path');
+
+-- Now Eve re-points that row at Lisa (door@), who never accepted anything.
+select pg_temp.login('f2000000-0000-4000-8000-0000000000e1', 'eve@evil.test');
+select throws_ok($$
+  update public.venue_memberships set user_id = '66666666-6666-4666-8666-666666666666'
+   where venue_id = 'f2000000-0000-7000-8000-0000000000c1'
+     and user_id = 'f2000000-0000-4000-8000-0000000000e2'
+$$, '42501', null, 'D2 Eve cannot re-point a membership row at another user (user_id is not updatable)');
+select throws_ok($$
+  update public.venue_memberships set venue_id = 'aa000000-0000-7000-8000-000000000001'
+   where venue_id = 'f2000000-0000-7000-8000-0000000000c1'
+     and user_id = 'f2000000-0000-4000-8000-0000000000e2'
+$$, '42501', null, 'D3 ... nor move it to another company (venue_id is not updatable)');
+select is((select count(*)::int from public.user_profiles where id = '66666666-6666-4666-8666-666666666666'), 0,
+          'D4 and Eve still cannot read Lisa''s profile: no membership or crew row ties Lisa to her company');
+select lives_ok($$
+  update public.venue_memberships set roles = '{staff,doorhost}'
+   where venue_id = 'f2000000-0000-7000-8000-0000000000c1'
+     and user_id = 'f2000000-0000-4000-8000-0000000000e2'
+$$, 'D5 changing roles (what updateMemberRolesAction writes) still works');
+select throws_ok($$
+  update public.event_organizers set user_id = '66666666-6666-4666-8666-666666666666'
+   where user_id = '44444444-4444-4444-8444-444444444444'
+$$, '42501', null, 'D6 event_organizers cannot be updated at all (no way to switch its user_id or event_id)');
+reset role;
+select is((select string_agg(column_name::text, ',' order by column_name::text)
+             from information_schema.column_privileges
+            where table_schema = 'public' and table_name = 'venue_memberships'
+              and grantee = 'authenticated' and privilege_type = 'UPDATE'),
+          'roles', 'D7 the only column an app role may update on venue_memberships is roles');
 
 select * from finish();
 

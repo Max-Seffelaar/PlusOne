@@ -38,9 +38,26 @@
 -- admin could already see through the select policies on that venue's memberships
 -- and organizers, so it is not an oracle on other companies' people.
 --
+-- 3. The UPDATE path (found by the reviewer, replayed): venue_memberships had a
+--    TABLE-wide UPDATE grant, so it covered user_id and venue_id, and the update
+--    policy only checks the caller's role in the venue. Eve let a second account of
+--    her own accept a team invite, then ran
+--      update venue_memberships set user_id = <victim> where ...
+--    on that row, which turns a membership she may create into the victim's, and
+--    read the victim's profile. Fix: UPDATE on venue_memberships is column-level and
+--    only for `roles`, the one column the app ever writes
+--    (updateMemberRolesAction). job_title is read by the app but written by nobody
+--    (seed scripts use the service role), and updated_at is set by the
+--    set_updated_at trigger, which needs no grant. user_id, venue_id, id and
+--    created_at can no longer be changed by any app role; a membership cannot be
+--    moved to another person or another company, it can only be deleted and
+--    re-created through the accept path. event_organizers has NO update grant and NO
+--    update policy (checked), so its event_id and user_id cannot be switched either.
+--
 -- Grant matrix (revoke first, then grant): the new function is executable by
 -- authenticated only (the policy calls it as the caller); anon and public get
--- nothing. The two tables keep their grants; the policies are the gate.
+-- nothing. venue_memberships UPDATE: table-level revoked, column-level `roles`
+-- granted. The two tables keep every other grant; the policies are the gate.
 
 -- ── helper ──────────────────────────────────────────────────────────────────
 create function public.is_tied_to_venue(p_venue_id uuid, p_user_id uuid)
@@ -83,3 +100,7 @@ alter policy event_organizers_insert_admin on public.event_organizers
       or public.is_tied_to_venue(public.event_venue(event_id), user_id)
     )
   );
+
+-- ── 3. venue_memberships: UPDATE on `roles` only ────────────────────────────
+revoke update on table public.venue_memberships from authenticated;
+grant update (roles) on table public.venue_memberships to authenticated;
