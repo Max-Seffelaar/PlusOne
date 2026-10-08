@@ -188,11 +188,15 @@ select is(
 
 -- Max = admin of venue 1 (Club Vesper) in the seed; Yusuf holds no membership there.
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
-select lives_ok($$
+-- Since 20261007150200 even a normal venue's admin cannot insert a membership
+-- directly (accept-only); the row T35/T36 work on is written as the owner.
+select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444', '{staff}')
-$$, 'T11 an admin of a normal venue can still add an existing user');
+$$, '42501', null, 'T11 an admin of a normal venue cannot add an existing user directly (accept-only, 20261007150200)');
 reset role;
+insert into public.venue_memberships (venue_id, user_id, roles)
+values ('aa000000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444', '{staff}');
 
 -- ---------------------------------------------------------------------------
 -- D2. no crew on a demo-venue event either (event_organizers hop)

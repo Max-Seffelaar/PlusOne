@@ -25,7 +25,10 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  * z8uq9m2yvp): a login accepts nothing, the Home banner and the /onboarding invite
  * step each carry Accept and Decline for ONE invite. Q19-Q22 cover the decline:
  * an account with no company declines on /onboarding, the invite closes, nothing
- * is granted, and the admin's "Waiting to accept" list drops it.
+ * is granted, and the admin's "Waiting to accept" list drops it. Q23 covers the one
+ * direct crew write that remains (assignOrganizer, the returning-crew pool): since
+ * 20261007150200 RLS only lets an admin add someone already tied to the company, and
+ * a person who accepted earlier is exactly that.
  *
  * Fixtures: two Marktzaal events with fixed ids (the seed has none there),
  * upserted through the service client. Every variant starts from no invite and
@@ -347,5 +350,20 @@ test('crew: an existing account is invited, accepts in the banner, and sees only
     // crewonly@ accepted earlier (Q17), so only the declined row could still be listed.
     await expect(pending.filter({ hasText: DECLINER })).toHaveCount(0);
     await expect(pending.filter({ hasText: CREW_ONLY })).toHaveCount(0);
+  });
+
+  // ── The returning-crew pool still works under the no-direct-insert RLS ───
+  await page.goto(new URL(`/app/events/${OTHER_EVENT}/crew`, baseURL).toString());
+  await page.getByRole('button', { name: /Add external crew/ }).click();
+  const poolRow = page.getByTestId('crew-pool-row').filter({ hasText: 'Tom Bakker' });
+  await expect(poolRow).toBeVisible();
+  await flow.shot('returning-crew-pool');
+  await poolRow.getByRole('button', { name: 'Add', exact: true }).click();
+  await flow.check(23, 'Returning crew (Tom, crew on the other event) is added to this event from the pool, and no error shows', async () => {
+    await expect.poll(async () => {
+      const { data } = await a.from('event_organizers').select('event_id').eq('user_id', staffId).eq('event_id', OTHER_EVENT);
+      return data?.length ?? 0;
+    }).toBe(1);
+    await expect(poolRow.locator('p[role="alert"]')).toHaveCount(0);
   });
 });

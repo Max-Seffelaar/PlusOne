@@ -314,11 +314,11 @@ select throws_ok($$
 $$, '42501', null, 'I1 staff cannot grant a membership, even at AAL2 (role is the boundary)');
 
 select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal1');
-select lives_ok($$
+select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000001',
           '44444444-4444-4444-8444-444444444444', '{staff}')
-$$, 'I2 user_manager at AAL1 grants a staff membership (MFA optional)');
+$$, '42501', null, 'I2 user_manager cannot insert a membership directly either (accept-only, 20261007150200)');
 
 select throws_ok($$
   update public.venue_memberships
@@ -328,11 +328,11 @@ select throws_ok($$
 $$, '42501', null, 'I3 user_manager cannot escalate anyone to admin');
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
-select lives_ok($$
+select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000002',
           '22222222-2222-4222-8222-222222222222', '{admin}')
-$$, 'I4 admin at AAL1 may grant an admin membership (role-only)');
+$$, '42501', null, 'I4 not even an admin inserts a membership directly (only the invitee''s accept or a platform admin)');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select is((select count(*)::int from public.venue_memberships), 1,
@@ -342,7 +342,7 @@ select pg_temp.login('22222222-2222-4222-8222-222222222222');
 select is(
   (select count(*)::int from public.venue_memberships
    where venue_id = 'aa000000-0000-7000-8000-000000000001'),
-  6, 'I6 user_manager sees all venue-1 memberships (5 seed + 1 new)');
+  5, 'I6 user_manager sees all venue-1 memberships (the 5 seed ones; I2 inserted none)');
 
 reset role;
 
