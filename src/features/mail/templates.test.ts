@@ -224,3 +224,23 @@ describe('renderTeamMail — new address (invite link)', () => {
     expect(m.html).toContain('&lt;img src=x&gt;');
   });
 });
+
+// Handoff 30 (PR #430): the "Button not working? Open <url>" line carries the
+// long /auth/confirm URL for a new address; without break points it ran past
+// the 480px card and made the mail scroll sideways on a phone.
+describe('link fallback line wraps inside the card', () => {
+  const WRAP = 'word-break:break-all;overflow-wrap:anywhere;';
+  const fallbackP = (html: string) => html.match(/<p [^>]*>Button not working\?[^<]*<\/p>/)?.[0];
+
+  it('invite mail (new address): the fallback paragraph carries the wrap style', () => {
+    const p = fallbackP(renderTeamMail(join, APP, { tokenHash: 'pkce_0c1d2e3f40516273', verifyType: 'invite' }).html);
+    expect(p).toContain('/auth/confirm?token_hash=');
+    expect(p).toContain(WRAP);
+  });
+
+  it('login mail (existing account): the fallback paragraph carries the wrap style', () => {
+    const p = fallbackP(renderTeamMail(join, APP).html);
+    expect(p).toContain('https://app.plus-one.io/login');
+    expect(p).toContain(WRAP);
+  });
+});
