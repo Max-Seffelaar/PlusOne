@@ -253,7 +253,7 @@ test.describe('door: offline reload keeps the door and its queue (N7)', () => {
     //    next IndexedDB write, emptying the door on the following reload. ────
     await goDeadWifi(context);
     await page.getByText(guestName).first().click();
-    await page.getByRole('button', { name: /^Check in · 1 person/ }).click();
+    await page.getByRole('button', { name: 'Check in', exact: true }).click();
     await expect(page.getByText(/1 queued/)).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Sync now' }).click();
     // Wait until the failed refetch has reached IndexedDB: the persisted

@@ -8,6 +8,58 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Check-in D: group-first check-in, absolute count, undo per role (z8uq9m2vg6)
+
+Milestone **Now** (onboarding programme okt 2026, wave C, task 4). Design: spike 9.2 in
+`onboarding-orchestration-claude-code.md`. Spec decision #55 (refines #22/#25 and the S1.1 undo setting).
+
+- **UI, phone door and desktop cockpit:** the "how many are coming in?" stepper is gone. "Check in all (N)" checks in
+  everyone still outside; "Check in 1" lets one more in and shows the count (3/4). The cockpit's check-in modal has the
+  same two buttons; its check-out stepper stays.
+- **Outbox:** one check-in kind, an upsert on `check_ins.id` with an absolute `plus_ones_arrived` and
+  `client_timestamp`. A second tap while the first is still pending overwrites it in place (`dedup.ts`
+  `coalesceTarget`), so two taps offline become one row online. A "+1" on a guest another device checked in reuses that
+  row's id from the snapshot. Void, revive and top-up now send `client_timestamp`. `check_in_topup` stays parseable and
+  replayable for entries an older bundle already queued; new taps never enqueue it.
+- **Database, `20261010120000_checkin_absolute_count_guard.sql`:** BEFORE INSERT/UPDATE trigger
+  `check_ins_a_stale_guard` (client writes only, sorts before the cap trigger), tightened by two reviews of PR #423:
+  - `client_timestamp` (the device clock) is clamped to `now()`. It is the stamp of the last void-state change; a
+    count-only write ("+1") never reads or moves it, so a colleague's later "+1" cannot make an offline undo stale.
+  - A superseded void/revive, and any change to a voided row, raise SQLSTATE `PO409` for every role, never a silent
+    success. A void/revive that sends no fresh stamp (`check_out_guest`) is stamped `now()` by the server.
+  - A check-in cannot move to another guest (that was an undo without the right, past the cap) and cannot be
+    inserted already undone (42501).
+  - `checked_by`/`checked_at`/`device_id`/`offline_synced`/`synced_by` stay first-wins except on a revive. Above
+    `1 + plus_ones` the count is clamped, not refused (decision Max 2026-10-06).
+- **Database, `20261010120100_door_checkout_permission.sql`:** `can_uncheck_check_in(event)` makes the existing
+  RESTRICTIVE policy role-dependent: admin and user_manager always, doorhost/crew/staff only with the setting on.
+  `check_out_guest` inherits it (pgTAP). **Behaviour change for every existing company:** `venues.allow_uncheck`
+  defaults to `false` and was backfilled to `false`, so door hosts and crew can no longer undo a check-in until an admin
+  turns "Door team can undo check-ins" back on in Company settings (or per event). Admins and user managers are not
+  affected. The backfill is audited (one `update` per company, actor NULL = system).
+  **Besluit Max 2026-10-07: bestaande companies ook uit (A)** (review point 3 on PR #423, relayed by the
+  orchestrator).
+- **Superseded writes (PO409):** settled as `denied` with their own toast ("Not saved. This check-in changed on another
+  device, so the list now shows the latest.") and a refetch, never a retried error or a dead letter. The outbox drain
+  re-reads each entry right before sending it, so a tap coalesced into a still-pending entry goes up with its newest
+  count; coalescing only merges the same actor's own taps. "Only admins…" is shown only for the 42501 that names the
+  uncheck policy. The cockpit asks `can_uncheck_check_in` too. New kit primitive `CountPill`.
+- **Refused undo:** a queued undo the database refuses (42501) settles as the new outbox status `denied`: never retried,
+  not a dead letter, pruned on the next clear, one toast ("Undo not saved. Only admins and user managers can undo
+  check-ins here."). The refetch shows the guest inside again. The undo button is hidden for a user without the right
+  (the door asks `can_uncheck_check_in`, falling back to the setting when the rpc is missing during deploy).
+- **Decision 17:** a doorhost raising `plus_ones` is charged to the guest's adder; pgTAP pins it
+  (`guests_door_plus_ones.test.sql`). No new UI (the "…" sheet's +N editor already exists).
+- **Door header** shows the event location (own name/address, else the company address) via `resolveEventLocation`.
+- **pgTAP:** new `check_ins_absolute_count`, `check_ins_uncheck_roles`, `guests_door_plus_ones`. Fixtures in
+  `allow_uncheck`, `check_out_guest` and `checkin.void` switch the setting on explicitly (they test doorhost voids);
+  `outbox_owner_stamp` D1/D3 now run the actor guard on a revive, since a plain update can no longer move `checked_by`.
+- **Flow:** `tests/flows/door-checkin.flow.ts` (four variants).
+- **Deploy order:** the bundle tolerates the window before the migrations are pushed (the rpc falls back to the
+  setting; upsert works without the guard, minus the first-wins pin). Push the migrations right after the merge.
+
+---
+
 ## 2026-10-07 — Billing G: one plan Pro, monthly/yearly, platform trial override (z8uq9m2vrz)
 
 Milestone **Now** (onboarding programme okt 2026, wave C, task 2). Decision #32 revised, #40 wizard steps.

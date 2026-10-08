@@ -21,18 +21,42 @@ export type OutboxKind =
  * synced   — accepted by the server (or our own row was already there)
  * duplicate— guest already checked in elsewhere; the server's first wins (#11)
  * error    — terminal rejection (quota/tier full); message holds the reason
+ * denied   — an undo the database refused because this user may not undo a
+ *            check-in at this event (z8uq9m2vg6: the company setting is off and
+ *            they are not admin/user manager). Settled like `synced`: never
+ *            retried, not a dead letter, pruned on the next clear; the drain
+ *            reports it once and the refetch puts the guest back inside.
  */
-export type OutboxStatus = 'pending' | 'syncing' | 'synced' | 'duplicate' | 'error';
+export type OutboxStatus = 'pending' | 'syncing' | 'synced' | 'duplicate' | 'error' | 'denied';
 
+/**
+ * Check-in as an ABSOLUTE count (z8uq9m2vg6, spike 9.2): "Check in all (N)",
+ * "Check in 1" and a "+1" on a colleague's guest are all this one kind — an
+ * upsert on `id` that sets plus_ones_arrived to a number, not a delta. Replays
+ * and reorderings are safe because the database drops an older
+ * client_timestamp (check_ins_a_stale_guard), keeps the count monotonic and
+ * capped (cap_check_in_arrivals), and keeps the first arrival's identity (#11).
+ * A second tap while the first is still pending replaces it in the queue
+ * (dedup.ts `coalesceCheckIn`) instead of being refused.
+ */
 export interface CheckInPayload {
-  /** Client-generated check_ins.id (UUIDv7). */
+  /** check_ins.id: a fresh UUIDv7 for a first check-in, or the id of the row
+   *  this device already sees (its own, or a colleague's from the snapshot). */
   id: string;
   guestId: string;
-  /** plus_ones_arrived = total people - 1. */
+  /** Absolute plus_ones_arrived = people inside - 1. */
   plusOnesArrived: number;
   clientTimestamp: string;
 }
 
+/**
+ * LEGACY kind (pre-z8uq9m2vg6): a top-up by guest_id. New taps never enqueue
+ * it — they upsert a `check_in` on the row's id. It stays parseable and
+ * replayable because entries queued by an older bundle may still sit in a
+ * device's IndexedDB, and dropping a doorhost's queued door action to tidy a
+ * type would be the exact data loss the outbox exists to prevent. Also the
+ * fallback when a "+1" targets a guest whose row id this device does not know.
+ */
 export interface CheckInTopUpPayload {
   guestId: string;
   /**

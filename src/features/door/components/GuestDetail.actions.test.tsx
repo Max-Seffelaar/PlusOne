@@ -50,12 +50,14 @@ vi.mock('../DoorProvider', () => ({
     eventId: 'e1',
     guestById: (id: string) => (id === guest.current.id ? guest.current : undefined),
     checkIn: vi.fn(),
+    checkInOne: vi.fn(),
     topUp: vi.fn(),
     voidCheckIn: vi.fn(),
     reviveCheckIn: vi.fn(),
     refuse: vi.fn(),
     ackNote: vi.fn(),
     allowUncheck: true,
+    canUncheck: true,
   }),
   useDoorSyncStatus: () => ({ online: online.current }),
 }));
@@ -111,6 +113,7 @@ describe('GuestDetail · the "…" actions sheet (item M2)', () => {
 
     // The bottom-bar confirm button is the outbox path and must never be gated
     // on connectivity (#25).
-    expect(screen.getByRole('button', { name: /Check in · 1 person/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Check in all \(3\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Check in 1/ })).toBeEnabled();
   });
 });

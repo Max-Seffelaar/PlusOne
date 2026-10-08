@@ -2,18 +2,23 @@
 
 /**
  * Guest detail (decision #39): logboek (toegevoegd door/wanneer, +N, ingecheckt
- * hoe laat/door wie — built from guests/check_ins, never audit_log), stepper
- * check-in "Check in · N personen", refuse flow with a mandatory reason (#10),
- * and the "Let op!" popup for high-priority notes. Recreated from the prototype
- * `Guest` screen. A guest already inside can be topped up ("nog inchecken") when
- * not all of their +N have arrived yet (plus_ones_arrived only rises), or have
- * their check-in undone ("terugdraaien", soft void #3) and later re-checked in.
+ * hoe laat/door wie — built from guests/check_ins, never audit_log), group-first
+ * check-in, refuse flow with a mandatory reason (#10), and the "Let op!" popup
+ * for high-priority notes. Recreated from the prototype `Guest` screen.
+ *
+ * Group-first (z8uq9m2vg6, decisions 2026-10-06): no "how many?" question. The
+ * primary action checks in everyone still outside — "Check in all (N)" — and
+ * "Check in 1" lets them in one at a time, showing the running count (3/4).
+ * Both are the same absolute-count write in the outbox, so they work offline
+ * and a second tap simply updates the first. A guest already inside can have
+ * their check-in undone ("terugdraaien", soft void #3) when this user may undo
+ * here (admin/user manager always, door host/crew with the company setting on).
  */
 import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Btn, IconBtn, Label, PayChip, Scroll, Stepper, Top, press } from '@/components/po/kit';
+import { Avatar, Btn, CountPill, IconBtn, Label, PayChip, Scroll, Top, press } from '@/components/po/kit';
 import { BottomBar, Sheet } from '@/components/po/shell';
 import { PlusOnesSheet } from '@/components/po/screens/guests/profile-sheets';
 import { useDoor, useDoorSyncStatus } from '../DoorProvider';
@@ -102,15 +107,8 @@ function GuestActionsSheet({
 }
 
 export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () => void }): JSX.Element | null {
-  const { eventId, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, ackNote, allowUncheck } = useDoor();
+  const { eventId, guestById, checkIn, checkInOne, voidCheckIn, reviveCheckIn, refuse, ackNote, canUncheck } = useDoor();
   const g = guestById(guestId);
-  // Start the door check-in at just the named guest (1 person), NOT the whole
-  // party: arrivals are staggered (#25), so the host bumps the stepper for any
-  // +N actually present now and tops up the rest later via "nog inchecken".
-  // Defaulting to the full party silently checked everyone in, leaving late
-  // arrivals un-addable (only "uitchecken" remained) — the reported bug.
-  const [plus, setPlus] = useState(0);
-  const [addNow, setAddNow] = useState(1);
   const [alertOpen, setAlertOpen] = useState(g?.notePriority === 'high' && !g?.acknowledged);
   const [refuseOpen, setRefuseOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -118,10 +116,10 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
   const [menu, setMenu] = useState<'actions' | 'plusOnes' | null>(null);
 
   if (!g) return null;
-  const total = 1 + plus;
-  // Already inside but not all of their +N have arrived → offer "nog inchecken".
-  const remaining = g.inside ? Math.max(0, g.plus - (g.arrived ?? 0)) : 0;
-  const addClamped = Math.min(remaining, Math.max(1, addNow));
+  const party = 1 + g.plus;
+  // People of this party inside right now, and still outside.
+  const insideNow = g.inside ? 1 + (g.arrived ?? 0) : 0;
+  const outside = party - insideNow;
   const hasTask = !!g.note;
   const done = g.acknowledged;
 
@@ -194,31 +192,8 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           )}
         </div>
 
-        {g.inside && remaining > 0 && (
-          <>
-            <Label className="mb-[9px]">{t.door.partyNotAllInTitle}</Label>
-            <div className="mb-3 rounded-[14px] border border-line bg-elev p-[14px]">
-              <div className="mb-3 text-[13.5px] text-faint">
-                <span className="font-semibold text-text">{1 + (g.arrived ?? 0)}</span> {fmt(t.door.partyOfInsideTail, { total: 1 + g.plus, n: remaining })}
-              </div>
-              <Stepper value={addClamped} onChange={(v) => setAddNow(Math.min(remaining, Math.max(1, v)))} />
-            </div>
-            <Btn
-              kind="primary"
-              full
-              icon="check"
-              onClick={() => {
-                topUp(g.id, addClamped);
-                onBack();
-              }}
-            >
-              {fmt(t.door.checkInMoreBtn, { n: addClamped })}
-            </Btn>
-          </>
-        )}
-
         {g.inside &&
-          (allowUncheck ? (
+          (canUncheck ? (
             <Btn
               kind="ghost"
               full
@@ -245,7 +220,7 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
       </Scroll>
 
       <BottomBar>
-        {g.inside ? (
+        {outside === 0 ? (
           <div className="flex items-center justify-center gap-[8px] py-[6px] font-display text-[15px] font-bold text-acc">
             <Icon name="check2" size={18} stroke="#B5A6FF" sw={2.4} />
             {g.inAt ? fmt(t.door.inAt, { time: g.inAt }) : t.door.inside}
@@ -253,32 +228,41 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           </div>
         ) : (
           <>
-            {/* Stepper lives WITH the confirm button in the fixed bottom block so
-                "how many?" + Check-in always fit the viewport together — with a
-                long LOG above, the in-body stepper sank below the fold on mobile
-                (feedback Max 10/7). */}
-            <Label className="mb-[9px]">{g.voided ? t.door.reCheckInTitle : t.door.howManyComingIn}</Label>
-            <div className="mb-3">
-              {/* Cap at the guest's allotment (1 + their +N): you can never check in
-                  more people than were on the list. The DB clamps too (#22). */}
-              <Stepper value={plus + 1} max={1 + g.plus} onChange={(v) => setPlus(Math.min(g.plus, Math.max(0, v - 1)))} />
-            </div>
+            {/* Group-first (z8uq9m2vg6): the whole party is the default, one at a
+                time is the exception. Both buttons sit in the fixed bottom block
+                so they always fit the viewport above a long log (feedback 10/7). */}
+            {g.inside && (
+              <div className="mb-[10px] text-center text-[13px] text-faint">
+                <span className="font-semibold text-text">{insideNow}</span> {fmt(t.door.partyOfInsideTail, { total: party, n: outside })}
+              </div>
+            )}
+            {g.voided && <Label className="mb-[9px]">{t.door.reCheckInTitle}</Label>}
             <Btn
               kind="primary"
               full
               icon="check"
               onClick={() => {
-                if (g.voided) reviveCheckIn(g.id, total);
-                else checkIn(g.id, total);
+                if (g.voided) reviveCheckIn(g.id, party);
+                else checkIn(g.id, party);
                 onBack();
               }}
             >
-              {fmt(t.door.checkInStepper, {
-                label: g.voided ? t.door.reCheckIn : t.door.checkIn,
-                n: total,
-                unit: total === 1 ? t.door.personSingular : t.door.personPlural,
-              })}
+              {party === 1
+                ? g.voided
+                  ? t.door.reCheckIn
+                  : t.door.checkIn
+                : fmt(t.door.checkInAllBtn, { n: outside })}
             </Btn>
+            {party > 1 && (
+              // Stays on this screen: the doorhost taps once per person and
+              // watches the count climb (3/4); "Check in all" is the way out.
+              <Btn kind="ghost" full className="mt-[9px]" onClick={() => checkInOne(g.id)}>
+                {t.door.checkInOneBtn}
+                <CountPill ariaLabel={fmt(t.door.partyCountAria, { inside: insideNow, total: party })}>
+                  {fmt(t.door.partyCount, { inside: insideNow, total: party })}
+                </CountPill>
+              </Btn>
+            )}
           </>
         )}
       </BottomBar>

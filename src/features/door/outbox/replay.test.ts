@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CheckInRow, DbError, DoorGateway } from './gateway';
-import { classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, type DrainDeps } from './replay';
+import { SUPERSEDED, classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, UNDO_DENIED, type DrainDeps } from './replay';
 import { resumeStuckEntries, type OutboxEntry } from './types';
 
 const UID = '66666666-6666-4666-8666-666666666666';
@@ -24,6 +24,7 @@ function gatewayReturning(error: DbError | null): DoorGateway {
   const r = async () => ({ error });
   return {
     insertCheckIn: r,
+    upsertCheckIn: r,
     topUpCheckIn: r,
     voidCheckIn: r,
     reviveCheckIn: r,
@@ -88,11 +89,11 @@ describe('classifyError', () => {
 
 describe('replayEntry', () => {
   it('checks in: falls back to the session user with no owner stamped, and marks device + offline_synced', async () => {
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
-    const gw: DoorGateway = { ...gatewayReturning(null), insertCheckIn };
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), upsertCheckIn };
     const result = await replayEntry(gw, checkInEntry(), UID, DEVICE);
     expect(result.status).toBe('synced');
-    expect(insertCheckIn).toHaveBeenCalledWith(
+    expect(upsertCheckIn).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'ci1',
         guest_id: 'g1',
@@ -107,7 +108,7 @@ describe('replayEntry', () => {
     // column list from the JSON keys, so a bundle that always names `synced_by`
     // is rejected wholesale by a database where the column does not exist yet —
     // i.e. every door write between the merge deploy and the prod migration.
-    expect(insertCheckIn).toHaveBeenCalledWith(expect.not.objectContaining({ synced_by: expect.anything() }));
+    expect(upsertCheckIn).toHaveBeenCalledWith(expect.not.objectContaining({ synced_by: expect.anything() }));
   });
 
   it('check-in duplicate surfaces as duplicate', async () => {
@@ -129,7 +130,7 @@ describe('replayEntry', () => {
     };
     const result = await replayEntry(gw, entry, UID, DEVICE);
     expect(result.status).toBe('synced');
-    expect(topUpCheckIn).toHaveBeenCalledWith('g1', 4);
+    expect(topUpCheckIn).toHaveBeenCalledWith('g1', 4, '2026-06-20T23:30:00.000Z');
   });
 
   it('check_in_topup matching no row (another checker / not yet synced) is a harmless no-op', async () => {
@@ -161,7 +162,72 @@ describe('replayEntry', () => {
     expect(result.status).toBe('synced');
     // The observed check_ins row travels with the entry so the replay cannot
     // reach a peer's newer check-in (#35).
-    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, 'ci1');
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, 'ci1', '2026-06-20T23:40:00.000Z');
+  });
+
+  it('check_in_void refused by RLS (undo not allowed for this user) settles as denied, not error (z8uq9m2vg6)', async () => {
+    const voidCheckIn = vi.fn(async () => ({
+      error: { code: '42501', message: 'new row violates row-level security policy "check_ins_void_requires_uncheck"' },
+    }));
+    const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
+    const result = await replayEntry(gw, {
+      clientId: 'c5d',
+      eventId: 'ev1',
+      kind: 'check_in_void',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T23:40:00.000Z',
+      payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: '2026-06-20T23:40:00.000Z' },
+    }, UID, DEVICE);
+    expect(result).toEqual({ status: 'denied', message: UNDO_DENIED });
+  });
+
+  it('PO409 (superseded) settles as denied for every check-in write, never a silent synced (review #423 S1c/S2)', async () => {
+    const PO409: DbError = { code: 'PO409', message: 'This check-in was undone on another device. Showing the latest.' };
+    const expected = { status: 'denied', message: SUPERSEDED };
+    expect(await replayEntry(gatewayReturning(PO409), checkInEntry(), UID, DEVICE)).toEqual(expected);
+    const base = { clientId: 'x', eventId: 'ev1', status: 'pending' as const, attempts: 0, createdAt: 't' };
+    expect(
+      await replayEntry(gatewayReturning(PO409), { ...base, kind: 'check_in_void', payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: 't' } }, UID, DEVICE),
+    ).toEqual(expected);
+    expect(
+      await replayEntry(
+        gatewayReturning(PO409),
+        { ...base, kind: 'check_in_revive', payload: { guestId: 'g1', plusOnesArrived: 0, checkInId: 'ci1', clientTimestamp: 't' } },
+        UID,
+        DEVICE,
+      ),
+    ).toEqual(expected);
+    expect(
+      await replayEntry(gatewayReturning(PO409), { ...base, kind: 'check_in_topup', payload: { guestId: 'g1', plusOnesArrived: 1, clientTimestamp: 't' } }, UID, DEVICE),
+    ).toEqual(expected);
+  });
+
+  it('a 42501 on an undo that is NOT the uncheck policy (actor guard on a hand-off) stays a terminal error (review #423 S3)', async () => {
+    const ACTOR_GUARD: DbError = { code: '42501', message: 'Je mag een uitcheck niet op naam van deze gebruiker zetten.' };
+    const result = await replayEntry(
+      gatewayReturning(ACTOR_GUARD),
+      { clientId: 'x', eventId: 'ev1', kind: 'check_in_void', status: 'pending', attempts: 0, createdAt: 't', payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: 't' } },
+      UID,
+      DEVICE,
+    );
+    expect(result.status).toBe('error');
+  });
+
+  it('a 42501 on anything other than an undo stays a terminal error (only the undo is "denied")', async () => {
+    const result = await replayEntry(gatewayReturning(RLS_DENY), checkInEntry(), UID, DEVICE);
+    expect(result.status).toBe('error');
+  });
+
+  it('check_in upserts on the row id with the absolute count (one kind for every tap, z8uq9m2vg6)', async () => {
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
+    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), upsertCheckIn, insertCheckIn };
+    await replayEntry(gw, checkInEntry({ payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 3, clientTimestamp: 'ts3' } }), UID, DEVICE);
+    expect(upsertCheckIn).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ci1', guest_id: 'g1', plus_ones_arrived: 3, client_timestamp: 'ts3' }),
+    );
+    expect(insertCheckIn).not.toHaveBeenCalled();
   });
 
   it('check_in_void without a stored row id stays guest-scoped (pre-#35 entries)', async () => {
@@ -176,7 +242,7 @@ describe('replayEntry', () => {
       createdAt: '2026-06-20T23:40:00.000Z',
       payload: { guestId: 'g1', clientTimestamp: '2026-06-20T23:40:00.000Z' },
     }, UID, DEVICE);
-    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, null);
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, null, '2026-06-20T23:40:00.000Z');
   });
 
   it('check_in_revive re-checks-in with fresh arrivals and the session user', async () => {
@@ -192,7 +258,7 @@ describe('replayEntry', () => {
       payload: { guestId: 'g1', plusOnesArrived: 1, checkInId: 'ci1', clientTimestamp: '2026-06-20T23:50:00.000Z' },
     }, UID, DEVICE);
     expect(result.status).toBe('synced');
-    expect(reviveCheckIn).toHaveBeenCalledWith('g1', 1, UID, 'ci1');
+    expect(reviveCheckIn).toHaveBeenCalledWith('g1', 1, UID, 'ci1', '2026-06-20T23:50:00.000Z');
   });
 
   it('add_guest carries source=door and the event id, and maps quota to error', async () => {
@@ -323,7 +389,7 @@ describe('drainOutbox', () => {
     ]);
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => {
+      upsertCheckIn: async (row) => {
         order.push(row.guest_id);
         return { error: null };
       },
@@ -337,11 +403,11 @@ describe('drainOutbox', () => {
 
   it('is idempotent: a second drain does nothing once entries are synced', async () => {
     const store = fakeStore([checkInEntry({ clientId: 'a' })]);
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
-    const deps: DrainDeps = { ...store, gateway: { ...gatewayReturning(null), insertCheckIn }, uid: UID, deviceId: DEVICE };
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
+    const deps: DrainDeps = { ...store, gateway: { ...gatewayReturning(null), upsertCheckIn }, uid: UID, deviceId: DEVICE };
     await drainOutbox(deps);
     await drainOutbox(deps);
-    expect(insertCheckIn).toHaveBeenCalledTimes(1);
+    expect(upsertCheckIn).toHaveBeenCalledTimes(1);
   });
 
   it('stops early on a transient failure, leaving later entries pending', async () => {
@@ -367,11 +433,67 @@ describe('drainOutbox', () => {
     ]);
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? QUOTA_FULL : TIER_FULL }),
+      upsertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? QUOTA_FULL : TIER_FULL }),
     };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(summary.errors).toBe(2);
     expect(summary.lastError).toBe(TIER_FULL.message);
+  });
+
+  it('a denied undo is counted once, never becomes lastError, and is not retried by later drains (z8uq9m2vg6)', async () => {
+    const voidCheckIn = vi.fn(async () => ({
+      error: { code: '42501', message: 'new row violates row-level security policy "check_ins_void_requires_uncheck" for table "check_ins"' },
+    }));
+    const store = fakeStore([
+      {
+        clientId: 'v1',
+        eventId: 'ev1',
+        kind: 'check_in_void',
+        status: 'pending',
+        attempts: 0,
+        createdAt: 't',
+        payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: 't' },
+      },
+    ]);
+    const deps: DrainDeps = { ...store, gateway: { ...gatewayReturning(null), voidCheckIn }, uid: UID, deviceId: DEVICE };
+    const first = await drainOutbox(deps);
+    expect(first).toMatchObject({ denied: 1, errors: 0, deadLettered: 0 });
+    expect(first.lastError).toBeUndefined();
+    expect(store.entries[0].status).toBe('denied');
+    const second = await drainOutbox(deps);
+    expect(second.processed).toBe(0);
+    expect(voidCheckIn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the LATEST payload of an entry a tap coalesced into while the drain was busy (review #423 B2)', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const sent: { id: string; n: number }[] = [];
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'ciA', guestId: 'gA', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'ciB', guestId: 'gB', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      upsertCheckIn: async (row) => {
+        if (row.id === 'ciA') await held;
+        sent.push({ id: row.id!, n: row.plus_ones_arrived ?? 0 });
+        return { error: null };
+      },
+    };
+    const drain = drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    // A is on the wire; the doorhost taps "Check in 1" on B, which coalesces
+    // into B's still-pending entry.
+    await Promise.resolve();
+    store.update('b', { payload: { id: 'ciB', guestId: 'gB', plusOnesArrived: 1, clientTimestamp: 't2' } } as Partial<OutboxEntry>);
+    release();
+    await drain;
+    expect(sent).toEqual([
+      { id: 'ciA', n: 0 },
+      { id: 'ciB', n: 1 },
+    ]);
   });
 
   it('leaves lastError undefined when nothing failed', async () => {
@@ -387,7 +509,7 @@ describe('drainOutbox', () => {
     ]);
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? UNIQUE_GUEST : null }),
+      upsertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? UNIQUE_GUEST : null }),
     };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(summary).toMatchObject({ processed: 2, duplicates: 1, synced: 1, interrupted: false });
@@ -403,7 +525,7 @@ describe('drainOutbox', () => {
     ]);
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? RLS_DENY : null }),
+      upsertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? RLS_DENY : null }),
     };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(summary).toMatchObject({ processed: 2, errors: 1, synced: 1, interrupted: false });
@@ -418,7 +540,7 @@ describe('drainOutbox', () => {
     ]);
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? UNKNOWN_CODE : null }),
+      upsertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? UNKNOWN_CODE : null }),
     };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(summary.interrupted).toBe(false); // alive connection — do not pause
@@ -440,7 +562,7 @@ describe('drainOutbox', () => {
   // O2 — a coded-reject predecessor for the SAME guest must not be skipped past:
   // the successor stays queued untouched rather than replaying out of order.
   it('blocks a same-guest successor behind a still-pending coded-reject predecessor (O2)', async () => {
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
     const store = fakeStore([
       {
         clientId: 'a',
@@ -453,9 +575,9 @@ describe('drainOutbox', () => {
       } as OutboxEntry,
       checkInEntry({ clientId: 'b', payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
     ]);
-    const gw: DoorGateway = { ...gatewayReturning(null), insertGuest: async () => ({ error: UNKNOWN_CODE }), insertCheckIn };
+    const gw: DoorGateway = { ...gatewayReturning(null), insertGuest: async () => ({ error: UNKNOWN_CODE }), upsertCheckIn };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
-    expect(insertCheckIn).not.toHaveBeenCalled(); // never attempted out of order
+    expect(upsertCheckIn).not.toHaveBeenCalled(); // never attempted out of order
     expect(summary.processed).toBe(1); // only the predecessor was touched
     expect(store.entries[0].status).toBe('pending');
     expect(store.entries[1]).toMatchObject({ status: 'pending', attempts: 0 }); // untouched, not skipped-and-marked
@@ -477,7 +599,7 @@ describe('drainOutbox', () => {
         payload: { guestId: 'g1', clientTimestamp: 't' },
       } as OutboxEntry,
     ]);
-    const gw: DoorGateway = { ...gatewayReturning(null), insertCheckIn: async () => ({ error: UNKNOWN_CODE }), voidCheckIn };
+    const gw: DoorGateway = { ...gatewayReturning(null), upsertCheckIn: async () => ({ error: UNKNOWN_CODE }), voidCheckIn };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(voidCheckIn).not.toHaveBeenCalled();
     expect(summary.processed).toBe(1);
@@ -502,7 +624,7 @@ describe('drainOutbox', () => {
     ]);
     const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
-    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, null);
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, null, 't');
     expect(summary).toMatchObject({ processed: 2, synced: 2 });
   });
 
@@ -518,18 +640,18 @@ describe('drainOutbox', () => {
   // A dead-lettered predecessor settles (even if failed) and does NOT block its
   // guest's chain — a later same-guest entry still runs in the same drain.
   it('a same-guest successor still runs in the same drain once its predecessor is dead-lettered', async () => {
-    const insertCheckIn = vi.fn(async (_row: CheckInRow) => ({ error: null }));
+    const upsertCheckIn = vi.fn(async (_row: CheckInRow) => ({ error: null }));
     const store = fakeStore([
       checkInEntry({ clientId: 'a', attempts: MAX_ATTEMPTS - 1, payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
       checkInEntry({ clientId: 'b', payload: { id: 'ci2', guestId: 'g1', plusOnesArrived: 1, clientTimestamp: 't' } }),
     ]);
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => (row.id === 'ci1' ? { error: UNKNOWN_CODE } : insertCheckIn(row)),
+      upsertCheckIn: async (row) => (row.id === 'ci1' ? { error: UNKNOWN_CODE } : upsertCheckIn(row)),
     };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(store.entries[0]).toMatchObject({ status: 'error', attempts: MAX_ATTEMPTS });
-    expect(insertCheckIn).toHaveBeenCalled(); // not blocked behind the now-settled (dead-lettered) predecessor
+    expect(upsertCheckIn).toHaveBeenCalled(); // not blocked behind the now-settled (dead-lettered) predecessor
     expect(summary).toMatchObject({ deadLettered: 1, synced: 1 });
   });
 
@@ -553,7 +675,7 @@ describe('drainOutbox', () => {
     const gw: DoorGateway = {
       ...gatewayReturning(null),
       insertGuest: async () => ({ error: QUOTA_FULL }),
-      insertCheckIn: async () => ({ error: { code: '23503', message: 'guest does not exist' } }),
+      upsertCheckIn: async () => ({ error: { code: '23503', message: 'guest does not exist' } }),
     };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(store.entries[0].status).toBe('error'); // quota-full, terminal
@@ -565,9 +687,9 @@ describe('drainOutbox', () => {
   it('replays a killed-mid-drain entry: resumeStuckEntries → pending → synced (C8)', async () => {
     const store = fakeStore(resumeStuckEntries([checkInEntry({ clientId: 'a', status: 'syncing' })]));
     expect(store.entries[0].status).toBe('pending'); // revived on load
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
-    const summary = await drainOutbox({ ...store, gateway: { ...gatewayReturning(null), insertCheckIn }, uid: UID, deviceId: DEVICE });
-    expect(insertCheckIn).toHaveBeenCalledTimes(1); // the once-orphaned check-in is re-sent
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
+    const summary = await drainOutbox({ ...store, gateway: { ...gatewayReturning(null), upsertCheckIn }, uid: UID, deviceId: DEVICE });
+    expect(upsertCheckIn).toHaveBeenCalledTimes(1); // the once-orphaned check-in is re-sent
     expect(summary.synced).toBe(1);
     expect(store.entries[0].status).toBe('synced');
   });
@@ -585,21 +707,21 @@ describe('replayEntry — outbox owner ≠ draining session', () => {
   const BOB = '22222222-2222-4222-8222-222222222222'; // logged in later, has the network
 
   it('keeps the outbox owner as checked_by and records the syncing user as synced_by', async () => {
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
-    const gw: DoorGateway = { ...gatewayReturning(null), insertCheckIn };
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), upsertCheckIn };
     const result = await replayEntry(gw, checkInEntry({ ownerId: ALICE }), BOB, DEVICE);
     expect(result.status).toBe('synced'); // it went up — no quarantine, no drop
-    expect(insertCheckIn).toHaveBeenCalledWith(
+    expect(upsertCheckIn).toHaveBeenCalledWith(
       expect.objectContaining({ checked_by: ALICE, synced_by: BOB }),
     );
   });
 
   it('never rewrites the actor to the draining session', async () => {
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
-    await replayEntry({ ...gatewayReturning(null), insertCheckIn }, checkInEntry({ ownerId: ALICE }), BOB, DEVICE);
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
+    await replayEntry({ ...gatewayReturning(null), upsertCheckIn }, checkInEntry({ ownerId: ALICE }), BOB, DEVICE);
     // The regression this guards: pre-86ey9et0h the actor came from the live
     // session at drain time, so Alice's check-ins silently landed under Bob.
-    expect(insertCheckIn).not.toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB }));
+    expect(upsertCheckIn).not.toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB }));
   });
 
   it('carries the owner through refusals too', async () => {
@@ -647,24 +769,24 @@ describe('replayEntry — outbox owner ≠ draining session', () => {
       payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: '2026-08-12T01:00:00.000Z' },
     };
     await replayEntry({ ...gatewayReturning(null), voidCheckIn }, entry, BOB, DEVICE);
-    expect(voidCheckIn).toHaveBeenCalledWith('g1', ALICE, 'ci1');
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', ALICE, 'ci1', '2026-08-12T01:00:00.000Z');
   });
 
   it('an entry from an older bundle (no ownerId) still replays under the drain-time session', async () => {
     // Back-compat is load-bearing: OUTBOX_BUSTER is deliberately not bumped, so
     // pre-owner-stamp entries survive the upgrade and must keep working rather
     // than be quarantined for a missing field.
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
-    await replayEntry({ ...gatewayReturning(null), insertCheckIn }, checkInEntry(), BOB, DEVICE);
-    expect(insertCheckIn).toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB }));
-    expect(insertCheckIn).toHaveBeenCalledWith(expect.not.objectContaining({ synced_by: expect.anything() }));
+    const upsertCheckIn = vi.fn(async () => ({ error: null }));
+    await replayEntry({ ...gatewayReturning(null), upsertCheckIn }, checkInEntry(), BOB, DEVICE);
+    expect(upsertCheckIn).toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB }));
+    expect(upsertCheckIn).toHaveBeenCalledWith(expect.not.objectContaining({ synced_by: expect.anything() }));
   });
 
   it('drains a mixed queue of both users in one pass, each row keeping its own actor', async () => {
     const rows: CheckInRow[] = [];
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => {
+      upsertCheckIn: async (row) => {
         rows.push(row);
         return { error: null };
       },

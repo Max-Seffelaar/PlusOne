@@ -16,7 +16,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Label, Btn, Card, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
+import { Avatar, Label, Btn, Card, CountPill, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
 import { tierInk } from '@/lib/po/tier-colors';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
@@ -40,6 +40,7 @@ import { StaleResumeOverlay } from '@/features/door/components/StaleResumeOverla
 import { useStaleResumeGuard } from '@/features/door/sync/useStaleResumeGuard';
 import type { QueryFreshness } from './cockpitFreshness';
 import { useCockpitSync } from './useCockpitSync';
+import { useCanUncheck } from './useCanUncheck';
 import { CockpitTasksCard } from './CockpitTasksCard';
 import { CockpitRefuseModal } from './CockpitRefuseModal';
 import { CockpitGuestRow } from './CockpitGuestRow';
@@ -292,9 +293,16 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
     [tiers]
   );
   const listLocked = editRow?.listLocked ?? false;
-  // Effective "uitchecken toestaan" for this event (#3 / S1.1). When false the ✗
-  // affordance is disabled here; the RESTRICTIVE check_ins policy rejects it too.
-  const allowUncheck = editRow?.allowUncheck ?? true;
+  // Effective "uitchecken toestaan" for this event (#3 / S1.1), made
+  // role-dependent in z8uq9m2vg6: admins and user managers may always undo,
+  // door hosts and crew only with the setting on. Mirrors can_uncheck_check_in;
+  // the RESTRICTIVE check_ins policy is the boundary, this only hides the ✗.
+  // The database answers (useCanUncheck); the role-based guess only covers
+  // the moment before that answer arrives.
+  const allowUncheck = useCanUncheck(
+    eventId,
+    (editRow?.allowUncheck ?? false) || roles.includes('admin') || roles.includes('user_manager'),
+  );
 
   const evGuestReqs = guestRequests.filter((r) => r.eventId === eventId && r.status === 'pending');
   const evQuotaReqs = quotaRequests.filter((r) => r.eventId === eventId);
@@ -345,39 +353,44 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
     if (inside <= 0) return; // already onderweg
     setModal({ kind: 'checkout', guest: g, value: inside }); // default: the whole party
   }, [canCheckIn, allowUncheck, arrivals]);
-  function confirmModal(): void {
-    if (!modal) return;
-    const { kind, guest, value } = modal;
-    if (kind === 'checkin') {
-      const arrived = Math.max(0, value - 1);
+  // Group-first (z8uq9m2vg6): "Check in all" and "Check in 1" both set how many
+  // of the party are inside, as an absolute number of people.
+  function confirmIn(guest: Guest, insideAfter: number): void {
+    const arrived = Math.min(guest.plus, Math.max(0, insideAfter - 1));
+    if (guest.status !== 'in') {
       checkIn.mutate({ guestId: guest.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
       pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: arrived });
-      notify(fmt(t.cockpit.toastCheckedIn, { name: guest.name, plus: arrived > 0 ? ` +${arrived}` : '', inside: value }), 'in');
-    } else if (kind === 'topup') {
-      const inside = insideHeads(guest, arrivals);
-      const newArrived = Math.min(guest.plus, inside - 1 + value);
-      topUp.mutate({ guestId: guest.id, plusOnes: newArrived }, { onError: (e) => notify(e.message) });
-      pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: value });
-      notify(fmt(t.cockpit.toastTopup, { name: guest.name, inside: newArrived + 1 }), 'in');
+      notify(fmt(t.cockpit.toastCheckedIn, { name: guest.name, plus: arrived > 0 ? ` +${arrived}` : '', inside: arrived + 1 }), 'in');
     } else {
-      const inside = insideHeads(guest, arrivals);
-      const leaving = Math.min(inside, Math.max(1, value));
-      const remainingHeads = inside - leaving;
-      // Pin the check-out to the check-in row this cockpit is showing (#35): a
-      // tab that has been open across a peer's re-check-in must no-op, not
-      // check out someone else's guest.
-      checkOut.mutate(
-        { guestId: guest.id, remainingHeads, checkInId: arrivals.get(guest.id)?.id ?? null },
-        { onError: (e) => notify(e.message) }
-      );
-      pushFeed({ kind: 'out', t: amsterdamHM(new Date()), name: guest.name, plus: Math.max(0, leaving - 1) });
-      notify(
-        remainingHeads === 0
-          ? fmt(t.cockpit.toastCheckedOut, { name: guest.name })
-          : fmt(t.cockpit.toastPartialCheckout, { name: guest.name, leaving, remaining: remainingHeads }),
-        'out'
-      );
+      const before = insideHeads(guest, arrivals);
+      topUp.mutate({ guestId: guest.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
+      pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: Math.max(0, arrived + 1 - before) });
+      notify(fmt(t.cockpit.toastTopup, { name: guest.name, inside: arrived + 1 }), 'in');
     }
+    flash(guest.id);
+    setModal(null);
+  }
+  // Check-out only: check-in and top-up go through `confirmIn` (z8uq9m2vg6).
+  function confirmModal(): void {
+    if (!modal || modal.kind !== 'checkout') return;
+    const { guest, value } = modal;
+    const inside = insideHeads(guest, arrivals);
+    const leaving = Math.min(inside, Math.max(1, value));
+    const remainingHeads = inside - leaving;
+    // Pin the check-out to the check-in row this cockpit is showing (#35): a
+    // tab that has been open across a peer's re-check-in must no-op, not
+    // check out someone else's guest.
+    checkOut.mutate(
+      { guestId: guest.id, remainingHeads, checkInId: arrivals.get(guest.id)?.id ?? null },
+      { onError: (e) => notify(e.message) }
+    );
+    pushFeed({ kind: 'out', t: amsterdamHM(new Date()), name: guest.name, plus: Math.max(0, leaving - 1) });
+    notify(
+      remainingHeads === 0
+        ? fmt(t.cockpit.toastCheckedOut, { name: guest.name })
+        : fmt(t.cockpit.toastPartialCheckout, { name: guest.name, leaving, remaining: remainingHeads }),
+      'out'
+    );
     flash(guest.id);
     setModal(null);
   }
@@ -770,26 +783,19 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
               modal.kind === 'checkin' ? v : modal.kind === 'topup' ? ps.insideHeads + v : ps.insideHeads - v;
             const setV = (nv: number): void =>
               setModal((s) => (s ? { ...s, value: Math.min(max, Math.max(1, nv)) } : s));
-            const heading =
-              modal.kind === 'checkin'
-                ? t.cockpit.modalHowManyIn
-                : modal.kind === 'topup'
-                  ? fmt(t.cockpit.modalTopupHeading, { inside: ps.insideHeads, total: ps.totalHeads, n: ps.remaining })
-                  : fmt(t.cockpit.modalCheckoutHeading, { inside: ps.insideHeads, unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural });
-            const stepLabel = modal.kind === 'checkin' ? t.cockpit.stepInside : modal.kind === 'topup' ? t.cockpit.stepMore : t.cockpit.stepCheckOut;
-            const confirmLine =
-              modal.kind === 'checkin'
-                ? fmt(t.cockpit.modalCheckinLine, { v, total: ps.totalHeads, unit: ps.totalHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural })
-                : modal.kind === 'topup'
-                  ? fmt(t.cockpit.modalTopupLine, { after: afterInside, total: ps.totalHeads })
-                  : fmt(t.cockpit.modalCheckoutLine, {
-                      v,
-                      inside: ps.insideHeads,
-                      unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural,
-                      tail: afterInside > 0 ? fmt(t.cockpit.modalCheckoutLineTail, { after: afterInside }) : '',
-                    });
-            const confirmBtn =
-              modal.kind === 'checkin' ? t.cockpit.modalConfirmCheckin : modal.kind === 'topup' ? fmt(t.cockpit.modalConfirmTopup, { n: v }) : t.cockpit.modalConfirmCheckout;
+            // No "how many?" question any more (z8uq9m2vg6): the heading states
+            // the count, the two buttons act on it.
+            const heading = !isOut
+              ? fmt(t.cockpit.modalTopupHeading, { inside: ps.insideHeads, total: ps.totalHeads, n: ps.remaining })
+              : fmt(t.cockpit.modalCheckoutHeading, { inside: ps.insideHeads, unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural });
+            // The stepper below is the check-out's only; check-in and top-up are
+            // the two group-first buttons (z8uq9m2vg6).
+            const confirmLine = fmt(t.cockpit.modalCheckoutLine, {
+              v,
+              inside: ps.insideHeads,
+              unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural,
+              tail: afterInside > 0 ? fmt(t.cockpit.modalCheckoutLineTail, { after: afterInside }) : '',
+            });
             return (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
                 <div className="w-[340px] rounded-[18px] border border-line bg-elev p-5" onClick={(e) => e.stopPropagation()}>
@@ -798,6 +804,23 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                     {g.plus > 0 && <span className="text-acc"> +{g.plus}</span>}
                   </div>
                   <div className="mt-0.5 text-[12.5px] text-faint">{heading}</div>
+                  {!isOut ? (
+                    <div className="mt-4 flex flex-col gap-2">
+                      <Btn desktop full className="justify-center" onClick={() => confirmIn(g, ps.totalHeads)}>
+                        {fmt(t.door.checkInAllBtn, { n: ps.remaining })}
+                      </Btn>
+                      <Btn desktop full kind="ghost" className="justify-center" onClick={() => confirmIn(g, ps.insideHeads + 1)}>
+                        {t.door.checkInOneBtn}
+                        <CountPill ariaLabel={fmt(t.door.partyCountAria, { inside: ps.insideHeads, total: ps.totalHeads })}>
+                          {fmt(t.door.partyCount, { inside: ps.insideHeads, total: ps.totalHeads })}
+                        </CountPill>
+                      </Btn>
+                      <Btn desktop full kind="ghost" className="justify-center" onClick={() => setModal(null)}>
+                        {t.cockpit.modalCancel}
+                      </Btn>
+                    </div>
+                  ) : (
+                  <>
                   <div className={cn('mt-4 flex items-center justify-between gap-3 rounded-[14px] p-2.5', isOut ? 'bg-elev2' : 'bg-acc-dim')}>
                     <button
                       type="button"
@@ -813,7 +836,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                         {v}
                         <span className="text-faint">/{max}</span>
                       </div>
-                      <div className="mt-0.5 text-[11px] text-dim">{stepLabel}</div>
+                      <div className="mt-0.5 text-[11px] text-dim">{t.cockpit.stepCheckOut}</div>
                     </div>
                     <button
                       type="button"
@@ -831,9 +854,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                       {t.cockpit.modalCancel}
                     </Btn>
                     <Btn desktop kind={isOut ? 'dark' : undefined} className="flex-1 justify-center" onClick={confirmModal}>
-                      {confirmBtn}
+                      {t.cockpit.modalConfirmCheckout}
                     </Btn>
                   </div>
+                  </>
+                  )}
                 </div>
               </div>
             );

@@ -14,6 +14,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
+import { formatCompanyAddress, resolveEventLocation } from '@/features/po/adapters';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 
 /** Max ids per `.in()` chunk (CLAUDE.md scale rule) — keeps the profiles lookup
@@ -105,6 +106,22 @@ export interface DoorEventMeta {
   listLocked: boolean;
   /** Effective "uitchecken toestaan" (event override -> venue default -> true, #3 / S1.1). */
   allowUncheck: boolean;
+  /**
+   * May THIS user undo a check-in here (z8uq9m2vg6)? Admin and user manager
+   * always; doorhost/crew only while `allowUncheck` is on. Asked of the
+   * database (`can_uncheck_check_in`, the same function the RLS policy uses),
+   * so the button and the boundary cannot disagree. Optional: a snapshot
+   * persisted by an older bundle has none and falls back to `allowUncheck`.
+   */
+  canUncheck?: boolean;
+  /**
+   * Where the event happens, for the door header: the event's own location
+   * (name, else address), else the company address, else the company name —
+   * `resolveEventLocation`, the one fallback rule the rest of the app uses.
+   * Optional for the same older-snapshot reason; the header falls back to
+   * `venueName`.
+   */
+  locationLabel?: string;
 }
 
 export interface DoorSnapshot {
@@ -134,7 +151,7 @@ type Client = SupabaseClient<Database>;
 export async function fetchDoorSnapshot(client: Client, eventId: string): Promise<DoorSnapshot> {
   const { data: event, error: eventError } = await client
     .from('events')
-    .select('id, name, status, list_locked, allow_uncheck, venue_id')
+    .select('id, name, status, list_locked, allow_uncheck, venue_id, location_name, location_address')
     .eq('id', eventId)
     .single();
   if (eventError || !event) throw new Error(eventError?.message ?? 'Event not found');
@@ -151,9 +168,20 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   // in `20260622140000_checkin_event_scope`; `20260713190000_checkin_scope_venue_pin`
   // made it unconditionally server-derived on every write, which is what makes
   // filtering on it directly trustworthy.
-  const [{ data: venue, error: venueError }, guestRows, { data: tiers, error: tiersError }, checkIns, refusals] =
+  const [
+    { data: venue, error: venueError },
+    guestRows,
+    { data: tiers, error: tiersError },
+    checkIns,
+    refusals,
+    { data: canUncheck, error: canUncheckError },
+  ] =
     await Promise.all([
-      client.from('venues').select('name, allow_uncheck').eq('id', event.venue_id).maybeSingle(),
+      client
+        .from('venues')
+        .select('name, allow_uncheck, address_line, postal_code, city')
+        .eq('id', event.venue_id)
+        .maybeSingle(),
       fetchAllRanged<GuestRow>((from, to) =>
         client
           // Refused guests are fetched too so the door can show a "Geweigerd" lijst
@@ -177,6 +205,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
       fetchAllRanged<RefusalRow>((from, to) =>
         client.from('refusals').select('*').eq('event_id', eventId).order('id').range(from, to),
       ),
+      client.rpc('can_uncheck_check_in', { p_event_id: eventId }),
     ]);
   // `venue`/`tiers` errors must not fall through to a default — a swallowed venues
   // error would resolve `allowUncheck` to `true` below (via `?? true`) on a venue
@@ -184,6 +213,13 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   // server rejects only at outbox replay, after the UI already showed the button.
   if (venueError) throw venueError;
   if (tiersError) throw tiersError;
+  const allowUncheck = resolveAllowUncheck(event.allow_uncheck, venue?.allow_uncheck ?? true);
+  const location = resolveEventLocation({
+    location_name: event.location_name,
+    location_address: event.location_address,
+    venue_name: venue?.name ?? null,
+    venue_address: formatCompanyAddress(venue),
+  });
 
   // Names needed for the logboek + the current user (for optimistic check-ins).
   const ids = new Set<string>();
@@ -215,7 +251,13 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
       venueName: venue?.name ?? '',
       status: event.status,
       listLocked: event.list_locked,
-      allowUncheck: resolveAllowUncheck(event.allow_uncheck, venue?.allow_uncheck ?? true),
+      allowUncheck,
+      // A failed rpc must not take the door down (it is a UI hint; RLS is the
+      // boundary, and a refused undo settles cleanly as `denied`). It also
+      // covers the window where this bundle is live before its migration is
+      // pushed (expand–contract): fall back to the setting itself.
+      canUncheck: canUncheckError || typeof canUncheck !== 'boolean' ? allowUncheck : canUncheck,
+      locationLabel: location.label || (venue?.name ?? ''),
     },
     guests: guestRows,
     tiers: tiers ?? [],
