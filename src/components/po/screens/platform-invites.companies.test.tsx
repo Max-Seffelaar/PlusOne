@@ -107,6 +107,11 @@ describe('Platform > Invites company chips (z8uq9m2ybj)', () => {
     expect(H.switchToVenue).toHaveBeenCalledWith(VENUE);
   });
 
+  it('the already-active company has no Switch (it would do nothing)', () => {
+    render(<Platform />);
+    expect(screen.queryByRole('button', { name: fmt(t.platform.companySwitchAria, { name: 'Club Vesper' }) })).toBeNull();
+  });
+
   it('the events line switches and lands on Events; the active company opens Events directly', () => {
     render(<Platform />);
     fireEvent.click(screen.getByRole('button', { name: fmt(t.platform.companyEventsAria, { name: 'De Marktzaal' }) }));

@@ -48,10 +48,22 @@ describe('toPlatformCompany', () => {
 });
 
 describe('platformCompanyStatus + label', () => {
-  it('a running trial counts whole days left, rounding up', () => {
+  it('a running trial counts Amsterdam calendar days left', () => {
     const c = toPlatformCompany(row());
     expect(platformCompanyStatus(c, NOW)).toEqual({ kind: 'trial', daysLeft: 9 });
     expect(companyStatusLabel(c, NOW)).toBe('Trial · 9 days left');
+  });
+
+  it('a trial ending later today reads "ends today", not "1 day left"', () => {
+    const c = toPlatformCompany(row({ trial_ends_at: '2026-10-08T14:00:00.000Z' }));
+    expect(companyStatusLabel(c, NOW)).toBe('Trial · ends today');
+    const tomorrow = toPlatformCompany(row({ trial_ends_at: '2026-10-09T10:00:00.000Z' }));
+    expect(companyStatusLabel(tomorrow, NOW)).toBe('Trial · 1 day left');
+  });
+
+  it('a Stripe-linked trial shows no countdown, also once our own date has passed', () => {
+    const past = toPlatformCompany(row({ stripe_linked: true, trial_ends_at: '2026-09-18T00:00:00.000Z' }));
+    expect(companyStatusLabel(past, NOW)).toBe('Trial · billing via Stripe');
   });
 
   it('a passed trial without Stripe reads as ended', () => {
@@ -119,29 +131,42 @@ describe('platformRevenue (MRR/ARR from our records)', () => {
   };
 
   it('monthly × monthly price + yearly × yearly price / 12; ARR = MRR × 12', () => {
-    expect(platformRevenue({ paidMonthly: 3, paidYearly: 2 }, prices)).toEqual({
+    expect(platformRevenue({ paidMonthly: 3, paidYearly: 2, paidUnknown: 0 }, prices)).toEqual({
       mrr: 3 * 4900 + (2 * 46800) / 12,
       arr: (3 * 4900 + (2 * 46800) / 12) * 12,
       currency: 'eur',
+      leftOut: 0,
     });
   });
 
   it('no prices (stub / no Stripe key) → null, the UI shows "—"', () => {
-    expect(platformRevenue({ paidMonthly: 3, paidYearly: 0 }, null)).toBeNull();
+    expect(platformRevenue({ paidMonthly: 3, paidYearly: 0, paidUnknown: 0 }, null)).toBeNull();
   });
 
   it('a missing price for a bucket that has payers → null, never a guess', () => {
-    expect(platformRevenue({ paidMonthly: 0, paidYearly: 1 }, { ...prices, year: null })).toBeNull();
-    expect(platformRevenue({ paidMonthly: 1, paidYearly: 0 }, { ...prices, year: null })).toEqual({
+    expect(platformRevenue({ paidMonthly: 0, paidYearly: 1, paidUnknown: 0 }, { ...prices, year: null })).toBeNull();
+    expect(platformRevenue({ paidMonthly: 1, paidYearly: 0, paidUnknown: 0 }, { ...prices, year: null })).toEqual({
       mrr: 4900,
       arr: 58800,
       currency: 'eur',
+      leftOut: 0,
+    });
+  });
+
+  it('paid companies with no known interval are left out of the amount, and counted', () => {
+    // 5 legacy payers + 1 known monthly: the amount is the one we can price,
+    // and leftOut tells the UI to say the other 5 are not in it.
+    expect(platformRevenue({ paidMonthly: 1, paidYearly: 0, paidUnknown: 5 }, prices)).toEqual({
+      mrr: 4900,
+      arr: 58800,
+      currency: 'eur',
+      leftOut: 5,
     });
   });
 
   it('mixed currencies → null', () => {
     expect(
-      platformRevenue({ paidMonthly: 1, paidYearly: 1 }, { ...prices, year: { ...prices.year, currency: 'usd' } }),
+      platformRevenue({ paidMonthly: 1, paidYearly: 1, paidUnknown: 0 }, { ...prices, year: { ...prices.year, currency: 'usd' } }),
     ).toBeNull();
   });
 });

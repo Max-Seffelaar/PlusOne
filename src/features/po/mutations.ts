@@ -1679,7 +1679,6 @@ export function usePoBillingPortal() {
 // admin changes the company they are switched into) refetch.
 
 function invalidatePlatformBilling(qc: QueryClient, venueId: string): void {
-  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-billing'] });
   void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-venues'] });
   void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-companies'] });
   void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-overview'] });

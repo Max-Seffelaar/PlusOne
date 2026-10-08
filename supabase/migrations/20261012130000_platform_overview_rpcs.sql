@@ -12,7 +12,7 @@
 --   2. platform_company_details(uuid[]) — the ONE per-company read both lists
 --      render (one view-model, one adapter): subscription status, interval,
 --      effective trial end, owner's last sign-in, last check-in, event count,
---      latest event name + start. Names and aggregates only — no guest row,
+--      latest event name + start (both over non-cancelled events only). Names and aggregates only — no guest row,
 --      no guest name, no contact detail leaves this function.
 --   3. platform_subscription_counts(), platform_trial_funnel(),
 --      platform_usage_30d() — single-row aggregates for Overview.
@@ -175,6 +175,7 @@ begin
     select count(*)::int as event_count
     from public.events e
     where e.venue_id = v.id
+      and e.cancelled_at is null
   ) ec on true
   left join lateral (
     select e.name, e.starts_at

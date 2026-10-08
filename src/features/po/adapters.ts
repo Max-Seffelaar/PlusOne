@@ -23,7 +23,6 @@ import type {
   PlatformInviteRow,
   PlatformFunnelRow,
   PlatformVenueRow,
-  PlatformSubscriptionRow,
   PlatformVenueOption,
   PlatformAuditRow,
   PlatformAccessLogRow,
@@ -1171,9 +1170,9 @@ export function toPoSubscription(
   };
 }
 
-/** Platform > Companies: one company's billing state (Billing G). Read straight
- *  from `subscriptions` — RLS lets a platform admin read every row
- *  (is_venue_member … or is_platform_admin()). */
+/** Platform > Companies: one company's billing state (Billing G) — the input
+ *  of the trial / always-free controls. Derived from `PlatformCompany`
+ *  (`platformBillingOf`), never a second read or a second adapter. */
 export interface PlatformBilling {
   venueId: string;
   status: Database['public']['Enums']['subscription_status'];
@@ -1182,15 +1181,6 @@ export interface PlatformBilling {
   stripeLinked: boolean;
 }
 
-export function toPlatformBilling(row: PlatformSubscriptionRow): PlatformBilling {
-  return {
-    venueId: row.venue_id,
-    status: row.status,
-    trialEndsAt:
-      row.status === 'trialing' ? effectiveTrialEndsAt(row.created_at, row.trial_ends_at).toISOString() : null,
-    stripeLinked: !!row.stripe_subscription_id,
-  };
-}
 
 // ── Platform (system) admin surface — open-beta invites (P-04) ───────────────
 
@@ -1342,6 +1332,7 @@ export function toPlatformCompany(row: PlatformCompanyRow): PlatformCompany {
 /** What the status chip says. `daysLeft` only for a running trial. */
 export type PlatformCompanyStatus =
   | { kind: 'trial'; daysLeft: number }
+  | { kind: 'trial_stripe' }
   | { kind: 'trial_ended' }
   | { kind: 'paid_monthly' }
   | { kind: 'paid_yearly' }
@@ -1354,12 +1345,15 @@ export type PlatformCompanyStatus =
 export function platformCompanyStatus(company: PlatformCompany, now: number = Date.now()): PlatformCompanyStatus {
   switch (company.status) {
     case 'trialing': {
-      // Stripe-linked trials run on Stripe's clock (card on file); we only
-      // know our own end date, so show it as running when it is still ahead.
-      if (!company.trialEndsAt) return { kind: 'trial', daysLeft: 0 };
-      const msLeft = new Date(company.trialEndsAt).getTime() - now;
-      if (msLeft < 0) return company.stripeLinked ? { kind: 'trial', daysLeft: 0 } : { kind: 'trial_ended' };
-      return { kind: 'trial', daysLeft: Math.ceil(msLeft / DAY_MS) };
+      // A Stripe-linked trial runs on Stripe's clock (card on file): our own
+      // end date can be stale until the next webhook, so no countdown.
+      if (company.stripeLinked) return { kind: 'trial_stripe' };
+      if (!company.trialEndsAt || new Date(company.trialEndsAt).getTime() < now) return { kind: 'trial_ended' };
+      // Calendar days (Amsterdam), so a trial ending later today reads "ends today".
+      const daysLeft = Math.round(
+        (Date.parse(toDateInput(company.trialEndsAt)) - Date.parse(toDateInput(new Date(now).toISOString()))) / DAY_MS,
+      );
+      return { kind: 'trial', daysLeft };
     }
     case 'active':
       return company.interval === 'month'
@@ -1376,6 +1370,18 @@ export function platformCompanyStatus(company: PlatformCompany, now: number = Da
     default:
       return { kind: 'none' };
   }
+}
+
+/** The billing controls' input, projected from the one company view-model;
+ *  null for a company without a subscription row (no controls to show). */
+export function platformBillingOf(company: PlatformCompany): PlatformBilling | null {
+  if (!company.status) return null;
+  return {
+    venueId: company.venueId,
+    status: company.status,
+    trialEndsAt: company.trialEndsAt,
+    stripeLinked: company.stripeLinked,
+  };
 }
 
 // ── Platform R: Overview aggregates ─────────────────────────────────────────
@@ -1452,11 +1458,15 @@ export function toPlatformUsage(row: PlatformUsageRow): PlatformUsage {
  * null when the prices are unknown (stub, Stripe down) or a price we need is
  * missing or in another currency: the UI shows "—", never a guessed number.
  * Amounts in minor units (cents).
+ *
+ * `paidUnknown` (active, no recorded interval — rows from before the column,
+ * until their next webhook) cannot be priced, so it is NOT in the amount, and
+ * never silently: `leftOut` carries the count for the UI to say so.
  */
 export function platformRevenue(
-  counts: Pick<PlatformSubscriptionCounts, 'paidMonthly' | 'paidYearly'>,
+  counts: Pick<PlatformSubscriptionCounts, 'paidMonthly' | 'paidYearly' | 'paidUnknown'>,
   prices: BillingPrices | null
-): { mrr: number; arr: number; currency: string } | null {
+): { mrr: number; arr: number; currency: string; leftOut: number } | null {
   if (!prices) return null;
   const { month, year } = prices;
   if (counts.paidMonthly > 0 && !month) return null;
@@ -1465,8 +1475,7 @@ export function platformRevenue(
   if (!currency) return null;
   if (month && year && month.currency.toLowerCase() !== year.currency.toLowerCase()) return null;
   const mrr = counts.paidMonthly * (month?.unitAmount ?? 0) + (counts.paidYearly * (year?.unitAmount ?? 0)) / 12;
-  const rounded = Math.round(mrr);
-  return { mrr: rounded, arr: Math.round(mrr * 12), currency };
+  return { mrr: Math.round(mrr), arr: Math.round(mrr * 12), currency, leftOut: counts.paidUnknown };
 }
 
 export interface PlatformVenueOptionItem {

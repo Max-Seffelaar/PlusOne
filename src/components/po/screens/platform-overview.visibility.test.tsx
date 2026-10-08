@@ -22,6 +22,7 @@ const H = vi.hoisted(() => ({
   usageCalls: 0,
   pricesCalls: 0,
   prices: null as unknown,
+  paidUnknown: 0,
 }));
 
 vi.mock('../context', () => ({
@@ -34,7 +35,7 @@ vi.mock('@/features/po/hooks', () => ({
     H.countsCalls += 1;
     return {
       data: {
-        total: 2, trialing: 1, trialLapsed: 0, paidMonthly: 0, paidYearly: 0, paidUnknown: 0,
+        total: 2, trialing: 1, trialLapsed: 0, paidMonthly: 0, paidYearly: 0, paidUnknown: H.paidUnknown,
         pastDue: 0, canceled: 0, comped: 1, noSubscription: 0,
       },
       isError: false,
@@ -68,6 +69,7 @@ afterEach(() => {
   H.usageCalls = 0;
   H.pricesCalls = 0;
   H.prices = null;
+  H.paidUnknown = 0;
 });
 
 describe('Platform > Overview visibility (z8uq9m2ybj)', () => {
@@ -94,6 +96,14 @@ describe('Platform > Overview visibility (z8uq9m2ybj)', () => {
     render(<PlatformOverview />);
     // 0 monthly payers in the mocked counts → €0, not "—": prices are known.
     expect(screen.getByTestId('platform-overview-revenue')).toHaveTextContent(`€0${t.platform.overviewMrr}`);
+  });
+
+  it('says how many paying companies with no known interval the amount leaves out', () => {
+    H.isPlatformAdmin = true;
+    H.paidUnknown = 3;
+    H.prices = { month: { interval: 'month', unitAmount: 4900, currency: 'eur' }, year: null };
+    render(<PlatformOverview />);
+    expect(screen.getByText(/Leaves out 3 paying companies with no known interval\./)).toBeDefined();
   });
 
   it('hides the revenue card and never asks for prices inside the native shell', () => {

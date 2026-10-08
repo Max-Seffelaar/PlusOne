@@ -162,6 +162,7 @@ function PlatformConsole(): JSX.Element {
                 invite={inv}
                 companies={companiesQ.data}
                 companiesError={companiesQ.isError}
+                activeVenueId={activeVenueId}
                 onSwitch={switchToVenue}
                 onOpenEvents={openEvents}
                 onRevoke={() => setConfirmRevoke(inv)}
@@ -364,6 +365,7 @@ function InviteCard({
   invite,
   companies,
   companiesError,
+  activeVenueId,
   onSwitch,
   onOpenEvents,
   onRevoke,
@@ -371,6 +373,7 @@ function InviteCard({
   invite: PlatformInvite;
   companies: Map<string, PlatformCompany> | undefined;
   companiesError: boolean;
+  activeVenueId: string | null | undefined;
   onSwitch: (venueId: string) => void;
   onOpenEvents: (venueId: string) => void;
   onRevoke: () => void;
@@ -428,7 +431,8 @@ function InviteCard({
                 <CompanyChip
                   key={id}
                   company={company}
-                  onSwitch={() => onSwitch(id)}
+                  // switchToVenue no-ops on the active company: no button.
+                  onSwitch={id === activeVenueId ? undefined : () => onSwitch(id)}
                   onOpenEvents={() => onOpenEvents(id)}
                 />
               ) : null;

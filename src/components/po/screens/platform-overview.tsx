@@ -162,6 +162,20 @@ function RevenueCard({ counts }: { counts: PlatformSubscriptionCounts | null }):
   const money = (minor: number | undefined): string =>
     revenue && minor !== undefined ? formatPriceAmount({ unitAmount: minor, currency: revenue.currency }) : DASH;
   const noPrices = pricesQ.isSuccess && pricesQ.data === null;
+  // Active companies without a recorded interval can't be priced: they are
+  // not in the amount, and the hint says so instead of hiding them.
+  const leftOut = counts?.paidUnknown ?? 0;
+  const hint = [
+    t.platform.overviewRevenueHint,
+    noPrices ? t.platform.overviewRevenueNoPrices : null,
+    leftOut === 1
+      ? t.platform.overviewRevenueLeftOutOne
+      : leftOut > 1
+        ? fmt(t.platform.overviewRevenueLeftOut, { count: leftOut })
+        : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <>
@@ -170,7 +184,7 @@ function RevenueCard({ counts }: { counts: PlatformSubscriptionCounts | null }):
         <StatTile label={t.platform.overviewMrr} value={money(revenue?.mrr)} accent />
         <StatTile label={t.platform.overviewArr} value={money(revenue?.arr)} />
       </div>
-      <Hint>{noPrices ? `${t.platform.overviewRevenueHint} ${t.platform.overviewRevenueNoPrices}` : t.platform.overviewRevenueHint}</Hint>
+      <Hint>{hint}</Hint>
     </>
   );
 }

@@ -66,7 +66,6 @@ import {
   fetchPlatformInvites,
   fetchPlatformFunnel,
   fetchPlatformVenueOverview,
-  fetchPlatformSubscriptions,
   fetchPlatformVenueOverviewCount,
   fetchPlatformVenueOptions,
   fetchPlatformAuditOverview,
@@ -120,7 +119,6 @@ import {
   toPlatformInvite,
   toPlatformFunnel,
   toPlatformVenue,
-  toPlatformBilling,
   toPlatformVenueOption,
   toPlatformAuditEntry,
   toPlatformAccessLogEntry,
@@ -136,7 +134,6 @@ import {
   type PlatformInvite,
   type PlatformInviteStage,
   type PlatformVenue,
-  type PlatformBilling,
   type PlatformVenueOptionItem,
   type PlatformAuditEntry,
   type PoContact,
@@ -1430,21 +1427,6 @@ export function usePoBillingPrices(options?: { enabled?: boolean }) {
       const res = await getBillingPricesAction();
       return res.ok ? res.prices : null;
     },
-  });
-}
-
-/** Billing state for the companies on one Platform > Companies page. */
-export function usePoPlatformBilling(venueIds: readonly string[], options?: { enabled?: boolean }) {
-  return useQuery<Map<string, PlatformBilling>>({
-    queryKey: poKeys.platformBilling(venueIds),
-    enabled: (options?.enabled ?? true) && venueIds.length > 0,
-    queryFn: async () =>
-      new Map(
-        (await fetchPlatformSubscriptions(createClient(), venueIds)).map((row) => {
-          const b = toPlatformBilling(row);
-          return [b.venueId, b] as const;
-        })
-      ),
   });
 }
 

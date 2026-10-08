@@ -10,7 +10,8 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { t } from '@/lib/i18n';
-import type { PlatformBilling, PlatformVenue } from '@/features/po/adapters';
+import type { PlatformCompany, PlatformVenue } from '@/features/po/adapters';
+import { companyStatusLabel } from './platform-company';
 
 const VENUE: PlatformVenue = {
   venueId: 'aa000000-0000-7000-8000-000000000002',
@@ -23,7 +24,8 @@ const VENUE: PlatformVenue = {
 };
 
 const H = vi.hoisted(() => ({
-  billing: null as unknown,
+  company: null as unknown,
+  activeVenueId: 'aa000000-0000-7000-8000-000000000001',
   trialMutate: vi.fn(),
   compedMutate: vi.fn(),
 }));
@@ -32,12 +34,16 @@ vi.mock('../context', () => ({
   useNav: () => ({ push: vi.fn(), back: vi.fn(), canGoBack: false }),
   usePo: () => ({ switchToVenue: vi.fn() }),
 }));
+vi.mock('@/features/po/PoLiveProvider', () => ({
+  usePoIdentity: () => ({ userId: 'u1', venueId: H.activeVenueId, roles: [] }),
+}));
 vi.mock('@/features/po/hooks', () => ({
   usePoIsPlatformAdmin: () => true,
   usePoPlatformVenues: () => ({ data: [VENUE], isLoading: false, isError: false }),
   usePoPlatformVenuesCount: () => ({ data: 1 }),
-  usePoPlatformBilling: () => ({ data: new Map([[VENUE.venueId, H.billing]]), isError: false }),
-  usePoPlatformCompanies: () => ({ data: new Map(), isError: false }),
+  // One read for the whole card (Platform R): the billing controls are
+  // projected from the same PlatformCompany the Invites list renders.
+  usePoPlatformCompanies: () => ({ data: new Map([[VENUE.venueId, H.company]]), isLoading: false, isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => ({
   usePoSetVenueTrialEnd: () => ({ mutate: H.trialMutate, reset: vi.fn(), isPending: false, error: null }),
@@ -47,11 +53,17 @@ vi.mock('@/features/po/mutations', () => ({
 const { PlatformVenues } = await import('./platform-venues');
 
 const inDays = (d: number): string => new Date(Date.now() + d * 86_400_000).toISOString();
-const trialing = (over: Partial<PlatformBilling> = {}): PlatformBilling => ({
+const trialing = (over: Partial<PlatformCompany> = {}): PlatformCompany => ({
   venueId: VENUE.venueId,
+  name: VENUE.name,
   status: 'trialing',
+  interval: null,
   trialEndsAt: inDays(9),
   stripeLinked: false,
+  ownerLastSignInAt: null,
+  lastCheckInAt: null,
+  eventCount: 0,
+  lastEvent: null,
   ...over,
 });
 
@@ -61,28 +73,29 @@ afterEach(() => {
 });
 
 describe('Platform > Companies — trial / always free', () => {
-  it('a running trial reads "Trial until <date>" and is not always free', () => {
-    H.billing = trialing();
+  it('a running trial shows the SAME status text as Invites, and is not always free', () => {
+    H.company = trialing();
     render(<PlatformVenues />);
-    expect(screen.getByText(/^Trial until \d+ \w+$/)).toBeInTheDocument();
+    expect(screen.getByText(companyStatusLabel(trialing()))).toBeInTheDocument();
+    expect(screen.getByText(/^Trial · \d+ days left$/)).toBeInTheDocument();
     expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('a lapsed trial reads "Trial ended <date>"', () => {
-    H.billing = trialing({ trialEndsAt: inDays(-3) });
+  it('a lapsed trial reads "Trial ended"', () => {
+    H.company = trialing({ trialEndsAt: inDays(-3) });
     render(<PlatformVenues />);
-    expect(screen.getByText(/^Trial ended \d+ \w+$/)).toBeInTheDocument();
+    expect(screen.getByText(t.platform.companyTrialEnded)).toBeInTheDocument();
   });
 
   it('switching "Always free" on sets comped', () => {
-    H.billing = trialing();
+    H.company = trialing();
     render(<PlatformVenues />);
     fireEvent.click(screen.getByRole('switch'));
     expect(H.compedMutate).toHaveBeenCalledWith({ venueId: VENUE.venueId, comped: true });
   });
 
   it('an always-free company shows it, and switching off un-comps it', () => {
-    H.billing = trialing({ status: 'comped', trialEndsAt: null });
+    H.company = trialing({ status: 'comped', trialEndsAt: null });
     render(<PlatformVenues />);
     expect(screen.getAllByText(t.platform.billingAlwaysFree).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('switch'));
@@ -90,7 +103,7 @@ describe('Platform > Companies — trial / always free', () => {
   });
 
   it('"Set trial end" sends the picked calendar day', () => {
-    H.billing = trialing();
+    H.company = trialing();
     render(<PlatformVenues />);
     const input = document.querySelector('input[type="date"]') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '2026-12-31' } });
@@ -98,8 +111,19 @@ describe('Platform > Companies — trial / always free', () => {
     expect(H.trialMutate).toHaveBeenCalledWith({ venueId: VENUE.venueId, trialEndsOn: '2026-12-31' });
   });
 
+  it('no Switch for the company that is already active (switching would do nothing)', () => {
+    H.company = trialing();
+    render(<PlatformVenues />);
+    expect(screen.getByRole('button', { name: new RegExp(t.platform.venuesSwitchInto) })).toBeInTheDocument();
+    cleanup();
+    H.activeVenueId = VENUE.venueId;
+    render(<PlatformVenues />);
+    expect(screen.queryByRole('button', { name: new RegExp(t.platform.venuesSwitchInto) })).not.toBeInTheDocument();
+    H.activeVenueId = 'aa000000-0000-7000-8000-000000000001';
+  });
+
   it('a Stripe-linked company has no controls, only the note', () => {
-    H.billing = trialing({ status: 'active', trialEndsAt: null, stripeLinked: true });
+    H.company = trialing({ status: 'active', trialEndsAt: null, stripeLinked: true });
     render(<PlatformVenues />);
     expect(screen.getByText(t.platform.billingStripeManaged)).toBeInTheDocument();
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();

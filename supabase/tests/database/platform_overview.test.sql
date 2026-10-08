@@ -41,7 +41,7 @@ begin
 end;
 $fn$;
 
-select plan(45);
+select plan(46);
 
 -- ---------------------------------------------------------------------------
 -- Fixture: one platform admin with no venue membership
@@ -266,6 +266,16 @@ select results_eq(
 select is(
   (select d.last_event_name from public.platform_company_details(array['aa000000-0000-7000-8000-000000000002'::uuid]) d),
   'Past Night', 'T45 company_details picks up the new latest event');
+
+select pg_temp.as_postgres();
+update public.events set cancelled_at = now()
+ where venue_id = 'aa000000-0000-7000-8000-000000000002' and name = 'Past Night';
+select pg_temp.login('99999999-9999-4999-8999-999999999999');
+select results_eq(
+  $$ select event_count, last_event_name from public.platform_company_details(
+       array['aa000000-0000-7000-8000-000000000002'::uuid]) $$,
+  $$ values (0, null::text) $$,
+  'T46 a cancelled event counts in neither the event count nor the latest event');
 
 select * from finish();
 rollback;

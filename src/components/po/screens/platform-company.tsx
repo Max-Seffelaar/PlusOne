@@ -38,6 +38,8 @@ export function companyStatusLabel(company: PlatformCompany, now: number = Date.
       return s.daysLeft === 1
         ? t.platform.companyTrialDayLeft
         : fmt(t.platform.companyTrialDaysLeft, { count: s.daysLeft });
+    case 'trial_stripe':
+      return t.platform.companyTrialStripe;
     case 'trial_ended':
       return t.platform.companyTrialEnded;
     case 'paid_monthly':
@@ -113,14 +115,15 @@ export function CompanyDetail({
   );
 }
 
-/** One company under an invite: name, detail, Switch. */
+/** One company under an invite: name, detail, Switch. No `onSwitch` = the
+ *  company is already the active one, so there is nothing to switch to. */
 export function CompanyChip({
   company,
   onSwitch,
   onOpenEvents,
 }: {
   company: PlatformCompany;
-  onSwitch: () => void;
+  onSwitch?: () => void;
   onOpenEvents: () => void;
 }): JSX.Element {
   return (
@@ -132,16 +135,18 @@ export function CompanyChip({
             <CompanyDetail company={company} onOpenEvents={onOpenEvents} />
           </div>
         </div>
-        <Btn
-          kind="ghost"
-          sm
-          icon="swap"
-          className="min-h-[44px] shrink-0"
-          ariaLabel={fmt(t.platform.companySwitchAria, { name: company.name })}
-          onClick={onSwitch}
-        >
-          {t.platform.companySwitch}
-        </Btn>
+        {onSwitch && (
+          <Btn
+            kind="ghost"
+            sm
+            icon="swap"
+            className="min-h-[44px] shrink-0"
+            ariaLabel={fmt(t.platform.companySwitchAria, { name: company.name })}
+            onClick={onSwitch}
+          >
+            {t.platform.companySwitch}
+          </Btn>
+        )}
       </div>
     </div>
   );

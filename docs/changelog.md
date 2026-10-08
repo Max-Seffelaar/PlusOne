@@ -18,6 +18,13 @@ Milestone **Now** (decision Max 2026-10-06: right after Billing G). Draft PR, no
   - Index `check_ins (venue_id, checked_at desc)` so "last check-in per company" is an index probe.
 - **App:** one view-model `PlatformCompany` / `toPlatformCompany` rendered by both Invites (a chip per company with Switch and a tappable events line) and Companies (`platform-company.tsx`). New screen `platformoverview` (`/app/platform/overview`): companies per status, MRR/ARR from our records × `listPrices()` via the existing `getBillingPricesAction` ("—" without prices), trial funnel, 30-day usage. The revenue card is not rendered and prices are not requested inside the native shell. Switch reuses the shell's `switchToVenue` (platform_access_log row for a non-member). `Btn` gained an optional `ariaLabel`.
 - **Tests:** pgTAP `platform_overview.test.sql` (45). Vitest: adapters/MRR, invite chips → Switch, Overview visibility incl. the native-shell seam. Flow `platform-overview` (10 asserts × 4 variants, green). Layout suite has the new screen (5 devices).
+- **Review round (fresh reviewer, clean, 2 should-fix + 4 nits):**
+  - MRR/ARR now say how many paying companies without a known interval they leave out.
+  - Companies reads only `platform_company_details` for billing state. `PlatformBilling` is projected via `platformBillingOf`; the separate `subscriptions` read and `billingChipLabel` are gone. One status formatter (`companyStatusLabel`) now serves Invites and Companies.
+  - Cancelled events are excluded from both event count and latest event.
+  - The trial chip counts calendar days, and shows "billing via Stripe" for Stripe-linked trials.
+  - No Switch for the already-active company.
+  - Open for Max: last event can lie in the future; the funnel's "converted" counts `past_due`.
 - **Daily digest (§9 item 19): not built.** It needs a scheduler and a service-role send path; the design proposal is in the PR body for Max to decide.
 
 ---
