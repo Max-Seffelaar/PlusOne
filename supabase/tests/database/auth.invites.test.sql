@@ -40,11 +40,25 @@ begin
 end;
 $fn$;
 
+-- z8uq9m2yvp: nothing accepts at login any more. A test "accepts" the way the app
+-- does: one accept_invite() call per open invite the signed-in user sees in
+-- my_pending_invites() (team invites first, as the legacy accept-all did).
+create function pg_temp.accept_open()
+returns int language plpgsql as $fn$
+declare r record; n int := 0;
+begin
+  for r in select id from public.my_pending_invites() order by cardinality(roles) desc, created_at loop
+    if public.accept_invite(r.id) then n := n + 1; end if;
+  end loop;
+  return n;
+end;
+$fn$;
+
 -- Fixed UUIDs reused below.
 -- v1 = aa000000-0000-7000-8000-000000000001, v2 = ...0002
 -- Max=1111…, Noor=2222…, Femke=3333…, Yusuf=4444…, Tom=5555…, Lisa=6666…
 
-select plan(46);
+select plan(48);
 
 -- ---------------------------------------------------------------------------
 -- A. invites INSERT — who may invite (role-only since 20260702120000, MFA
@@ -133,12 +147,22 @@ select is((select count(*)::int from public.invites), 1,
 reset role;
 
 -- ---------------------------------------------------------------------------
--- D. accept_pending_invites — provision, expiry, idempotency, role merge
+-- D. explicit accept (accept_invite, z8uq9m2yvp) — provision, expiry, idempotency, role merge
 -- ---------------------------------------------------------------------------
+
+-- D0: the LOGIN path (accept_pending_invites) accepts nothing (z8uq9m2yvp):
+-- the invite stays open and no membership appears until the explicit accept.
+select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+select is(public.accept_pending_invites(), 0, 'D0 the login path accepts no invite');
+reset role;
+select is((select count(*)::int from public.venue_memberships
+           where user_id = '44444444-4444-4444-8444-444444444444'
+             and venue_id = 'aa000000-0000-7000-8000-000000000001'),
+          0, 'D0b no membership exists before the invitee accepts');
 
 -- D1: Yusuf (no membership yet) accepts → exactly one invite consumed.
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
-select is(public.accept_pending_invites(), 1, 'D1 invitee accepts one pending invite');
+select is(pg_temp.accept_open(), 1, 'D1 invitee accepts one pending invite');
 reset role;
 select is((select count(*)::int from public.venue_memberships
            where user_id = '44444444-4444-4444-8444-444444444444'
@@ -151,7 +175,7 @@ select is((select accepted_at is not null from public.invites
 
 -- D4: re-accepting with nothing pending is a no-op.
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
-select is(public.accept_pending_invites(), 0, 'D4 acceptance is idempotent (nothing pending)');
+select is(pg_temp.accept_open(), 0, 'D4 acceptance is idempotent (nothing pending)');
 reset role;
 
 -- D5: a second invite (now pending again, since the first is accepted) merges
@@ -160,7 +184,7 @@ insert into public.invites (venue_id, email, roles, invited_by, expires_at)
 values ('aa000000-0000-7000-8000-000000000001', 'organizer@plusone.test', '{doorhost}',
         '11111111-1111-4111-8111-111111111111', now() + interval '7 days');
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
-select is(public.accept_pending_invites(), 1, 'D5 a follow-up invite is accepted');
+select is(pg_temp.accept_open(), 1, 'D5 a follow-up invite is accepted');
 reset role;
 select is((select roles @> '{staff,doorhost}'::public.venue_role[]
            from public.venue_memberships
@@ -173,7 +197,7 @@ insert into public.invites (venue_id, email, roles, invited_by, expires_at)
 values ('aa000000-0000-7000-8000-000000000002', 'organizer@plusone.test', '{staff}',
         '11111111-1111-4111-8111-111111111111', now() - interval '1 day');
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
-select is(public.accept_pending_invites(), 0, 'D7 an expired invite is ignored');
+select is(pg_temp.accept_open(), 0, 'D7 an expired invite is ignored');
 reset role;
 select is((select count(*)::int from public.venue_memberships
            where user_id = '44444444-4444-4444-8444-444444444444'
@@ -189,7 +213,7 @@ insert into public.invites (venue_id, email, roles, invited_by, expires_at, defa
 values ('aa000000-0000-7000-8000-000000000002', 'staff@plusone.test', '{staff}',
         '11111111-1111-4111-8111-111111111111', now() + interval '7 days', 9);
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal1', 'staff@plusone.test');
-select is(public.accept_pending_invites(), 1, 'D9 an invite carrying a quota is accepted');
+select is(pg_temp.accept_open(), 1, 'D9 an invite carrying a quota is accepted');
 reset role;
 select is((select default_count from public.quotas
            where user_id = '55555555-5555-4555-8555-555555555555'
@@ -204,7 +228,7 @@ insert into public.invites (venue_id, email, roles, invited_by, expires_at, defa
 values ('aa000000-0000-7000-8000-000000000002', 'staff@plusone.test', '{staff}',
         '11111111-1111-4111-8111-111111111111', now() + interval '7 days', 99);
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal1', 'staff@plusone.test');
-select is(public.accept_pending_invites(), 1, 'D11 a follow-up invite is accepted');
+select is(pg_temp.accept_open(), 1, 'D11 a follow-up invite is accepted');
 reset role;
 select is((select default_count from public.quotas
            where user_id = '55555555-5555-4555-8555-555555555555'
@@ -367,7 +391,7 @@ reset role;
 
 -- G3: the invitee (Tom = staff@) accepts → becomes organizer of the venue-1 event.
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal1', 'staff@plusone.test');
-select ok(public.accept_pending_invites() >= 1, 'G3 invitee accepts the event-scope invite');
+select ok(pg_temp.accept_open() >= 1, 'G3 invitee accepts the event-scope invite');
 reset role;
 select is((select count(*)::int from public.event_organizers
            where user_id = '55555555-5555-4555-8555-555555555555'

@@ -81,12 +81,26 @@ export const shared = {
   invites: {
     headingOne: 'You have an open invite',
     headingMany: 'You have {n} open invites',
+    /** Under the heading: why nothing happens until they tap (z8uq9m2yvp). */
+    note: 'The company only sees your details once you accept.',
+    accept: 'Accept',
+    decline: 'Decline',
     accepting: 'Accepting…',
-    acceptOne: 'Accept invite',
-    acceptMany: 'Accept invites',
+    declining: 'Declining…',
+    /** Decline asks first (z8uq9m2yvp): the one action this screen can't undo. */
+    confirmDecline: 'Decline this invite? You can ask {company} to invite you again later.',
+    keep: 'Keep',
+    declineConfirm: 'Decline invite',
     error: "Couldn't accept the invite. Try again.",
+    declineError: "Couldn't decline the invite. Try again.",
+    notOpen: 'This invite is no longer open.',
+    /** Shown after a decline; the inviter and the decliner are also mailed. */
+    declinedNotice: "You declined the invite from {company}. We'll let them know.",
     /** Stand-in when the inviting company's name can't be read (z8uq9m2vqc). */
     companyFallback: 'a company',
+    /** A crew invite (z8uq9m2yvp): one event at one company. */
+    crewLine: 'Crew · {event} at {company}',
+    eventFallback: 'an event',
   },
 
   // ── Country picker (country-select.tsx) ───────────────────────────────────

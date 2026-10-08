@@ -44,9 +44,12 @@ values ('cc000000-0000-7000-8000-00000000c001', 'ee000000-0000-7000-8000-0000000
 insert into public.check_ins (guest_id, checked_by, plus_ones_arrived)
 values ('cc000000-0000-7000-8000-00000000c001', '11111111-1111-4111-8111-111111111111', 2);
 
--- 1. Default (venue true, event null) -> resolver true.
+-- 1. Venue true, event null -> resolver true. Since z8uq9m2vg6 the column
+--    default is false (proven in check_ins_uncheck_roles.test.sql), so the
+--    venue is switched on explicitly here.
+update public.venues set allow_uncheck = true where id = 'aa000000-0000-7000-8000-000000000001';
 select is(public.event_allows_uncheck('ee000000-0000-7000-8000-000000000001'), true,
-  '1 default (venue true, no override) -> uncheck allowed');
+  '1 venue true, no override -> uncheck allowed');
 
 -- 2. Doorhost CAN void when allowed.
 select pg_temp.login('66666666-6666-4666-8666-666666666666');

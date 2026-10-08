@@ -28,16 +28,10 @@ export const onboarding = {
     retentionNote: 'Guest data is anonymized to “Guest #X” after this period. Default 12 months, 1 minimum.',
     retentionMonths: '{n} mo',
     billingLabel: 'Billing',
-    billingNotePre: 'Every company gets its own subscription, and yours starts in ',
-    billingNoteBold1: 'onboarding',
-    billingNoteMid: '. Leave your billing details and finish payment later. Pilots can run on ',
-    billingNoteBold2: 'comped',
-    billingNotePost: '.',
     billingEmailLabel: 'Billing email',
     billingEmailPlaceholder: 'billing@company.com',
     vatLabel: 'VAT (optional)',
     vatPlaceholder: 'NL000000000B00',
-    paymentNote: "We never store your IBAN or card details. The payment provider handles that (SEPA Direct Debit / iDEAL).",
     /** The company WAS created; only the follow-up active-company switch was refused
      *  (86eykm7rk). Never reuse `venue.switchFailed` here: telling someone they
      *  have lost access to the company they just made is false, and its "refresh
@@ -84,5 +78,18 @@ export const onboarding = {
     skipHintPost: '.',
     sendError: "Couldn't send the invite.",
     finishError: "Couldn't finish setting up. Try again.",
+  },
+
+  // Someone with no company yet but an open invite, team or crew (z8uq9m2yvp):
+  // each one is accepted or declined here, never at login, instead of being sent
+  // into company setup. Shown before the wizard.
+  invites: {
+    badge: 'Invite',
+    headingOne: "You've been invited",
+    headingMany: 'You have {n} invites',
+    sub: 'Accept to join. The company only sees your details once you accept.',
+    ownCompany: 'Set up my own company instead',
+    /** After the last invite is declined: the way on is company setup. */
+    ownCompanyAfter: 'Set up my own company',
   },
 } as const;

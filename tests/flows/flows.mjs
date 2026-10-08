@@ -70,6 +70,29 @@ export const FLOWS = {
       'src/components/po/screens/settings',
     ],
   },
+  'crew-existing-account': {
+    title: 'Crew — an existing account is invited, accepts or declines per invite (Home banner, onboarding), sees only that event (#24)',
+    paths: [
+      'src/components/po/screens/events/crew',
+      'src/components/po/pending-invites-banner.tsx',
+      'src/features/events/actions.ts',
+      'src/features/auth/invite-actions.ts',
+      'src/features/mail/declined.ts',
+      'src/features/onboarding/components/steps/InviteStep',
+      'src/app/onboarding/',
+    ],
+  },
+  'team-crew-manage': {
+    title: 'Team — an admin manages external crew per event: quota and remove from crew (z8uq9m2yvp)',
+    paths: [
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/events/crew',
+      'src/features/po/queries.ts',
+      'src/features/po/adapters.ts',
+      'src/features/po/mutations.ts',
+      'src/features/events/actions.ts',
+    ],
+  },
   'company-rename': {
     title: 'Venue → Company — copy sweep, Type options, per-event location → cards, detail, /e/[slug]',
     paths: [
@@ -86,6 +109,17 @@ export const FLOWS = {
       'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
+  'door-checkin': {
+    title: 'Door check-in D — Check in all / Check in 1 (3/4), one row, undo refused with the setting off',
+    paths: [
+      'src/features/door/',
+      'src/features/po/eventday/',
+      'src/features/po/mutations.ts',
+      'src/components/po/screens/door',
+      'src/components/po/door-',
+      'src/components/po/screens/settings/venue.tsx',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [
@@ -95,6 +129,23 @@ export const FLOWS = {
       'src/components/native-',
       'src/lib/native/',
       'capacitor.config.ts',
+    ],
+  },
+  billing: {
+    title: 'Billing G — More → Billing: one plan Pro, monthly / yearly, browser vs native, admin / finance / manager',
+    paths: [
+      'src/features/billing/',
+      'src/features/po/',
+      'src/components/po/screens/settings',
+      'src/lib/auth/onboarding.ts',
+    ],
+  },
+  'platform-billing': {
+    title: 'Billing G — Platform → Companies: always free / trial until, audited on the admin',
+    paths: [
+      'src/features/billing/',
+      'src/features/po/',
+      'src/components/po/screens/platform',
     ],
   },
 };

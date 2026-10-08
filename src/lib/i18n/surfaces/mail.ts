@@ -26,7 +26,8 @@ export const mail = {
   ],
 
   // Shared paragraphs after the steps.
-  joinBanner: 'Already logged in? Open PlusOne and accept the invite in the banner at the top.',
+  joinBanner:
+    "Once you're in, tap Accept on the invite. It's in the banner at the top of Home, or on the first screen if you don't have a company yet. You can decline it there too.",
   joinSwitch:
     'On more than one team? {company} sits next to your other companies. On your phone, go to More and tap the company card at the top. On a computer, use the company card at the top of the sidebar.',
   joinOpenFor: 'The invite is open for 7 days.',
@@ -43,14 +44,18 @@ export const mail = {
   teamJoin: {
     subject: '{inviter} invited you to join {company}',
     heading: "You're invited to {company}",
-    intro: "{inviter} added you to the {company} team on PlusOne. You already have a login, so there's nothing new to set up.",
+    intro:
+      "{inviter} invited you to join the {company} team on PlusOne. You already have a login. Accept the invite in the app to join. Until you do, {company} can't see your details.",
   },
 
+  /** Crew invite (z8uq9m2yvp): nothing changes until they accept in the app. */
   teamAddedToEvent: {
-    subject: '{inviter} added you to {event}',
-    heading: "You're on the crew for {event}",
-    intro: '{inviter} added you to the crew for {event} at {company}.',
+    subject: '{inviter} invited you to the crew for {event}',
+    heading: "You're invited to the crew for {event}",
+    intro: '{inviter} invited you to the crew for {event} at {company}. Accept the invite in the app to join.',
   },
+  crewAccept:
+    "Log in and tap Accept on the invite. It's in the banner at the top of Home, or on the first screen if you don't have a company yet. You can decline it there too. You're on the crew from the moment you accept.",
 
   teamResendJoin: {
     subject: 'Reminder: {inviter} invited you to join {company}',
@@ -63,6 +68,40 @@ export const mail = {
     heading: "You're on the crew at {company}",
     intro: "{inviter} sent you a reminder. You're still on the crew at {company}.",
   },
+
+  /** Stands in for {event} when a crew invite's event can't be read. */
+  eventFallback: 'an event',
+
+  // Decline mails (z8uq9m2yvp). To the inviter: which address declined, always
+  // the address as typed on the invite, never a profile name (the invitee has
+  // not shared one). To the decliner: a confirmation. No login steps in either.
+  inviteDeclinedTeam: {
+    subject: '{invitee} declined your invite to {company}',
+    heading: '{invitee} declined your invite',
+    intro:
+      '{invitee} declined your invite to join {company} on PlusOne. Nothing changed in {company} and nothing was shared. You can invite them again any time.',
+  },
+  inviteDeclinedCrew: {
+    subject: '{invitee} declined your crew invite for {event}',
+    heading: '{invitee} declined your crew invite',
+    intro:
+      '{invitee} declined your invite to the crew for {event} at {company}. Nothing changed on the event and nothing was shared. You can invite them again any time.',
+  },
+  inviteDeclinedConfirmTeam: {
+    subject: 'You declined the invite to {company}',
+    heading: 'You declined the invite to {company}',
+    intro:
+      "You declined the invite to join {company} on PlusOne. {company} can't see your details. Changed your mind? Ask them to invite you again.",
+  },
+  inviteDeclinedConfirmCrew: {
+    subject: 'You declined the crew invite for {event}',
+    heading: 'You declined the crew invite for {event}',
+    intro:
+      "You declined the invite to the crew for {event} at {company}. {company} can't see your details. Changed your mind? Ask them to invite you again.",
+  },
+  footerDeclinedInviter: 'You got this email because you invited {invitee} to {company} on PlusOne.',
+  footerDeclinedInvitee:
+    'You got this email because you declined an invite from {company} on PlusOne. Was this not you? Mail support@plus-one.io right away.',
 
   cta: 'Log in to PlusOne',
   linkFallback: 'Button not working? Open {url}',

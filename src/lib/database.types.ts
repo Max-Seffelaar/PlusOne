@@ -944,6 +944,9 @@ export type Database = {
           accepted_at: string | null
           accepted_by: string | null
           created_at: string
+          crew_quota: number | null
+          declined_at: string | null
+          declined_by: string | null
           default_quota: number | null
           email: string
           event_ids: string[]
@@ -957,6 +960,9 @@ export type Database = {
           accepted_at?: string | null
           accepted_by?: string | null
           created_at?: string
+          crew_quota?: number | null
+          declined_at?: string | null
+          declined_by?: string | null
           default_quota?: number | null
           email: string
           event_ids?: string[]
@@ -970,6 +976,9 @@ export type Database = {
           accepted_at?: string | null
           accepted_by?: string | null
           created_at?: string
+          crew_quota?: number | null
+          declined_at?: string | null
+          declined_by?: string | null
           default_quota?: number | null
           email?: string
           event_ids?: string[]
@@ -983,6 +992,13 @@ export type Database = {
           {
             foreignKeyName: "invites_accepted_by_fkey"
             columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_declined_by_fkey"
+            columns: ["declined_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
@@ -1682,6 +1698,7 @@ export type Database = {
       }
       subscriptions: {
         Row: {
+          billing_interval: string | null
           created_at: string
           current_period_end: string | null
           id: string
@@ -1690,10 +1707,12 @@ export type Database = {
           status: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
+          trial_ends_at: string | null
           updated_at: string
           venue_id: string
         }
         Insert: {
+          billing_interval?: string | null
           created_at?: string
           current_period_end?: string | null
           id?: string
@@ -1702,10 +1721,12 @@ export type Database = {
           status: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
           updated_at?: string
           venue_id: string
         }
         Update: {
+          billing_interval?: string | null
           created_at?: string
           current_period_end?: string | null
           id?: string
@@ -1714,6 +1735,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
           updated_at?: string
           venue_id?: string
         }
@@ -1939,6 +1961,12 @@ export type Database = {
       }
     }
     Functions: {
+      accept_invite: { Args: { p_invite_id: string }; Returns: boolean }
+      accept_invite_for_caller: {
+        Args: { p_invite_id: string }
+        Returns: boolean
+      }
+      accept_my_invites: { Args: never; Returns: number }
       accept_pending_invites: { Args: never; Returns: number }
       add_contact_to_event: {
         Args: {
@@ -1980,6 +2008,7 @@ export type Database = {
       }
       apply_stripe_subscription_update: {
         Args: {
+          p_billing_interval?: string
           p_current_period_end?: string
           p_event_created?: string
           p_event_id: string
@@ -2013,6 +2042,7 @@ export type Database = {
         Args: { p_actor_id: string; p_event_id: string }
         Returns: boolean
       }
+      can_uncheck_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
       check_out_guest: {
@@ -2101,6 +2131,18 @@ export type Database = {
         Returns: string
       }
       current_user_requires_mfa: { Args: never; Returns: boolean }
+      decline_invite: { Args: { p_invite_id: string }; Returns: boolean }
+      declined_invite_mail_context: {
+        Args: { p_invite_id: string }
+        Returns: {
+          company_name: string
+          event_name: string
+          invitee_email: string
+          inviter_email: string
+          is_crew: boolean
+        }[]
+      }
+      ensure_my_profile: { Args: never; Returns: undefined }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_capacity_consumption: {
         Args: { p_event_id: string }
@@ -2334,6 +2376,16 @@ export type Database = {
         Args: { p_venue_id: string }
         Returns: undefined
       }
+      my_pending_invites: {
+        Args: never
+        Returns: {
+          company_name: string
+          created_at: string
+          event_name: string
+          id: string
+          roles: Database["public"]["Enums"]["venue_role"][]
+        }[]
+      }
       notification_bundle_slot: {
         Args: { p_kind: string; p_source: string; p_venue: string }
         Returns: {
@@ -2526,8 +2578,16 @@ export type Database = {
         Args: { p_user_id: string; p_value: boolean }
         Returns: undefined
       }
+      set_venue_comped: {
+        Args: { p_comped: boolean; p_venue_id: string }
+        Returns: undefined
+      }
       set_venue_plan: {
         Args: { p_plan_id: string; p_venue_id: string }
+        Returns: undefined
+      }
+      set_venue_trial_end: {
+        Args: { p_trial_ends_at: string; p_venue_id: string }
         Returns: undefined
       }
       slugify: { Args: { p_text: string }; Returns: string }

@@ -20,7 +20,7 @@ export interface PersistedOutboxEnvelope {
 
 const uuid = z.string().uuid();
 const ts = z.string().min(1);
-const status: z.ZodType<OutboxStatus> = z.enum(['pending', 'syncing', 'synced', 'duplicate', 'error']);
+const status: z.ZodType<OutboxStatus> = z.enum(['pending', 'syncing', 'synced', 'duplicate', 'error', 'denied']);
 
 const base = {
   clientId: z.string().min(1),
@@ -142,13 +142,14 @@ export function buildEnvelope(entries: OutboxEntry[]): PersistedOutboxEnvelope {
   return { buster: OUTBOX_BUSTER, entries };
 }
 
-/** pending < syncing/error (in flight or needs retry) < synced/duplicate (settled). */
+/** pending < syncing/error (in flight or needs retry) < synced/duplicate/denied (settled). */
 const STATUS_RANK: Record<OutboxStatus, number> = {
   pending: 0,
   syncing: 1,
   error: 1,
   synced: 2,
   duplicate: 2,
+  denied: 2,
 };
 
 /**

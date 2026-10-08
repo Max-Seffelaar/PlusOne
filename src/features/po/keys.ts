@@ -25,6 +25,8 @@ export const poKeys = {
   // External crew (event_organizers, #6/#24) for an event + the assignable
   // team-member pool for the "add an existing member" path. Both key on the event.
   crew: (eventId: string) => [...poKeys.all, 'crew', eventId] as const,
+  /** Open crew invites on an event (z8uq9m2yvp): the crew sheet's Pending section. */
+  crewInvites: (eventId: string) => [...poKeys.all, 'crew-invites', eventId] as const,
   assignableCrew: (eventId: string) => [...poKeys.all, 'assignable-crew', eventId] as const,
   /** Venue-wide external crew (Team screen section 2, T8). Crew mutations key on
    *  the event, so they invalidate the ['po','venue-crew'] PREFIX. */
@@ -111,6 +113,10 @@ export const poKeys = {
   platformVenuesCount: (search?: string) =>
     [...poKeys.all, 'platform-venues-count', search ?? ''] as const,
   platformVenueOptions: () => [...poKeys.all, 'platform-venue-options'] as const,
+  // Billing G: the billing state of one page of companies (keyed by the ids
+  // shown) and the live Stripe prices (not venue-scoped: one price list).
+  platformBilling: (venueIds: readonly string[]) => [...poKeys.all, 'platform-billing', venueIds] as const,
+  billingPrices: () => [...poKeys.all, 'billing-prices'] as const,
   platformAudit: (params: {
     venueId?: string;
     since?: string;

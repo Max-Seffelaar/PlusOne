@@ -4,9 +4,11 @@ import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 
 // First stop after a successful OTP verification. With the session cookies now
-// present server-side, we accept any pending invites — which provisions the
-// user's profile + venue membership(s) (decision #24, "accepteren = eerste
-// OTP-login") — then land the user at their destination.
+// present server-side, we make sure the user's profile row exists, then land
+// them at their destination. Login accepts NO invite, team or crew: an invite
+// becomes access only when the person taps Accept (Home banner, or the invite
+// step on /onboarding), so a company can never read an account's profile just
+// because its admin typed that address (z8uq9m2yvp).
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const next = safeNextPath(url.searchParams.get('next'));
@@ -33,8 +35,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Idempotent: a no-op when there is nothing pending (decision #25).
-  await supabase.rpc('accept_pending_invites');
+  // Idempotent: a no-op once the profile row exists.
+  await supabase.rpc('ensure_my_profile');
 
   // One redirect straight to where the gates would land them anyway (consent /
   // onboarding), instead of a 3-hop chain of serverless round-trips.

@@ -93,6 +93,12 @@ function TierFilterBar({
   );
 }
 
+/** "Event · where": the event location, else the company name (older snapshot). */
+export function doorHeaderSub(event: { name: string; venueName: string; locationLabel?: string }): string {
+  const where = event.locationLabel || event.venueName;
+  return where ? `${event.name} · ${where}` : event.name;
+}
+
 export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) => void; onAdd: () => void }): JSX.Element {
   const { view, outboxByGuest, undoRefusal } = useDoor();
   // Filters live in the provider (on their own narrow context — #44/86ey9e9vc):
@@ -148,7 +154,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
     return () => ro.disconnect();
     // Re-measure when the header content height (and thus the list offset) can
     // change, or when the rows wrapper mounts/unmounts (empty ↔ list).
-  }, [view?.event?.name, view?.event?.venueName, view?.tiers, hasItems]);
+  }, [view?.event?.name, view?.event?.venueName, view?.event?.locationLabel, view?.tiers, hasItems]);
 
   // Search-first: focus the field on open without yanking the scroll position.
   // Desktop (fine pointer) only — on touch devices focus() pops the on-screen
@@ -185,7 +191,10 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
         <Top
           big
           title={t.door.checkinTitle}
-          sub={`${view.event.name}${view.event.venueName ? ` · ${view.event.venueName}` : ''}`}
+          // Where the night happens (z8uq9m2vg6): the event's own location,
+          // else the company address (resolved in fetchDoorSnapshot). An older
+          // persisted snapshot has no locationLabel and shows the company name.
+          sub={doorHeaderSub(view.event)}
         />
       </div>
 

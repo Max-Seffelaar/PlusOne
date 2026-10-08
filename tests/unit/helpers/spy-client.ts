@@ -29,12 +29,14 @@ export interface SpyTableConfig {
 
 export interface SpyClient {
   from: (table: string) => unknown;
+  /** Records `rpc:<fn>` and answers `opts.rpc[fn]` (default null, no error). */
+  rpc: (fn: string, args?: unknown) => Promise<{ data: unknown; error: null }>;
   auth: { getUser: () => Promise<{ data: { user: { id: string } | null } }> };
 }
 
 export function createSpyClient(
   tables: Record<string, SpyTableConfig>,
-  opts: { userId?: string | null } = {},
+  opts: { userId?: string | null; rpc?: Record<string, unknown> } = {},
 ): { client: SpyClient; calls: RecordedCall[] } {
   const calls: RecordedCall[] = [];
 
@@ -71,6 +73,10 @@ export function createSpyClient(
 
   const client: SpyClient = {
     from,
+    rpc: async (fn, args) => {
+      calls.push({ table: `rpc:${fn}`, method: 'rpc', args: args === undefined ? [] : [args] });
+      return { data: opts.rpc?.[fn] ?? null, error: null };
+    },
     auth: { getUser: async () => ({ data: { user: opts.userId ? { id: opts.userId } : null } }) },
   };
 

@@ -23,6 +23,7 @@ import type {
   PlatformInviteRow,
   PlatformFunnelRow,
   PlatformVenueRow,
+  PlatformSubscriptionRow,
   PlatformVenueOption,
   PlatformAuditRow,
   PlatformAccessLogRow,
@@ -32,9 +33,9 @@ import { formatInTz as fmt, formatClock, toDateInput } from './format';
 import { tierRole } from '@/lib/po/tier';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
-import { getPlan, isPlanId, trialEndsAt } from '@/features/billing/plans';
+import { effectiveTrialEndsAt, isBillingInterval, PLAN_NAME, type BillingInterval } from '@/features/billing/plans';
 import { deviceLabel } from '@/lib/ua';
-import { t } from '@/lib/i18n';
+import { t, fmt as fmtCopy } from '@/lib/i18n';
 import { formatVenueAddress } from '@/features/requests/status-view';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
@@ -916,7 +917,7 @@ export function toPoTeamMember(row: PoMemberRow, quota: number): PoTeamMember {
   };
 }
 
-export type PoInviteStatus = 'pending' | 'expired' | 'accepted';
+export type PoInviteStatus = 'pending' | 'expired' | 'accepted' | 'declined';
 
 export interface PoInvite {
   id: string;
@@ -925,16 +926,18 @@ export interface PoInvite {
   rolesLabel: string;
   /** Formatted invite date ("3 dec"). */
   sentAt: string;
-  /** Accepted wins; an un-accepted invite past its expiry is expired (T8). */
+  /** Accepted wins, then declined (z8uq9m2yvp); an open invite past its expiry is expired (T8). */
   status: PoInviteStatus;
 }
 
 export function toPoInvite(row: PoInviteRow, now: number = Date.now()): PoInvite {
   const status: PoInviteStatus = row.accepted_at
     ? 'accepted'
-    : new Date(row.expires_at).getTime() <= now
-      ? 'expired'
-      : 'pending';
+    : row.declined_at
+      ? 'declined'
+      : new Date(row.expires_at).getTime() <= now
+        ? 'expired'
+        : 'pending';
   return {
     id: row.id,
     email: row.email,
@@ -956,6 +959,9 @@ export interface PoVenueCrewMember {
   /** False until the person completes a first login — renders as a pending
    *  invite with a resend action. */
   hasAccepted: boolean;
+  /** Each event they're crew on, soonest first, with its guest quota: the Team
+   *  screen's Manage sheet (z8uq9m2yvp). */
+  events: { eventId: string; name: string; quota: number }[];
 }
 
 export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
@@ -968,6 +974,7 @@ export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
     eventsLabel: first ? (extra > 0 ? `${first} +${extra}` : first) : '—',
     eventCount: row.event_names.length,
     hasAccepted: row.terms_accepted_at !== null,
+    events: row.events.map((e) => ({ eventId: e.event_id, name: e.name, quota: e.quota })),
   };
 }
 
@@ -977,14 +984,18 @@ export interface PoMyInvite {
   id: string;
   venueName: string;
   rolesLabel: string;
+  /** One banner line: "Club Vesper (Staff)", or for crew "Crew · Vesper Fridays at Club Vesper". */
+  label: string;
 }
 
 export function toPoMyInvite(row: PoMyInviteRow): PoMyInvite {
-  return {
-    id: row.id,
-    venueName: row.venue_name ?? t.shared.invites.companyFallback,
-    rolesLabel: rolesLabel(row.roles),
-  };
+  const venueName = row.venue_name ?? t.shared.invites.companyFallback;
+  const roles = rolesLabel(row.roles);
+  const label =
+    row.roles.length === 0
+      ? fmtCopy(t.shared.invites.crewLine, { event: row.event_name ?? t.shared.invites.eventFallback, company: venueName })
+      : `${venueName} (${roles})`;
+  return { id: row.id, venueName, rolesLabel: roles, label };
 }
 
 export interface PoSession {
@@ -1111,21 +1122,25 @@ export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
   };
 }
 
-// Billing is read-only in the po surface (#32): map the entitlement row onto the
-// prototype's Subscription card. plan_id resolves through the shared PLANS
-// catalog; absent fields (IBAN mandate, invoices) stay honest placeholders until
-// the Stripe adapter ships (Fase 13).
+// Billing in the po surface (#32, Billing G): one plan, Pro. The row carries
+// status, the Stripe interval and the trial dates; prices are NOT here — they
+// come live from Stripe through usePoBillingPrices (browser only, never in the
+// native shell).
 export interface PoSubscription {
+  /** Always the one plan's name ("Pro"); legacy plan ids are relabelled. */
   plan: string;
-  priceLabel: string;
-  period: string;
   status: Database['public']['Enums']['subscription_status'];
+  /** month|year once Stripe reported it (checkout/webhook); null before. */
+  billingInterval: BillingInterval | null;
+  /** current_period_end, formatted; '—' when Stripe hasn't reported one. */
   renews: string;
   events: string;
   venueLabel: string;
   /** A Stripe subscription exists — checkout done, portal available. */
   stripeLinked: boolean;
-  /** End of the 14-day display trial (ISO); null unless status is trialing. */
+  /** Effective trial end (ISO) — coalesce(trial_ends_at, created_at + 14 d),
+   *  the SAME rule as the server gate (effectiveTrialEndsAt). null unless the
+   *  status is trialing. */
   trialEndsAt: string | null;
 }
 
@@ -1134,30 +1149,41 @@ export function toPoSubscription(
   venueName: string
 ): PoSubscription | null {
   if (!row) return null;
-  // plan_id resolves through the shared catalog (indie/premium/pro). A row may
-  // carry a plan id outside the catalog (e.g. a pilot/legacy id) — show that id
-  // humanised rather than "No subscription", which is only for a truly null plan.
-  const plan = row.plan_id && isPlanId(row.plan_id) ? getPlan(row.plan_id) : null;
-  const priceLabel =
-    plan == null
-      ? '—'
-      : plan.priceEur == null
-        ? 'On request'
-        : plan.priceEur === 0
-          ? 'Free'
-          : `€${plan.priceEur}`;
   return {
-    plan: plan?.name ?? (row.plan_id ? capitalize(row.plan_id) : 'No subscription'),
-    priceLabel,
-    period: 'month',
+    plan: PLAN_NAME,
     status: row.status,
+    billingInterval: isBillingInterval(row.billing_interval) ? row.billing_interval : null,
     renews: row.current_period_end
       ? fmt(row.current_period_end, { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '')
       : '—',
-    events: plan?.id === 'indie' ? '1 active event' : 'Unlimited',
+    events: 'Unlimited',
     venueLabel: venueName,
     stripeLinked: !!row.stripe_subscription_id,
-    trialEndsAt: row.status === 'trialing' ? trialEndsAt(row.created_at).toISOString() : null,
+    trialEndsAt:
+      row.status === 'trialing'
+        ? effectiveTrialEndsAt(row.created_at, row.trial_ends_at).toISOString()
+        : null,
+  };
+}
+
+/** Platform > Companies: one company's billing state (Billing G). Read straight
+ *  from `subscriptions` — RLS lets a platform admin read every row
+ *  (is_venue_member … or is_platform_admin()). */
+export interface PlatformBilling {
+  venueId: string;
+  status: Database['public']['Enums']['subscription_status'];
+  /** Effective trial end (ISO) while trialing; null otherwise. */
+  trialEndsAt: string | null;
+  stripeLinked: boolean;
+}
+
+export function toPlatformBilling(row: PlatformSubscriptionRow): PlatformBilling {
+  return {
+    venueId: row.venue_id,
+    status: row.status,
+    trialEndsAt:
+      row.status === 'trialing' ? effectiveTrialEndsAt(row.created_at, row.trial_ends_at).toISOString() : null,
+    stripeLinked: !!row.stripe_subscription_id,
   };
 }
 

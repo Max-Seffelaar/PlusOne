@@ -28,10 +28,11 @@ export interface AccountDetails {
  * the write is scoped to the caller's own row by RLS user_profiles_update_self
  * (decision #24) on the user-scoped client — never the service role.
  *
- * We also call accept_pending_invites() first (idempotent). This provisions the
- * user_profiles row + any venue memberships if the auth-callback route was
- * bypassed or failed silently. Without it a brand-new invited user has no profile
- * row yet, so the UPDATE below affects 0 rows and returns an error (#40-fix).
+ * We also call ensure_my_profile() first (idempotent). This provisions the
+ * user_profiles row if the auth-callback route was bypassed or failed silently.
+ * Without it a brand-new invited user has no profile row yet, so the UPDATE
+ * below affects 0 rows and returns an error (#40-fix). It accepts no invite:
+ * that is the person's own Accept tap (z8uq9m2yvp).
  */
 export async function acceptTermsAction(details?: AccountDetails): Promise<ActionState> {
   const user = await getSessionUser();
@@ -60,9 +61,9 @@ export async function acceptTermsAction(details?: AccountDetails): Promise<Actio
   const supabase = await createClient();
   const now = new Date().toISOString();
 
-  // Ensure the profile row + memberships exist before we try to update them.
-  const { error: inviteError } = await supabase.rpc('accept_pending_invites');
-  if (inviteError) console.error('acceptTerms: accept_pending_invites failed', inviteError.message);
+  // Ensure the profile row exists before we try to update it.
+  const { error: profileError } = await supabase.rpc('ensure_my_profile');
+  if (profileError) console.error('acceptTerms: ensure_my_profile failed', profileError.message);
 
   const { error, count } = await supabase
     .from('user_profiles')
@@ -78,10 +79,8 @@ export async function acceptTermsAction(details?: AccountDetails): Promise<Actio
   }
 
   if (!count) {
-    // Profile still doesn't exist after accept_pending_invites() (edge case:
-    // user arrived via an invite flow that never created their profile row).
-    // Create it now so consent is recorded; accept_pending_invites() fills in
-    // the real name/email on first post-consent login via the auth callback.
+    // Profile still doesn't exist after ensure_my_profile() (edge case: the
+    // call failed above). Create it now so consent is recorded.
     const fallbackName =
       (user.user_metadata?.full_name as string | undefined) ||
       user.email?.split('@')[0] ||

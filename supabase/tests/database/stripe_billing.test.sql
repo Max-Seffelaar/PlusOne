@@ -38,7 +38,7 @@ begin
 end;
 $fn$;
 
-select plan(40);
+select plan(47);
 
 -- ---------------------------------------------------------------------------
 -- A. Privileges: ledger + RPCs are service_role-only
@@ -320,6 +320,58 @@ select is((select status::text from public.subscriptions
 select is((select last_stripe_event_at::text from public.subscriptions
            where venue_id = 'aa000000-0000-7000-8000-000000000002'),
   '2026-08-02 00:00:00+00', 'T40 an untimestamped event does not disturb the tracked event timestamp');
+
+-- ---------------------------------------------------------------------------
+-- J. billing_interval (Billing G, 20261008120100) — month|year from Stripe
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login_service();
+select is(public.apply_stripe_subscription_update(
+    'evt_interval_year', 'customer.subscription.updated',
+    p_stripe_customer_id => 'cus_markt',
+    p_status => 'active',
+    p_plan_id => 'pro',
+    p_billing_interval => 'year',
+    p_event_created => '2026-08-03T00:00:00Z'),
+  true, 'T41 an event with an interval applies');
+reset role;
+
+select is((select plan_id || ':' || billing_interval from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  'pro:year', 'T42 the webhook writes plan pro + billing_interval year');
+
+select pg_temp.login_service();
+select is(public.apply_stripe_subscription_update(
+    'evt_interval_stale', 'customer.subscription.updated',
+    p_stripe_customer_id => 'cus_markt',
+    p_billing_interval => 'month',
+    p_event_created => '2026-08-01T12:00:00Z'),
+  true, 'T43 a stale interval event is recorded');
+reset role;
+
+select is((select billing_interval from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  'year', 'T44 the ordering guard covers billing_interval too (stale month does not overwrite year)');
+
+select pg_temp.login_service();
+select throws_ok($$
+  select public.apply_stripe_subscription_update('evt_interval_bad', 'customer.subscription.updated',
+    p_stripe_customer_id => 'cus_markt', p_billing_interval => 'week') $$,
+  '22023', null, 'T45 an unknown interval is refused before it touches the ledger');
+reset role;
+
+-- Comped guard with the new parameter: a webhook carrying status + interval
+-- for the comped seed venue never turns it into a paying/canceled one.
+select pg_temp.login_service();
+select lives_ok($$
+  select public.apply_stripe_subscription_update('evt_comped_interval', 'customer.subscription.updated',
+    p_venue_id => 'aa000000-0000-7000-8000-000000000001',
+    p_status => 'active', p_billing_interval => 'month') $$,
+  'T46a a comped venue''s interval event is accepted');
+reset role;
+select is((select status::text from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000001'),
+  'comped', 'T46 comped still survives a webhook that carries an interval');
 
 -- ---------------------------------------------------------------------------
 -- I. Audit (decision #4): subscription changes are logged, actor null = system

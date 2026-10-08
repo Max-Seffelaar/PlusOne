@@ -4,10 +4,11 @@ import { getSessionUser } from './context';
 import { getMyMemberships, getMyVenueOnboardingStates, getOrganizerVenues } from './memberships';
 
 // Self-service onboarding (#40). A new owner is provisioned invite-only and has
-// ZERO memberships on first login; the flow lets them create their first venue,
-// pick a plan, invite their team, then create the first event.
+// ZERO memberships on first login; the flow lets them create their first venue
+// (company), invite their team, then create the first event. No plan step
+// (Billing G): create_venue_with_owner starts every company on a Pro trial.
 
-export type OnboardingStep = 'venue' | 'plan' | 'team' | 'done';
+export type OnboardingStep = 'venue' | 'team' | 'done';
 
 export interface OnboardingState {
   step: OnboardingStep;
@@ -22,9 +23,7 @@ interface OnboardingFlags {
 // Derive where the user is, from data, so the wizard is resumable and the gate
 // is cheap:
 //   no access anywhere                    → 'venue'  (create the company)
-//   own venue, onboarding not completed,
-//     subscription has no plan yet        → 'plan'
-//     subscription has a plan             → 'team'
+//   own venue, onboarding not completed   → 'team'
 //   otherwise                             → 'done'
 //
 // Only venues created via the flow carry settings.onboarding; seeded/invited
@@ -54,5 +53,5 @@ export async function getOnboardingState(): Promise<OnboardingState> {
 
   if (!inOnboarding) return { step: 'done', venueId: null };
 
-  return { step: inOnboarding.planId ? 'team' : 'plan', venueId: inOnboarding.venueId };
+  return { step: 'team', venueId: inOnboarding.venueId };
 }

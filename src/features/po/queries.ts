@@ -967,6 +967,33 @@ export async function fetchEventCrew(client: Client, eventId: string): Promise<P
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
+/** An open crew invite (z8uq9m2yvp): someone invited by e-mail who hasn't accepted yet. */
+export interface PoCrewInvite {
+  id: string;
+  /** As the admin typed it; RLS invites_select limits it to admin/user_manager/finance of the company. */
+  email: string;
+  /** The invite's guest quota; null = none set. */
+  quota: number | null;
+  expiresAt: string;
+}
+
+/** Open, unexpired crew-only invites for an event, newest first. RLS
+ *  (invites_select) shows them to the company's admin/user_manager/finance; the
+ *  crew sheet renders them for admins only. */
+export async function fetchEventCrewInvites(client: Client, eventId: string): Promise<PoCrewInvite[]> {
+  const { data, error } = await client
+    .from('invites')
+    .select('id, email, crew_quota, expires_at')
+    .filter('roles', 'eq', '{}')
+    .contains('event_ids', [eventId])
+    .is('accepted_at', null)
+    .is('declined_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ id: row.id, email: row.email, quota: row.crew_quota, expiresAt: row.expires_at }));
+}
+
 /**
  * The pool for "add a returning external crew member": people who are external
  * crew on ANY event at this event's venue, EXCLUDING venue Team members (they
@@ -1021,6 +1048,9 @@ export interface PoVenueCrewRow {
   email: string;
   /** Names of this venue's events the person is crew on, soonest first. */
   event_names: string[];
+  /** The same events with id and guest quota (event_quotas.quota_override, 0 =
+   *  none), soonest first: the Team screen's crew sheet (z8uq9m2yvp). */
+  events: { event_id: string; name: string; quota: number }[];
   /** Whether the person ever completed a first login (terms accepted at app
    *  entry) — null means the crew invite is still unanswered. */
   terms_accepted_at: string | null;
@@ -1034,43 +1064,52 @@ export interface PoVenueCrewRow {
  * screen itself is gated to viewTeam.
  */
 export async function fetchVenueCrew(client: Client, venueId: string): Promise<PoVenueCrewRow[]> {
-  const [{ data: orgRows, error: orgErr }, { data: members, error: membersErr }] = await Promise.all([
-    client
-      .from('event_organizers')
-      .select('user_id, user_profiles(full_name, email, terms_accepted_at), events!inner(name, starts_at, venue_id)')
-      .eq('events.venue_id', venueId),
-    client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
-  ]);
+  const [{ data: orgRows, error: orgErr }, { data: members, error: membersErr }, { data: quotas, error: quotasErr }] =
+    await Promise.all([
+      client
+        .from('event_organizers')
+        .select('user_id, user_profiles(full_name, email, terms_accepted_at), events!inner(id, name, starts_at, venue_id)')
+        .eq('events.venue_id', venueId),
+      client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
+      // event_quotas RLS: admin/finance read the venue's rows; anyone else sees
+      // only their own, so their crew quotas read 0 (the sheet is admin-only).
+      client
+        .from('event_quotas')
+        .select('user_id, event_id, quota_override, events!inner(venue_id)')
+        .eq('events.venue_id', venueId),
+    ]);
   if (orgErr) throw orgErr;
   if (membersErr) throw membersErr;
+  if (quotasErr) throw quotasErr;
 
   const memberIds = new Set((members ?? []).map((m) => m.user_id));
-  const byUser = new Map<string, PoVenueCrewRow & { starts: string[] }>();
+  const quotaOf = new Map((quotas ?? []).map((q) => [`${q.user_id}:${q.event_id}`, q.quota_override]));
+  const byUser = new Map<string, Omit<PoVenueCrewRow, 'event_names' | 'events'> & { events: { event_id: string; name: string; quota: number; at: string }[] }>();
   for (const r of orgRows ?? []) {
     if (memberIds.has(r.user_id)) continue;
     const entry = byUser.get(r.user_id) ?? {
       user_id: r.user_id,
       full_name: r.user_profiles?.full_name ?? '—',
       email: r.user_profiles?.email ?? '—',
-      event_names: [],
       terms_accepted_at: r.user_profiles?.terms_accepted_at ?? null,
-      starts: [],
+      events: [],
     };
     if (r.events) {
-      entry.event_names.push(r.events.name);
-      entry.starts.push(r.events.starts_at);
+      entry.events.push({
+        event_id: r.events.id,
+        name: r.events.name,
+        quota: quotaOf.get(`${r.user_id}:${r.events.id}`) ?? 0,
+        at: r.events.starts_at,
+      });
     }
     byUser.set(r.user_id, entry);
   }
 
   return Array.from(byUser.values())
-    .map(({ starts, ...row }) => ({
-      ...row,
-      event_names: row.event_names
-        .map((name, i) => ({ name, at: starts[i] ?? '' }))
-        .sort((a, b) => a.at.localeCompare(b.at))
-        .map((e) => e.name),
-    }))
+    .map((row) => {
+      const events = [...row.events].sort((a, b) => a.at.localeCompare(b.at)).map(({ at: _at, ...e }) => e);
+      return { ...row, events, event_names: events.map((e) => e.name) };
+    })
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 }
 
@@ -1705,17 +1744,20 @@ export async function fetchVenueMembers(client: Client, venueId: string): Promis
 export type PoInviteRow = Pick<
   Tables['invites']['Row'],
   'id' | 'email' | 'roles' | 'expires_at' | 'created_at' | 'accepted_at'
->;
+> &
+  Partial<Pick<Tables['invites']['Row'], 'declined_at'>>;
 
-/** Invites for a venue, accepted ones included so the team screen can show the
- *  accepted/pending/expired status per invite (T8). Newest first, capped — old
- *  accepted invites are audit history, not team-screen material. RLS: managers
- *  + finance. */
+/** Invites for a venue, accepted and declined ones included so the team screen
+ *  can show the accepted/declined/pending/expired status per invite (T8,
+ *  z8uq9m2yvp). Newest first, capped — old accepted invites are audit history,
+ *  not team-screen material. RLS: managers + finance. */
 export async function fetchVenueInvites(client: Client, venueId: string): Promise<PoInviteRow[]> {
   const { data, error } = await client
     .from('invites')
-    .select('id, email, roles, expires_at, created_at, accepted_at')
+    .select('id, email, roles, expires_at, created_at, accepted_at, declined_at')
     .eq('venue_id', venueId)
+    // Crew invites (no roles, z8uq9m2yvp) belong to the event's crew, not the team.
+    .filter('roles', 'neq', '{}')
     .order('created_at', { ascending: false })
     .limit(25);
   if (error) throw error;
@@ -1725,35 +1767,28 @@ export async function fetchVenueInvites(client: Client, venueId: string): Promis
 
 export type PoMyInviteRow = {
   id: string;
-  venue_id: string;
+  venue_id?: string;
   venue_name: string | null;
   roles: Tables['invites']['Row']['roles'];
+  /** Crew-only invite (no roles): the one event it is for. */
+  event_name: string | null;
 };
 
-/** Open invites addressed to the signed-in user (matched by e-mail) — the
- *  "invited to another venue while already logged in" banner (#24). RLS scopes
- *  invites to the invitee; the e-mail filter mirrors the server getMyPendingInvites.
- *  Callable from the browser client. First-login acceptance still happens in
- *  /auth/callback; this covers the mid-session case the desktop banner did. */
+/** Open invites addressed to the signed-in user — the incoming-invite banner
+ *  (#24). Through the SECURITY DEFINER read my_pending_invites()
+ *  (20261007140000): the invitee may not read the inviting company or its
+ *  events yet, so the RPC returns just the company name, roles and, for a crew
+ *  invite, the event name, for the caller's OWN open invites (matched on their
+ *  auth e-mail). Callable from the browser client. */
 export async function fetchMyPendingInvites(client: Client): Promise<PoMyInviteRow[]> {
-  const { data: auth, error: authErr } = await client.auth.getUser();
-  if (authErr) throw authErr;
-  const email = auth.user?.email;
-  if (!email) return [];
-  const { data, error } = await client
-    .from('invites')
-    .select('id, venue_id, roles, expires_at, venues(name)')
-    .is('accepted_at', null)
-    .gt('expires_at', new Date().toISOString())
-    .ilike('email', email)
-    .order('created_at', { ascending: false });
+  const { data, error } = await client.rpc('my_pending_invites');
   if (error) throw error;
 
   return (data ?? []).map((row) => ({
     id: row.id,
-    venue_id: row.venue_id,
-    venue_name: row.venues?.name ?? null,
+    venue_name: row.company_name ?? null,
     roles: row.roles,
+    event_name: row.roles.length === 0 ? (row.event_name ?? null) : null,
   }));
 }
 
@@ -1893,20 +1928,27 @@ export async function fetchVenueSettings(
 
 export type PoSubscriptionRow = Pick<
   Tables['subscriptions']['Row'],
-  'status' | 'plan_id' | 'current_period_end' | 'created_at' | 'stripe_subscription_id'
+  | 'status'
+  | 'plan_id'
+  | 'billing_interval'
+  | 'current_period_end'
+  | 'created_at'
+  | 'trial_ends_at'
+  | 'stripe_subscription_id'
 >;
 
 /** The venue's subscription entitlement (RLS subscriptions_select_member: any
- *  member reads). Read-only — writes flow through Stripe webhooks only (#32).
- *  created_at + stripe_subscription_id feed the trial countdown / checkout CTA
- *  (fase 13 PR 2). */
+ *  member reads). Read-only — writes flow through Stripe webhooks and the
+ *  platform-admin RPCs only (#32). created_at + trial_ends_at give the
+ *  effective trial end (the gate's rule); stripe_subscription_id the checkout
+ *  CTA; billing_interval the "€X / month|year" line. */
 export async function fetchSubscription(
   client: Client,
   venueId: string
 ): Promise<PoSubscriptionRow | null> {
   const { data, error } = await client
     .from('subscriptions')
-    .select('status, plan_id, current_period_end, created_at, stripe_subscription_id')
+    .select('status, plan_id, billing_interval, current_period_end, created_at, trial_ends_at, stripe_subscription_id')
     .eq('venue_id', venueId)
     .maybeSingle();
   if (error) throw error;
@@ -2469,6 +2511,32 @@ export async function fetchPlatformVenueOverviewCount(
   });
   if (error) throw error;
   return data ?? 0;
+}
+
+export type PlatformSubscriptionRow = Pick<
+  Tables['subscriptions']['Row'],
+  'venue_id' | 'status' | 'created_at' | 'trial_ends_at' | 'stripe_subscription_id'
+>;
+
+/** Billing state of ONE page of Platform > Companies (Billing G). The id list
+ *  is the visible page — the screen pages at 20, the overview RPC caps at 200
+ *  — so it is bounded by construction, never "every venue" (CLAUDE.md Scale:
+ *  no unbounded .in()). Chunked at 120 anyway, the repo-wide ceiling. RLS:
+ *  subscriptions_select_member → is_venue_member() → is_platform_admin(). */
+export async function fetchPlatformSubscriptions(
+  client: Client,
+  venueIds: readonly string[]
+): Promise<PlatformSubscriptionRow[]> {
+  const out: PlatformSubscriptionRow[] = [];
+  for (let i = 0; i < venueIds.length; i += 120) {
+    const { data, error } = await client
+      .from('subscriptions')
+      .select('venue_id, status, created_at, trial_ends_at, stripe_subscription_id')
+      .in('venue_id', venueIds.slice(i, i + 120));
+    if (error) throw error;
+    out.push(...(data ?? []));
+  }
+  return out;
 }
 
 export interface PlatformVenueOption {

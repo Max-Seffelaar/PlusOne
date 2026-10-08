@@ -24,7 +24,7 @@ begin
 end;
 $fn$;
 
-select plan(26);
+select plan(31);
 
 -- ---------------------------------------------------------------------------
 -- A. create_venue_with_owner — create, effects, audit actor
@@ -60,8 +60,8 @@ select is((select roles @> '{admin}'::public.venue_role[] from public.venue_memb
 
 select is((select count(*)::int from public.subscriptions
            where venue_id = current_setting('test.vid')::uuid
-             and status = 'trialing' and plan_id is null),
-          1, 'T4 venue starts on a trialing subscription, no plan yet (#40c)');
+             and status = 'trialing' and plan_id = 'pro'),
+          1, 'T4 venue starts on a trialing Pro subscription (#40c, Billing G: one plan)');
 
 -- The whole point of the RPC: the membership grant is attributed to the real
 -- owner, not a NULL "system" actor (impossible via a raw service-role connection).
@@ -125,12 +125,29 @@ reset role;
 -- A fresh AAL1 owner can pick a plan (onboarding happens before MFA enrollment).
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
 select lives_ok(
-  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'premium') $$,
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'pro') $$,
   'T9 the owner sets the plan without MFA');
+-- Billing G (20261008120000), expand–contract: the pre-Billing-G wizard still
+-- sends 'premium' (its default) or 'indie'. Both are accepted and stored as
+-- 'pro'; anything else is refused.
+select lives_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'premium') $$,
+  'T10c the deployed wizard''s default id premium is still accepted');
+select is((select plan_id from public.subscriptions where venue_id = current_setting('test.vid')::uuid),
+          'pro', 'T10d premium is stored as pro');
+select lives_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'indie') $$,
+  'T10e the legacy id indie is still accepted');
+select throws_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'enterprise') $$,
+  '22023', null, 'T10f an unknown plan id is refused');
+select throws_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, null) $$,
+  '22023', null, 'T10g a null plan id is refused');
 reset role;
 
 select is((select plan_id from public.subscriptions where venue_id = current_setting('test.vid')::uuid),
-          'premium', 'T10 the chosen plan is stored');
+          'pro', 'T10 the plan stays pro');
 
 select is((select status from public.subscriptions where venue_id = current_setting('test.vid')::uuid),
           'trialing', 'T10b set_venue_plan can never produce comped — trialing regardless of caller intent');

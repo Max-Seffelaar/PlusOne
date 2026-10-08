@@ -169,6 +169,18 @@ export function CountBadge({ n, pulse, className }: { n: number; pulse?: boolean
   );
 }
 
+/**
+ * A small running count inside a button, e.g. "3/4" beside "Check in 1"
+ * (group-first check-in, z8uq9m2vg6). Inline, so it never adds hit-box height.
+ */
+export function CountPill({ children, ariaLabel }: { children: ReactNode; ariaLabel?: string }): JSX.Element {
+  return (
+    <span aria-label={ariaLabel} className="rounded-full bg-elev2 px-[9px] py-[2px] font-display text-[13px] font-bold text-dim">
+      {children}
+    </span>
+  );
+}
+
 export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   if (pay !== 'pay') return null;
   return (
@@ -1132,12 +1144,15 @@ export function MiniChip({
   className,
   onClick,
   disabled,
+  ariaLabel,
 }: {
   children: ReactNode;
   className?: string;
   onClick?: () => void;
   /** Visible but inert: rendered as a disabled button (pair with a `Note` saying why). */
   disabled?: boolean;
+  /** Accessible name when the visible text is ambiguous in a list (e.g. "Manage {name}"). */
+  ariaLabel?: string;
 }): JSX.Element {
   const cls = cn(
     'inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-line bg-transparent px-[9px] py-[4px] font-body text-[10.5px] font-bold tracking-[0.03em] text-dim',
@@ -1149,6 +1164,7 @@ export function MiniChip({
         type="button"
         onClick={onClick}
         disabled={disabled}
+        aria-label={ariaLabel}
         className={cn(
           cls,
           'cursor-pointer',

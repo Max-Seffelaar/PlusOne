@@ -1,13 +1,15 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getMyProfile, getSessionUser } from '@/lib/auth/context';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { sendInviteEmail } from './invite-mail';
 import type { TeamMailContent } from '@/features/mail/templates';
 import { inviteMailCapReached } from '@/features/mail/limits';
-import { inviteSchema, revokeInviteSchema, resendInviteSchema } from './schemas';
+import { notifyInviteDeclined } from '@/features/mail/declined';
+import { inviteSchema, revokeInviteSchema, resendInviteSchema, respondInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
 import { isDemoReviewUser } from './review-window';
 import { t } from '@/lib/i18n';
@@ -16,6 +18,9 @@ export interface ActionState {
   ok: boolean;
   error?: string;
   message?: string;
+  /** `not_open`: the invite is gone (expired, declined, accepted, revoked or not
+   *  theirs). The UI drops the card instead of leaving a dead button. */
+  code?: 'not_open';
 }
 
 const INVITE_TTL_DAYS = 7;
@@ -62,8 +67,9 @@ async function teamMailContext(
  * again by RLS on the invite insert, all input through Zod.
  *
  * The invite row — written through the user-scoped client so RLS re-validates —
- * is inserted FIRST and is what actually grants access when the invitee accepts
- * on first login; the invitee is provisioned + e-mailed via the service role
+ * is inserted FIRST and is what grants access once the invitee explicitly
+ * accepts it (Home banner or the onboarding invite step; login accepts nothing,
+ * z8uq9m2yvp); the invitee is provisioned + e-mailed via the service role
  * (inviteUserByEmail for a new address, a magic-link login for one that already
  * exists — invite-only, no public signups) only AFTER that insert succeeds. A
  * denied or conflicting insert (e.g. an already-open invite) must never leave a
@@ -167,6 +173,13 @@ export async function inviteUserAction(
   if (!sent.ok && sent.reason === 'provision') {
     return { ok: false, error: "Couldn't send the invite. Try again." };
   }
+  // The company's daily cap, hit at send time (a race with the pre-check
+  // above): no mail went out, so never report "Invite sent". The invite row
+  // stays; a resend tomorrow delivers it.
+  if (!sent.ok && sent.reason === 'cap') return { ok: false, error: t.auth.inviteMailCapReached };
+  // 'recent' (a mail reached this address under a minute ago) is reported as
+  // sent: only an existing account can hit that window, so anything else would
+  // tell the inviter the address has an account (review round 2).
 
   revalidatePath('/admin/team');
   return { ok: true, message: `Invite sent to ${email}.` };
@@ -218,12 +231,17 @@ export async function resendInviteAction(
   const supabase = await createClient();
   const { data: invite } = await supabase
     .from('invites')
-    .select('id, email, venue_id, accepted_at')
+    .select('id, email, venue_id, accepted_at, declined_at')
     .eq('id', parsed.data.inviteId)
     .maybeSingle();
   if (!invite) return { ok: false, error: "Couldn't find the invite." };
   if (invite.accepted_at) {
     return { ok: false, error: 'This invite was already accepted.' };
+  }
+  // A declined invite is closed (RLS refuses the expiry bump too); a new
+  // invite is the way to ask again.
+  if (invite.declined_at) {
+    return { ok: false, error: t.auth.inviteDeclined };
   }
   // Same soft-block as inviting (#32): a canceled/lapsed venue grows no team.
   const billingBlocked = await assertVenueBillingActive(invite.venue_id);
@@ -241,24 +259,72 @@ export async function resendInviteAction(
 
   const existingAccountMail = (await teamMailContext(invite.venue_id, 'resend')) ?? undefined;
   const sent = await sendInviteEmail(invite.email, { existingAccountMail, mailCapVenueId: invite.venue_id });
-  if (!sent.ok) return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
+  // 'recent' counts as re-sent (review round 2): only an existing account can
+  // hit the 60-second window, so a distinct message would reveal one; the
+  // address had a mail under a minute ago. The daily cap keeps its own copy.
+  if (!sent.ok && sent.reason !== 'recent') {
+    if (sent.reason === 'cap') return { ok: false, error: t.auth.inviteMailCapReached };
+    return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
+  }
 
   revalidatePath('/admin/team');
   return { ok: true, message: `Invite re-sent to ${invite.email}.` };
 }
 
-/** Accept the caller's own pending invites (used by the banner). */
-export async function acceptInvitesAction(): Promise<ActionState> {
+/**
+ * Accept ONE of the caller's own open invites (z8uq9m2yvp): the only way an
+ * invite, team or crew, ever becomes access. Login, consent and dev-login accept
+ * nothing. Called from the Home banner and the onboarding invite step, once per
+ * invite. accept_invite() acts only on an invite addressed to the caller's own
+ * auth e-mail and answers false when it is no longer open.
+ */
+export async function acceptInviteAction(inviteId: string): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
+  const parsed = respondInviteSchema.safeParse({ inviteId });
+  if (!parsed.success) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc('accept_pending_invites');
+  const { data, error } = await supabase.rpc('accept_invite', { p_invite_id: parsed.data.inviteId });
   if (error) {
+    console.error('acceptInvite: rpc failed', error.code);
     return { ok: false, error: "Couldn't accept the invite." };
   }
+  if (!data) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
 
   revalidatePath('/app');
   revalidatePath('/', 'layout');
   return { ok: true, message: 'Invite accepted.' };
+}
+
+/**
+ * Decline ONE of the caller's own open invites. The database closes it
+ * (decline_invite, true only on the open -> declined transition), then the two
+ * decline mails go out, once: the inviter hears which address declined (the
+ * address as typed on the invite, never a profile name), the decliner gets a
+ * confirmation. The mails run in `after()`, so the invitee never waits on the
+ * mail provider; they are best effort and never turn a recorded decline into an
+ * error. Only the onboarding page reads the invite list on the server (the
+ * banner refetches client-side), so that is the one path to revalidate: a decline
+ * changes no identity, membership or layout data.
+ */
+export async function declineInviteAction(inviteId: string): Promise<ActionState> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, error: "You're not logged in." };
+  const parsed = respondInviteSchema.safeParse({ inviteId });
+  if (!parsed.success) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('decline_invite', { p_invite_id: parsed.data.inviteId });
+  if (error) {
+    console.error('declineInvite: rpc failed', error.code);
+    return { ok: false, error: t.shared.invites.declineError };
+  }
+  if (!data) return { ok: false, error: t.shared.invites.notOpen, code: 'not_open' };
+
+  const declinedId = parsed.data.inviteId;
+  after(() => notifyInviteDeclined(declinedId));
+
+  revalidatePath('/onboarding');
+  return { ok: true, message: 'Invite declined.' };
 }

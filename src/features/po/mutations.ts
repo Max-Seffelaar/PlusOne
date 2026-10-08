@@ -72,6 +72,7 @@ import {
   assignOrganizer,
   inviteExternalCrew,
   removeOrganizer,
+  revokeCrewInvite,
   resendCrewInvite,
   setEventUserQuota,
   setEventDefaultMemberQuota,
@@ -98,6 +99,7 @@ import type {
   AssignOrganizerInput,
   InviteExternalCrewInput,
   RemoveOrganizerInput,
+  RevokeCrewInviteInput,
   SetEventUserQuotaInput,
   SetEventDefaultMemberQuotaInput,
 } from '@/features/events/schemas';
@@ -115,12 +117,14 @@ import type {
   CreateRequestLinkInput,
   UpdateRequestLinkInput,
 } from '@/features/links/schemas';
-import { inviteUserAction, revokeInviteAction, resendInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
+import { inviteUserAction, revokeInviteAction, resendInviteAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
+import { setVenueCompedAction, setVenueTrialEndAction } from '@/features/billing/platform-actions';
+import type { BillingInterval } from '@/features/billing/plans';
 import {
   inviteBetaCustomerAction,
   resendBetaInviteAction,
@@ -1219,15 +1223,18 @@ export function usePoAssignCrew(eventId: string) {
   });
 }
 
-/** Invite a brand-new external crew member by email to one or more events, with a
- *  guest quota. Provisions a login with no venue access; they activate it on first
- *  login. Used by the per-event crew screen (eventIds=[id]) and the settings fork. */
+/** Invite someone as external crew by email to one or more events, with a guest
+ *  quota (z8uq9m2yvp): an open invite they accept, for a new or an existing
+ *  account. Used by the per-event crew screen (eventIds=[id]) and the settings fork. */
 export function usePoInviteExternalCrew() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: InviteExternalCrewInput) => throwOnError(await inviteExternalCrew(input)),
     onSuccess: (_res, input) => {
-      for (const id of input.eventIds) invalidateCrew(qc, id);
+      for (const id of input.eventIds) {
+        invalidateCrew(qc, id);
+        void qc.invalidateQueries({ queryKey: poKeys.crewInvites(id) });
+      }
     },
   });
 }
@@ -1247,6 +1254,15 @@ export function usePoRemoveCrew(eventId: string) {
   return useMutation({
     mutationFn: async (input: RemoveOrganizerInput) => throwOnError(await removeOrganizer(input)),
     onSuccess: () => invalidateCrew(qc, eventId),
+  });
+}
+
+/** Revoke an open crew invite (z8uq9m2yvp); refreshes the event's Pending list. */
+export function usePoRevokeCrewInvite(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: RevokeCrewInviteInput) => throwOnError(await revokeCrewInvite(input)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.crewInvites(eventId) }),
   });
 }
 
@@ -1549,17 +1565,6 @@ export function usePoUpdateEmail() {
   });
 }
 
-/** Accept the caller's own pending invites (the incoming-invite banner). This
- *  changes memberships — resolved server-side in /app — so the banner reloads on
- *  success to re-resolve identity + the venue switcher. Invalidates the list too. */
-export function usePoAcceptInvites() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async () => throwOnActionError(await acceptInvitesAction()),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.myInvites() }),
-  });
-}
-
 /** End one of the caller's own sessions. */
 export function usePoRevokeOwnSession() {
   const qc = useQueryClient();
@@ -1644,10 +1649,10 @@ export function usePoUpdateVenueSettings() {
 /** Start Stripe Checkout for the active venue; resolves to the hosted URL. */
 export function usePoBillingCheckout() {
   const { venueId } = usePoIdentity();
-  return useMutation<string, Error, void>({
-    mutationFn: async () => {
+  return useMutation<string, Error, BillingInterval>({
+    mutationFn: async (interval) => {
       if (!venueId) throw new Error('No active venue selected.');
-      const res = await createCheckoutSessionAction({ venueId });
+      const res = await createCheckoutSessionAction({ venueId, interval });
       if (!res.ok) throw new Error(res.message);
       return res.url;
     },
@@ -1664,6 +1669,40 @@ export function usePoBillingPortal() {
       if (!res.ok) throw new Error(res.message);
       return res.url;
     },
+  });
+}
+
+// ── Platform > Companies: trial / always free (Billing G) ───────────────────
+// set_venue_trial_end / set_venue_comped re-check is_platform_admin() in the
+// database; the audit trigger logs the write under the caller. On success the
+// page's billing read and the active venue's own subscription (when a platform
+// admin changes the company they are switched into) refetch.
+
+function invalidatePlatformBilling(qc: QueryClient, venueId: string): void {
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-billing'] });
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'platform-venues'] });
+  void qc.invalidateQueries({ queryKey: poKeys.subscription(venueId) });
+}
+
+export function usePoSetVenueTrialEnd() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { venueId: string; trialEndsOn: string }>({
+    mutationFn: async (input) => {
+      const res = await setVenueTrialEndAction(input);
+      if (!res.ok) throw new Error(res.message);
+    },
+    onSuccess: (_d, { venueId }) => invalidatePlatformBilling(qc, venueId),
+  });
+}
+
+export function usePoSetVenueComped() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { venueId: string; comped: boolean }>({
+    mutationFn: async (input) => {
+      const res = await setVenueCompedAction(input);
+      if (!res.ok) throw new Error(res.message);
+    },
+    onSuccess: (_d, { venueId }) => invalidatePlatformBilling(qc, venueId),
   });
 }
 

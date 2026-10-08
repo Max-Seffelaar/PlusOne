@@ -6,6 +6,9 @@ import { requireConsent } from '@/lib/auth/consent';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { isDemoReviewUser } from '@/features/auth/review-window';
 import { OnboardingWizard } from '@/features/onboarding/components/OnboardingWizard';
+import { createClient } from '@/lib/supabase/server';
+import { fetchMyPendingInvites } from '@/features/po/queries';
+import { toPoMyInvite } from '@/features/po/adapters';
 
 export const metadata: Metadata = {
   title: 'Get started · PlusOne',
@@ -31,7 +34,29 @@ export default async function OnboardingPage(): Promise<JSX.Element> {
   // wizard, so every step that would open a form shows the refusal instead.
   const demoAccount = isDemoReviewUser(user);
 
+  // Open invites, team or crew (z8uq9m2yvp): a person with no company yet
+  // accepts or declines each one here rather than being pushed into company
+  // setup. Login accepts nothing, and the Home banner is behind this redirect.
+  // Best effort: a failed read just shows the wizard as before.
+  const invites =
+    state.step === 'venue' && !demoAccount
+      ? await fetchMyPendingInvites(await createClient())
+          .then((rows) =>
+            rows.map((r) => {
+              const invite = toPoMyInvite(r);
+              return { id: invite.id, label: invite.label, company: invite.venueName };
+            })
+          )
+          .catch(() => [])
+      : [];
+
   return (
-    <OnboardingWizard initialStep={state.step} venueId={state.venueId} owner={owner} demoAccount={demoAccount} />
+    <OnboardingWizard
+      initialStep={state.step}
+      venueId={state.venueId}
+      owner={owner}
+      demoAccount={demoAccount}
+      invites={invites}
+    />
   );
 }

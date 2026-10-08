@@ -25,7 +25,7 @@ describe('renderTeamMail', () => {
       { template: 'team_added_to_event', venueId: VENUE_ID, inviterName: 'Max', companyName: 'Club Vesper', eventName: 'Friday Late' },
       APP
     );
-    expect(m.subject).toBe('Max added you to Friday Late');
+    expect(m.subject).toBe('Max invited you to the crew for Friday Late');
     expect(m.html).toContain('Friday Late at Club Vesper');
   });
 
@@ -39,7 +39,7 @@ describe('renderTeamMail', () => {
   it('falls back to "an admin at {company}" wherever {inviter} appears', () => {
     const m = renderTeamMail({ ...join, inviterName: null }, APP);
     expect(m.subject).toBe('An admin at Club Vesper invited you to join Club Vesper');
-    expect(m.text).toContain('An admin at Club Vesper added you to the Club Vesper team on PlusOne.');
+    expect(m.text).toContain('An admin at Club Vesper invited you to join the Club Vesper team on PlusOne.');
     expect(renderTeamMail({ ...join, inviterName: '  \n ' }, APP).subject).toBe(
       'An admin at Club Vesper invited you to join Club Vesper'
     );
@@ -126,7 +126,7 @@ describe('approved copy structure (Max, 2026-10-07)', () => {
 
   it('crew added: the guest sentence shows only with a quota', () => {
     expect(renderTeamMail(crewAdded(4), APP).text).toContain(
-      'Max added you to the crew for Friday Late at Club Vesper. You can put up to 4 guests on the list.'
+      'Max invited you to the crew for Friday Late at Club Vesper. Accept the invite in the app to join. You can put up to 4 guests on the list.'
     );
     expect(renderTeamMail(crewAdded(1), APP).text).toContain('You can put up to 1 guest on the list.');
     for (const q of [undefined, 0]) {
@@ -136,11 +136,15 @@ describe('approved copy structure (Max, 2026-10-07)', () => {
     }
   });
 
-  it('crew added: find-the-event + scope paragraphs; no 7-day line', () => {
+  it('crew invite (z8uq9m2yvp): accept-in-the-banner + 7-day line, then find-the-event + scope', () => {
     const m = renderTeamMail(crewAdded(), APP);
+    expect(m.text).toContain(
+      "Log in and tap Accept on the invite. It's in the banner at the top of Home, or on the first screen if you don't have a company yet."
+    );
+    expect(m.text).toContain('The invite is open for 7 days.');
     expect(m.text).toContain('Find the event. Switch to Club Vesper:');
     expect(m.text).toContain('You only see the events Club Vesper put you on.');
-    expect(m.text).not.toContain('7 days');
+    expect(m.text).not.toMatch(/added you/);
   });
 
   it('join and join-resend share everything from "Getting in" down', () => {
@@ -148,7 +152,7 @@ describe('approved copy structure (Max, 2026-10-07)', () => {
     const c = renderTeamMail(ALL[2], APP).text;
     expect(c).toContain('Max sent your invite again.');
     expect(a.slice(a.indexOf('Getting in'))).toBe(c.slice(c.indexOf('Getting in')));
-    expect(a).toContain('Already logged in? Open PlusOne and accept the invite in the banner at the top.');
+    expect(a).toContain("Once you're in, tap Accept on the invite. It's in the banner at the top of Home, or on the first screen if you don't have a company yet.");
     expect(a).toContain('The invite is open for 7 days.');
   });
 

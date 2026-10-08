@@ -31,7 +31,9 @@ vi.mock('@/features/door/outbox/gateway', () => {
   const ok = async () => ({ error: null });
   return {
     supabaseGateway: () => ({
-      insertCheckIn: async (row: { checked_by?: string; synced_by?: string | null }) => {
+      // The door's check-in write is an upsert on the row id since z8uq9m2vg6.
+      insertCheckIn: ok,
+      upsertCheckIn: async (row: { checked_by?: string; synced_by?: string | null }) => {
         if (gw.terminal) return { error: { code: '45005', message: 'This event is at capacity.' } };
         if (gw.fail) return { error: { code: undefined, message: 'Failed to fetch' } };
         gw.sent.push(row);

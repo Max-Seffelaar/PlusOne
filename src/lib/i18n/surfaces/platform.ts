@@ -110,7 +110,19 @@ export const platform = {
   subscriptionActive: 'Active',
   subscriptionPastDue: 'Past due',
   subscriptionCanceled: 'Canceled',
-  subscriptionComped: 'Comped',
+  subscriptionComped: 'Always free',
+  // Trial management per company (Billing G): "Trial until <date>" and
+  // "Always free", through set_venue_trial_end / set_venue_comped.
+  billingTrialUntil: 'Trial until {date}',
+  billingTrialEnded: 'Trial ended {date}',
+  billingAlwaysFree: 'Always free',
+  billingAlwaysFreeSub: 'Never billed. Switch off to start a new 14-day trial.',
+  billingTrialDateLabel: 'Trial until',
+  billingSetTrial: 'Set trial end',
+  billingWorking: 'Saving…',
+  billingStripeManaged: 'This company pays through Stripe. Change it in the Stripe dashboard.',
+  billingTrialOutOfRange: 'Pick a date from today up to two years ahead.',
+  billingLoadError: "Couldn't load the billing state.",
 
   // ── Audit screen ──────────────────────────────────────────────────────────
   auditTitle: 'Audit',

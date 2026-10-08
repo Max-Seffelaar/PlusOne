@@ -8,6 +8,120 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-07 — Check-in D: group-first check-in, absolute count, undo per role (z8uq9m2vg6)
+
+Milestone **Now** (onboarding programme okt 2026, wave C, task 4). Design: spike 9.2 in
+`onboarding-orchestration-claude-code.md`. Spec decision #55 (refines #22/#25 and the S1.1 undo setting).
+
+- **UI, phone door and desktop cockpit:** the "how many are coming in?" stepper is gone. "Check in all (N)" checks in
+  everyone still outside; "Check in 1" lets one more in and shows the count (3/4). The cockpit's check-in modal has the
+  same two buttons; its check-out stepper stays.
+- **Outbox:** one check-in kind, an upsert on `check_ins.id` with an absolute `plus_ones_arrived` and
+  `client_timestamp`. A second tap while the first is still pending overwrites it in place (`dedup.ts`
+  `coalesceTarget`), so two taps offline become one row online. A "+1" on a guest another device checked in reuses that
+  row's id from the snapshot. Void, revive and top-up now send `client_timestamp`. `check_in_topup` stays parseable and
+  replayable for entries an older bundle already queued; new taps never enqueue it.
+- **Database, `20261010120000_checkin_absolute_count_guard.sql`:** BEFORE INSERT/UPDATE trigger
+  `check_ins_a_stale_guard` (client writes only, sorts before the cap trigger), tightened by two reviews of PR #423:
+  - `client_timestamp` (the device clock) is clamped to `now()`. It is the stamp of the last void-state change; a
+    count-only write ("+1") never reads or moves it, so a colleague's later "+1" cannot make an offline undo stale.
+  - A superseded void/revive, and any change to a voided row, raise SQLSTATE `PO409` for every role, never a silent
+    success. A void/revive that sends no fresh stamp (`check_out_guest`) is stamped `now()` by the server.
+  - A check-in cannot move to another guest (that was an undo without the right, past the cap) and cannot be
+    inserted already undone (42501).
+  - `checked_by`/`checked_at`/`device_id`/`offline_synced`/`synced_by` stay first-wins except on a revive. Above
+    `1 + plus_ones` the count is clamped, not refused (decision Max 2026-10-06).
+- **Database, `20261010120100_door_checkout_permission.sql`:** `can_uncheck_check_in(event)` makes the existing
+  RESTRICTIVE policy role-dependent: admin and user_manager always, doorhost/crew/staff only with the setting on.
+  `check_out_guest` inherits it (pgTAP). **Behaviour change for every existing company:** `venues.allow_uncheck`
+  defaults to `false` and was backfilled to `false`, so door hosts and crew can no longer undo a check-in until an admin
+  turns "Door team can undo check-ins" back on in Company settings (or per event). Admins and user managers are not
+  affected. The backfill is audited (one `update` per company, actor NULL = system).
+  **Besluit Max 2026-10-07: bestaande companies ook uit (A)** (review point 3 on PR #423, relayed by the
+  orchestrator).
+- **Superseded writes (PO409):** settled as `denied` with their own toast ("Not saved. This check-in changed on another
+  device, so the list now shows the latest.") and a refetch, never a retried error or a dead letter. The outbox drain
+  re-reads each entry right before sending it, so a tap coalesced into a still-pending entry goes up with its newest
+  count; coalescing only merges the same actor's own taps. "Only admins…" is shown only for the 42501 that names the
+  uncheck policy. The cockpit asks `can_uncheck_check_in` too. New kit primitive `CountPill`.
+- **Refused undo:** a queued undo the database refuses (42501) settles as the new outbox status `denied`: never retried,
+  not a dead letter, pruned on the next clear, one toast ("Undo not saved. Only admins and user managers can undo
+  check-ins here."). The refetch shows the guest inside again. The undo button is hidden for a user without the right
+  (the door asks `can_uncheck_check_in`, falling back to the setting when the rpc is missing during deploy).
+- **Decision 17:** a doorhost raising `plus_ones` is charged to the guest's adder; pgTAP pins it
+  (`guests_door_plus_ones.test.sql`). No new UI (the "…" sheet's +N editor already exists).
+- **Door header** shows the event location (own name/address, else the company address) via `resolveEventLocation`.
+- **pgTAP:** new `check_ins_absolute_count`, `check_ins_uncheck_roles`, `guests_door_plus_ones`. Fixtures in
+  `allow_uncheck`, `check_out_guest` and `checkin.void` switch the setting on explicitly (they test doorhost voids);
+  `outbox_owner_stamp` D1/D3 now run the actor guard on a revive, since a plain update can no longer move `checked_by`.
+- **Flow:** `tests/flows/door-checkin.flow.ts` (four variants).
+- **Deploy order:** the bundle tolerates the window before the migrations are pushed (the rpc falls back to the
+  setting; upsert works without the guard, minus the first-wins pin). Push the migrations right after the merge.
+
+---
+
+## 2026-10-07 — Billing G: one plan Pro, monthly/yearly, platform trial override (z8uq9m2vrz)
+
+Milestone **Now** (onboarding programme okt 2026, wave C, task 2). Decision #32 revised, #40 wizard steps.
+
+- **One plan, Pro** (`20261008120000_single_plan_pro`): every subscription relabelled `pro`; `create_venue_with_owner`
+  starts every company on trialing Pro; `set_venue_plan` survives for the deployed wizard but only takes `pro`. The
+  wizard is Welcome → Company → Team in browser and native shell: `PlanStep`, `BetalingStep` and `TrialStartStep` are
+  deleted (no client-side trial start is needed — the RPC creates the row).
+- **Prices live from Stripe** by lookup key `pro_monthly` / `pro_yearly` (`BillingProvider.listPrices`, 10 min server
+  cache, stub = null → "Price shown at checkout"). No price id or amount in code or env; the misconfiguration guard
+  moved from config import to the first checkout. Yearly saving is computed from the two prices.
+- **Checkout:** monthly/yearly picker on More → Billing (browser, admin **and** finance —
+  `callerIsVenueAdmin` → `callerMayManageBilling`), card added next to SEPA + iDEAL, interval marked in session
+  metadata. `20261008120100_billing_interval`: `subscriptions.billing_interval`, the webhook RPC gains
+  `p_billing_interval` (one overload; ordering and comped guards unchanged); the webhook also maps
+  `customer.subscription.created` (enable it in the dashboard, `docs/stripe-setup.md` §1.7).
+- **Platform trial override** (`20261008120200_platform_trial_override`): `subscriptions.trial_ends_at`,
+  `set_venue_trial_end` / `set_venue_comped` (SECURITY DEFINER, `is_platform_admin()` inside, 42501 for venue
+  admin/finance/manager, 55000 for a Stripe-linked row, audited by the subscriptions trigger on the admin's uid).
+  Platform → Companies shows "Trial until <date>" / "Always free" per card with the two controls. The SQL runbook in
+  `docs/stripe-setup.md` §5 now points at the tab.
+- **One trial rule:** `effectiveTrialEndsAt()` = `coalesce(trial_ends_at, created_at + 14 d)` feeds the server gate,
+  `toPoSubscription`, `useBillingBlocked` (now calls `billingBlockReason` itself) and Stripe's `trial_end`. Spike 9.1:
+  no gate fix was needed; tests use De Marktzaal (trialing), not comped Club Vesper.
+- **Native:** Billing shows plan, status, "Trial ends in N days." and the neutral sentence; the price query never runs
+  in the shell. New `tests/e2e/native-shell-guard.spec.ts` in `pnpm e2e:smoke`.
+- **dev-mfa fix:** `pnpm dev:mfa` no longer replays `20260615000000` (that resurrected the dropped `p_comped`
+  overloads, breaking named-arg calls and reopening client-set comped locally); it now checks one overload each and
+  points at `pnpm db:fresh`.
+- **Review rounds:** the New company screen lost its payment/comped notes (both surfaces, now in the native-shell e2e
+  guard); the seed is on plan `pro`; `docs/stripe-setup.md` recommends a restricted `rk_` key. Expand–contract:
+  `set_venue_plan` accepts the old wizard's `indie`/`premium`/`pro` and stores `pro` (contract later); the trial
+  override is capped at 730 days (Stripe's `trial_end` limit).
+
+---
+
+## 2026-10-07 — Explicit invite accept and decline, nothing accepts at login (z8uq9m2yvp, follow-up to #412)
+
+Milestone **Now** (golf B, task 0d follow-up). Max's rule ("data only becomes visible once the user has been added and the invite has been accepted") held for crew after #412, but a TEAM invite still auto-accepted at login: any company admin could make an existing account a member (and read its profile) by typing its address. This closes that, for team and crew alike.
+
+- **Migration `20261007150000_explicit_invite_accept`** (not on prod yet): `invites.declined_at` / `declined_by` (not both accepted and declined); the two pending-unique indexes ignore declined rows, so a company can invite again. `accept_pending_invites()` (login, consent, dev-login) is now a deprecated shim that only ensures the profile and returns 0; the app calls the new `ensure_my_profile()`. `accept_invite(id)` accepts ONE invite addressed to the caller (body unchanged from #412: team = membership + quota + event scopes, crew = one `event_organizers` row + quota on a new row, nothing for a member of that company); `decline_invite(id)` closes one and returns true only on the open to declined transition. `accept_my_invites()` stays for one release (the deployed banner still calls it) and goes in a follow-up migration. `declined_invite_mail_context(id)` is service_role only (it hands out the inviter's address). `my_pending_invites()` and `invites_update_resend` skip declined rows; `mail_log.type` gains the two decline types.
+- **App:** `acceptInviteAction(id)` / `declineInviteAction(id)` replace the accept-all action. The Home banner and the /onboarding step (now for team AND crew invites, `InviteStep`) show each invite with its own Accept and Decline. Decline confirms in place, and `notifyInviteDeclined` (`src/features/mail/declined.ts`) mails the inviter ("{typed address} declined ...", never a profile name) and the decliner, venue-less so a decline never eats the company's 25-per-day invitation cap. Mail is best effort. The Team screen shows a "Declined" status; crew "Waiting to accept" drops the invite.
+- **Comments fixed:** the banner header, `inviteExternalCrew`, the callback/confirm routes, consent-actions and `invite-mail.ts` still said login accepts invites.
+- Tests: pgTAP `explicit_invite_accept.test.sql` (41), `crew_invites` and `auth.invites` moved to the per-invite accept; vitest for the actions, the mail, the step and the templates; flow `crew-existing-account` Q1-Q22 (adds the decline path); e2e `invite-accept` now proves the first login accepts nothing. The flow's cleanup keeps its hard deletes as a documented QA exception (see its header).
+- **Review round 4 (migration `20261007150100_invite_decline_hardening`, grants/policy/function/retention only; `150000` is on prod and unchanged):** `accepted_by`/`declined_by` are no longer readable by app roles (column-level SELECT on `invites`; every app read already names its columns), `invites_insert` refuses a pre-closed row (no foreign-key oracle on a chosen `declined_by`), the two decline mail types fall outside the 60 s recipient window, and venue-less `mail_log` rows are deleted after 90 days (daily pg_cron job; operational log, not business data). App: Decline asks first ("Decline this invite?" Keep / Decline invite) in the banner and the onboarding step, which now share one hook (`useInviteDecisions`); a card the server reports as no longer open disappears; the decline mails run in `after()` and only `/onboarding` is revalidated; a declined invite has no Revoke on the Team list. Known residual: the audit row of the decline carries the decliner's id as `actor_id`, readable by that company's admins (same class as `accepted_by` after an accept).
+- Spec #24 updated (replaces "accepteren = eerste OTP-login"). The Supabase invite and magic-link templates (`supabase/templates/invite.html`, `magic_link.html`) no longer suggest that logging in accepts: the invite mail's button reads "Log in" with "Then accept the invite in the app." under it and the heading is "You're invited"; the magic-link mail says "Invited to a company? Accept the invite in the app after you log in." They are mirrored by hand into the prod dashboard: after the merge Max pastes both under Auth → Email templates (Invite user, Magic link). The Resend team mails were reworded too.
+
+---
+
+## 2026-10-07 — Crew via invite + accept, existing accounts included (z8uq9m2yvp)
+
+Milestone **Now** (golf B, task 0d). First version of this PR (#412) resolved an existing account by e-mail with the service role and wrote `event_organizers` straight away; the reviewer showed that this let anyone who creates a company read any account's name, phone and platform-admin flag by typing its address (the organizer leg of `can_view_profile`). Rebuilt on Max's rule (2026-10-07): data becomes visible only once the person has been added AND accepted.
+
+- **Migration `20261007140000_crew_invites`:** `invites` can be crew-only (no roles, exactly one event, `crew_quota`); the pending-unique index is split (team: per venue + e-mail; crew: per venue + e-mail + event). `invites_insert` keeps crew admin-only and requires the crew event to belong to the venue. `accept_pending_invites()` (the LOGIN path) now accepts crew invites only for a fresh account (no profile yet); an existing account accepts in the Home banner through the new `accept_my_invites()`. Per crew invite: `event_organizers` for that one event, the quota only for a new crew row, nothing at all for a member of that company. New `my_pending_invites()` (SECURITY DEFINER) gives the banner the company and event name of the caller's own open invites.
+- **`inviteExternalCrew`:** one path for new and existing accounts: C1 admin check, the company mail cap, skip members of the company and people already on the crew (read through RLS), insert the crew invite (23505 = resend: expiry bump, quota untouched), then `sendInviteEmail` with the `team_added_to_event` crew mail (now "invited you … accept in the app"). The service-role lookup is gone. Response identical for a new address, an existing account, a member and existing crew.
+- **60-second window:** `sendTeamMail` now tells the per-recipient window (`recipient_window`) apart from the daily cap (`venue_cap`); `sendInviteEmail` maps them (and GoTrue's own 429) to `recent` / `cap`. Team resend, crew resend and crew invite show "Already sent. Give it a minute before you resend."; the cap keeps its own copy.
+- **UI:** crew sheet copy ("Invite sent. They're on the crew once they accept."), banner lines "Club Vesper (Staff)" / "Crew · <event> at <company>", and the team screen no longer lists crew-only invites.
+- Tests: pgTAP `crew_invites.test.sql` (34, allowed/denied per role, the before/after-accept profile visibility proof); vitest for the action (12, database state), mail reasons, resends, banner read, accept action; flow `crew-existing-account` Q1–Q12 on four variants, cleaning up after itself (the two fixture events stay when the audit trail references them).
+- Not changed: `src/lib/db-errors.ts` does not list `mail_cap`/`mail_recent` as expected codes (Sentry may still see them); team invites are still auto-accepted at login for existing accounts (same leak shape via a team invite; follow-up, see PR #412).
+
+---
+
 ## 2026-10-07 — Templates keep the event location (z8uq9m2vqc, PR B)
 
 Max's prod report ("an event from a template loses its location") traced via the edge logs to **Save as template**:
