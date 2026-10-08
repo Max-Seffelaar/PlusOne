@@ -72,6 +72,10 @@ import {
   fetchPlatformAuditOverview,
   fetchPlatformAuditOverviewCount,
   fetchPlatformAccessLog,
+  fetchPlatformCompanies,
+  fetchPlatformSubscriptionCounts,
+  fetchPlatformTrialFunnel,
+  fetchPlatformUsage30d,
   type PlatformAccessLogParams,
   type PlatformVenueParams,
   type PlatformAuditParams,
@@ -120,6 +124,14 @@ import {
   toPlatformVenueOption,
   toPlatformAuditEntry,
   toPlatformAccessLogEntry,
+  toPlatformCompany,
+  toPlatformSubscriptionCounts,
+  toPlatformTrialFunnel,
+  toPlatformUsage,
+  type PlatformCompany,
+  type PlatformSubscriptionCounts,
+  type PlatformTrialFunnel,
+  type PlatformUsage,
   type PlatformAccessLogEntry,
   type PlatformInvite,
   type PlatformInviteStage,
@@ -1433,6 +1445,61 @@ export function usePoPlatformBilling(venueIds: readonly string[], options?: { en
           return [b.venueId, b] as const;
         })
       ),
+  });
+}
+
+// ── Platform R (z8uq9m2ybj) ─────────────────────────────────────────────────
+// Callers sit behind usePoIsPlatformAdmin(): the RPCs raise 42501 for anyone
+// else, so `enabled` keeps a non-admin from firing a doomed read.
+
+/** Per-company detail for the companies on one page, keyed by id. */
+export function usePoPlatformCompanies(venueIds: readonly string[], options?: { enabled?: boolean }) {
+  return useQuery<Map<string, PlatformCompany>>({
+    queryKey: poKeys.platformCompanies(venueIds),
+    enabled: (options?.enabled ?? true) && venueIds.length > 0,
+    queryFn: async () =>
+      new Map(
+        (await fetchPlatformCompanies(createClient(), venueIds)).map((row) => {
+          const c = toPlatformCompany(row);
+          return [c.venueId, c] as const;
+        })
+      ),
+  });
+}
+
+/** Overview: companies per billing bucket (one SQL row). */
+export function usePoPlatformSubscriptionCounts(options?: { enabled?: boolean }) {
+  return useQuery<PlatformSubscriptionCounts | null>({
+    queryKey: poKeys.platformSubscriptionCounts(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => {
+      const row = await fetchPlatformSubscriptionCounts(createClient());
+      return row ? toPlatformSubscriptionCounts(row) : null;
+    },
+  });
+}
+
+/** Overview: trials ending soon, conversion, cancellations (one SQL row). */
+export function usePoPlatformTrialFunnel(options?: { enabled?: boolean }) {
+  return useQuery<PlatformTrialFunnel | null>({
+    queryKey: poKeys.platformTrialFunnel(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => {
+      const row = await fetchPlatformTrialFunnel(createClient());
+      return row ? toPlatformTrialFunnel(row) : null;
+    },
+  });
+}
+
+/** Overview: usage over the last 30 days (one SQL row). */
+export function usePoPlatformUsage(options?: { enabled?: boolean }) {
+  return useQuery<PlatformUsage | null>({
+    queryKey: poKeys.platformUsage(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => {
+      const row = await fetchPlatformUsage30d(createClient());
+      return row ? toPlatformUsage(row) : null;
+    },
   });
 }
 

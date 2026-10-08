@@ -27,7 +27,12 @@ import type {
   PlatformVenueOption,
   PlatformAuditRow,
   PlatformAccessLogRow,
+  PlatformCompanyRow,
+  PlatformSubscriptionCountsRow,
+  PlatformTrialFunnelRow,
+  PlatformUsageRow,
 } from './queries';
+import type { BillingPrices } from '@/features/billing/plans';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatInTz as fmt, formatClock, toDateInput } from './format';
 import { tierRole } from '@/lib/po/tier';
@@ -1222,6 +1227,9 @@ export interface PlatformInvite {
   signedIn: boolean;
   venueCount: number;
   eventCount: number;
+  /** The invitee's companies, oldest membership first (z8uq9m2ybj). Detail
+   *  comes from `toPlatformCompany`, the same view-model Venues renders. */
+  companyIds: string[];
 }
 
 /** DB row -> domain. Every column PR #325 flagged as runtime-nullable is
@@ -1244,6 +1252,7 @@ export function toPlatformInvite(row: PlatformInviteRow): PlatformInvite {
     signedIn: row.confirmed_at != null,
     venueCount: row.venue_count ?? 0,
     eventCount: row.event_count ?? 0,
+    companyIds: row.company_ids ?? [],
   };
 }
 
@@ -1286,6 +1295,178 @@ export function toPlatformVenue(row: PlatformVenueRow): PlatformVenue {
     subscriptionStatus: row.subscription_status ?? null,
     lastActivityAt: row.last_activity_at ?? null,
   };
+}
+
+// ── Platform R (z8uq9m2ybj): one company view-model for Invites AND Venues ──
+
+/** The ONE per-company shape both Platform lists render (one adapter, no
+ *  second mapper). Names and aggregates only — never a guest. */
+export interface PlatformCompany {
+  venueId: string;
+  name: string;
+  status: Database['public']['Enums']['subscription_status'] | null;
+  interval: BillingInterval | null;
+  stripeLinked: boolean;
+  /** Effective trial end (override or created_at + 14 d, computed in SQL with
+   *  the effectiveTrialEndsAt rule) while trialing; null otherwise. */
+  trialEndsAt: string | null;
+  ownerLastSignInAt: string | null;
+  lastCheckInAt: string | null;
+  eventCount: number;
+  lastEvent: { name: string; startsAt: string } | null;
+}
+
+const SUBSCRIPTION_STATUSES = ['trialing', 'active', 'past_due', 'canceled', 'comped'] as const;
+
+export function toPlatformCompany(row: PlatformCompanyRow): PlatformCompany {
+  const status = (SUBSCRIPTION_STATUSES as readonly string[]).includes(row.subscription_status ?? '')
+    ? (row.subscription_status as PlatformCompany['status'])
+    : null;
+  return {
+    venueId: row.venue_id,
+    name: row.name,
+    status,
+    interval: isBillingInterval(row.billing_interval) ? row.billing_interval : null,
+    stripeLinked: row.stripe_linked === true,
+    trialEndsAt: row.trial_ends_at ?? null,
+    ownerLastSignInAt: row.owner_last_sign_in_at ?? null,
+    lastCheckInAt: row.last_check_in_at ?? null,
+    eventCount: row.event_count ?? 0,
+    lastEvent:
+      row.last_event_name && row.last_event_starts_at
+        ? { name: row.last_event_name, startsAt: row.last_event_starts_at }
+        : null,
+  };
+}
+
+/** What the status chip says. `daysLeft` only for a running trial. */
+export type PlatformCompanyStatus =
+  | { kind: 'trial'; daysLeft: number }
+  | { kind: 'trial_ended' }
+  | { kind: 'paid_monthly' }
+  | { kind: 'paid_yearly' }
+  | { kind: 'paid' }
+  | { kind: 'comped' }
+  | { kind: 'past_due' }
+  | { kind: 'canceled' }
+  | { kind: 'none' };
+
+export function platformCompanyStatus(company: PlatformCompany, now: number = Date.now()): PlatformCompanyStatus {
+  switch (company.status) {
+    case 'trialing': {
+      // Stripe-linked trials run on Stripe's clock (card on file); we only
+      // know our own end date, so show it as running when it is still ahead.
+      if (!company.trialEndsAt) return { kind: 'trial', daysLeft: 0 };
+      const msLeft = new Date(company.trialEndsAt).getTime() - now;
+      if (msLeft < 0) return company.stripeLinked ? { kind: 'trial', daysLeft: 0 } : { kind: 'trial_ended' };
+      return { kind: 'trial', daysLeft: Math.ceil(msLeft / DAY_MS) };
+    }
+    case 'active':
+      return company.interval === 'month'
+        ? { kind: 'paid_monthly' }
+        : company.interval === 'year'
+          ? { kind: 'paid_yearly' }
+          : { kind: 'paid' };
+    case 'comped':
+      return { kind: 'comped' };
+    case 'past_due':
+      return { kind: 'past_due' };
+    case 'canceled':
+      return { kind: 'canceled' };
+    default:
+      return { kind: 'none' };
+  }
+}
+
+// ── Platform R: Overview aggregates ─────────────────────────────────────────
+
+export interface PlatformSubscriptionCounts {
+  total: number;
+  trialing: number;
+  trialLapsed: number;
+  paidMonthly: number;
+  paidYearly: number;
+  paidUnknown: number;
+  pastDue: number;
+  canceled: number;
+  comped: number;
+  noSubscription: number;
+}
+
+export function toPlatformSubscriptionCounts(row: PlatformSubscriptionCountsRow): PlatformSubscriptionCounts {
+  return {
+    total: row.total_companies ?? 0,
+    trialing: row.trialing ?? 0,
+    trialLapsed: row.trial_lapsed ?? 0,
+    paidMonthly: row.paid_monthly ?? 0,
+    paidYearly: row.paid_yearly ?? 0,
+    paidUnknown: row.paid_unknown ?? 0,
+    pastDue: row.past_due ?? 0,
+    canceled: row.canceled ?? 0,
+    comped: row.comped ?? 0,
+    noSubscription: row.no_subscription ?? 0,
+  };
+}
+
+export interface PlatformTrialFunnel {
+  ending7d: number;
+  ended30d: number;
+  converted30d: number;
+  ended90d: number;
+  converted90d: number;
+  canceled30d: number;
+}
+
+export function toPlatformTrialFunnel(row: PlatformTrialFunnelRow): PlatformTrialFunnel {
+  return {
+    ending7d: row.ending_7d ?? 0,
+    ended30d: row.ended_30d ?? 0,
+    converted30d: row.converted_30d ?? 0,
+    ended90d: row.ended_90d ?? 0,
+    converted90d: row.converted_90d ?? 0,
+    canceled30d: row.canceled_30d ?? 0,
+  };
+}
+
+export interface PlatformUsage {
+  activeCompanies: number;
+  events: number;
+  checkIns: number;
+  dormantCompanies: number;
+}
+
+export function toPlatformUsage(row: PlatformUsageRow): PlatformUsage {
+  return {
+    activeCompanies: row.active_companies ?? 0,
+    events: row.events ?? 0,
+    checkIns: row.check_ins ?? 0,
+    dormantCompanies: row.dormant_companies ?? 0,
+  };
+}
+
+/**
+ * MRR/ARR from our own records (z8uq9m2ybj): monthly payers × the monthly
+ * price + yearly payers × the yearly price / 12; ARR = MRR × 12. Excl. VAT
+ * (Stripe's unit amounts are net; the tax rate is applied on top). Only
+ * `active` counts — past_due is dunning, which the UI label excludes.
+ * null when the prices are unknown (stub, Stripe down) or a price we need is
+ * missing or in another currency: the UI shows "—", never a guessed number.
+ * Amounts in minor units (cents).
+ */
+export function platformRevenue(
+  counts: Pick<PlatformSubscriptionCounts, 'paidMonthly' | 'paidYearly'>,
+  prices: BillingPrices | null
+): { mrr: number; arr: number; currency: string } | null {
+  if (!prices) return null;
+  const { month, year } = prices;
+  if (counts.paidMonthly > 0 && !month) return null;
+  if (counts.paidYearly > 0 && !year) return null;
+  const currency = (month ?? year)?.currency;
+  if (!currency) return null;
+  if (month && year && month.currency.toLowerCase() !== year.currency.toLowerCase()) return null;
+  const mrr = counts.paidMonthly * (month?.unitAmount ?? 0) + (counts.paidYearly * (year?.unitAmount ?? 0)) / 12;
+  const rounded = Math.round(mrr);
+  return { mrr: rounded, arr: Math.round(mrr * 12), currency };
 }
 
 export interface PlatformVenueOptionItem {

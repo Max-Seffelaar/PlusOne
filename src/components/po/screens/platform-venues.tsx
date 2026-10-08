@@ -41,13 +41,15 @@ import { t, fmt } from '@/lib/i18n';
 import {
   usePoIsPlatformAdmin,
   usePoPlatformBilling,
+  usePoPlatformCompanies,
   usePoPlatformVenues,
   usePoPlatformVenuesCount,
 } from '@/features/po/hooks';
 import { usePoSetVenueComped, usePoSetVenueTrialEnd } from '@/features/po/mutations';
-import type { PlatformBilling, PlatformVenue } from '@/features/po/adapters';
+import type { PlatformBilling, PlatformCompany, PlatformVenue } from '@/features/po/adapters';
 import { formatShortDate, toDateInput } from '@/features/po/format';
 import { useNav, usePo } from '../context';
+import { CompanyDetail } from './platform-company';
 import { Btn, Empty, Field, FieldErrorText, Label, MiniChip, Note, PageNav, Scroll, StatTile, ToggleRow, Top } from '../kit';
 
 const col = 'flex h-full flex-col';
@@ -98,6 +100,9 @@ function VenuesConsole(): JSX.Element {
   const total = countQ.data ?? 0;
   const venueIds = useMemo(() => venues.map((v) => v.venueId), [venues]);
   const billingQ = usePoPlatformBilling(venueIds);
+  // Platform R (z8uq9m2ybj): the same per-company detail the Invites list
+  // shows — one view-model, one adapter, one read per page.
+  const companiesQ = usePoPlatformCompanies(venueIds);
 
   return (
     <div className={col}>
@@ -133,6 +138,7 @@ function VenuesConsole(): JSX.Element {
                   key={v.venueId}
                   venue={v}
                   billing={billingQ.data?.get(v.venueId) ?? null}
+                  company={companiesQ.data?.get(v.venueId) ?? null}
                   billingError={billingQ.isError}
                   onSwitch={() => switchToVenue(v.venueId)}
                   onViewAudit={() => nav.push('platformaudit', { id: v.venueId })}
@@ -161,12 +167,14 @@ function VenuesConsole(): JSX.Element {
 function VenueCard({
   venue,
   billing,
+  company,
   billingError,
   onSwitch,
   onViewAudit,
 }: {
   venue: PlatformVenue;
   billing: PlatformBilling | null;
+  company: PlatformCompany | null;
   billingError: boolean;
   onSwitch: () => void;
   onViewAudit: () => void;
@@ -197,6 +205,14 @@ function VenueCard({
           <MiniChip className="border-line2 text-faint">{t.platform.venuesNoSubscription}</MiniChip>
         )}
       </div>
+
+      {company && (
+        <div className="mt-[9px]">
+          {/* The billing chip above stays the status here: it pairs with the
+              trial-date control below ("Trial until <date>"). */}
+          <CompanyDetail company={company} showStatus={false} />
+        </div>
+      )}
 
       <div className="mt-[11px] grid grid-cols-2 gap-2">
         <StatTile label={membersCopy} value={venue.memberCount} />

@@ -34,6 +34,7 @@ vi.mock('@/features/po/hooks', () => ({
     return { data: 0 };
   },
   usePoPlatformBilling: () => ({ data: new Map(), isError: false }),
+  usePoPlatformCompanies: () => ({ data: new Map(), isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => ({
   usePoSetVenueTrialEnd: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),

@@ -37,6 +37,7 @@ vi.mock('@/features/po/hooks', () => ({
   usePoPlatformVenues: () => ({ data: [VENUE], isLoading: false, isError: false }),
   usePoPlatformVenuesCount: () => ({ data: 1 }),
   usePoPlatformBilling: () => ({ data: new Map([[VENUE.venueId, H.billing]]), isError: false }),
+  usePoPlatformCompanies: () => ({ data: new Map(), isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => ({
   usePoSetVenueTrialEnd: () => ({ mutate: H.trialMutate, reset: vi.fn(), isPending: false, error: null }),

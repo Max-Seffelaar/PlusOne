@@ -2423,6 +2423,9 @@ export interface PlatformInviteRow {
   venue_count: number;
   event_count: number;
   stage: string;
+  /** The invitee's companies (z8uq9m2ybj). Null from a server that predates
+   *  20261012130000 — expand-contract, so treat it as "none". */
+  company_ids?: string[] | null;
 }
 
 /** Server-windowed (the RPC caps `p_limit` itself — default 100, max 500). */
@@ -2537,6 +2540,74 @@ export async function fetchPlatformSubscriptions(
     out.push(...(data ?? []));
   }
   return out;
+}
+
+// ── Platform R (z8uq9m2ybj): per-company detail + Overview aggregates ───────
+// SECURITY DEFINER RPCs that raise 42501 for anyone but a platform admin. The
+// screens only call them behind usePoIsPlatformAdmin(), so a 42501 here means
+// the flag changed under us — surfaced as the screen's error state.
+
+/** One row of `platform_company_details()`. Every column but the id, name and
+ *  counts is nullable at runtime (left joins), whatever the generator says. */
+export interface PlatformCompanyRow {
+  venue_id: string;
+  name: string;
+  subscription_status: string | null;
+  billing_interval: string | null;
+  stripe_linked: boolean | null;
+  trial_ends_at: string | null;
+  owner_last_sign_in_at: string | null;
+  last_check_in_at: string | null;
+  event_count: number | null;
+  last_event_name: string | null;
+  last_event_starts_at: string | null;
+}
+
+/** Detail for the companies on one page (Invites or Venues). Bounded by the
+ *  page; chunked at 200, the RPC's own ceiling. Sent as an RPC body, never a
+ *  query string, so no URL-length cliff either. */
+export async function fetchPlatformCompanies(
+  client: Client,
+  venueIds: readonly string[]
+): Promise<PlatformCompanyRow[]> {
+  const out: PlatformCompanyRow[] = [];
+  for (let i = 0; i < venueIds.length; i += 200) {
+    const { data, error } = await client.rpc('platform_company_details', {
+      p_venue_ids: venueIds.slice(i, i + 200),
+    });
+    if (error) throw error;
+    out.push(...((data ?? []) as unknown as PlatformCompanyRow[]));
+  }
+  return out;
+}
+
+export type PlatformSubscriptionCountsRow =
+  Database['public']['Functions']['platform_subscription_counts']['Returns'][number];
+export type PlatformTrialFunnelRow =
+  Database['public']['Functions']['platform_trial_funnel']['Returns'][number];
+export type PlatformUsageRow = Database['public']['Functions']['platform_usage_30d']['Returns'][number];
+
+/** Companies per billing bucket — one row, aggregated in SQL. */
+export async function fetchPlatformSubscriptionCounts(
+  client: Client
+): Promise<PlatformSubscriptionCountsRow | null> {
+  const { data, error } = await client.rpc('platform_subscription_counts');
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+/** Trial funnel — one row, aggregated in SQL. */
+export async function fetchPlatformTrialFunnel(client: Client): Promise<PlatformTrialFunnelRow | null> {
+  const { data, error } = await client.rpc('platform_trial_funnel');
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+/** Usage over the last 30 days — one row, aggregated in SQL. */
+export async function fetchPlatformUsage30d(client: Client): Promise<PlatformUsageRow | null> {
+  const { data, error } = await client.rpc('platform_usage_30d');
+  if (error) throw error;
+  return data?.[0] ?? null;
 }
 
 export interface PlatformVenueOption {

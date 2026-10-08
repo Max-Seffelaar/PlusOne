@@ -117,6 +117,13 @@ export const poKeys = {
   // shown) and the live Stripe prices (not venue-scoped: one price list).
   platformBilling: (venueIds: readonly string[]) => [...poKeys.all, 'platform-billing', venueIds] as const,
   billingPrices: () => [...poKeys.all, 'billing-prices'] as const,
+  // Platform R (z8uq9m2ybj): per-company detail for the companies on one page
+  // (Invites or Venues, keyed by the ids shown) + the three Overview aggregates.
+  platformCompanies: (venueIds: readonly string[]) =>
+    [...poKeys.all, 'platform-companies', venueIds] as const,
+  platformSubscriptionCounts: () => [...poKeys.all, 'platform-overview', 'subscriptions'] as const,
+  platformTrialFunnel: () => [...poKeys.all, 'platform-overview', 'trial-funnel'] as const,
+  platformUsage: () => [...poKeys.all, 'platform-overview', 'usage-30d'] as const,
   platformAudit: (params: {
     venueId?: string;
     since?: string;

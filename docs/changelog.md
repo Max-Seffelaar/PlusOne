@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-08 — Platform R: company detail per invite + Platform → Overview (z8uq9m2ybj, golf D task 2b)
+
+Milestone **Now** (decision Max 2026-10-06: right after Billing G). Draft PR, not merged; no prod push.
+
+- **Migration `20261012130000_platform_overview_rpcs`** (one file, no second slot needed):
+  - `platform_invite_overview()` gains `company_ids uuid[]` (the invitee's companies, same membership definition as `venue_count`/stage). Drop + re-create in one transaction with the same grants, expand-only. Its zero-rows behaviour for non-admins is unchanged.
+  - New, all SECURITY DEFINER, empty search_path, execute for `authenticated` only, raising **42501 before reading anything** for a non-platform-admin: `platform_company_details(uuid[])` (≤ 200 ids, 22023 above), `platform_subscription_counts()`, `platform_trial_funnel()`, `platform_usage_30d()`. Names and aggregates only, never a guest row. Effective trial end = `coalesce(trial_ends_at, created_at + 14 d)` everywhere.
+  - Index `check_ins (venue_id, checked_at desc)` so "last check-in per company" is an index probe.
+- **App:** one view-model `PlatformCompany` / `toPlatformCompany` rendered by both Invites (a chip per company with Switch and a tappable events line) and Companies (`platform-company.tsx`). New screen `platformoverview` (`/app/platform/overview`): companies per status, MRR/ARR from our records × `listPrices()` via the existing `getBillingPricesAction` ("—" without prices), trial funnel, 30-day usage. The revenue card is not rendered and prices are not requested inside the native shell. Switch reuses the shell's `switchToVenue` (platform_access_log row for a non-member). `Btn` gained an optional `ariaLabel`.
+- **Tests:** pgTAP `platform_overview.test.sql` (45). Vitest: adapters/MRR, invite chips → Switch, Overview visibility incl. the native-shell seam. Flow `platform-overview` (10 asserts × 4 variants, green). Layout suite has the new screen (5 devices).
+- **Daily digest (§9 item 19): not built.** It needs a scheduler and a service-role send path; the design proposal is in the PR body for Max to decide.
+
+---
+
 ## 2026-10-08 — A company always keeps one admin: last-admin guard in the database (task 0g, #433)
 
 Milestone **Now** (golf B). Max removed himself from "Giorke Kantoor" on 2026-10-07. The prod audit log shows a second admin existed at that moment, so the company never had zero admins; the existing app check was right. The real gap: RLS let any admin, and every platform admin, delete or demote any admin row straight through PostgREST. The app check was also read-then-write without a lock, so two admins removing each other at once both passed it.
