@@ -29,11 +29,17 @@ const INSUFFICIENT_PRIVILEGE = '42501';
 const UNIQUE_VIOLATION = '23505';
 const NOT_NULL_VIOLATION = '23502';
 const CHECK_VIOLATION = '23514';
+// refuse_last_admin_removal (20261012120000): a company always keeps an admin.
+export const LAST_ADMIN = 'P0LA1';
 
 /** The copy for INSUFFICIENT_PRIVILEGE below — exported so a call site that knows
  *  a specific privilege-gated action failed can offer a more actionable hint than
  *  this generic message, without re-typing (and risking drift from) the string. */
 export const INSUFFICIENT_PRIVILEGE_MESSAGE = "You don't have rights for this.";
+
+/** The copy for LAST_ADMIN — the same sentence the venues actions' own early
+ *  last-admin check returns, so the app check and the DB trigger read alike. */
+export const LAST_ADMIN_MESSAGE = 'This is the last admin. Make someone else an admin first.';
 
 export function mapMutationError(error: PostgrestLikeError | null | undefined): MutationError {
   const code = error?.code ?? 'unknown';
@@ -55,6 +61,8 @@ export function mapMutationError(error: PostgrestLikeError | null | undefined): 
         code,
         message: INSUFFICIENT_PRIVILEGE_MESSAGE,
       };
+    case LAST_ADMIN:
+      return { ok: false, code, message: LAST_ADMIN_MESSAGE };
     case UNIQUE_VIOLATION:
       return { ok: false, code, message: 'This already exists.' };
     case NOT_NULL_VIOLATION:
@@ -93,6 +101,7 @@ const EXPECTED_CODES = new Set<string>([
   CAPACITY_EXCEEDED,
   LINK_FULL,
   INSUFFICIENT_PRIVILEGE,
+  LAST_ADMIN,
   UNIQUE_VIOLATION,
   // 23502/23514 are deliberately NOT expected: input is Zod-validated first, so a
   // NOT NULL/CHECK violation reaching the DB means schema drift — a bug.
@@ -113,6 +122,7 @@ const EXPECTED_CODES = new Set<string>([
  */
 const EXPECTED_MESSAGES: readonly (string | RegExp)[] = [
   INSUFFICIENT_PRIVILEGE_MESSAGE,
+  LAST_ADMIN_MESSAGE,
   'This already exists.',
   'Check the details you entered.',
   'Your session expired. Log in again.',
