@@ -235,7 +235,7 @@ ${
 ${steps.map((step) => `<li style="margin:0 0 4px;">${e(step)}</li>`).join('\n')}
 </ol>
 <p style="margin:0 0 12px;"><a href="${e(loginUrl)}" style="display:inline-block;background:#B5A6FF;color:#0B0B0D;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px;">${e(t.mail.cta)}</a></p>
-<p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#55525e;">${e(fallback)}</p>`
+<p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#55525e;word-break:break-all;overflow-wrap:anywhere;">${e(fallback)}</p>`
     : ''
 }
 ${after.map((p) => `<p style="${P}">${e(p)}</p>`).join('\n')}
