@@ -131,4 +131,21 @@ export const FLOWS = {
       'capacitor.config.ts',
     ],
   },
+  billing: {
+    title: 'Billing G — More → Billing: one plan Pro, monthly / yearly, browser vs native, admin / finance / manager',
+    paths: [
+      'src/features/billing/',
+      'src/features/po/',
+      'src/components/po/screens/settings',
+      'src/lib/auth/onboarding.ts',
+    ],
+  },
+  'platform-billing': {
+    title: 'Billing G — Platform → Companies: always free / trial until, audited on the admin',
+    paths: [
+      'src/features/billing/',
+      'src/features/po/',
+      'src/components/po/screens/platform',
+    ],
+  },
 };

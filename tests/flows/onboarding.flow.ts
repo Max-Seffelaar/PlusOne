@@ -2,7 +2,8 @@ import { test, expect, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY,
 import type { Page } from '@playwright/test';
 
 /**
- * Flow: a brand-new owner from first login to the Billing screen, in all four
+ * Flow: a brand-new owner from first login to the Billing screen — Welcome →
+ * Company → Team with no plan or payment step (Billing G) — in all four
  * variants (desktop browser, phone browser, phone + iPad inside the native
  * shell). Each run mints a fresh account with `/auth/dev-login?create=1` (local
  * stack only — the route 404s in prod), so it never depends on seed state and
@@ -72,28 +73,15 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
   await flow.shot('company-filled');
   await page.getByRole('button', { name: 'Create company' }).click();
 
-  const planHeading = page.getByText(/Pick your plan/i).first();
   const skipTeam = page.getByRole('button', { name: /Skip for now/i }).first();
-  const trialStart = page.getByText(/Getting your company ready/i).first();
 
   await flow.check(4, 'Company step creates the company and moves on', async () => {
-    await expect(planHeading.or(skipTeam).or(trialStart)).toBeVisible();
+    await expect(skipTeam).toBeVisible();
   });
 
-  await flow.check(5, 'Plan + payment steps: offered in the browser; absent in the native shell (trial starts silently, no purchase copy)', async () => {
-    if (flow.native) {
-      await expect(planHeading).toBeHidden();
-      if (await trialStart.isVisible()) await flow.shot('trial-start-native');
-      await expect(skipTeam).toBeVisible();
-      await wizardHasNoPurchaseCopy(page, flow);
-    } else {
-      await expect(planHeading).toBeVisible();
-      await flow.shot('plan');
-      await page.getByRole('button', { name: /Continue to payment/i }).click();
-      await expect(page.getByText(/Set up your payment/i).first()).toBeVisible();
-      await flow.shot('payment');
-      await page.getByRole('button', { name: /^Continue$/i }).click();
-    }
+  await flow.check(5, 'No plan or payment step, browser and native shell alike (Billing G: the Pro trial starts with the company)', async () => {
+    await expect(page.getByText(/Pick your plan|Set up your payment|Getting your company ready/i)).toHaveCount(0);
+    await expect(page.locator('body')).not.toHaveText(PURCHASE_COPY);
   });
 
   await expect(skipTeam).toBeVisible();
@@ -117,16 +105,17 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
   });
   await flow.shot('more');
 
-  await flow.check(9, 'Billing shows TRIAL; browser offers "Set up payment", native shows only status + "Subscription changes aren\'t available in the app."', async () => {
+  await flow.check(9, 'Billing shows Pro + TRIAL; browser offers "Set up payment", native shows only status + "Subscription changes aren\'t available in the app."', async () => {
     await page.getByText(/^Billing$/).first().click();
     await expect(page.getByText('TRIAL').first()).toBeVisible();
+    await expect(page.getByText('Pro').first()).toBeVisible();
     if (flow.native) {
       await expect(page.getByText("Subscription changes aren't available in the app.")).toBeVisible();
       await expect(page.getByRole('button', { name: /payment|checkout|portal|reactivate|upgrade/i })).toHaveCount(0);
       await expect(page.locator('body')).not.toHaveText(PURCHASE_COPY);
     } else {
       await expect(page.getByRole('button', { name: /Set up payment/i })).toBeVisible();
-      await expect(page.getByText('SEPA Direct Debit & iDEAL').first()).toBeVisible();
+      await expect(page.getByText('Card, SEPA Direct Debit or iDEAL').first()).toBeVisible();
     }
   });
   await flow.shot('billing');
