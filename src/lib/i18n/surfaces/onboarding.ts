@@ -39,12 +39,14 @@ export const onboarding = {
     createdNotOpened: 'Company created, but we could not open it. You’ll find it under More → Companies.',
     submit: 'Create company',
     submitBusy: 'Working…',
-    // Consent (#40) — split so the Terms/Privacy words can be links.
-    consentPre: 'I agree to the ',
-    consentTerms: 'Terms',
-    consentMid: ' and ',
-    consentPrivacy: 'Privacy Policy',
-    consentPost: '.',
+    // Company consent (#40, Onboarding A z8uq9m2vg5): creating a company
+    // accepts the DPA only; Terms + Privacy were accepted with the account at
+    // /consent. Split so the document name can be a link. {company} = the name
+    // typed above; dpaPostNoName while the field is still empty.
+    dpaPre: 'I accept the ',
+    dpaDoc: 'Data Processing Agreement',
+    dpaPost: ' on behalf of {company}.',
+    dpaPostNoName: ' on behalf of my company.',
   },
 
   // Onboarding wizard, store-review demo account (86ey6bfug): the company step

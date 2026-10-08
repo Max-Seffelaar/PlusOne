@@ -8,7 +8,7 @@ import { type JSX, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
-import { ConsentCheck, Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
+import { DpaCheck, Field, Label, Btn, PlacesField, RefusedAction, press, type PlacePick } from '@/components/po/kit';
 import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { WizardShell, WizardPanel } from '../WizardShell';
@@ -38,6 +38,9 @@ export function VenueStep({
   const router = useRouter();
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  // Filled only by a Places pick (z8uq9m2vg5); typing the address clears it,
+  // so a stale city never rides along with a hand-edited address.
+  const [city, setCity] = useState<string | null>(null);
   const [venueType, setVenueType] = useState<VenueType>('club');
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +55,7 @@ export function VenueStep({
       const res = await createVenueAction({
         name,
         address,
+        city: city ?? undefined,
         venueType,
         retentionMonths: DEFAULT_RETENTION_MONTHS,
         termsAccepted: agreed,
@@ -62,6 +66,14 @@ export function VenueStep({
         setError(res.message);
       }
     });
+  }
+
+  // One Places pick fills the address and, while it is still empty, the
+  // company name (the suggestion's name: free from autocomplete, spike 9.6).
+  function onPick(p: PlacePick): void {
+    setAddress(p.address?.formattedAddress ?? p.label);
+    setCity(p.address?.city ?? null);
+    if (!name.trim()) setName(p.name);
   }
 
   const panel = (
@@ -126,11 +138,16 @@ export function VenueStep({
       />
 
       <Label className="mb-2">Address</Label>
-      <Field
+      <PlacesField
         icon="pin"
+        ariaLabel="Address"
         placeholder="Wibautstraat 150, Amsterdam"
         value={address}
-        onChange={setAddress}
+        onChange={(v) => {
+          setAddress(v);
+          setCity(null);
+        }}
+        onPick={onPick}
         className="mb-[18px]"
       />
 
@@ -159,7 +176,7 @@ export function VenueStep({
         “Guest #X” (#29). You can shorten this later in Company settings.
       </div>
 
-      <ConsentCheck checked={agreed} onChange={setAgreed} copy={t.onboarding.venueCreate} className="mt-[18px]" />
+      <DpaCheck checked={agreed} onChange={setAgreed} companyName={name} className="mt-[18px]" />
     </WizardShell>
   );
 }
