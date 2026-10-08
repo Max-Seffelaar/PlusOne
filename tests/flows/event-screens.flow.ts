@@ -87,6 +87,13 @@ test('event screens: add guest, guest edit, deep link, requests empty state, tim
 
   // ── Home with request data: the existing block stays ─────────────────────
   await page.goto(`/auth/dev-login?email=${encodeURIComponent(ADMIN)}&next=/app`);
+  await page.waitForURL(/\/app/);
+  // On desktop the first /app landing of a session may auto-open the Event-day
+  // cockpit when one Vesper event is live (T6, door-branch.tsx — e.g. one left
+  // behind by the door-checkin flow). That one-shot is consumed now, so going
+  // to /app again lands on Home, like a user's next tap on Home does.
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await go(page, '/app');
   await page.waitForURL(/\/app$/);
   await expect(page.getByText('Upcoming events').first()).toBeVisible();
   await flow.shot('home-vesper');
