@@ -193,9 +193,9 @@ Besluiten Max 2026-10-08 (startcheck):
 
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
-| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | opgeleverd (`2ec0c15`); bouwer lokaal groen: `pnpm db:test` 95 bestanden / 2409 asserts, `CI=1 pnpm test` 3160, `e2e:layout` 1063; orchestrator-review zonder blocker (index-lock bij prod-push, "last"-event kan in de toekomst liggen); reviewer-sessie `session_019HjtnRJ6NjG8p7RKtsmTLS`: SCHOON, 2 should-fix (MRR negeert `paid_unknown`; twee bronnen voor de statustekst) + 4 nits, terug naar de bouwer; digest niet gebouwd (vraagt scheduler + cron-secret + service-role-verzending; voorstel in PR-body, besluit Max) | `20261012130000` na merge, buiten een eventavond |
-| 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | — | in bouw (HIGH-RISK → reviewer) | `20261012140000` + `…140100` na merge |
-| 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | — | in bouw | geen migratie |
+| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | **klaar voor merge** (`ff5ab1b`, CI groen, ready for review). Reviewer SCHOON; should-fix (MRR `paid_unknown`, één statusbron) + nits verwerkt; vraag 15 = "latest" (Max). Handoff Max: 10–13 ✅ (13 lokaal met Stripe-sandbox: Paid yearly 1, MRR €39,20, ARR €470,40). Digest niet gebouwd (voorstel in PR, besluit Max) | `20261012130000` direct na merge, buiten een eventavond; vóór de migraties van #437 |
+| 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | [#437](https://github.com/Max-Seffelaar/PlusOne/pull/437) | opgeleverd (`1a40fd6`, CI groen); bouwer: `pnpm db:test` 96 bestanden / 2403, `CI=1 pnpm test` 3177; reviewer-sessie `session_01Bu6w5MQPNse56ZFGfNx7m3` loopt. Buiten scope: DPA-checkbox ook op "New company" (besluit Max) | `20261012140000` + `…140100`, ná `…130000` |
+| 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | [#438](https://github.com/Max-Seffelaar/PlusOne/pull/438) | opgeleverd (`dc4d8a6`), CI rood (e2e core-flow) → terug naar de bouwer. Niet gebouwd: Tasks-tab (zit in door-bestanden, verboden); deep link matcht op naam (op id = één regel in `src/features/po/queries.ts`, verboden) → besluit Max | geen migratie |
 | 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012150000` |
 | 5b Share-import S2 | nog niet gestart (na 5) | — | wacht | geen migratie |
 
