@@ -134,6 +134,14 @@ export const FLOWS = {
       'src/components/po/screens/settings/venue.tsx',
     ],
   },
+  'door-tasks-tab': {
+    title: 'Check-in — no Tasks tab next to Check-in; an old ?seg=taken link lands on the list (z8uq9m2vg7)',
+    paths: [
+      'src/components/po/screens/door',
+      'src/components/po/door-branch.tsx',
+      'src/features/door/components/DoorRoute.tsx',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [

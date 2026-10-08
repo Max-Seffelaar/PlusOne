@@ -8,6 +8,12 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-08 — Check-in: the Tasks tab next to Check-in is gone (z8uq9m2vg7, mini-PR)
+
+Joeri's walkthrough (Event C, item 3): the Tasks segment did nothing yet. Split out of #438 because it lives in the Deur tab (decision Max 2026-10-08). `PoDoorTab` (`src/components/po/screens/door.tsx`, shared by the `/app` Deur tab and the standalone `/door` route) no longer renders the Check-in/Tasks segment or the Tasks screen; it always shows the check-in list. `door-branch.tsx` uses one title. The `tab`/`onTab` props and the `?seg=taken` route stay, so an old bookmark lands on Check-in; no change to the outbox, check-in or the cockpit (whose own Tasks card is separate). Flow `door-tasks-tab` (4 variants; Q1 fails on the old code).
+
+---
+
 ## 2026-10-08 — Platform R: company detail per invite + Platform → Overview (z8uq9m2ybj, golf D task 2b)
 
 Milestone **Now** (decision Max 2026-10-06: right after Billing G). Draft PR, not merged; no prod push.
