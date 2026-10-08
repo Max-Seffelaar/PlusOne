@@ -5,7 +5,8 @@
 --   * DENIED with 42501 — not an empty result — for every venue role of the
 --     seed company (admin, user_manager, finance, staff) and for anon;
 --   * ALLOWED for a platform admin, and the counts follow status changes;
--- plus the expand-only company_ids column on platform_invite_overview().
+-- plus the expand-only company_ids column on platform_invite_overview(), and
+-- (20261012150000) the trialing_payment_set_up subset of trialing.
 -- Everything rolls back.
 --
 -- Seed: venue aa…01 (Club Vesper) is comped with one upcoming event; venue
@@ -41,7 +42,7 @@ begin
 end;
 $fn$;
 
-select plan(46);
+select plan(50);
 
 -- ---------------------------------------------------------------------------
 -- Fixture: one platform admin with no venue membership
@@ -276,6 +277,42 @@ select results_eq(
        array['aa000000-0000-7000-8000-000000000002'::uuid]) $$,
   $$ values (0, null::text) $$,
   'T46 a cancelled event counts in neither the event count nor the latest event');
+
+-- ---------------------------------------------------------------------------
+-- F. Trial, payment set up (20261012150000): a subset of trialing
+-- ---------------------------------------------------------------------------
+
+select is(
+  (select p.proname::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'platform_subscription_counts'
+      and 'trialing_payment_set_up' = any (p.proargnames)),
+  'platform_subscription_counts',
+  'T47 platform_subscription_counts returns trialing_payment_set_up (and is not overloaded)');
+
+-- State from D: De Marktzaal trialing, override 3 days ahead, no Stripe.
+select results_eq(
+  $$ select trialing, trialing_payment_set_up, trial_lapsed from public.platform_subscription_counts() $$,
+  $$ values (1, 0, 0) $$,
+  'T48 a trial without a Stripe subscription has no payment set up');
+
+select pg_temp.as_postgres();
+update public.subscriptions set stripe_subscription_id = 'sub_pgtap_trial_paid'
+ where venue_id = 'aa000000-0000-7000-8000-000000000002';
+select pg_temp.login('99999999-9999-4999-8999-999999999999');
+select results_eq(
+  $$ select total_companies, trialing, trialing_payment_set_up, trial_lapsed, comped
+       from public.platform_subscription_counts() $$,
+  $$ values (2, 1, 1, 0, 1) $$,
+  'T49 the trial gets a Stripe subscription: payment set up 1, still inside trialing');
+
+select pg_temp.as_postgres();
+update public.subscriptions set trial_ends_at = now() - interval '1 day'
+ where venue_id = 'aa000000-0000-7000-8000-000000000002';
+select pg_temp.login('99999999-9999-4999-8999-999999999999');
+select results_eq(
+  $$ select trialing, trialing_payment_set_up, trial_lapsed from public.platform_subscription_counts() $$,
+  $$ values (1, 1, 0) $$,
+  'T50 with Stripe, Stripe''s clock decides: a passed local end is not a lapsed trial');
 
 select * from finish();
 rollback;

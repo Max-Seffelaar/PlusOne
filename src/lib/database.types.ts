@@ -2494,6 +2494,7 @@ export type Database = {
           total_companies: number
           trial_lapsed: number
           trialing: number
+          trialing_payment_set_up: number
         }[]
       }
       platform_trial_funnel: {

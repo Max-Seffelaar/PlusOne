@@ -102,9 +102,15 @@ function tile(section: Locator, label: string): Locator {
 
 test('platform-overview: Overview numbers, invite chip → Switch, Companies detail', async ({ page, flow }) => {
   const since = new Date().toISOString();
-  const [db] = await sql<{ total: number; comped: number }>(
+  // Trial split (20261012150000): same definitions as platform_subscription_counts().
+  const [db] = await sql<{ total: number; comped: number; trial_no_payment: number; trial_payment: number }>(
     `select count(*)::int as total,
-            count(*) filter (where s.status = 'comped')::int as comped
+            count(*) filter (where s.status = 'comped')::int as comped,
+            count(*) filter (
+              where s.status = 'trialing' and s.stripe_subscription_id is null
+                and coalesce(s.trial_ends_at, s.created_at + interval '14 days') >= now())::int as trial_no_payment,
+            count(*) filter (
+              where s.status = 'trialing' and s.stripe_subscription_id is not null)::int as trial_payment
        from public.venues v left join public.subscriptions s on s.venue_id = v.id`,
   );
 
@@ -125,6 +131,14 @@ test('platform-overview: Overview numbers, invite chip → Switch, Companies det
   await flow.check(3, 'Companies by status match the database (all companies, always free)', async () => {
     await expect(tile(status, 'All companies')).toContainText(String(db.total));
     await expect(tile(status, 'Always free')).toContainText(String(db.comped));
+  });
+
+  await flow.check(11, 'Trial and "Trial, payment set up" split the running trials, matching the database', async () => {
+    await expect(status.locator('div.rounded-\\[14px\\]').filter({ hasText: /^\d+Trial$/ })).toHaveText(
+      `${db.trial_no_payment}Trial`,
+    );
+    await expect(tile(status, 'Trial, payment set up')).toContainText(String(db.trial_payment));
+    await expect(page.getByText(/Converted means it pays now, past due included\./)).toBeVisible();
   });
 
   await flow.check(4, 'Trials and last-30-days sections show numbers, no placeholder', async () => {

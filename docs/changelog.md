@@ -8,6 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
+
+Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
+
+- **Migration `20261012150000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). Overview shows "Trial" (no payment yet) next to the new "Trial, payment set up" tile, so every company still sits in exactly one status tile. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles. Flow `platform-overview` Q11 (tiles match the database, hint text).
+
+---
+
 ## 2026-10-08 — Platform R: company detail per invite + Platform → Overview (z8uq9m2ybj, golf D task 2b)
 
 Milestone **Now** (decision Max 2026-10-06: right after Billing G). Draft PR, not merged; no prod push.

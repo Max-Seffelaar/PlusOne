@@ -8,8 +8,9 @@ import {
   platformRevenue,
   toPlatformCompany,
   toPlatformInvite,
+  toPlatformSubscriptionCounts,
 } from './adapters';
-import type { PlatformCompanyRow, PlatformInviteRow } from './queries';
+import type { PlatformCompanyRow, PlatformInviteRow, PlatformSubscriptionCountsRow } from './queries';
 import { companyActivityLine, companyEventsLine, companyStatusLabel } from '@/components/po/screens/platform-company';
 
 const NOW = Date.parse('2026-10-08T12:00:00.000Z');
@@ -168,5 +169,48 @@ describe('platformRevenue (MRR/ARR from our records)', () => {
     expect(
       platformRevenue({ paidMonthly: 1, paidYearly: 1, paidUnknown: 0 }, { ...prices, year: { ...prices.year, currency: 'usd' } }),
     ).toBeNull();
+  });
+});
+
+describe('toPlatformSubscriptionCounts (trial split, 20261012150000)', () => {
+  const counts = (over: Partial<PlatformSubscriptionCountsRow> = {}): PlatformSubscriptionCountsRow => ({
+    total_companies: 6,
+    trialing: 3,
+    trialing_payment_set_up: 1,
+    trial_lapsed: 1,
+    paid_monthly: 1,
+    paid_yearly: 0,
+    paid_unknown: 0,
+    past_due: 0,
+    canceled: 0,
+    comped: 1,
+    no_subscription: 0,
+    ...over,
+  });
+
+  it('splits trialing into without and with a payment set up; trialing keeps the SQL total', () => {
+    const c = toPlatformSubscriptionCounts(counts());
+    expect(c.trialing).toBe(3);
+    expect(c.trialingNoPayment).toBe(2);
+    expect(c.trialingPaymentSetUp).toBe(1);
+  });
+
+  it('keeps every company in exactly one status tile', () => {
+    const c = toPlatformSubscriptionCounts(counts());
+    const tiles =
+      c.trialingNoPayment + c.trialingPaymentSetUp + c.trialLapsed + c.paidMonthly + c.paidYearly +
+      c.paidUnknown + c.pastDue + c.canceled + c.comped + c.noSubscription;
+    expect(tiles).toBe(c.total);
+  });
+
+  it('never shows a negative tile when the subset column is missing or larger', () => {
+    // A row from before the column (old function still live during a deploy).
+    const old = counts();
+    delete (old as Partial<PlatformSubscriptionCountsRow>).trialing_payment_set_up;
+    expect(toPlatformSubscriptionCounts(old)).toMatchObject({ trialingNoPayment: 3, trialingPaymentSetUp: 0 });
+    expect(toPlatformSubscriptionCounts(counts({ trialing_payment_set_up: 5 }))).toMatchObject({
+      trialingNoPayment: 0,
+      trialingPaymentSetUp: 3,
+    });
   });
 });
