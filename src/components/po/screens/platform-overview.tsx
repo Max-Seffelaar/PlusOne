@@ -13,8 +13,10 @@
  *    is not is_platform_admin() — before they touch a table.
  *  - Aggregates only, computed in SQL. No company name, no person, no guest.
  *
- * Status buckets: Trial and "Trial, payment set up" split the SQL trialing
- * bucket (20261012150000) so every company still sits in exactly one tile.
+ * Status buckets: in the browser, Trial and "Trial, payment set up" split the
+ * SQL trialing bucket (20261012150000) so every company still sits in exactly
+ * one tile. The native shell shows no payment copy (store-tax seam, guarded by
+ * PURCHASE_COPY in the flows), so there Trial is the whole trialing bucket.
  *
  * Revenue: MRR = monthly payers × the monthly price + yearly payers × the
  * yearly price / 12, excl. VAT, from OUR subscription records × the live
@@ -97,8 +99,12 @@ function OverviewConsole(): JSX.Element {
         <Label className="mb-[10px]">{t.platform.overviewStatusTitle}</Label>
         <div className={grid} data-testid="platform-overview-status">
           <StatTile label={t.platform.overviewTotal} value={n(counts?.total)} accent />
-          <StatTile label={t.platform.overviewTrialing} value={n(counts?.trialingNoPayment)} />
-          <StatTile label={t.platform.overviewTrialingPaymentSetUp} value={n(counts?.trialingPaymentSetUp)} />
+          {/* Store-tax seam: no payment copy inside the native shell, so there
+              Trial stays one tile with every running trial. */}
+          <StatTile label={t.platform.overviewTrialing} value={n(native ? counts?.trialing : counts?.trialingNoPayment)} />
+          {!native && (
+            <StatTile label={t.platform.overviewTrialingPaymentSetUp} value={n(counts?.trialingPaymentSetUp)} />
+          )}
           <StatTile label={t.platform.overviewTrialLapsed} value={n(counts?.trialLapsed)} />
           <StatTile label={t.platform.overviewPaidMonthly} value={n(counts?.paidMonthly)} />
           <StatTile label={t.platform.overviewPaidYearly} value={n(counts?.paidYearly)} />

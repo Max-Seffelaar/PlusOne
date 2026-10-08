@@ -133,11 +133,15 @@ test('platform-overview: Overview numbers, invite chip → Switch, Companies det
     await expect(tile(status, 'Always free')).toContainText(String(db.comped));
   });
 
-  await flow.check(11, 'Trial and "Trial, payment set up" split the running trials, matching the database', async () => {
-    await expect(status.locator('div.rounded-\\[14px\\]').filter({ hasText: /^\d+Trial$/ })).toHaveText(
-      `${db.trial_no_payment}Trial`,
-    );
-    await expect(tile(status, 'Trial, payment set up')).toContainText(String(db.trial_payment));
+  await flow.check(11, 'Browser: Trial and "Trial, payment set up" split the running trials (database); native: one Trial tile, no payment copy', async () => {
+    const trial = status.locator('div.rounded-\\[14px\\]').filter({ hasText: /^\d+Trial$/ });
+    if (flow.native) {
+      await expect(trial).toHaveText(`${db.trial_no_payment + db.trial_payment}Trial`);
+      await expect(status.getByText('Trial, payment set up')).toHaveCount(0);
+    } else {
+      await expect(trial).toHaveText(`${db.trial_no_payment}Trial`);
+      await expect(tile(status, 'Trial, payment set up')).toContainText(String(db.trial_payment));
+    }
     await expect(page.getByText(/Converted means it pays now, past due included\./)).toBeVisible();
   });
 

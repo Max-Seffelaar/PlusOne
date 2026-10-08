@@ -99,6 +99,16 @@ describe('Platform > Overview visibility (z8uq9m2ybj)', () => {
     expect(screen.getByText(/Converted means it pays now, past due included\./)).toBeDefined();
   });
 
+  it('inside the native shell: no payment tile, Trial shows every running trial', () => {
+    H.isPlatformAdmin = true;
+    H.native = true;
+    render(<PlatformOverview />);
+    const status = screen.getByTestId('platform-overview-status');
+    expect(status).toHaveTextContent(`3${t.platform.overviewTrialing}`);
+    expect(screen.queryByText(t.platform.overviewTrialingPaymentSetUp)).toBeNull();
+    expect(document.body.textContent ?? '').not.toMatch(/payment/i);
+  });
+
   it('computes MRR from our counts × the Stripe prices in the browser', () => {
     H.isPlatformAdmin = true;
     H.prices = { month: { interval: 'month', unitAmount: 4900, currency: 'eur' }, year: null };
