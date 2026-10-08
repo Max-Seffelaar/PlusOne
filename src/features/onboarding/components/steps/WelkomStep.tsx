@@ -7,15 +7,10 @@ import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 import { Btn } from '@/components/po/kit';
-import { useIsNativeShell } from '@/lib/use-native-shell';
 
+// Two steps in the browser and the native shell alike (Billing G): no plan
+// step, the Pro trial starts when the company is created.
 const STEPS = [
-  { n: 1, title: 'Set up your company', sub: 'Name, address, and data retention' },
-  { n: 2, title: 'Pick a plan', sub: 'Scales with your company' },
-  { n: 3, title: 'Invite your team', sub: 'Hosts and managers, or do it later' },
-] as const;
-// Native shell: no plan step (store-tax seam, #32/#37 — see TrialStartStep).
-const NATIVE_STEPS = [
   { n: 1, title: 'Set up your company', sub: 'Name, address, and data retention' },
   { n: 2, title: 'Invite your team', sub: 'Hosts and managers, or do it later' },
 ] as const;
@@ -27,7 +22,7 @@ export function WelkomStep({
   owner: { name: string; email: string };
   onNext: () => void;
 }): JSX.Element {
-  const steps = useIsNativeShell() === true ? NATIVE_STEPS : STEPS;
+  const steps = STEPS;
   return (
     <div
       className="flex h-[100dvh] flex-col items-center justify-center overflow-y-auto px-6 py-10"
@@ -42,7 +37,7 @@ export function WelkomStep({
           Let&apos;s set up your company
         </h1>
         <p className="mt-4 text-[16px] leading-[1.5] text-dim">
-          Logged in as <span className="text-text">{owner.email || owner.name}</span>. {steps.length === 2 ? 'Two' : 'Three'} quick
+          Logged in as <span className="text-text">{owner.email || owner.name}</span>. Two quick
           steps and you&apos;re ready to create your first event.
         </p>
 

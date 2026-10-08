@@ -33,6 +33,11 @@ vi.mock('@/features/po/hooks', () => ({
     H.countCalls += 1;
     return { data: 0 };
   },
+  usePoPlatformBilling: () => ({ data: new Map(), isError: false }),
+}));
+vi.mock('@/features/po/mutations', () => ({
+  usePoSetVenueTrialEnd: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+  usePoSetVenueComped: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
 }));
 
 const { PlatformVenues } = await import('./platform-venues');

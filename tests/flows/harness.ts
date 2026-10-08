@@ -59,7 +59,7 @@ export const OUT_ROOT = resolve(process.cwd(), 'flow-screenshots');
 
 /** Store-tax copy that must never render inside the native shell (#32/#37). Same
  *  list the unit guards use (billing.native.test.tsx, native-store-tax.test.tsx). */
-export const PURCHASE_COPY = /€|\/ ?month|payment|iDEAL|SEPA|pick your plan|pick a plan|checkout|portal|reactivate|upgrade|on the web/i;
+export const PURCHASE_COPY = /€|\/ ?month|\/ ?year|payment|iDEAL|SEPA|pick your plan|pick a plan|checkout|portal|reactivate|upgrade|on the web/i;
 
 export interface FlowOptions {
   /** Simulate the Capacitor native shell (remote-URL model) in this context. */

@@ -1928,20 +1928,27 @@ export async function fetchVenueSettings(
 
 export type PoSubscriptionRow = Pick<
   Tables['subscriptions']['Row'],
-  'status' | 'plan_id' | 'current_period_end' | 'created_at' | 'stripe_subscription_id'
+  | 'status'
+  | 'plan_id'
+  | 'billing_interval'
+  | 'current_period_end'
+  | 'created_at'
+  | 'trial_ends_at'
+  | 'stripe_subscription_id'
 >;
 
 /** The venue's subscription entitlement (RLS subscriptions_select_member: any
- *  member reads). Read-only — writes flow through Stripe webhooks only (#32).
- *  created_at + stripe_subscription_id feed the trial countdown / checkout CTA
- *  (fase 13 PR 2). */
+ *  member reads). Read-only — writes flow through Stripe webhooks and the
+ *  platform-admin RPCs only (#32). created_at + trial_ends_at give the
+ *  effective trial end (the gate's rule); stripe_subscription_id the checkout
+ *  CTA; billing_interval the "€X / month|year" line. */
 export async function fetchSubscription(
   client: Client,
   venueId: string
 ): Promise<PoSubscriptionRow | null> {
   const { data, error } = await client
     .from('subscriptions')
-    .select('status, plan_id, current_period_end, created_at, stripe_subscription_id')
+    .select('status, plan_id, billing_interval, current_period_end, created_at, trial_ends_at, stripe_subscription_id')
     .eq('venue_id', venueId)
     .maybeSingle();
   if (error) throw error;
@@ -2504,6 +2511,32 @@ export async function fetchPlatformVenueOverviewCount(
   });
   if (error) throw error;
   return data ?? 0;
+}
+
+export type PlatformSubscriptionRow = Pick<
+  Tables['subscriptions']['Row'],
+  'venue_id' | 'status' | 'created_at' | 'trial_ends_at' | 'stripe_subscription_id'
+>;
+
+/** Billing state of ONE page of Platform > Companies (Billing G). The id list
+ *  is the visible page — the screen pages at 20, the overview RPC caps at 200
+ *  — so it is bounded by construction, never "every venue" (CLAUDE.md Scale:
+ *  no unbounded .in()). Chunked at 120 anyway, the repo-wide ceiling. RLS:
+ *  subscriptions_select_member → is_venue_member() → is_platform_admin(). */
+export async function fetchPlatformSubscriptions(
+  client: Client,
+  venueIds: readonly string[]
+): Promise<PlatformSubscriptionRow[]> {
+  const out: PlatformSubscriptionRow[] = [];
+  for (let i = 0; i < venueIds.length; i += 120) {
+    const { data, error } = await client
+      .from('subscriptions')
+      .select('venue_id, status, created_at, trial_ends_at, stripe_subscription_id')
+      .in('venue_id', venueIds.slice(i, i + 120));
+    if (error) throw error;
+    out.push(...(data ?? []));
+  }
+  return out;
 }
 
 export interface PlatformVenueOption {

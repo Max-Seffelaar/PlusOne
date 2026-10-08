@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // membership list plus a separate cached onboarding-state read (venue settings
 // + plan), both in the layout's one parallel wave (Snelheid P1). These cases pin that the
 // derivation is unchanged: no access → 'venue', crew-only → 'done',
-// in-onboarding venue → 'plan'/'team', seeded/invited/completed → 'done'.
+// in-onboarding venue → 'team' (no plan step since Billing G, with or without a
+// plan on the row), seeded/invited/completed → 'done'.
 
 const H = vi.hoisted(() => ({
   user: { id: 'u1' } as { id: string } | null,
@@ -66,9 +67,9 @@ describe('getOnboardingState', () => {
     expect(await getOnboardingState()).toEqual({ step: 'done', venueId: null });
   });
 
-  it('unfinished onboarding without a plan → plan step on that venue', async () => {
+  it('unfinished onboarding without a plan → team step on that venue (no plan step any more)', async () => {
     H.memberships = [member('v0', null), member('v1', { onboarding: { completed: false } })];
-    expect(await getOnboardingState()).toEqual({ step: 'plan', venueId: 'v1' });
+    expect(await getOnboardingState()).toEqual({ step: 'team', venueId: 'v1' });
   });
 
   it('unfinished onboarding with a plan → team step', async () => {

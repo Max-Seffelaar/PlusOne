@@ -22,16 +22,33 @@
  *    membership there (roles: []), matching how external-crew access already
  *    renders — a known, documented limitation, not a new one.
  *
- * Capacitor (#37): a client-side React Query read + the existing online-only
- * switchToVenue action; nothing door-adjacent, no new browser-only API.
+ * Billing (Billing G, decision #32(d) 2026-10-06): each card shows the
+ * company's billing state and lets a platform admin set "Trial until <date>"
+ * or "Always free". The state is a direct `subscriptions` read for the visible
+ * page only (≤ PAGE_SIZE ids, RLS lets a platform admin read every row); the
+ * writes are set_venue_trial_end / set_venue_comped — SECURITY DEFINER RPCs that
+ * re-check is_platform_admin() and are audited by the subscriptions trigger
+ * under the admin's own uid. A Stripe-linked company has no controls (its
+ * clock is Stripe's; the RPCs refuse it too).
+ *
+ * Capacitor (#37): client-side React Query reads + online-only server actions;
+ * nothing door-adjacent, no new browser-only API (the date picker is a plain
+ * <input type="date">). No price or checkout here — this is a status/admin
+ * surface, not a purchase one.
  */
-import { type JSX, useState } from 'react';
+import { type JSX, useMemo, useState } from 'react';
 import { t, fmt } from '@/lib/i18n';
-import { usePoIsPlatformAdmin, usePoPlatformVenues, usePoPlatformVenuesCount } from '@/features/po/hooks';
-import type { PlatformVenue } from '@/features/po/adapters';
-import { formatShortDate } from '@/features/po/format';
+import {
+  usePoIsPlatformAdmin,
+  usePoPlatformBilling,
+  usePoPlatformVenues,
+  usePoPlatformVenuesCount,
+} from '@/features/po/hooks';
+import { usePoSetVenueComped, usePoSetVenueTrialEnd } from '@/features/po/mutations';
+import type { PlatformBilling, PlatformVenue } from '@/features/po/adapters';
+import { formatShortDate, toDateInput } from '@/features/po/format';
 import { useNav, usePo } from '../context';
-import { Btn, Empty, Field, MiniChip, PageNav, Scroll, StatTile, Top } from '../kit';
+import { Btn, Empty, Field, FieldErrorText, Label, MiniChip, Note, PageNav, Scroll, StatTile, ToggleRow, Top } from '../kit';
 
 const col = 'flex h-full flex-col';
 const PAGE_SIZE = 20;
@@ -77,8 +94,10 @@ function VenuesConsole(): JSX.Element {
 
   const venuesQ = usePoPlatformVenues({ limit: PAGE_SIZE, offset, search: trimmed });
   const countQ = usePoPlatformVenuesCount(trimmed);
-  const venues = venuesQ.data ?? [];
+  const venues = useMemo(() => venuesQ.data ?? [], [venuesQ.data]);
   const total = countQ.data ?? 0;
+  const venueIds = useMemo(() => venues.map((v) => v.venueId), [venues]);
+  const billingQ = usePoPlatformBilling(venueIds);
 
   return (
     <div className={col}>
@@ -113,6 +132,8 @@ function VenuesConsole(): JSX.Element {
                 <VenueCard
                   key={v.venueId}
                   venue={v}
+                  billing={billingQ.data?.get(v.venueId) ?? null}
+                  billingError={billingQ.isError}
                   onSwitch={() => switchToVenue(v.venueId)}
                   onViewAudit={() => nav.push('platformaudit', { id: v.venueId })}
                 />
@@ -139,10 +160,14 @@ function VenuesConsole(): JSX.Element {
 
 function VenueCard({
   venue,
+  billing,
+  billingError,
   onSwitch,
   onViewAudit,
 }: {
   venue: PlatformVenue;
+  billing: PlatformBilling | null;
+  billingError: boolean;
   onSwitch: () => void;
   onViewAudit: () => void;
 }): JSX.Element {
@@ -166,8 +191,8 @@ function VenueCard({
               : t.platform.venuesNoActivity}
           </div>
         </div>
-        {venue.subscriptionStatus ? (
-          <MiniChip>{subscriptionStatusLabel(venue.subscriptionStatus)}</MiniChip>
+        {billing || venue.subscriptionStatus ? (
+          <MiniChip>{billingChipLabel(billing, venue.subscriptionStatus)}</MiniChip>
         ) : (
           <MiniChip className="border-line2 text-faint">{t.platform.venuesNoSubscription}</MiniChip>
         )}
@@ -178,6 +203,12 @@ function VenueCard({
         <StatTile label={eventsCopy} value={venue.eventCount} />
       </div>
 
+      {billingError ? (
+        <div className="mt-[11px] text-[12px] text-faint">{t.platform.billingLoadError}</div>
+      ) : (
+        billing && <BillingControls venueId={venue.venueId} billing={billing} />
+      )}
+
       <div className="mt-[11px] flex flex-wrap gap-2">
         <Btn kind="ghost" sm icon="history" className="min-h-[44px]" onClick={onViewAudit}>
           {t.platform.venuesOpenAudit}
@@ -185,6 +216,79 @@ function VenueCard({
         <Btn kind="primary" sm icon="swap" className="min-h-[44px]" onClick={onSwitch}>
           {t.platform.venuesSwitchInto}
         </Btn>
+      </div>
+    </div>
+  );
+}
+
+/** The chip: "Trial until 21 Oct" / "Trial ended 3 Oct" / "Always free" /
+ *  the plain status — the billing read wins over the overview's status. */
+function billingChipLabel(billing: PlatformBilling | null, overviewStatus: string | null): string {
+  if (billing?.status === 'trialing' && billing.trialEndsAt && !billing.stripeLinked) {
+    const date = formatShortDate(billing.trialEndsAt);
+    return new Date(billing.trialEndsAt).getTime() >= Date.now()
+      ? fmt(t.platform.billingTrialUntil, { date })
+      : fmt(t.platform.billingTrialEnded, { date });
+  }
+  return subscriptionStatusLabel(billing?.status ?? overviewStatus ?? '');
+}
+
+/** Default for the date field: the current trial end if it is still ahead,
+ *  else 14 days from today (Amsterdam calendar day). */
+function defaultTrialDay(billing: PlatformBilling): string {
+  const now = Date.now();
+  const end = billing.trialEndsAt ? new Date(billing.trialEndsAt).getTime() : 0;
+  return toDateInput(new Date(end > now ? end : now + 14 * 86_400_000).toISOString());
+}
+
+function BillingControls({ venueId, billing }: { venueId: string; billing: PlatformBilling }): JSX.Element {
+  const setTrial = usePoSetVenueTrialEnd();
+  const setComped = usePoSetVenueComped();
+  const [day, setDay] = useState(() => defaultTrialDay(billing));
+  const busy = setTrial.isPending || setComped.isPending;
+  const error = setTrial.error ?? setComped.error;
+
+  if (billing.stripeLinked) {
+    return (
+      <div className="mt-[11px]">
+        <Note icon="card">{t.platform.billingStripeManaged}</Note>
+      </div>
+    );
+  }
+
+  const comped = billing.status === 'comped';
+  return (
+    <div className="mt-[11px] rounded-[14px] border border-line2 px-[12px]">
+      <ToggleRow
+        title={t.platform.billingAlwaysFree}
+        sub={t.platform.billingAlwaysFreeSub}
+        on={comped}
+        set={(v) => {
+          if (busy) return;
+          setTrial.reset();
+          setComped.mutate({ venueId, comped: v });
+        }}
+        last
+      />
+      <div className="border-t border-line2 py-[12px]">
+        <Label className="mb-2">{t.platform.billingTrialDateLabel}</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Field icon="cal" type="date" value={day} onChange={setDay} className="min-w-[170px] flex-1" />
+          <Btn
+            kind="ghost"
+            sm
+            icon="clock"
+            className="min-h-[44px]"
+            disabled={busy || !day}
+            onClick={() => {
+              setComped.reset();
+              setTrial.mutate({ venueId, trialEndsOn: day });
+            }}
+          >
+            {setTrial.isPending ? t.platform.billingWorking : t.platform.billingSetTrial}
+          </Btn>
+        </div>
+        {error && <FieldErrorText className="mt-2">{error.message}</FieldErrorText>}
       </div>
     </div>
   );

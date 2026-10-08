@@ -75,8 +75,8 @@ values
    'Grote Gracht 76', '6211 SZ', 'Maastricht', 'NL', 4);
 
 insert into public.subscriptions (venue_id, status, plan_id, current_period_end) values
-  ('aa000000-0000-7000-8000-000000000001', 'comped',   'pilot', null),
-  ('aa000000-0000-7000-8000-000000000002', 'trialing', 'basic', now() + interval '14 days');
+  ('aa000000-0000-7000-8000-000000000001', 'comped',   'pro',   null),
+  ('aa000000-0000-7000-8000-000000000002', 'trialing', 'pro',   now() + interval '14 days');
 
 -- ---------------------------------------------------------------------------
 -- Memberships — Lisa holds two roles (decision #8); Max is admin at both

@@ -2,7 +2,8 @@
 
 /**
  * Two-panel onboarding shell (#40): a left marketing panel + a right form column
- * with the Venue · Abonnement · Team step indicator. Responsive — the left panel
+ * with the Company · Team step indicator (Billing G: no plan step, browser and
+ * native shell alike — the trial starts silently when the company is created). Responsive — the left panel
  * collapses below lg so the same wizard serves mobile web. Reuses the PLUSONE
  * design kit; no new primitives.
  */
@@ -10,17 +11,11 @@ import type { JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
-import { useIsNativeShell } from '@/lib/use-native-shell';
 
-const STEP_LABELS = ['Company', 'Plan', 'Team'] as const;
-// Native shell: no Plan step (store-tax seam, #32/#37 — see TrialStartStep).
-const NATIVE_STEP_LABELS = ['Company', 'Team'] as const;
+const STEP_LABELS = ['Company', 'Team'] as const;
 
-function StepDots({ current }: { current: 1 | 2 | 3 }): JSX.Element {
-  const native = useIsNativeShell() === true;
-  const labels: readonly string[] = native ? NATIVE_STEP_LABELS : STEP_LABELS;
-  // Native: Venue = 1, the trial hand-off and Team both sit on 2.
-  if (native && current === 3) current = 2;
+function StepDots({ current }: { current: 1 | 2 }): JSX.Element {
+  const labels: readonly string[] = STEP_LABELS;
   return (
     <div className="flex items-center gap-2">
       {labels.map((label, i) => {
@@ -96,7 +91,7 @@ export function WizardShell({
   children,
   footer,
 }: {
-  current: 1 | 2 | 3;
+  current: 1 | 2;
   panel: ReactNode;
   heading: string;
   sub?: string;

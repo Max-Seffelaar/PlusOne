@@ -2,28 +2,26 @@
 /**
  * Store-tax seam (#32/#37) in the /onboarding wizard. An invite link opens the
  * native app (it claims /auth/confirm), so a new owner can run this wizard
- * inside the shell. There it must show NO plan picker, price or payment step
- * (Apple 3.1.1/3.1.3, Play payments policy) — the default plan's trial starts
- * silently and the owner goes straight on to Team. The browser keeps the
- * unchanged Plan → Betaling flow.
+ * inside the shell. Since Billing G the wizard is Welcome → Company → Team in
+ * BOTH the browser and the shell: no plan picker, price or payment step
+ * anywhere (Apple 3.1.1/3.1.3, Play payments policy), and no client-side trial
+ * start either — create_venue_with_owner starts the Pro trial by itself.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
-import { DEFAULT_PLAN_ID } from '@/features/billing/plans';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { t } from '@/lib/i18n';
 
 const H = vi.hoisted(() => ({
   native: false,
-  setPlan: vi.fn(async () => ({ ok: true }) as { ok: true } | { ok: false; message: string }),
+  createVenue: vi.fn(async () => ({ ok: true as const, venueId: 'de300000-0000-7000-8000-000000000001' })),
 }));
 
 vi.mock('@/lib/platform', () => ({ isNativeShell: () => H.native }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock('@/features/venues/actions', () => ({ createVenueAction: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+vi.mock('@/features/venues/actions', () => ({ createVenueAction: H.createVenue }));
 vi.mock('@/features/auth/invite-actions', () => ({ inviteUserAction: vi.fn() }));
 vi.mock('@/features/billing/actions', () => ({
-  setVenuePlanAction: H.setPlan,
   completeOnboardingAction: vi.fn(async () => ({ ok: true })),
 }));
 
@@ -41,42 +39,39 @@ afterEach(() => {
   H.native = false;
 });
 
-describe('onboarding wizard — native shell', () => {
-  it('skips plan + payment: starts the default trial and lands on Team', async () => {
-    H.native = true;
-    render(<OnboardingWizard initialStep="plan" venueId={VENUE} owner={owner} />);
-    await waitFor(() => expect(H.setPlan).toHaveBeenCalledWith({ venueId: VENUE, planId: DEFAULT_PLAN_ID }));
-    await screen.findByRole('button', { name: new RegExp(t.onboarding.teamStep.send) });
+describe.each([
+  ['native shell', true],
+  ['browser', false],
+] as const)('onboarding wizard — %s', (_label, native) => {
+  it('welcome lists two steps, none about a plan', () => {
+    H.native = native;
+    render(<OnboardingWizard initialStep="venue" venueId={null} owner={owner} />);
+    expect(screen.getByText(/Two quick/)).toBeInTheDocument();
+    expect(screen.queryByText(/plan/i)).not.toBeInTheDocument();
+    expect(document.body.textContent ?? '').not.toMatch(PURCHASE_COPY);
+  });
+
+  it('step dots show Company and Team only', () => {
+    H.native = native;
+    render(<OnboardingWizard initialStep="team" venueId={VENUE} owner={owner} />);
+    expect(screen.getAllByText('Company').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Team').length).toBeGreaterThan(0);
     expect(screen.queryByText('Plan')).not.toBeInTheDocument();
     expect(document.body.textContent ?? '').not.toMatch(PURCHASE_COPY);
   });
 
-  it('never paints a price while starting the trial, and offers a retry on failure', async () => {
-    H.native = true;
-    H.setPlan.mockResolvedValueOnce({ ok: false, message: 'Something went wrong.' });
-    render(<OnboardingWizard initialStep="plan" venueId={VENUE} owner={owner} />);
-    await screen.findByText('Something went wrong.');
-    expect(screen.getByRole('button', { name: /Try again/ })).toBeEnabled();
-    expect(document.body.textContent ?? '').not.toMatch(PURCHASE_COPY);
-  });
-
-  it('welcome lists two steps, none about a plan', () => {
-    H.native = true;
+  it('creating the company goes straight to Team, no plan or payment step between', async () => {
+    H.native = native;
     render(<OnboardingWizard initialStep="venue" venueId={null} owner={owner} />);
-    expect(screen.getByText(/Two quick/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Set up account/ }));
+    fireEvent.change(screen.getByPlaceholderText(t.onboarding.venueCreate.companyNamePlaceholder), {
+      target: { value: 'Club Nova' },
+    });
+    const consent = document.querySelector('input[type="checkbox"]');
+    if (consent) fireEvent.click(consent);
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(t.onboarding.venueCreate.submit) }));
+    await waitFor(() => expect(H.createVenue).toHaveBeenCalled());
+    await screen.findByRole('button', { name: new RegExp(t.onboarding.teamStep.send) });
     expect(document.body.textContent ?? '').not.toMatch(PURCHASE_COPY);
-  });
-});
-
-describe('onboarding wizard — browser', () => {
-  it('keeps the plan picker', () => {
-    render(<OnboardingWizard initialStep="plan" venueId={VENUE} owner={owner} />);
-    expect(screen.getByText('Pick your plan')).toBeInTheDocument();
-    expect(H.setPlan).not.toHaveBeenCalled();
-  });
-
-  it('welcome lists three steps', () => {
-    render(<OnboardingWizard initialStep="venue" venueId={null} owner={owner} />);
-    expect(screen.getByText(/Three quick/)).toBeInTheDocument();
   });
 });

@@ -87,7 +87,7 @@ export function TeamStep({ venueId, demoAccount = false }: { venueId: string; de
   if (demoAccount) {
     return (
       <WizardShell
-        current={3}
+        current={2}
         panel={panel}
         heading={c.heading}
         sub={c.sub}
@@ -107,7 +107,7 @@ export function TeamStep({ venueId, demoAccount = false }: { venueId: string; de
 
   return (
     <WizardShell
-      current={3}
+      current={2}
       panel={panel}
       heading={c.heading}
       sub={c.sub}
