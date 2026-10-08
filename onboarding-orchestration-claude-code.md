@@ -189,6 +189,7 @@ Besluiten Max 2026-10-08 (startcheck):
 - **Copy invite-mail:** de A-worker stelt drie varianten voor; Max kiest in de handoff.
 - **Invite-geldigheid:** maximaal 24 uur (Supabase); "Resend invite" in Platform dekt een verlopen link.
 - **3b en 5b horen bij golf D:** 3b start na de merge van 3, 5b na de merge van 5.
+- **Geen "Always free" via de platform-invite (Max 2026-10-08, avond):** vervangen door een vaste optie "Free until end of ADE": de company start als trial tot 27 okt 2026 00:00 Amsterdam (t/m maandag 26 okt; ADE 2026 = 21–25 okt), nooit korter dan 14 dagen; de mail blijft neutraal. "Always free" blijft alleen de Platform-tab-knop. Na ADE een opruim-follow-up.
 - **Geen `/code-review ultra`** (Max 2026-10-08, bevestigt §5): per high-risk PR volstaat de verse reviewer-sessie.
 
 | Taak | Worker-sessie | PR | Status | Prod |
