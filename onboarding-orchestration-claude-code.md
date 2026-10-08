@@ -88,7 +88,7 @@ Lessen golf A voor de volgende orchestrator:
 - P2-notities uit de P1-review staan in `docs/perf-audit-2026-10.md` (eigen organizer-wijziging ververst de layout niet; single-event headcount met `p_since`; staff-gastenvenster loopt bij 30k gasten in de statement-timeout, ook op main).
 - Follow-ups (geen golf-A-scope): `po/mutations.ts` gooit `new Error(res.message)` en verliest de MutationError-`code` (S1 matcht daarom op copy; een `MutationFailure extends Error { code }` maakt dat overbodig); `pnpm dev:mfa` brengt de gedropte `set_venue_plan(uuid,text,boolean)`-overload terug en breekt de plan-stap lokaal (QA-0-vondst); P1 liet `usePoEvents`-staleTime staan omdat guest-mutaties `poKeys.events` niet invalideren (P2).
 
-### Status golf B (orchestrator, 2026-10-07; loopt nog)
+### Status golf B (orchestrator, 2026-10-07 t/m 2026-10-08; afgerond, behalve 0g)
 
 | Taak | PR | Status | Prod |
 |---|---|---|---|
@@ -97,9 +97,11 @@ Lessen golf A voor de volgende orchestrator:
 | 1 follow-up B | [#419](https://github.com/Max-Seffelaar/PlusOne/pull/419) | gemerged (`7821f4b`): templates bewaren de event-locatie; handoff 15 ✅ | `20261007135000` op prod (geverifieerd) |
 | 0e Mail-infra F0 | [#413](https://github.com/Max-Seffelaar/PlusOne/pull/413) | gemerged (`ba0bdfa`) na drie schone reviewer-rondes; handoff 5 ✅ 6 ✅ 7 ✅ | `20261007130000` op prod (geverifieerd); env-vars in Vercel |
 | 0d Crew-bug | [#412](https://github.com/Max-Seffelaar/PlusOne/pull/412) | gemerged (`fb6158b`) na drie reviewer-rondes: crew via uitnodiging + expliciet accepteren (banner + onboarding-stap), login accepteert nooit crew, geen 60-s-orakel, "Waiting to accept" met intrekken, quota bij her-invite; handoff 19 ✅ 20 ✅ 22 ✅ 23 ✅, 21 = nieuw adres krijgt nog de Supabase-mail (→ vervolg B) | `20261007140000` op prod (geverifieerd, versie 87e370f) |
-| 0d vervolg A | volgt | in bouw (0d-worker): team- én crew-invites nooit meer bij login accepteren; Accept/Decline per invite (Home + onboarding), `declined_at`; decline-mail aan de uitnodiger (ingetypt e-mailadres, nooit profielnaam) + bevestiging aan de weigeraar in de app én per mail; Team → External crew krijgt Manage (quota per event + Remove from crew); verouderde comments | `20261007150000` vóór merge pushen, merge direct erna |
-| 0d vervolg B | volgt | na vervolg A (zelfde worker, raakt ook `invite-mail.ts`): één uitnodigingsmail voor iedereen, nieuw adres via `generateLink` + onze Resend-template i.p.v. de Supabase-mail | evt. `20261007170000` |
-| docs | [#415](https://github.com/Max-Seffelaar/PlusOne/pull/415), [#420](https://github.com/Max-Seffelaar/PlusOne/pull/420) | gemerged | n.v.t. |
+| 0d vervolg A | [#427](https://github.com/Max-Seffelaar/PlusOne/pull/427) | gemerged (`e6b0c75`) na vier reviewer-rondes: login accepteert niets meer (team én crew), Accept/Decline per invite (Home-banner + onboarding-stap), `declined_at`, decline-mail aan uitnodiger (ingetypt adres) + bevestiging aan weigeraar; ronde 4 hardening (`150100`) en root-fix directe member-inserts (`150200`); Supabase-templates door Max in het dashboard geplakt; handoff geaccepteerd | `20261007150000` + `…150100` + `…150200` op prod (geverifieerd; `150000` kwam vóór de PR, zie les) |
+| 0d vervolg B | [#430](https://github.com/Max-Seffelaar/PlusOne/pull/430) | gemerged (`2f2fbf9`) na twee reviewer-rondes: één uitnodigingsmail voor iedereen; nieuw adres via `generateLink` + onze Resend-template (knop = eenmalige login via `/auth/confirm`), log vóór token; mislukte verzendingen tellen niet meer voor venster/cap; Mailpit-hand-off lokaal; handoff 24–29 ✅, 30 👁 + 31 🖐 open bij Max | `20261011120000` op prod (geverifieerd: beide functies met `status <> 'failed'`) |
+| Team → External crew beheren | [#429](https://github.com/Max-Seffelaar/PlusOne/pull/429) | gemerged (`d9b174d`): Manage-sheet per crewlid (quota per event + Remove from crew), geen migratie; handoff 10–12 ✅ (Max) | n.v.t. |
+| 0g Last-admin-guard | — | **niet gestart** in golf B (geen worker uitgezet; slot `20261007160000` blijft gereserveerd) | — |
+| docs | [#415](https://github.com/Max-Seffelaar/PlusOne/pull/415), [#420](https://github.com/Max-Seffelaar/PlusOne/pull/420), [#426](https://github.com/Max-Seffelaar/PlusOne/pull/426), afsluit-PR golf B | gemerged | n.v.t. |
 
 Incident golf B (2026-10-07, ~09:15–09:25 UTC): de prod-push voor #414 werd per ongeluk vanaf de branch van #413 gedaan, waarna #414 gemerged werd zonder `…120000` op prod; Events/Home/event-edit gaven ~10 min 42703 tot de push met `--include-all`. Les: bij "prod-push vóór merge" eerst `git branch --show-current` + `supabase db push --dry-run` lezen (de lijst moet exact de migratie van díe PR bevatten), en de orchestrator verifieert `schema_migrations` op prod vóór hij merget.
 
@@ -109,7 +111,25 @@ Besluiten Max 2026-10-07 (golf B): geen `/code-review ultra`, één reviewer-ses
 
 Volgorde rest golf B: 0d vervolg A (`…150000`) → 0d vervolg B; telkens eerst prod-push (pas na groen licht van de orchestrator, met de sha), dan merge. #419 en #412 zijn gemerged. Les 2026-10-07: de prod-push van `…140000` kwam vóór het groene licht; omdat die versie al gereviewd en groen was, is #412 op precies die sha gemerged en gaat het vervolgwerk in een nieuwe migratie (een toegepaste migratie wordt nooit meer bewerkt). De orchestrator vergelijkt vóór de merge de functies op prod met de branch-head. Golf C mag parallel starten (besluit Max 2026-10-07): geen bestandsoverlap met #419/#412; golf-C-migraties (`20261008…`, `20261010…`) liggen ná die van golf B, maar mergen ze eerder, dan vraagt de push van `…135000`/`…140000` `--include-all`.
 
+Lessen golf B (afsluiting 2026-10-08):
+- **Prod-push vóór de PR bestond.** `20261007150000` werd vanuit Max' lokale sessie naar prod gepusht voordat er een PR was; daarna faalde `db push` vanaf main ("remote versions not found") en hingen nieuwe team-invitees bij onboarding tot #427 gemerged was. De orchestrator verifieerde de file-hash tegen `schema_migrations.statements` en dreef #427 naar merge. Regel: een worker pusht nooit zelf naar prod; alleen Max, na "klaar voor prod-push" met de sha.
+- **Andermans migraties blokkeren `db push`.** Staan er op prod migraties die nog niet op de branch staan (golf C mergede eerder), dan weigert de CLI. Oplossing zonder `migration repair`: main in de PR-branch mergen (update-branch) of een tmp-branch met `git checkout origin/<branch> -- <files>` + `--include-all`. **Nooit** de voorgestelde `supabase migration repair --status reverted` of `db pull` draaien.
+- **Max' checkout staat vaak op een andere branch** (golf C). Prod-push-stappen beginnen daarom altijd met `git status --short` + `git branch --show-current` + `git log -1`, en eindigen met terug naar zijn branch + `stash pop`.
+- **Workers nemen scope-wijzigingen alleen van Max aan.** Een scope-uitbreiding via de orchestrator werd terecht geweigerd; Max plakt de go zelf in de worker-sessie. Plan daar een bericht voor in.
+- **Copy altijd eerst oud → nieuw aan Max**, vóór een worker de opdracht krijgt (besluit Max).
+- Flakes in `layout-suite`/`flow-shots`/`native-store-tax`: één rerun, daarna is het echt.
+
 Open follow-ups uit golf B (geen golf-B-scope): door-header toont de event-locatie (taak 4); quick-add/bulk-add/profile-sheets tonen de companynaam i.p.v. de event-locatie; `can_view_profile` laat crew-relaties telefoon en `is_platform_admin` zien (apart ticket); `resend_webhook_events` opschonen (> 30 dagen, taak 2c); Type-veld in Company settings (kleine vervolgtaak); hint onder het locatieveld ("Empty means your company address…") aanpassen in taak 3b; footer-tagline "venues & events" in de Supabase-templates in taak 3 (na vervolg B alleen nog relevant voor de login-code-mail en de fallback); PM429 recipient/venue onderscheiden via een eigen SQLSTATE of HINT i.p.v. de RAISE-tekst (nieuwe migratie op `log_mail_attempt`); twee smalle rest-orakels (cap die precies tijdens de verzending geraakt wordt, alleen bij een race met Resend aan; Supabase's uurlimiet, ook op main): bewust gelaten zodat "Invite sent" nooit liegt.
+
+Follow-ups toegevoegd bij de afsluiting (2026-10-08, geen golf-B-scope):
+- **0g Last-admin-guard** niet gebouwd; staat nog open (eigen PR, high-risk → reviewer).
+- Legacy `accept_my_invites()` / `accept_pending_invites()`-shim droppen in een nieuwe migratie zodra geen gedeployde client ze meer aanroept.
+- `invites_delete`-policy beperken tot `declined_at is null` (een gesloten invite blijft als spoor staan).
+- Token-void tussen companies: elke nieuwe invite/resend naar een nooit-bevestigd adres mint een nieuw token en maakt de knop in een eerdere mail (ook van een andere company) ongeldig; zelfde gedrag als `inviteUserByEmail`, bewust gelaten.
+- Multi-venue crew-mail: een tweede crew-invite naar hetzelfde adres binnen 60 s (andere company) valt in het ontvanger-venster en geeft PM429.
+- `existingAccountMail` in `invite-mail.ts` dekt sinds #430 ook nieuwe adressen: hernoemen (bv. `teamMailContext`).
+- `fetchVenueCrew` leest `event_quotas` zonder paginering (PostgREST-limiet 1000 rijen; pas relevant bij grote crews × veel events, ≥25).
+- Supabase-template-tagline (taak 3) is na #430 alleen nog relevant voor de login-code-mail en de fallback zonder Resend-key.
 
 Regels bij parallel werk: elke worker in een eigen container (eigen stack) of, op Max' laptop, één tegelijk; migratie-timestamps uit §3, nooit zelf gekozen; wie buiten zijn scope-hek moet, stopt en meldt; de orchestrator bundelt de test-handoffs per golf in één bericht aan Max.
 
@@ -344,7 +364,9 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 0e | `20261007130000_mail_log.sql` | `mail_log` (append-only, type + ontvanger-hash + status + provider-id, geen inhoud), `resend_webhook_events`-ledger, grant matrix |
 | 0d | `20261007140000_crew_invites.sql` | crew-only uitnodigingen (`invites` zonder venue-rol, met event_ids + crew-quotum), `accept_pending_invites` maakt dan alleen event_organizers/event_quotas, SECURITY DEFINER-RPC voor de eigen openstaande uitnodigingen (companynaam + eventnamen voor de banner); besluit (a), 2026-10-07; op prod |
 | 0d vervolg A | `20261007150000_explicit_invite_accept.sql` | `accept_pending_invites()` accepteert niets meer; accept per invite-id; `decline_my_invite` + `invites.declined_at` (grant matrix); de no-arg `accept_my_invites()` blijft werken tot de nieuwe code live is (expand–contract) |
-| 0d vervolg B | `20261007170000_invite_mail_types.sql` (alleen als nodig) | extra `mail_log.type` voor de uniforme uitnodigingsmail |
+| 0d vervolg A | `20261007150100_invite_decline_hardening.sql` | kolom-SELECT op `invites` zonder `accepted_by`/`declined_by`; `invites_insert` weigert een vooraf gesloten rij; decline-mails buiten het 60-s-venster; venue-loze `mail_log`-rijen na 90 dagen weg (pg_cron 03:15) |
+| 0d vervolg A | `20261007150200_no_direct_member_inserts.sql` | `venue_memberships_insert` alleen platform-admin; `event_organizers_insert_admin` vereist `is_tied_to_venue`; UPDATE op `venue_memberships` alleen kolom `roles` |
+| 0d vervolg B | `20261011120000_mail_failed_rows_free.sql` (i.p.v. het gereserveerde `…170000`: geen nieuw mail-type nodig) | `log_mail_attempt`-venster en `mail_venue_cap_reached` tellen `failed`-rijen niet meer |
 | 6 | `20261013120000_guest_mail_types.sql` | nieuwe `mail_log.type`-waarden voor gastmail; geen nieuwe tabel |
 | 6 | `20261013120100_company_contact_channels.sql` | `venues.contact_email` (verplicht vóór eerste live event, afgedwongen in de publish-actie, niet als NOT NULL), `venues.contact_channels jsonb` |
 | 6 | `20261013120200_guest_mail_optout.sql` | `contact_mail_optout` (per contact per venue, publieke token-route), RLS |
