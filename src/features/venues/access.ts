@@ -58,9 +58,9 @@ export function venueCapabilities(roles: readonly VenueRole[]): VenueCapabilitie
 }
 
 // ── Last-admin safety guards ────────────────────────────────────────────────
-// App-layer footgun protection, NOT a security boundary: RLS happily lets an
-// admin remove the venue's last admin and lock everyone out. We refuse that in
-// the action. `otherAdminCount` is the number of OTHER memberships at the venue
+// App-layer early refusal with friendly copy. The boundary is the DB trigger
+// refuse_last_admin_removal (20261012120000), which RLS alone never was: it lets
+// any admin (and every platform admin) delete or demote any admin row. `otherAdminCount` is the number of OTHER memberships at the venue
 // whose roles include admin (excluding the membership being changed).
 
 /** Removing this membership would leave the venue with zero admins. */
@@ -78,4 +78,24 @@ export function roleChangeWouldOrphanVenue(
   otherAdminCount: number
 ): boolean {
   return oldRoles.includes('admin') && !newRoles.includes('admin') && otherAdminCount <= 0;
+}
+
+/** Admin memberships in `team` other than `userId` — the client-side input for
+ *  the two guards above (Team sheet), from the member list the screen already
+ *  loaded. */
+export function otherAdminsIn(
+  team: readonly { userId: string; roles: readonly VenueRole[] }[],
+  userId: string
+): number {
+  return team.filter((m) => m.userId !== userId && m.roles.includes('admin')).length;
+}
+
+/** This member is the venue's only admin: the Team sheet hides "Revoke access"
+ *  and locks their Admin chip. The DB trigger refuse_last_admin_removal
+ *  (20261012120000) is the boundary; this only spares a refused tap. */
+export function isLastAdmin(
+  member: { userId: string; roles: readonly VenueRole[] },
+  team: readonly { userId: string; roles: readonly VenueRole[] }[]
+): boolean {
+  return removalWouldOrphanVenue(member.roles, otherAdminsIn(team, member.userId));
 }

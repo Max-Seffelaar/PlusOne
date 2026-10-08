@@ -12,7 +12,14 @@ import {
 } from '@/lib/auth/memberships';
 import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
-import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import {
+  mapMutationError,
+  unauthorized,
+  invalidInput,
+  LAST_ADMIN,
+  LAST_ADMIN_MESSAGE,
+  type MutationError,
+} from '@/lib/db-errors';
 import { TERMS_VERSION } from '@/lib/legal';
 import { isDemoReviewUser } from '@/features/auth/review-window';
 import { DEMO_USER_ID, DEMO_VENUE_ID } from '@/features/auth/demo-account';
@@ -268,7 +275,8 @@ function isDemoMembership(venueId: string, userId: string): boolean {
  * Change a member's roles (role grant is sensitive; role-only, no AAL2). Mirrors RLS
  * venue_memberships_update: manager authority + the escalation guard on BOTH
  * the member's current roles (USING) and the new roles (WITH CHECK). Adds an
- * app-only last-admin guard so a venue can never be left without an admin.
+ * last-admin guard (early, friendly copy) on top of the DB trigger
+ * refuse_last_admin_removal, which is the boundary.
  */
 export async function updateMemberRolesAction(
   _prev: ActionState,
@@ -302,10 +310,7 @@ export async function updateMemberRolesAction(
 
   const others = await otherAdminCount(venueId, userId);
   if (roleChangeWouldOrphanVenue(currentRoles, newRoles, others)) {
-    return {
-      ok: false,
-      error: 'This is the last admin. Make someone else an admin first.',
-    };
+    return { ok: false, error: LAST_ADMIN_MESSAGE };
   }
 
   const supabase = await createClient();
@@ -315,6 +320,10 @@ export async function updateMemberRolesAction(
     .eq('venue_id', venueId)
     .eq('user_id', userId);
 
+  // The DB trigger refuse_last_admin_removal (20261012120000) is the real stop:
+  // it also catches the race the check above can't (two admins demoting each
+  // other at once). Same copy as the early refusal.
+  if (error?.code === LAST_ADMIN) return { ok: false, error: LAST_ADMIN_MESSAGE };
   if (error || !count) {
     if (error) console.error('updateMemberRoles: update failed', error.message);
     return { ok: false, error: "Couldn't change the roles (no access)." };
@@ -359,10 +368,7 @@ export async function removeMemberAction(
 
   const others = await otherAdminCount(venueId, userId);
   if (removalWouldOrphanVenue(targetRoles, others)) {
-    return {
-      ok: false,
-      error: 'This is the last admin. Make someone else an admin first.',
-    };
+    return { ok: false, error: LAST_ADMIN_MESSAGE };
   }
 
   const supabase = await createClient();
@@ -372,6 +378,8 @@ export async function removeMemberAction(
     .eq('venue_id', venueId)
     .eq('user_id', userId);
 
+  // DB last-admin trigger (see updateMemberRolesAction): same copy.
+  if (error?.code === LAST_ADMIN) return { ok: false, error: LAST_ADMIN_MESSAGE };
   if (error || !count) {
     if (error) console.error('removeMember: delete failed', error.message);
     return { ok: false, error: "Couldn't remove the member (no access, or MFA required)." };

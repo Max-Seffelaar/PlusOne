@@ -19,7 +19,8 @@
 --     any writer, case- and whitespace-insensitively; ordinary invites work;
 --   * the demo user cannot demote, move or delete its own demo membership
 --     (self-lockout), not even as admin there; a job_title edit still works;
---   * the seed's path (service_role JWT) still can change and delete it;
+--   * the seed's path (service_role JWT) still can change it; deleting the
+--     demo venue's only admin is refused since 20261012120000 (last-admin guard);
 --   * other venues' memberships are unaffected.
 -- Round 10 (same migration):
 --   * no writer puts the demo USER in another venue (insert or re-pointed
@@ -329,24 +330,30 @@ select is(
   '{admin,doorhost}'::public.venue_role[],
   'T30 the demo membership still exists with the seed''s role set');
 
--- The seed's path: a service_role JWT may change and delete the row.
+-- The seed's path: a service_role JWT may change the row. Since
+-- 20261012120000 (refuse_last_admin_removal) nobody, the service role
+-- included, may take away a venue's LAST admin: the demo user is the demo
+-- venue's only member, so a change that keeps admin passes, and a delete of
+-- that row is refused with P0LA1. The seed itself only ever upserts
+-- {admin,doorhost} and deletes stray non-demo members.
 select pg_temp.as_service();
 select lives_ok($$
-  update public.venue_memberships set roles = '{doorhost}'
+  update public.venue_memberships set roles = '{admin}'
    where venue_id = 'de300000-0000-7000-8000-000000000001'
      and user_id = 'de300000-0000-7000-8000-00000000a001'
-$$, 'T31 the service role can change the demo role set');
+$$, 'T31 the service role can change the demo role set (admin kept)');
 
-select lives_ok($$
+select throws_ok($$
   delete from public.venue_memberships
    where venue_id = 'de300000-0000-7000-8000-000000000001'
      and user_id = 'de300000-0000-7000-8000-00000000a001'
-$$, 'T32 and delete the demo membership');
+$$, 'P0LA1', 'a company always keeps at least one admin',
+  'T32 but not delete the demo venue''s only admin (last-admin guard)');
 
 select is(
-  (select count(*)::int from public.venue_memberships
+  (select roles from public.venue_memberships
     where venue_id = 'de300000-0000-7000-8000-000000000001'),
-  0, 'T33 the delete really happened');
+  '{admin}'::public.venue_role[], 'T33 the row is still there, with the service role''s change');
 
 select lives_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles, job_title)

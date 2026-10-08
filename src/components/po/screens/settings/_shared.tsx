@@ -73,16 +73,23 @@ export function RolePicker({
   selected,
   toggle,
   callerIsAdmin,
+  lockedOn,
+  lockedOnLabel,
 }: {
   selected: VenueRole[];
   toggle: (r: VenueRole) => void;
   callerIsAdmin: boolean;
+  /** A role that stays on and can't be toggled (the last admin's Admin chip). */
+  lockedOn?: VenueRole;
+  /** Short suffix shown on the locked chip, e.g. "only admin". */
+  lockedOnLabel?: string;
 }): JSX.Element {
   return (
     <div className="flex flex-wrap gap-2">
       {VENUE_ROLES.map((k) => {
-        const on = selected.includes(k);
-        const blocked = k === 'admin' && !callerIsAdmin;
+        const locked = k === lockedOn;
+        const on = locked || selected.includes(k);
+        const blocked = (k === 'admin' && !callerIsAdmin) || locked;
         return (
           <button
             key={k}
@@ -98,7 +105,11 @@ export function RolePicker({
           >
             {on && <Icon name="check" size={14} stroke="#16132B" sw={2.6} />}
             {ROLE_LABELS[k]}
-            {blocked && <span className="ml-0.5 text-[10px] font-bold opacity-70">· {t.settings.common.adminOnly}</span>}
+            {blocked && (
+              <span className="ml-0.5 text-[10px] font-bold opacity-70">
+                · {locked && lockedOnLabel ? lockedOnLabel : t.settings.common.adminOnly}
+              </span>
+            )}
           </button>
         );
       })}

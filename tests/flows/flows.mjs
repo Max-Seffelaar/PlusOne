@@ -96,6 +96,17 @@ export const FLOWS = {
       'src/features/events/actions.ts',
     ],
   },
+  'last-admin-guard': {
+    title: 'Team — the only admin cannot remove themselves or drop admin; a second admin lifts it; the API refuses with P0LA1 (task 0g)',
+    paths: [
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/settings/_shared',
+      'src/features/venues/',
+      'src/features/po/mutations.ts',
+      'src/lib/db-errors.ts',
+      'supabase/migrations/20261012120000_last_admin_guard.sql',
+    ],
+  },
   'company-rename': {
     title: 'Venue → Company — copy sweep, Type options, per-event location → cards, detail, /e/[slug]',
     paths: [
