@@ -4,7 +4,10 @@ import {
   venueCapabilities,
   removalWouldOrphanVenue,
   roleChangeWouldOrphanVenue,
+  isLastAdmin,
+  otherAdminsIn,
 } from './access';
+import type { VenueRole } from '@/features/auth/roles';
 
 describe('hasDashboardAccess', () => {
   it('is true for admin, user_manager and finance', () => {
@@ -114,5 +117,23 @@ describe('roleChangeWouldOrphanVenue (last-admin guard)', () => {
   });
   it('ignores non-admin members entirely', () => {
     expect(roleChangeWouldOrphanVenue(['staff'], ['doorhost'], 0)).toBe(false);
+  });
+});
+
+describe('isLastAdmin / otherAdminsIn (Team sheet, task 0g)', () => {
+  const team = [
+    { userId: 'a', roles: ['admin'] as VenueRole[] },
+    { userId: 's', roles: ['staff'] as VenueRole[] },
+  ];
+  it('the only admin is the last admin; a non-admin never is', () => {
+    expect(isLastAdmin(team[0]!, team)).toBe(true);
+    expect(isLastAdmin(team[1]!, team)).toBe(false);
+    expect(otherAdminsIn(team, 'a')).toBe(0);
+  });
+  it('a second admin lifts it for both', () => {
+    const two = [...team, { userId: 'b', roles: ['admin', 'finance'] as VenueRole[] }];
+    expect(isLastAdmin(two[0]!, two)).toBe(false);
+    expect(isLastAdmin(two[2]!, two)).toBe(false);
+    expect(otherAdminsIn(two, 'a')).toBe(1);
   });
 });

@@ -4,7 +4,7 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';
-import { venueCapabilities } from '@/features/venues/access';
+import { isLastAdmin, venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoTeam, usePoInvites, usePoVenueCrew, usePoEvents, useBillingBlocked } from '@/features/po/hooks';
 import {
@@ -467,7 +467,9 @@ export function Gebruikers(): JSX.Element {
         <FormError error={revokeInvite.isError && !isAal2Error(revokeInvite.error) ? revokeInvite.error : null} />
         <FormError error={resendInvite.isError ? resendInvite.error : null} />
       </Scroll>
-      {sheetMember && <MemberSheet member={sheetMember} callerRoles={roles} onClose={() => setSheetMember(null)} />}
+      {sheetMember && (
+        <MemberSheet member={sheetMember} team={team.data ?? []} callerRoles={roles} onClose={() => setSheetMember(null)} />
+      )}
       {crewSheetUserId && callerIsAdmin && <CrewManageSheet userId={crewSheetUserId} onClose={() => setCrewSheetUserId(null)} />}
       {mfa.sheet}
     </div>
@@ -479,13 +481,16 @@ export function Gebruikers(): JSX.Element {
 // offers controls the caller may use and surfaces the action's copy on refusal.
 function MemberSheet({
   member,
+  team,
   callerRoles,
   onClose,
 }: {
   member: PoTeamMember;
+  team: readonly PoTeamMember[];
   callerRoles: VenueRole[];
   onClose: () => void;
 }): JSX.Element {
+  const { userId: selfId } = usePoIdentity();
   const updateRoles = usePoUpdateMemberRoles();
   const removeMember = usePoRemoveMember();
   const mfa = useMfaGate();
@@ -493,7 +498,14 @@ function MemberSheet({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const callerIsAdmin = callerRoles.includes('admin');
   const canManageThis = canGrantRoles(callerRoles, member.roles);
-  const toggle = (r: VenueRole): void => setRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
+  // Last-admin guard (task 0g): the only admin keeps the Admin chip and gets no
+  // "Revoke access" — for themselves and for anyone else looking at them. The
+  // DB trigger refuse_last_admin_removal refuses it anyway; this spares the tap.
+  const lastAdmin = isLastAdmin(member, team);
+  const toggle = (r: VenueRole): void => {
+    if (lastAdmin && r === 'admin') return;
+    setRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
+  };
   const busy = updateRoles.isPending || removeMember.isPending;
   const saveRoles = (): void =>
     updateRoles.mutate({ userId: member.userId, roles }, { onSuccess: onClose, onError: (e) => mfa.guard(e, saveRoles) });
@@ -539,7 +551,20 @@ function MemberSheet({
       ) : (
         <>
           <Label className="mb-[10px]">{t.settings.team.sheetRolesLabel}</Label>
-          <RolePicker selected={roles} toggle={toggle} callerIsAdmin={callerIsAdmin} />
+          <RolePicker
+            selected={roles}
+            toggle={toggle}
+            callerIsAdmin={callerIsAdmin}
+            lockedOn={lastAdmin ? 'admin' : undefined}
+            lockedOnLabel={t.settings.team.lastAdminChip}
+          />
+          {lastAdmin && (
+            <Note icon="shield">
+              {member.userId === selfId
+                ? t.settings.team.lastAdminSelf
+                : fmt(t.settings.team.lastAdminOther, { name: member.name })}
+            </Note>
+          )}
           <FormError error={err} />
           <Btn
             kind="primary"
@@ -551,13 +576,15 @@ function MemberSheet({
           >
             {updateRoles.isPending ? t.settings.team.savingRoles : t.settings.team.saveRoles}
           </Btn>
-          <button
-            type="button"
-            onClick={() => setConfirmRemove(true)}
-            className={cn('mt-3 w-full cursor-pointer border-none bg-transparent text-center font-body text-[13px] font-semibold text-faint', press)}
-          >
-            {t.settings.team.removeAccess}
-          </button>
+          {!lastAdmin && (
+            <button
+              type="button"
+              onClick={() => setConfirmRemove(true)}
+              className={cn('mt-3 w-full cursor-pointer border-none bg-transparent text-center font-body text-[13px] font-semibold text-faint', press)}
+            >
+              {t.settings.team.removeAccess}
+            </button>
+          )}
         </>
       )}
       {mfa.sheet}

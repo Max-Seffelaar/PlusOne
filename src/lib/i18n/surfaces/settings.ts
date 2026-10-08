@@ -135,6 +135,11 @@ export const settings = {
     savingRoles: 'Saving…',
     saveRoles: 'Save roles',
     removeAccess: 'Revoke access to this company',
+    // Last-admin guard (task 0g): a company always keeps one admin. The sheet
+    // hides "Revoke access" and locks the Admin chip for the only admin.
+    lastAdminSelf: "You're the only admin of this company. Make someone else an admin first, then you can drop the admin role or leave.",
+    lastAdminOther: '{name} is the only admin of this company. Make someone else an admin first.',
+    lastAdminChip: 'only admin',
     // Invite chooser + external-crew branch (86ey21vre). A company user joins the
     // whole company (every event); external crew is event-scoped with a guest quota.
     chooseTitle: 'Add someone',
