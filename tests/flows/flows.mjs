@@ -145,6 +145,8 @@ export const FLOWS = {
       'src/components/po/screens/settings/team',
       'src/components/po/screens/templates',
       'src/components/po/datetime-field',
+      // Q11/Q12/Q16: the deep link reads the event's venue_id from fetchEventForEdit.
+      'src/features/po/queries.ts',
     ],
   },
   'native-shell-guard': {

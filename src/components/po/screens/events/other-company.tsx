@@ -6,18 +6,15 @@
  * "Switch to {company}" — never switch silently, because a company switch is a
  * deliberate act (a platform admin's switch even writes platform_access_log).
  *
- * How we know, without a new query: the event detail already reads the event by
- * id without a company filter (usePoEventForEdit → fetchEventForEdit, RLS-scoped),
- * which returns the owning company's NAME. RLS only returns that row when the
- * user may read the event at all. The user's own memberships (usePo().myVenues)
- * then give the company id to switch to.
- *
- * Matching is by name, so it is deliberately strict: exactly one OTHER company
- * of the user's with that exact name. Zero matches (not a member: an organizer
- * or a platform admin reading through RLS) or two (two companies with the same
- * name) fall back to the plain "not available" state — it never guesses, and a
- * non-member never learns the event exists. The switch itself goes through the
- * existing server action, which checks the membership again.
+ * How we know: the event detail already reads the event by id without a
+ * company filter (usePoEventForEdit → fetchEventForEdit, RLS-scoped), and that
+ * read returns the owning company's id. RLS only returns the row when the user
+ * may read the event at all. The user's own memberships (usePo().myVenues) then
+ * decide: the owning company must be one of them and not the active one.
+ * Anything else — not a member (an organizer or a platform admin reading
+ * through RLS), or the active company itself — falls back to the plain "not
+ * available" state, so a non-member never learns the event exists. The switch
+ * goes through the existing server action, which checks the membership again.
  */
 import type { JSX } from 'react';
 import { t, fmt } from '@/lib/i18n';
@@ -27,17 +24,16 @@ import { col } from './shared';
 
 /** The one other company of the user's that owns this event, or null. */
 export function otherCompanyForEvent({
-  eventVenueName,
+  eventVenueId,
   myVenues,
   activeVenueId,
 }: {
-  eventVenueName: string | null | undefined;
+  eventVenueId: string | null | undefined;
   myVenues: readonly PoVenueMembership[];
   activeVenueId: string | null;
 }): PoVenueMembership | null {
-  if (!eventVenueName) return null;
-  const matches = myVenues.filter((v) => v.venueId !== activeVenueId && v.venueName === eventVenueName);
-  return matches.length === 1 ? matches[0]! : null;
+  if (!eventVenueId || eventVenueId === activeVenueId) return null;
+  return myVenues.find((v) => v.venueId === eventVenueId) ?? null;
 }
 
 export function OtherCompanyEvent({

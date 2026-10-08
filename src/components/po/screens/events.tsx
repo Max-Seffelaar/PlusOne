@@ -252,7 +252,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
     // "Switch to {company}", never a silent switch. Wait for the unscoped read
     // first, so a member never sees "not available" flash before the card.
     if (editQ.isLoading) return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.loading} />;
-    const other = otherCompanyForEvent({ eventVenueName: editQ.data?.venueName, myVenues, activeVenueId });
+    const other = otherCompanyForEvent({ eventVenueId: editQ.data?.venueId, myVenues, activeVenueId });
     if (other && id) {
       return (
         <OtherCompanyEvent
