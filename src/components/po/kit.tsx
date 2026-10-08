@@ -230,6 +230,7 @@ export function Btn({
   style,
   desktop,
   autoFocus,
+  ariaLabel,
 }: {
   children: ReactNode;
   kind?: BtnKind;
@@ -245,6 +246,8 @@ export function Btn({
    *  desktop press feel. Same API otherwise — a screen never needs two imports. */
   desktop?: boolean;
   autoFocus?: boolean;
+  /** Accessible name when the visible label is ambiguous in a list ("Switch"). */
+  ariaLabel?: string;
 }): JSX.Element {
   return (
     <button
@@ -252,6 +255,7 @@ export function Btn({
       onClick={onClick}
       disabled={disabled}
       autoFocus={autoFocus}
+      aria-label={ariaLabel}
       className={cn(
         'inline-flex cursor-pointer items-center justify-center gap-[9px] whitespace-nowrap border font-display font-bold tracking-[-0.01em]',
         desktop ? 'rounded-[12px]' : 'rounded-btn',

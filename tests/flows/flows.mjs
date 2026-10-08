@@ -167,6 +167,15 @@ export const FLOWS = {
       'src/lib/auth/onboarding.ts',
     ],
   },
+  'platform-overview': {
+    title: 'Platform R — Overview numbers, invite company chip → Switch (access log), Companies detail',
+    paths: [
+      'supabase/migrations/20261012130000_platform_overview_rpcs.sql',
+      'src/features/po/',
+      'src/components/po/screens/platform',
+      'src/lib/i18n/surfaces/platform.ts',
+    ],
+  },
   'platform-billing': {
     title: 'Billing G — Platform → Companies: always free / trial until, audited on the admin',
     paths: [

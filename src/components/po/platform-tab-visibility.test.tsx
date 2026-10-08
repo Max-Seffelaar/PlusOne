@@ -56,7 +56,7 @@ vi.mock('@/features/po/hooks', () => ({
   usePoPlatformFunnel: () => {
     H.funnelCalls += 1;
     return { data: undefined };
-  },
+  },  usePoPlatformCompanies: () => ({ data: undefined, isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => ({
   usePoInviteBetaCustomer: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false }),

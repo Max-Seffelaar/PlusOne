@@ -51,7 +51,10 @@ export type ScreenName =
   /** Platform > Audit (P-05) — same closed-by-RLS shape as 'platform'. */
   | 'platformaudit'
   /** Platform > Access log (legal v0.3 B3) — same closed-by-RLS shape. */
-  | 'platformaccess';
+  | 'platformaccess'
+  /** Platform > Overview (z8uq9m2ybj) — aggregates only; RPCs raise 42501
+   *  for anyone who is not a platform admin. */
+  | 'platformoverview';
 
 export interface ScreenProps {
   id?: string;
