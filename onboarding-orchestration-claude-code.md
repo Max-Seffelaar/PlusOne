@@ -141,6 +141,12 @@ Lessen golf C:
 - **Parallelle golven geven per merge een changelog-conflict.** Elke worker moest drie keer main mergen. Bij parallel werk: de PR's direct na elkaar mergen.
 - **Een reviewer-sessie op hetzelfde GitHub-account kan geen "Request changes" of "Approve" geven.** De oordeelregel staat bovenaan de comment.
 
+**Voor golf D (gevonden bij de afronding, 2026-10-08):**
+- **Tijdstempels.** Prod en main hebben al `20261011120000_mail_failed_rows_free` (golf B, #430). De gereserveerde golf-D-slots in §3 zijn ouder: 2b `20261008130000`, 3 `20261009120000`/`…120100`, 3b `20261009130000`. Een oudere migratie na een nieuwere pushen kan alleen met `supabase db push --include-all`. Advies: de golf-D-orchestrator geeft vóór het spawnen nieuwe slots ná `20261011120000` (bijv. `20261012…`) en werkt §3 bij in zijn eigen docs-PR. Kan dat niet, dan bij elke push eerst een dry-run die exact de migraties van die PR toont, en dan `--include-all`.
+- **Invite-link maximaal 24 uur.** Supabase staat op `Email OTP Expiration` niet meer toe dan 86400 s; 7 dagen kan dus niet. Taak 3 bouwt daarom de knop "Resend invite" in de Platform-tab (los eindje 10).
+- **Max heeft al gedaan:** `GOOGLE_PLACES_API_KEY` staat in Vercel, beperkt tot Places API (New), met usage alerts. De quota zijn niet aanpasbaar op het gratis proefaccount; de throttle in taak 3 vangt dat op.
+- **Nog open bij Max:** de copy van de invite-mail (company- en team-variant; de worker mag ook drie varianten voorstellen), en na de merge van taak 3 de template-HTML in Supabase plakken.
+
 Open follow-ups uit golf C (niet blokkerend):
 - `set_venue_plan` de oude plannamen weer laten weigeren in een latere migratie (de contract-stap).
 - Billing toont voor een betalende company de huidige Stripe-prijs, niet de gefactureerde; uit het subscription item lezen vóór de eerste prijswijziging.
