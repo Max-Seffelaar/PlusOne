@@ -189,10 +189,11 @@ Besluiten Max 2026-10-08 (startcheck):
 - **Copy invite-mail:** de A-worker stelt drie varianten voor; Max kiest in de handoff.
 - **Invite-geldigheid:** maximaal 24 uur (Supabase); "Resend invite" in Platform dekt een verlopen link.
 - **3b en 5b horen bij golf D:** 3b start na de merge van 3, 5b na de merge van 5.
+- **Geen `/code-review ultra`** (Max 2026-10-08, bevestigt §5): per high-risk PR volstaat de verse reviewer-sessie.
 
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
-| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | opgeleverd (`2ec0c15`); bouwer lokaal groen: `pnpm db:test` 95 bestanden / 2409 asserts, `CI=1 pnpm test` 3160, `e2e:layout` 1063; orchestrator-review zonder blocker (index-lock bij prod-push, "last"-event kan in de toekomst liggen); reviewer-sessie `session_019HjtnRJ6NjG8p7RKtsmTLS` loopt; digest niet gebouwd (vraagt scheduler + cron-secret + service-role-verzending; voorstel in PR-body, besluit Max) | `20261012130000` na merge, buiten een eventavond |
+| 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | opgeleverd (`2ec0c15`); bouwer lokaal groen: `pnpm db:test` 95 bestanden / 2409 asserts, `CI=1 pnpm test` 3160, `e2e:layout` 1063; orchestrator-review zonder blocker (index-lock bij prod-push, "last"-event kan in de toekomst liggen); reviewer-sessie `session_019HjtnRJ6NjG8p7RKtsmTLS`: SCHOON, 2 should-fix (MRR negeert `paid_unknown`; twee bronnen voor de statustekst) + 4 nits, terug naar de bouwer; digest niet gebouwd (vraagt scheduler + cron-secret + service-role-verzending; voorstel in PR-body, besluit Max) | `20261012130000` na merge, buiten een eventavond |
 | 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | — | in bouw (HIGH-RISK → reviewer) | `20261012140000` + `…140100` na merge |
 | 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | — | in bouw | geen migratie |
 | 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012150000` |
