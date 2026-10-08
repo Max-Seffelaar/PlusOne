@@ -6,10 +6,10 @@
  *  re-exports of every section so `app.tsx` keeps importing from one place. */
 import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { isNativeShell } from '@/lib/platform';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { venueCapabilities } from '@/features/venues/access';
+import type { PoSubscription } from '@/features/po/adapters';
 import { usePoProfile, usePoSubscription, usePoCanManageTemplates, usePoGuestRequests, usePoIsPlatformAdmin } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { useNav, usePo } from '../context';
@@ -80,12 +80,9 @@ export function Meer(): JSX.Element {
   const venueEntry = venueEntryScreen(myVenues.length, caps.viewSettings);
   const entryOpensSettings = venueEntry === 'venuesettings';
   const planLabel = subQ.data?.plan ?? null;
-  // Native shell: plan name only, never a price (store-tax seam, #32/#37).
-  const billingSub = subQ.data
-    ? subQ.data.priceLabel.startsWith('€') && !isNativeShell()
-      ? `${subQ.data.plan} · ${subQ.data.priceLabel}/${subQ.data.period}`
-      : subQ.data.plan
-    : t.settings.more.billingDefault;
+  // Plan + state, never a price — the same line in the browser and the native
+  // shell (store-tax seam, #32/#37): "Pro · Trial ends in 9 days".
+  const billingSub = moreBillingSub(subQ.data ?? null);
   return (
     <div className={col}>
       <Top big title={t.settings.more.title} onBack={nav.canGoBack ? nav.back : undefined} />
@@ -227,4 +224,18 @@ export function Meer(): JSX.Element {
       </Scroll>
     </div>
   );
+}
+
+/** The More → Billing row subtitle (Billing G). */
+function moreBillingSub(sub: PoSubscription | null): string {
+  const m = t.settings.more;
+  if (!sub) return m.billingDefault;
+  if (sub.status === 'comped') return fmt(m.billingAlwaysFree, { plan: sub.plan });
+  if (sub.status === 'trialing' && !sub.stripeLinked && sub.trialEndsAt) {
+    const days = Math.ceil((new Date(sub.trialEndsAt).getTime() - Date.now()) / 86_400_000);
+    return days >= 0
+      ? fmt(m.billingTrialEndsIn, { plan: sub.plan, days: String(days) })
+      : fmt(m.billingTrialEnded, { plan: sub.plan });
+  }
+  return sub.plan;
 }

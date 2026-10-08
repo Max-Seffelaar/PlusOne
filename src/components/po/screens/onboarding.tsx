@@ -14,7 +14,6 @@ import { createVenueAction, switchActiveVenueAction } from '@/features/venues/ac
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { useIsDemoAccount } from '../app-shell-data';
 import { useNav } from '../context';
-import { Icon } from '../icon';
 import { Btn, ConsentCheck, Field, Label, Note, Scroll, Top, press } from '../kit';
 import { BottomBar } from '../shell';
 
@@ -148,24 +147,14 @@ export function VenueCreate(): JSX.Element {
           </div>
         </div>
 
+        {/* Billing G (store-tax seam #32/#37): no subscription or payment copy here —
+            the Pro trial starts silently with the company, in the browser and the
+            native shell alike. Only the invoicing details are asked. */}
         <Label className="mb-[10px]">{vc.billingLabel}</Label>
-        <div className="mb-3 flex gap-[11px] rounded-[18px] bg-acc-dim p-4">
-          <span className="mt-px shrink-0 text-acc">
-            <Icon name="spark" size={17} />
-          </span>
-          <div className="text-[12.5px] leading-[1.45] text-text">
-            {vc.billingNotePre}
-            <b>{vc.billingNoteBold1}</b>
-            {vc.billingNoteMid}
-            <b>{vc.billingNoteBold2}</b>
-            {vc.billingNotePost}
-          </div>
-        </div>
         <Label className="mb-2">{vc.billingEmailLabel}</Label>
         <Field icon="mail" placeholder={vc.billingEmailPlaceholder} value={billingEmail} onChange={setBillingEmail} inputMode="email" className="mb-[14px]" />
         <Label className="mb-2">{vc.vatLabel}</Label>
         <Field icon="card" placeholder={vc.vatPlaceholder} value={vat} onChange={setVat} className="mb-1.5" />
-        <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">{vc.paymentNote}</div>
 
         <ConsentCheck checked={agreed} onChange={setAgreed} copy={vc} className="mt-[18px]" />
       </Scroll>

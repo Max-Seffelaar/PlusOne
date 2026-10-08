@@ -16,7 +16,8 @@ import Stripe from 'stripe';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service';
 import { captureServerMessage } from '@/lib/observability/sentry-server';
-import { billingConfig, planIdForPrice, STRIPE_API_VERSION } from './config';
+import { billingConfig, intervalForLookupKey, STRIPE_API_VERSION } from './config';
+import { isBillingInterval, PLAN_ID, type BillingInterval } from './plans';
 
 // `client_reference_id` is an arbitrary Stripe-side string, not a validated id:
 // a checkout started from the Stripe dashboard, a legacy/typo value or an
@@ -94,6 +95,8 @@ export interface StripeSubscriptionUpdate {
   /** null = leave the current status untouched. */
   status: MappedStatus | null;
   planId: string | null;
+  /** month|year; null = leave untouched (Billing G, 20261008120100). */
+  billingInterval: BillingInterval | null;
   /** ISO timestamp; null = leave untouched. */
   currentPeriodEnd: string | null;
   /** ISO timestamp of Stripe's event.created — drives the ordering guard. */
@@ -139,6 +142,19 @@ function periodEndOfSubscription(sub: Stripe.Subscription): string | null {
   return ends.length ? isoFromUnix(Math.max(...ends)) : null;
 }
 
+/** Plan + interval of a subscription's (single) price. The plan is Pro only
+ *  when the price carries one of OUR lookup keys — any other price (a stray
+ *  dashboard product) leaves plan_id untouched. The interval comes from the
+ *  price's own recurring interval, which is what Stripe actually bills. */
+function planOfSubscription(sub: Stripe.Subscription): { planId: string | null; billingInterval: BillingInterval | null } {
+  const price = sub.items.data[0]?.price;
+  const recurring = price?.recurring?.interval;
+  return {
+    planId: intervalForLookupKey(price?.lookup_key) ? PLAN_ID : null,
+    billingInterval: isBillingInterval(recurring) ? recurring : null,
+  };
+}
+
 function periodEndOfInvoice(invoice: Stripe.Invoice): string | null {
   const ends = invoice.lines.data
     .map((line) => line.period?.end)
@@ -163,6 +179,7 @@ export function mapStripeEvent(event: Stripe.Event): StripeSubscriptionUpdate | 
     stripeSubscriptionId: null as string | null,
     status: null as MappedStatus | null,
     planId: null as string | null,
+    billingInterval: null as BillingInterval | null,
     currentPeriodEnd: null as string | null,
     eventCreated: isoFromUnix(event.created),
   };
@@ -175,11 +192,16 @@ export function mapStripeEvent(event: Stripe.Event): StripeSubscriptionUpdate | 
         typeof session.subscription === 'string'
           ? session.subscription
           : (session.subscription?.id ?? null);
+      // billing_interval is our own marker on the session (set by the
+      // adapter at checkout), so the interval lands before the first
+      // subscription event; anything else is ignored, never trusted.
+      const interval = session.metadata?.billing_interval;
       return {
         ...base,
         venueId: session.client_reference_id ?? null,
         stripeCustomerId: customerIdOf(session.customer),
         stripeSubscriptionId: subscription,
+        billingInterval: isBillingInterval(interval) ? interval : null,
       };
     }
     case 'invoice.paid': {
@@ -199,17 +221,20 @@ export function mapStripeEvent(event: Stripe.Event): StripeSubscriptionUpdate | 
         status: 'past_due',
       };
     }
+    // created: a checkout with a carried-over trial produces no invoice and
+    // no update until the trial ends, so without it "Renews" would stay empty
+    // for up to 14 days. Same mapping as updated.
+    case 'customer.subscription.created':
     case 'customer.subscription.updated': {
       const sub = event.data.object;
       const status = mapSubscriptionStatus(sub.status);
       if (!status) return null;
-      const priceId = sub.items.data[0]?.price?.id ?? null;
       return {
         ...base,
         stripeCustomerId: customerIdOf(sub.customer),
         stripeSubscriptionId: sub.id,
         status,
-        planId: priceId ? planIdForPrice(priceId) : null,
+        ...planOfSubscription(sub),
         currentPeriodEnd: periodEndOfSubscription(sub),
       };
     }
@@ -302,6 +327,7 @@ export async function handleStripeWebhook(
     p_plan_id: update.planId ?? undefined,
     p_current_period_end: update.currentPeriodEnd ?? undefined,
     p_event_created: update.eventCreated ?? undefined,
+    p_billing_interval: update.billingInterval ?? undefined,
   });
 
   if (error) {

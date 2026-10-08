@@ -1,25 +1,30 @@
 'use client';
 
-import type { JSX } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoSubscription } from '@/features/po/hooks';
+import { usePoBillingPrices, usePoSubscription } from '@/features/po/hooks';
 import { usePoBillingCheckout, usePoBillingPortal } from '@/features/po/mutations';
 import type { PoSubscription } from '@/features/po/adapters';
 import { isNativeShell } from '@/lib/platform';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Btn, Empty, Label, MiniChip, Note, Scroll, Top } from '../../kit';
+import { Btn, Empty, Label, MiniChip, Note, Scroll, Top, press } from '../../kit';
+import { formatPriceAmount, yearlySavingsPercent, type BillingInterval, type BillingPrices } from '@/features/billing/plans';
 import { col, FormError } from './_shared';
 
-// ── ABONNEMENT & FACTUREN (pushed) — live, with checkout/portal (fase 13 PR 2) ─
-// Any member views the entitlement (RLS subscriptions_select_member); an ADMIN
-// in the BROWSER additionally gets the Stripe-hosted checkout and portal
-// redirects. The native shell stays read-only without even a link — store-tax
-// seam (#32/#37, isNativeShell): status only, so no price, no payment method,
-// no "set up your payment" nudge and no pointer to the web (Apple 3.1.1/3.1.3,
-// Play payments policy). Guarded by billing.native.test.tsx.
+// ── BILLING (pushed) — live, with checkout/portal (fase 13 PR 2, Billing G) ──
+// Any member views the entitlement (RLS subscriptions_select_member). An ADMIN
+// or FINANCE member in the BROWSER additionally picks monthly/yearly and gets
+// the Stripe-hosted checkout and portal redirects; the two Pro prices come live
+// from Stripe (usePoBillingPrices, lookup keys pro_monthly/pro_yearly), never
+// from code. The native shell stays read-only without even a link — store-tax
+// seam (#32/#37, isNativeShell): plan, status and the trial countdown only, so
+// no price, no interval, no payment method, no "set up your payment" nudge and
+// no pointer to the web (Apple 3.1.1/3.1.3, Play payments policy). The price
+// query is not even enabled there. Guarded by billing.native.test.tsx and the
+// native-shell e2e/flow guards.
 const SUB_STATUS: Record<PoSubscription['status'], { label: string; chip: string }> = {
   trialing: { label: t.settings.billing.statusTrialing, chip: 'bg-acc-dim text-acc' },
   active: { label: t.settings.billing.statusActive, chip: 'bg-acc-dim text-acc' },
@@ -65,22 +70,28 @@ function isInvoicingRequiredError(error: unknown): boolean {
 function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
   const st = SUB_STATUS[sub.status] ?? { label: sub.status.toUpperCase(), chip: 'bg-elev2 text-faint' };
   const { roles } = usePoIdentity();
-  const isAdmin = roles.includes('admin');
+  // Billing rights = admin + finance (decision 2026-10-06); the server action
+  // re-checks the same (callerMayManageBilling), this only hides the buttons.
+  const canManage = roles.includes('admin') || roles.includes('finance');
   const native = isNativeShell();
   const checkout = usePoBillingCheckout();
   const portal = usePoBillingPortal();
+  const pricesQ = usePoBillingPrices({ enabled: !native });
+  const prices = native ? null : (pricesQ.data ?? null);
+  const [interval, setPickedInterval] = useState<BillingInterval>('month');
   const nav = useNav();
 
   // Checkout applies while no Stripe subscription exists (fresh trial, lapsed
-  // trial, canceled). comped is pilot territory — no self-service billing.
+  // trial, canceled). comped is "always free" — no self-service billing.
   const needsCheckout = !sub.stripeLinked && sub.status !== 'comped';
   const daysLeft = sub.trialEndsAt ? trialDaysLeft(sub.trialEndsAt) : null;
+  const current = sub.billingInterval && prices ? prices[sub.billingInterval] : null;
 
   // The mutation itself already tracks the rejection (mutation.error, read by
   // the FormError below) — the .catch here only stops the redirect and
   // silences the unhandled-rejection warning; it does nothing else.
-  const go = (m: { mutateAsync: () => Promise<string> }) => (): void => {
-    void m.mutateAsync().then(
+  const go = (run: () => Promise<string>) => (): void => {
+    void run().then(
       (url) => window.location.assign(url),
       () => {},
     );
@@ -97,10 +108,12 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
           </div>
           <MiniChip className={cn('border-transparent', st.chip)}>{st.label}</MiniChip>
         </div>
-        {!native && (
+        {!native && current && sub.billingInterval && (
           <div className="mb-4 flex items-end gap-1.5">
-            <span className="font-display text-[36px] font-extrabold leading-none text-text">{sub.priceLabel}</span>
-            {sub.priceLabel.startsWith('€') && <span className="pb-[5px] text-[14px] text-dim">/ {sub.period}</span>}
+            <span className="font-display text-[36px] font-extrabold leading-none text-text">{formatPriceAmount(current)}</span>
+            <span className="pb-[5px] text-[14px] text-dim">
+              {sub.billingInterval === 'year' ? t.settings.billing.perYear : t.settings.billing.perMonth} · {t.settings.billing.exclVat}
+            </span>
           </div>
         )}
         <div className="grid grid-cols-2 gap-[10px]">
@@ -128,10 +141,13 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
         </Note>
       )}
 
-      {isAdmin && !native && (
+      {canManage && !native && (
         <div className="mb-[18px] mt-1 flex flex-col gap-2.5">
           {needsCheckout && (
-            <Btn kind="primary" full icon="card" disabled={busy} onClick={go(checkout)}>
+            <IntervalPicker value={interval} onChange={setPickedInterval} prices={prices} loading={pricesQ.isLoading} />
+          )}
+          {needsCheckout && (
+            <Btn kind="primary" full icon="card" disabled={busy} onClick={go(() => checkout.mutateAsync(interval))}>
               {checkout.isPending
                 ? t.settings.billing.redirecting
                 : sub.status === 'canceled'
@@ -140,7 +156,7 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
             </Btn>
           )}
           {sub.stripeLinked && (
-            <Btn kind="dark" full icon="note" disabled={busy} onClick={go(portal)}>
+            <Btn kind="dark" full icon="note" disabled={busy} onClick={go(() => portal.mutateAsync())}>
               {portal.isPending ? t.settings.billing.redirecting : t.settings.billing.managePortal}
             </Btn>
           )}
@@ -191,5 +207,70 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
         </>
       )}
     </>
+  );
+}
+
+/** Monthly / yearly choice before "Set up payment" (Billing G). Prices are
+ *  Stripe's; without them (stub, Stripe down) each option says the price is
+ *  shown at checkout. The yearly saving is computed from the two prices. */
+function IntervalPicker({
+  value,
+  onChange,
+  prices,
+  loading,
+}: {
+  value: BillingInterval;
+  onChange: (v: BillingInterval) => void;
+  prices: BillingPrices | null;
+  loading: boolean;
+}): JSX.Element {
+  const b = t.settings.billing;
+  const save = yearlySavingsPercent(prices);
+  const options: { id: BillingInterval; title: string; per: string }[] = [
+    { id: 'month', title: b.intervalMonthly, per: b.perMonth },
+    { id: 'year', title: b.intervalYearly, per: b.perYear },
+  ];
+  return (
+    <div role="radiogroup" aria-label={b.intervalLabel}>
+      <Label className="mb-[10px]">{b.intervalLabel}</Label>
+      <div className="grid grid-cols-2 gap-2.5">
+        {options.map((o) => {
+          const price = prices?.[o.id] ?? null;
+          const on = value === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => onChange(o.id)}
+              className={cn(
+                'min-h-[44px] rounded-[16px] border p-[14px] text-left',
+                press,
+                on ? 'border-acc bg-acc-dim' : 'border-line bg-elev'
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-display text-[15px] font-bold text-text">{o.title}</span>
+                {o.id === 'year' && save !== null && (
+                  <MiniChip className="border-transparent bg-acc text-on-acc">{fmt(b.yearlySave, { pct: String(save) })}</MiniChip>
+                )}
+              </div>
+              <div className="mt-1 text-[13px] text-dim">
+                {price ? (
+                  <>
+                    <span className="font-bold text-text">{formatPriceAmount(price)}</span> {o.per} · {b.exclVat}
+                  </>
+                ) : loading ? (
+                  '…'
+                ) : (
+                  b.priceAtCheckout
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

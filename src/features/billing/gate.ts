@@ -27,7 +27,7 @@ export async function assertVenueBillingActive(venueId: string): Promise<Mutatio
   const supabase = await createClient();
   const { data } = await supabase
     .from('subscriptions')
-    .select('status, created_at, stripe_subscription_id')
+    .select('status, created_at, trial_ends_at, stripe_subscription_id')
     .eq('venue_id', venueId)
     .maybeSingle();
   if (!data) return null;
@@ -35,6 +35,7 @@ export async function assertVenueBillingActive(venueId: string): Promise<Mutatio
   const reason = billingBlockReason({
     status: data.status,
     createdAt: data.created_at,
+    trialEndsAt: data.trial_ends_at,
     stripeSubscriptionId: data.stripe_subscription_id,
   });
   if (!reason) return null;

@@ -24,12 +24,13 @@ function event(type: string, object: Record<string, unknown>): Stripe.Event {
 // so the valid/invalid distinction is load-bearing here (ClickUp 86ey9e9re).
 const VENUE_ID = '3f1c8a52-9d6b-4f2e-8a11-7c0d5e9b4a63';
 
-function checkout(clientReferenceId: unknown): Stripe.Event {
+function checkout(clientReferenceId: unknown, metadata: Record<string, unknown> = { billing_interval: 'year' }): Stripe.Event {
   return event('checkout.session.completed', {
     mode: 'subscription',
     client_reference_id: clientReferenceId,
     customer: 'cus_123',
     subscription: 'sub_123',
+    metadata,
   });
 }
 
@@ -45,13 +46,19 @@ const invoiceFailed = event('invoice.payment_failed', {
   lines: { data: [] },
 });
 
-function subscriptionUpdated(status: string): Stripe.Event {
-  return event('customer.subscription.updated', {
+// A Pro price as Stripe sends it: found by OUR lookup key, interval on
+// recurring. No price id is configured anywhere (Billing G).
+function subscriptionUpdated(
+  status: string,
+  price: Record<string, unknown> = { id: 'price_x', lookup_key: 'pro_monthly', recurring: { interval: 'month' } },
+  type = 'customer.subscription.updated'
+): Stripe.Event {
+  return event(type, {
     id: 'sub_123',
     customer: 'cus_123',
     status,
     items: {
-      data: [{ current_period_end: 1_702_592_000, price: { id: 'price_premium_test' } }],
+      data: [{ current_period_end: 1_702_592_000, price }],
     },
   });
 }
@@ -72,13 +79,12 @@ describe('mapStripeEvent', () => {
   beforeEach(() => {
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_dummy');
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', WEBHOOK_SECRET);
-    vi.stubEnv('STRIPE_PRICE_PREMIUM_MONTHLY', 'price_premium_test');
   });
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it('checkout.session.completed stamps ids but leaves status untouched', async () => {
+  it('checkout.session.completed stamps ids + our interval marker but leaves status untouched', async () => {
     const { mapStripeEvent } = await loadModule();
     const update = mapStripeEvent(checkoutCompleted);
     expect(update).toMatchObject({
@@ -86,8 +92,17 @@ describe('mapStripeEvent', () => {
       stripeCustomerId: 'cus_123',
       stripeSubscriptionId: 'sub_123',
       status: null,
+      billingInterval: 'year',
     });
   });
+
+  it.each([{}, { billing_interval: 'week' }, { billing_interval: 42 }])(
+    'checkout.session.completed ignores a missing/unknown interval marker %o',
+    async (metadata) => {
+      const { mapStripeEvent } = await loadModule();
+      expect(mapStripeEvent(checkout(VENUE_ID, metadata))?.billingInterval).toBeNull();
+    }
+  );
 
   it('passes a non-UUID client_reference_id through unchanged — mapping stays pure', async () => {
     const { mapStripeEvent } = await loadModule();
@@ -125,9 +140,29 @@ describe('mapStripeEvent', () => {
     expect(update).toMatchObject({ status: ours, stripeSubscriptionId: 'sub_123' });
   });
 
-  it('resolves the plan from the configured price id', async () => {
+  it('resolves plan Pro + interval from the price (lookup key + recurring interval)', async () => {
     const { mapStripeEvent } = await loadModule();
-    expect(mapStripeEvent(subscriptionUpdated('active'))?.planId).toBe('premium');
+    expect(mapStripeEvent(subscriptionUpdated('active'))).toMatchObject({ planId: 'pro', billingInterval: 'month' });
+    const yearly = { id: 'price_y', lookup_key: 'pro_yearly', recurring: { interval: 'year' } };
+    expect(mapStripeEvent(subscriptionUpdated('active', yearly))).toMatchObject({ planId: 'pro', billingInterval: 'year' });
+  });
+
+  it('a price without our lookup key leaves the plan untouched', async () => {
+    const { mapStripeEvent } = await loadModule();
+    const stray = { id: 'price_z', lookup_key: null, recurring: { interval: 'month' } };
+    expect(mapStripeEvent(subscriptionUpdated('active', stray))).toMatchObject({ planId: null, billingInterval: 'month' });
+  });
+
+  it('customer.subscription.created maps like updated (trial checkout: no invoice for 14 days)', async () => {
+    const { mapStripeEvent } = await loadModule();
+    const update = mapStripeEvent(subscriptionUpdated('trialing', undefined, 'customer.subscription.created'));
+    expect(update).toMatchObject({
+      status: 'trialing',
+      planId: 'pro',
+      billingInterval: 'month',
+      stripeSubscriptionId: 'sub_123',
+      currentPeriodEnd: new Date(1_702_592_000 * 1000).toISOString(),
+    });
   });
 
   it.each(['incomplete', 'incomplete_expired', 'paused'])(
@@ -164,7 +199,6 @@ describe('handleStripeWebhook', () => {
     captureServerMessage.mockReset();
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_dummy');
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', WEBHOOK_SECRET);
-    vi.stubEnv('STRIPE_PRICE_PREMIUM_MONTHLY', 'price_premium_test');
     vi.doMock('@/lib/supabase/service', () => ({
       createServiceClient: () => ({ rpc }),
     }));
@@ -354,9 +388,21 @@ describe('handleStripeWebhook', () => {
         p_venue_id: VENUE_ID,
         p_stripe_customer_id: 'cus_123',
         p_stripe_subscription_id: 'sub_123',
+        p_billing_interval: 'year',
       })
     );
     expect(captureServerMessage).not.toHaveBeenCalled();
+  });
+
+  it('passes the subscription interval to the RPC (billing_interval, Billing G)', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    rpc.mockResolvedValue({ data: true, error: null });
+    const payload = JSON.stringify(subscriptionUpdated('active'));
+    await handleStripeWebhook(payload, sign(payload));
+    expect(rpc).toHaveBeenCalledWith(
+      'apply_stripe_subscription_update',
+      expect.objectContaining({ p_status: 'active', p_plan_id: 'pro', p_billing_interval: 'month' })
+    );
   });
 
   it('still reaches the RPC when there is no client_reference_id at all', async () => {

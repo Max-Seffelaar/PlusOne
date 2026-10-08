@@ -2,29 +2,22 @@
 // Every billing side effect goes through a BillingProvider, so swapping the PSP
 // (decision #32 — e.g. Mollie at scale) touches only this directory. Without
 // STRIPE_SECRET_KEY the stub serves local dev and tests: checkout/portal simply
-// report 'unavailable' and the UI keeps its read-only billing screen.
+// report 'unavailable', listPrices returns null ("price shown at checkout") and
+// the UI keeps its read-only billing screen.
+//
+// No startSubscription any more (Billing G): a company's subscription row is
+// created as trialing Pro by create_venue_with_owner itself, so there is no
+// provider decision left at company creation.
 
-import type { PlanId } from './plans';
+import type { BillingInterval, BillingPrices, PlanId } from './plans';
 import { billingConfig } from './config';
 import { StripeAdapter } from './stripe-adapter';
-
-export type SubscriptionStartStatus = 'trialing' | 'comped';
-
-export interface StartSubscriptionInput {
-  venueId?: string;
-  planId: PlanId;
-  /** comped venues run without billing during pilots (#32/#40c). */
-  comped?: boolean;
-}
-
-export interface StartSubscriptionResult {
-  status: SubscriptionStartStatus;
-  planId: PlanId;
-}
 
 export interface CheckoutSessionInput {
   venueId: string;
   planId: PlanId;
+  /** Monthly or yearly — picks the Stripe price by lookup key. */
+  interval: BillingInterval;
   /** Company/billing details prefilled into the Stripe customer (from venues). */
   company: {
     name: string;
@@ -43,9 +36,11 @@ export interface CheckoutSessionInput {
 
 export type CheckoutSessionResult =
   | { ok: true; url: string; customerId: string }
-  // 'free_plan': the plan has no Stripe price (free/on-request) — no checkout.
   // 'unavailable': billing is not configured (stub) or Stripe gave no URL.
-  | { ok: false; reason: 'unavailable' | 'free_plan' };
+  // 'misconfigured': Stripe is on, but has no active price under the lookup
+  //   key for this interval — the dashboard is incomplete (the guard that used
+  //   to throw at import time when price ids were env).
+  | { ok: false; reason: 'unavailable' | 'misconfigured' };
 
 export interface PortalSessionInput {
   customerId: string;
@@ -57,18 +52,17 @@ export type PortalSessionResult =
   | { ok: false; reason: 'unavailable' };
 
 export interface BillingProvider {
-  startSubscription(input: StartSubscriptionInput): Promise<StartSubscriptionResult>;
+  /** The Pro prices, live from the PSP (cached server-side). null = no billing
+   *  configured (stub) — the UI then says the price is shown at checkout. */
+  listPrices(): Promise<BillingPrices | null>;
   createCheckoutSession(input: CheckoutSessionInput): Promise<CheckoutSessionResult>;
   createPortalSession(input: PortalSessionInput): Promise<PortalSessionResult>;
 }
 
 // Keyless fallback: local dev, CI and comped-only pilots run without Stripe.
 export class StubBillingProvider implements BillingProvider {
-  async startSubscription(input: StartSubscriptionInput): Promise<StartSubscriptionResult> {
-    return {
-      status: input.comped ? 'comped' : 'trialing',
-      planId: input.planId,
-    };
+  async listPrices(): Promise<BillingPrices | null> {
+    return null;
   }
 
   async createCheckoutSession(_input: CheckoutSessionInput): Promise<CheckoutSessionResult> {
