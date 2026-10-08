@@ -8,6 +8,33 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-08 — Onboarding A: comped platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
+
+Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
+
+- **Comped invite** — migration `20261012140000_platform_invite_comped`:
+  - `platform_invites.comped` (set on insert, frozen after) and `comped_venue_id`. Only `create_venue_with_owner` writes it, once: the guard checks `current_user`, the insert policy pins it null.
+  - `create_venue_with_owner` starts the invitee's first company as `comped` when the caller's own auth e-mail has an open, unused comped invite whose inviter is still a platform admin. One `audit_log` row `comped` names the inviter.
+  - It cannot call `set_venue_comped`, because that function requires the caller to be a platform admin. It sets the same end state itself.
+  - `mail_log` type `platform_invite`.
+  - Platform → Invite has an "Always free" toggle.
+- **Company invite mail**: the platform invite goes through the same path as team/crew (#430): mail_log first, then `generateLink` with no metadata, then our own Resend mail.
+  - Content: "You've been invited to try PlusOne", the inviter's name, three steps, one button, the link fallback and "expires after 24 hours". It never mentions free or a price.
+  - Resend sends a fresh link.
+  - Without a Resend key the Supabase path is unchanged.
+- **One consent per moment**: the wizard's company step and the switcher quick-create ask only "I accept the Data Processing Agreement on behalf of {company}" (`DpaCheck` in the kit, `DPA_URL`). Terms + Privacy stay on `/consent`. `venues.terms_accepted_*` now means the DPA acceptance (spec #40).
+- **Places**:
+  - `POST /api/places` runs in the nodejs runtime. Order of checks: Zod union, then `getUser` (401), then no key → `{enabled:false}`, then `consume_places_throttle` (migration `20261012140100`, 120 per 10 min per user; 429 when spent).
+  - Google calls use Essentials field masks only (no displayName) and a 3 s timeout. The input text is never logged.
+  - `PlacesField` (kit) is on the wizard address, Company settings (fills street, postcode, city and country) and the event location.
+  - The secret-grep guard covers `GOOGLE_PLACES_API_KEY`.
+- **Tests**:
+  - pgTAP `platform_invite_comped` (25) and `places_throttle` (14); full suite 96 files / 2403.
+  - Vitest: route, PlacesField, company template, invite mail/actions, DpaCheck.
+  - Flows: `onboarding` gains Q14 (DPA). New flow `onboarding-comped` (7 checks: platform invite → Mailpit → wizard → Billing "ALWAYS FREE" → audit), green on 4 variants.
+
+---
+
 ## 2026-10-08 — A company always keeps one admin: last-admin guard in the database (task 0g, #433)
 
 Milestone **Now** (golf B). Max removed himself from "Giorke Kantoor" on 2026-10-07. The prod audit log shows a second admin existed at that moment, so the company never had zero admins; the existing app check was right. The real gap: RLS let any admin, and every platform admin, delete or demote any admin row straight through PostgREST. The app check was also read-then-write without a lock, so two admins removing each other at once both passed it.
