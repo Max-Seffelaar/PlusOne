@@ -10,7 +10,12 @@
 
 import { fmt, t } from '@/lib/i18n';
 
-export type TeamMailTemplate = 'team_join' | 'team_added_to_event' | 'team_resend';
+export type TeamMailTemplate =
+  | 'team_join'
+  | 'team_added_to_event'
+  | 'team_resend'
+  | 'team_invite_declined'
+  | 'team_invite_declined_confirm';
 
 export type TeamMailContent =
   | { template: 'team_join'; venueId: string; inviterName: string | null; companyName: string }
@@ -30,6 +35,27 @@ export type TeamMailContent =
       venueId: string;
       inviterName: string | null;
       companyName: string;
+    }
+  // Decline mails (z8uq9m2yvp). The invitee causes them, not the company, so
+  // they carry no venue (no company mail cap) and no login steps.
+  | {
+      /** To the inviter: which address declined. */
+      template: 'team_invite_declined';
+      venueId: null;
+      /** The address as typed on the invite, never a profile name. */
+      inviteeEmail: string;
+      companyName: string;
+      /** A crew invite names its event; a team invite has none. */
+      crew: boolean;
+      eventName: string | null;
+    }
+  | {
+      /** To the decliner: the confirmation. */
+      template: 'team_invite_declined_confirm';
+      venueId: null;
+      companyName: string;
+      crew: boolean;
+      eventName: string | null;
     };
 
 export interface RenderedMail {
@@ -81,6 +107,10 @@ interface MailParts {
   heading: string;
   intro: string[];
   after: string[];
+  /** False for the decline mails: nothing to log in for, so no steps or button. */
+  login?: false;
+  /** Replaces the default footer reason (which says the address was added to a company). */
+  footer?: string;
 }
 
 function partsFor(content: TeamMailContent): MailParts {
@@ -100,6 +130,14 @@ function partsFor(content: TeamMailContent): MailParts {
         after: [m.crewAccept, m.joinOpenFor, m.crewFindEvent, m.crewScope],
       };
     }
+    case 'team_invite_declined': {
+      const declined = content.crew ? m.inviteDeclinedCrew : m.inviteDeclinedTeam;
+      return { ...declined, intro: [declined.intro], after: [], login: false, footer: m.footerDeclinedInviter };
+    }
+    case 'team_invite_declined_confirm': {
+      const confirm = content.crew ? m.inviteDeclinedConfirmCrew : m.inviteDeclinedConfirmTeam;
+      return { ...confirm, intro: [confirm.intro], after: [], login: false, footer: m.footerDeclinedInvitee };
+    }
     case 'team_resend':
       return content.kind === 'event'
         ? { ...m.teamResendEvent, intro: [m.teamResendEvent.intro], after: [m.crewFindEvents, m.crewScope] }
@@ -113,14 +151,24 @@ function partsFor(content: TeamMailContent): MailParts {
 
 export function renderTeamMail(content: TeamMailContent, appUrl: string): RenderedMail {
   const company = cleanName(content.companyName);
+  const inviterName = 'inviterName' in content ? content.inviterName : null;
+  const eventName =
+    content.template === 'team_added_to_event'
+      ? content.eventName
+      : content.template === 'team_invite_declined' || content.template === 'team_invite_declined_confirm'
+        ? (content.eventName ?? t.mail.eventFallback)
+        : '';
   const vars: Record<string, string | number> = {
-    inviter: cleanName(content.inviterName ?? '') || fmt(t.mail.inviterFallback, { company }),
+    inviter: cleanName(inviterName ?? '') || fmt(t.mail.inviterFallback, { company }),
+    invitee: content.template === 'team_invite_declined' ? cleanName(content.inviteeEmail) : '',
     company,
-    event: content.template === 'team_added_to_event' ? cleanName(content.eventName) : '',
+    event: cleanName(eventName),
     n: content.template === 'team_added_to_event' && typeof content.quota === 'number' ? content.quota : '',
   };
   const parts = partsFor(content);
-  const fill = (s: string) => capFirst(fmt(s, vars));
+  // Only the inviter fallback ("an admin at ...") can open a sentence in lower
+  // case. Never capitalise anything else: a decline mail opens with an e-mail address.
+  const fill = (s: string) => (s.startsWith('{inviter}') ? capFirst(fmt(s, vars)) : fmt(s, vars));
   const loginUrl = `${appUrl.replace(/\/+$/, '')}/login`;
 
   const subject = plainLine(fill(parts.subject));
@@ -128,7 +176,8 @@ export function renderTeamMail(content: TeamMailContent, appUrl: string): Render
   const intro = parts.intro.map(fill);
   const steps = t.mail.loginSteps;
   const after = parts.after.map(fill);
-  const reason = fmt(t.mail.footerReason, { company });
+  const reason = fill(parts.footer ?? t.mail.footerReason);
+  const withLogin = parts.login !== false;
   const fallback = fmt(t.mail.linkFallback, { url: loginUrl });
 
   // Plain-text alternative (deliverability): same content, steps numbered.
@@ -136,11 +185,9 @@ export function renderTeamMail(content: TeamMailContent, appUrl: string): Render
     heading,
     '',
     ...intro.flatMap((p) => [p, '']),
-    t.mail.gettingIn,
-    ...steps.map((step, i) => `${i + 1}. ${step}`),
-    '',
-    `${t.mail.cta}: ${loginUrl}`,
-    '',
+    ...(withLogin
+      ? [t.mail.gettingIn, ...steps.map((step, i) => `${i + 1}. ${step}`), '', `${t.mail.cta}: ${loginUrl}`, '']
+      : []),
     ...after.flatMap((p) => [p, '']),
     '--',
     reason,
@@ -158,12 +205,16 @@ export function renderTeamMail(content: TeamMailContent, appUrl: string): Render
 <p style="margin:0 0 24px;font-weight:700;font-size:18px;">PlusOne</p>
 <h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;">${e(heading)}</h1>
 ${intro.map((p) => `<p style="${P}">${e(p)}</p>`).join('\n')}
-<h2 style="margin:24px 0 8px;font-size:16px;line-height:1.3;">${e(t.mail.gettingIn)}</h2>
+${
+  withLogin
+    ? `<h2 style="margin:24px 0 8px;font-size:16px;line-height:1.3;">${e(t.mail.gettingIn)}</h2>
 <ol style="margin:0 0 20px;padding-left:22px;font-size:16px;line-height:1.5;">
 ${steps.map((step) => `<li style="margin:0 0 4px;">${e(step)}</li>`).join('\n')}
 </ol>
 <p style="margin:0 0 12px;"><a href="${e(loginUrl)}" style="display:inline-block;background:#B5A6FF;color:#0B0B0D;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px;">${e(t.mail.cta)}</a></p>
-<p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#55525e;">${e(fallback)}</p>
+<p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#55525e;">${e(fallback)}</p>`
+    : ''
+}
 ${after.map((p) => `<p style="${P}">${e(p)}</p>`).join('\n')}
 <hr style="border:none;border-top:1px solid #e6e4ee;margin:8px 0 16px;">
 <p style="margin:0 0 8px;font-size:12px;line-height:1.5;color:#77737f;">${e(reason)}</p>

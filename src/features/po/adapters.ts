@@ -916,7 +916,7 @@ export function toPoTeamMember(row: PoMemberRow, quota: number): PoTeamMember {
   };
 }
 
-export type PoInviteStatus = 'pending' | 'expired' | 'accepted';
+export type PoInviteStatus = 'pending' | 'expired' | 'accepted' | 'declined';
 
 export interface PoInvite {
   id: string;
@@ -925,16 +925,18 @@ export interface PoInvite {
   rolesLabel: string;
   /** Formatted invite date ("3 dec"). */
   sentAt: string;
-  /** Accepted wins; an un-accepted invite past its expiry is expired (T8). */
+  /** Accepted wins, then declined (z8uq9m2yvp); an open invite past its expiry is expired (T8). */
   status: PoInviteStatus;
 }
 
 export function toPoInvite(row: PoInviteRow, now: number = Date.now()): PoInvite {
   const status: PoInviteStatus = row.accepted_at
     ? 'accepted'
-    : new Date(row.expires_at).getTime() <= now
-      ? 'expired'
-      : 'pending';
+    : row.declined_at
+      ? 'declined'
+      : new Date(row.expires_at).getTime() <= now
+        ? 'expired'
+        : 'pending';
   return {
     id: row.id,
     email: row.email,
@@ -956,6 +958,9 @@ export interface PoVenueCrewMember {
   /** False until the person completes a first login — renders as a pending
    *  invite with a resend action. */
   hasAccepted: boolean;
+  /** Each event they're crew on, soonest first, with its guest quota: the Team
+   *  screen's Manage sheet (z8uq9m2yvp). */
+  events: { eventId: string; name: string; quota: number }[];
 }
 
 export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
@@ -968,6 +973,7 @@ export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
     eventsLabel: first ? (extra > 0 ? `${first} +${extra}` : first) : '—',
     eventCount: row.event_names.length,
     hasAccepted: row.terms_accepted_at !== null,
+    events: row.events.map((e) => ({ eventId: e.event_id, name: e.name, quota: e.quota })),
   };
 }
 

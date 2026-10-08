@@ -22,7 +22,7 @@ import { col } from './shared';
 // #20 2026-06-24 refinement); non-admins see a read-only list.
 // 32x32 stepper + an invisible 7px ring (kit `hitRing7`) = a 44x44 tap area,
 // inside the strip's 8px padding and the 6px gap to the count (T1, touch).
-const crewStep = cn('flex h-[32px] w-[32px] items-center justify-center rounded-[9px] border border-line bg-elev2 text-text', press, hitRing7);
+export const crewStep = cn('flex h-[32px] w-[32px] items-center justify-center rounded-[9px] border border-line bg-elev2 text-text', press, hitRing7);
 
 /** Tiny inline error under a crew sub-form action. */
 export function CrewError({ show, text }: { show: boolean; text: string }): JSX.Element | null {
@@ -139,7 +139,7 @@ export function CrewPoolRow({ eventId, member, defaultQuota }: { eventId: string
   const [q, setQ] = useState(String(defaultQuota));
   const add = (): void => assign.mutate({ eventId, userId: member.userId, quota: q === '' ? undefined : Number(q) });
   return (
-    <div className="rounded-[13px] border border-line bg-elev2 p-[11px]">
+    <div data-testid="crew-pool-row" className="rounded-[13px] border border-line bg-elev2 p-[11px]">
       <div className="flex items-center gap-[12px]">
         <Avatar name={member.fullName} size={36} />
         <div className="min-w-0 flex-1">

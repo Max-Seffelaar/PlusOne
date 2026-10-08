@@ -86,16 +86,16 @@ export const onboarding = {
     finishError: "Couldn't finish setting up. Try again.",
   },
 
-  // Someone with no company yet but an open crew invite (z8uq9m2yvp): they
-  // accept here instead of being sent into company setup. Shown before the wizard.
-  crewInvite: {
-    badge: 'Crew invite',
-    headingOne: "You're invited to the crew",
-    headingMany: 'You have {n} crew invites',
-    sub: 'Accept and the event shows up in PlusOne. The company only sees your details once you accept.',
-    accept: 'Accept and open PlusOne',
-    accepting: 'Accepting…',
-    error: "Couldn't accept the invite. Try again.",
+  // Someone with no company yet but an open invite, team or crew (z8uq9m2yvp):
+  // each one is accepted or declined here, never at login, instead of being sent
+  // into company setup. Shown before the wizard.
+  invites: {
+    badge: 'Invite',
+    headingOne: "You've been invited",
+    headingMany: 'You have {n} invites',
+    sub: 'Accept to join. The company only sees your details once you accept.',
     ownCompany: 'Set up my own company instead',
+    /** After the last invite is declined: the way on is company setup. */
+    ownCompanyAfter: 'Set up my own company',
   },
 } as const;

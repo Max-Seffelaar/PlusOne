@@ -780,7 +780,20 @@ describe('toPoVenueCrewMember', () => {
     email: 'organizer@plusone.test',
     event_names: ['Launch Night', 'NYE', 'Spring Break'],
     terms_accepted_at: null,
+    events: [
+      { event_id: 'e1', name: 'Launch Night', quota: 4 },
+      { event_id: 'e2', name: 'NYE', quota: 0 },
+      { event_id: 'e3', name: 'Spring Break', quota: 2 },
+    ],
   };
+
+  it('carries each event with its id and guest quota for the Manage sheet (z8uq9m2yvp)', () => {
+    expect(toPoVenueCrewMember(row).events).toEqual([
+      { eventId: 'e1', name: 'Launch Night', quota: 4 },
+      { eventId: 'e2', name: 'NYE', quota: 0 },
+      { eventId: 'e3', name: 'Spring Break', quota: 2 },
+    ]);
+  });
 
   it('labels events as "first +N" and flags a never-logged-in crew invite', () => {
     const cm = toPoVenueCrewMember(row);

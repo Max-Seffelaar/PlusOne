@@ -117,7 +117,7 @@ import type {
   CreateRequestLinkInput,
   UpdateRequestLinkInput,
 } from '@/features/links/schemas';
-import { inviteUserAction, revokeInviteAction, resendInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
+import { inviteUserAction, revokeInviteAction, resendInviteAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
@@ -1560,17 +1560,6 @@ export function usePoUpdateEmail() {
       fd.set('email', email);
       return throwOnActionError(await updateEmailAction(NO_PREV, fd));
     },
-  });
-}
-
-/** Accept the caller's own pending invites (the incoming-invite banner). This
- *  changes memberships — resolved server-side in /app — so the banner reloads on
- *  success to re-resolve identity + the venue switcher. Invalidates the list too. */
-export function usePoAcceptInvites() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async () => throwOnActionError(await acceptInvitesAction()),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.myInvites() }),
   });
 }
 

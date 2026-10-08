@@ -121,7 +121,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  await supabase.rpc('accept_pending_invites');
+  // Same as the real entry routes: the profile row, and no invite accepted.
+  await supabase.rpc('ensure_my_profile');
 
   // Same final hop as the real entry routes (/auth/confirm, /auth/callback):
   // a user who still owes consent goes to /consent?next=<deep link>. Redirecting

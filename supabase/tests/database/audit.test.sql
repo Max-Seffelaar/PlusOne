@@ -422,20 +422,23 @@ select ok(
 -- J. venue_memberships — create / role update / delete, full lifecycle
 -- ---------------------------------------------------------------------------
 
-select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal2');
+-- Since 20261007150200 no app role inserts a membership directly (it comes from
+-- accept_invite / create_venue_with_owner, both definers). The fixture is written
+-- as the owner, so the create row's actor is the system (NULL); the update and
+-- delete below stay under the user_manager. (reset role keeps the last JWT claims,
+-- which the audit trigger reads as the actor, so they are cleared first.)
+select set_config('request.jwt.claims', '', true);
 insert into public.venue_memberships (id, venue_id, user_id, roles)
 values ('bb000000-0000-7000-8000-000000000501',
         'aa000000-0000-7000-8000-000000000001',
         '44444444-4444-4444-8444-444444444444', '{staff}');
-reset role;
 
 select ok(
   pg_temp.audit_n('bb000000-0000-7000-8000-000000000501', 'create') = 1
-  and (pg_temp.audit_row('bb000000-0000-7000-8000-000000000501', 'create')).actor_id
-      = '22222222-2222-4222-8222-222222222222'
+  and (pg_temp.audit_row('bb000000-0000-7000-8000-000000000501', 'create')).actor_id is null
   and (pg_temp.audit_row('bb000000-0000-7000-8000-000000000501', 'create')).venue_id
       = 'aa000000-0000-7000-8000-000000000001',
-  'J1 membership grant logged with the user_manager as actor');
+  'J1 membership creation is logged against its venue (system actor: no app role inserts it directly)');
 
 select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal2');
 update public.venue_memberships set roles = '{staff,doorhost}'
