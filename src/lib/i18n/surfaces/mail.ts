@@ -1,11 +1,13 @@
 /**
  * Team mail copy (Mail-infra F0, z8uq9m2yvt): the e-mails the app itself sends
- * through Resend to an EXISTING account. New accounts still get Supabase's own
- * invite template (#20); that copy lives in the Supabase dashboard, not here.
+ * through Resend for team and crew invites. One invite mail (z8uq9m2yvp): a
+ * new or never-confirmed address gets this same mail, with a one-time sign-in
+ * button instead of the login steps. Supabase's own invite template (#20) is
+ * left only for platform invites and for prod without a Resend key.
  *
  * Audience: someone a company admin just added. Dial = low wink, clarity
- * first: who invited you, to what, and the one thing to do (log in). Never a
- * login token in the mail, only the plain /login URL.
+ * first: who invited you, to what, and the one thing to do (log in). An
+ * account that can already log in gets the plain /login URL, never a token.
  *
  * Rendering rules live in `src/features/mail/templates.ts`: {placeholders} are
  * filled with `fmt`, HTML-escaped in the body, control characters stripped in
@@ -23,6 +25,12 @@ export const mail = {
     'Tap Log in to PlusOne.',
     'Enter this email address.',
     "We'll send you a 6-digit code. Enter it and you're in.",
+  ],
+  /** Instead of loginSteps for a new address: the button signs them in once. */
+  inviteLinkSteps: [
+    'Tap Log in to PlusOne. It logs you straight in, no code needed.',
+    'The button works once and expires after a while. Expired? Ask {inviter} to send the invite again.',
+    "Don't forward this email. The button logs in whoever taps it.",
   ],
 
   // Shared paragraphs after the steps.
@@ -47,6 +55,10 @@ export const mail = {
     intro:
       "{inviter} invited you to join the {company} team on PlusOne. You already have a login. Accept the invite in the app to join. Until you do, {company} can't see your details.",
   },
+
+  /** teamJoin.intro for a new address: there is no login yet to mention. */
+  teamJoinNewIntro:
+    "{inviter} invited you to join the {company} team on PlusOne. Accept the invite in the app to join. Until you do, {company} can't see your details.",
 
   /** Crew invite (z8uq9m2yvp): nothing changes until they accept in the app. */
   teamAddedToEvent: {

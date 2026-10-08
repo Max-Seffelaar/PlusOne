@@ -176,3 +176,51 @@ describe('bidi controls (review of PR #413)', () => {
     expect(m.subject).toBe('Max invited you to join Club resseV');
   });
 });
+
+// One invite mail (z8uq9m2yvp): a new or never-confirmed address gets the same
+// mail with a one-time sign-in button instead of the login steps.
+describe('renderTeamMail — new address (invite link)', () => {
+  const LINK = { tokenHash: 'pkce_0c1d2e3f40516273', verifyType: 'invite' as const };
+
+  it('the button is the /auth/confirm link, with the link steps instead of the code steps', () => {
+    const m = renderTeamMail(join, APP, LINK);
+    const url = 'https://app.plus-one.io/auth/confirm?token_hash=pkce_0c1d2e3f40516273&type=invite&next=%2Fapp';
+    expect(m.text).toContain(url);
+    expect(m.html).toContain(`href="${url.replace(/&/g, '&amp;')}"`);
+    expect(m.text).not.toContain('https://app.plus-one.io/login');
+    expect(m.text).toContain('It logs you straight in, no code needed.');
+    expect(m.text).toContain('Expired? Ask Max to send the invite again.');
+    expect(m.text).not.toContain('6-digit code');
+  });
+
+  it('team_join does not tell a new address it already has a login; the subject stays the same', () => {
+    expect(renderTeamMail(join, APP).text).toContain('You already have a login.');
+    const m = renderTeamMail(join, APP, LINK);
+    expect(m.text).not.toContain('You already have a login.');
+    expect(m.subject).toBe(renderTeamMail(join, APP).subject);
+  });
+
+  it('a never-confirmed address keeps its token slot (type=signup)', () => {
+    expect(renderTeamMail(join, APP, { ...LINK, verifyType: 'signup' }).text).toContain('&type=signup&');
+  });
+
+  it('crew: the same crew mail, the accept step unchanged', () => {
+    const crew: TeamMailContent = {
+      template: 'team_added_to_event',
+      venueId: VENUE_ID,
+      inviterName: 'Max',
+      companyName: 'Club Vesper',
+      eventName: 'Friday Late',
+    };
+    const m = renderTeamMail(crew, APP, LINK);
+    expect(m.subject).toBe(renderTeamMail(crew, APP).subject);
+    expect(m.text).toContain('tap Accept on the invite');
+    expect(m.text).toContain('/auth/confirm?token_hash=');
+  });
+
+  it('a hostile inviter name in a link step is escaped', () => {
+    const m = renderTeamMail({ ...join, inviterName: '<img src=x>' }, APP, LINK);
+    expect(m.html).not.toContain('<img');
+    expect(m.html).toContain('&lt;img src=x&gt;');
+  });
+});
