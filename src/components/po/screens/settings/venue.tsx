@@ -355,13 +355,15 @@ export function VenueSettings(): JSX.Element {
         <PlacesField
           value={form.addressLine}
           onChange={editStr('addressLine')}
+          // A pick replaces the whole address: a part Google leaves out is
+          // cleared, never kept from the previous address (review #437).
           onPick={(p) =>
             p.address &&
             setForm((f) => ({
               ...f,
-              addressLine: p.address?.addressLine ?? f.addressLine,
-              postalCode: p.address?.postalCode ?? f.postalCode,
-              city: p.address?.city ?? f.city,
+              addressLine: p.address?.addressLine ?? '',
+              postalCode: p.address?.postalCode ?? '',
+              city: p.address?.city ?? '',
               country: p.address?.country ?? f.country,
             }))
           }

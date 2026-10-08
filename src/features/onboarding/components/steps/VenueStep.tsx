@@ -71,9 +71,12 @@ export function VenueStep({
   // One Places pick fills the address and, while it is still empty, the
   // company name (the suggestion's name: free from autocomplete, spike 9.6).
   function onPick(p: PlacePick): void {
-    setAddress(p.address?.formattedAddress ?? p.label);
+    // Capped like the field (createVenueSchema: 200): a picked address is
+    // not typed, so maxLength never saw it.
+    setAddress((p.address?.formattedAddress ?? p.label).slice(0, 200));
     setCity(p.address?.city ?? null);
-    if (!name.trim()) setName(p.name);
+    // Functional update: a name typed while the details call ran wins.
+    setName((n) => (n.trim() ? n : p.name.slice(0, 120)));
   }
 
   const panel = (

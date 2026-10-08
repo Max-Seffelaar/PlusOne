@@ -30,6 +30,12 @@ Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and 
   - Google calls use Essentials field masks only (no displayName) and a 3 s timeout. The input text is never logged.
   - `PlacesField` (kit) is on the wizard address, Company settings (fills street, postcode, city and country) and the event location.
   - The secret-grep guard covers `GOOGLE_PLACES_API_KEY`.
+- **Review round (#437)**, fixed:
+  - a Places pick in Company settings replaces the whole address (it used to keep parts of the old one);
+  - PlacesField cancels its pending lookup on blur, Escape and pick, and starts a new session token per focus;
+  - VenueStep caps the picked address at 200 characters and never overwrites a name typed meanwhile;
+  - a resend bumps `last_sent_at` only after the mail went;
+  - `NEXT_PUBLIC_DPA_URL` override.
 - **Tests**:
   - pgTAP `platform_invite_ade_trial` (25) and `places_throttle` (14); full suite 96 files / 2403.
   - Vitest: route, PlacesField, company template, invite mail/actions, DpaCheck.

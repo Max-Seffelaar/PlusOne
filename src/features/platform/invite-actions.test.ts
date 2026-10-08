@@ -313,7 +313,7 @@ describe('resendBetaInviteAction', () => {
   });
 
   it('answers a resend within the recipient window as a rate limit', async () => {
-    const { client } = makeClient({
+    const { client, table } = makeClient({
       selectRow: { id: INVITE_ID, email: 'klant@venue.test', revoked_at: null },
     });
     (createClient as Mock).mockResolvedValue(client);
@@ -323,6 +323,23 @@ describe('resendBetaInviteAction', () => {
 
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/too many/i);
+    // No mail went, so no audited "resent" either (review #437).
+    expect(table.update).not.toHaveBeenCalled();
+  });
+
+  it('bumps last_sent_at only after the mail went out', async () => {
+    const { client, callLog } = makeClient({
+      selectRow: { id: INVITE_ID, email: 'klant@venue.test', revoked_at: null },
+    });
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockImplementation(async () => {
+      callLog.push('mail');
+      return { ok: true };
+    });
+
+    await resendBetaInviteAction({ ok: false }, idForm());
+
+    expect(callLog.indexOf('mail')).toBeLessThan(callLog.indexOf('update'));
   });
 
   it('refuses a revoked row and sends nothing', async () => {

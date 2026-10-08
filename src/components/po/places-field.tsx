@@ -80,7 +80,11 @@ export function PlacesField({
     [],
   );
 
+  // Closing also cancels the pending debounce and request, so a late answer
+  // can't reopen the list under a field that lost focus (review #437).
   const close = (): void => {
+    if (timer.current) clearTimeout(timer.current);
+    inflight.current?.abort();
     setItems([]);
     setActive(-1);
   };
@@ -151,6 +155,11 @@ export function PlacesField({
             onChange={(e) => change(e.target.value)}
             onKeyDown={onKeyDown}
             onBlur={close}
+            // One Google session per focus (spike 9.6): a token left from an
+            // earlier focus without a pick is dropped, never reused.
+            onFocus={() => {
+              token.current = null;
+            }}
             placeholder={placeholder}
             maxLength={maxLength}
             aria-label={ariaLabel}

@@ -89,3 +89,28 @@ describe('PlacesField', () => {
     expect(screen.getByRole('combobox', { name: 'Address' })).toHaveValue('Wibautstraat');
   });
 });
+
+// Review #437: closing must cancel the pending lookup, or a late answer
+// reopens the list under a field that lost focus.
+describe('PlacesField — closing cancels the pending lookup', () => {
+  it('does not reopen the list after blur within the debounce', async () => {
+    vi.resetModules();
+    const { PlacesField: Fresh } = await import('./places-field');
+    fetchMock.mockReturnValue(
+      json({ ok: true, suggestions: [{ placeId: 'ChIJ1', mainText: 'Shelter', secondaryText: 'Amsterdam' }] }),
+    );
+    function H(): JSX.Element {
+      const [v, setV] = useState('');
+      return <Fresh value={v} onChange={setV} onPick={() => {}} ariaLabel="Address" />;
+    }
+    render(<H />);
+    const box = screen.getByRole('combobox', { name: 'Address' });
+    fireEvent.change(box, { target: { value: 'Shelter' } });
+    fireEvent.blur(box);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+});

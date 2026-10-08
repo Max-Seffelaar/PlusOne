@@ -204,24 +204,18 @@ export async function resendBetaInviteAction(
   // left to mail and is frozen in the DB: answer it like a revoked one.
   if (!invite || invite.revoked_at || !invite.email) return { ok: false, error: NOT_ALLOWED };
 
-  // Budget after the lookup (an unknown id costs nothing) and before the
-  // last_sent_at bump (a rate-limited resend must not claim it sent something).
+  // Budget after the lookup (an unknown id costs nothing) and before the mail
+  // (a rate-limited resend must not claim it sent something).
   const budget = await consumeMailBudget(supabase);
   if (budget !== 'ok') {
     return { ok: false, error: budget === 'denied' ? NOT_ALLOWED : RESEND_RATE_LIMITED };
   }
 
-  // The bump is what the audit log records as "resent"; the guard trigger
-  // rejects any attempt to change the identity columns alongside it.
-  const { error, count } = await supabase
-    .from('platform_invites')
-    .update({ last_sent_at: new Date().toISOString() }, { count: 'exact' })
-    .eq('id', invite.id)
-    .is('revoked_at', null);
-  if (error || !count) return { ok: false, error: NOT_ALLOWED };
-
   // A fresh mail with a fresh one-time link: the old one may have expired
-  // (GoTrue caps it at 24 hours), and generateLink replaces it.
+  // (GoTrue caps it at 24 hours), and generateLink replaces it. The mail goes
+  // first and the bump after it (review #437): a resend refused inside the
+  // 60-second window, or one whose mail failed, must not leave an audited
+  // "resent" behind for a mail that never went out.
   const sent = await sendInviteEmail(invite.email, {
     seedName: false,
     companyInviteMail: { inviterName: await inviterName(supabase, user.id) },
@@ -230,6 +224,17 @@ export async function resendBetaInviteAction(
   if (!sent.ok) {
     return { ok: false, error: sent.reason === 'recent' ? RESEND_RATE_LIMITED : RESEND_MAIL_FAILED };
   }
+
+  // The bump is what the audit log records as "resent"; the guard trigger
+  // rejects any attempt to change the identity columns alongside it. The
+  // mail already went, so a failed bump (a revoke landing in between) is
+  // logged, not reported as a failed resend.
+  const { error, count } = await supabase
+    .from('platform_invites')
+    .update({ last_sent_at: new Date().toISOString() }, { count: 'exact' })
+    .eq('id', invite.id)
+    .is('revoked_at', null);
+  if (error || !count) console.error('resendBetaInvite: last_sent_at not bumped', { code: error?.code });
 
   revalidatePath('/app');
   return { ok: true, message: 'Invite re-sent.' };
