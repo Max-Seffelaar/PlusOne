@@ -90,6 +90,13 @@ describe('stub → local Mailpit', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('the Mailpit hand-off is fire and forget: a hanging catcher never holds the send', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise<Response>(() => {}));
+    const { mailProvider } = await load({ nodeEnv: 'development', supabaseUrl: 'http://127.0.0.1:55321' });
+    expect(await mailProvider.send(MAIL)).toEqual({ ok: true, providerMessageId: null });
+  });
+
   it('a missing Mailpit never fails the send', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));

@@ -211,10 +211,15 @@ select lives_ok(
   'T3 after the 60 s window the same recipient is allowed again');
 reset role;
 
--- Venue daily cap: fill De Marktzaal (aa…02, already 1 row today) up to 50.
+-- Venue daily cap: fill De Marktzaal (aa…02) up to the cap. Its earlier row
+-- today (b) settled as failed, and failed attempts no longer count
+-- (20261011120000, mail_failed_rows_free.test.sql), so fill from what counts.
 insert into public.mail_log (type, venue_id, recipient_hash)
 select 'team_join', 'aa000000-0000-7000-8000-000000000002', encode(extensions.digest('cap' || i, 'sha256'), 'hex')
-  from generate_series(1, public.mail_venue_daily_cap() - 1) as i;
+  from generate_series(1, public.mail_venue_daily_cap() - (
+    select count(*)::int from public.mail_log
+     where venue_id = 'aa000000-0000-7000-8000-000000000002' and status <> 'failed'
+  )) as i;
 select pg_temp.login_service();
 select throws_ok(
   $$ select public.log_mail_attempt('team_join', 'aa000000-0000-7000-8000-000000000002', repeat('f', 64)) $$,

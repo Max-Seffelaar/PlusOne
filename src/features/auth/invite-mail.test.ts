@@ -8,8 +8,11 @@
  *   - platform invites (no context) → the Supabase path exactly as before;
  *   - team mail inactive (prod without a key) → the Supabase path too, so
  *     prod never regresses to "no mail".
- * The InviteMailResult contract (provision / notify / recent / cap) is the
- * same for a new and an existing address, so it never reveals an account.
+ * The InviteMailResult (ok / recent / cap) is the same for a new and an
+ * existing address, so it never reveals an account. One exception, by review
+ * of PR #430: a provider failure after a sign-in link was minted is
+ * 'provision' (the new address has no other way in), for a confirmed account
+ * 'notify'. The admin does not choose when the provider fails.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TeamMailCta, TeamMailOptions, TeamMailResult } from '@/features/mail/send';
@@ -107,13 +110,29 @@ describe('sendInviteEmail — one invite mail (team mail active, team/crew conte
     ['sent', { ok: true }, { ok: true }],
     ['the 60-second window', { ok: false, reason: 'recipient_window' }, { ok: false, reason: 'recent' }],
     ['the company cap at send time', { ok: false, reason: 'venue_cap' }, { ok: false, reason: 'cap' }],
-    ['a failed send', { ok: false, reason: 'failed' }, { ok: false, reason: 'notify' }],
   ] as const)('%s: the same answer for a new and an existing address', async (_label, outcome, expected) => {
     sendOutcome = outcome as TeamMailResult;
     H.generateLink.mockResolvedValue(linkFor('invite'));
     expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual(expected);
     H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: EXISTS });
     expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual(expected);
+  });
+
+  // Review of PR #430: the link only exists in the mail. If the provider then
+  // fails (5xx, 429, timeout), the new address has no way in, so the admin
+  // must see an error and retry (with a fresh token), not "Invite sent".
+  it('a provider failure after a link was minted is a provision failure (an error, never ok)', async () => {
+    sendOutcome = { ok: false, reason: 'failed' };
+    H.generateLink.mockResolvedValue(linkFor('invite'));
+    expect(await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+    H.generateLink.mockResolvedValue(linkFor('signup'));
+    expect(await sendInviteEmail('pending@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'provision' });
+  });
+
+  it('a provider failure for an account that can log in stays notify (the invite row still grants access)', async () => {
+    sendOutcome = { ok: false, reason: 'failed' };
+    H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: EXISTS });
+    expect(await sendInviteEmail('staff@example.test', { existingAccountMail: CONTEXT })).toEqual({ ok: false, reason: 'notify' });
   });
 
   it('the window and the cap refuse before any token is minted', async () => {

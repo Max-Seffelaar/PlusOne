@@ -428,8 +428,10 @@ function crewMailFailure(reason: 'provision' | 'notify' | 'recent' | 'cap'): Act
   // a minute ago, and the invite row is what grants access on accept. A new
   // and an existing address hit the same window (one invite mail, z8uq9m2yvp),
   // and the answer is the same for both, so it never reveals an account.
-  // 'notify': the account exists and the invite row is what grants access on
-  // accept; a lost notification is not a failed invite (same as a team invite).
+  // 'notify': an account that can already log in did not get its mail; the
+  // invite row is what grants access on accept, so a lost notification is not
+  // a failed invite (same as a team invite). A new address whose mail failed
+  // is 'provision' above.
   return null;
 }
 
@@ -554,11 +556,13 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
     invitedByVenue.set(ev.venue_id, [...(invitedByVenue.get(ev.venue_id) ?? []), ev.name]);
   }
 
-  // The invitation mail, per venue. New or never-accepted address: Supabase's
-  // invite mail (provisions the account; counted toward the company's cap).
-  // Confirmed account: the crew mail ("invited you … accept in the app") or,
-  // with no venue name, the magic-link fallback. The mail is identical in
-  // shape for both, and the response below does not depend on which went out.
+  // The invitation mail, per venue: the crew mail ("invited you … accept in
+  // the app") for every address (one invite mail, z8uq9m2yvp). A new or
+  // never-accepted address gets a one-time sign-in button in it (that send
+  // provisions the account); a confirmed one the /login button. Counted toward
+  // the company's cap by its mail_log row. With no venue name, or without team
+  // mail (prod without a Resend key): the Supabase invite or magic link. The
+  // response below does not depend on which went out.
   if (invitedByVenue.size > 0) {
     const myProfile = await getMyProfile();
     for (const [venueId, eventNames] of invitedByVenue) {
@@ -682,9 +686,9 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
     return { ok: false, code: 'mail_cap', message: t.auth.inviteMailCapReached };
   }
 
-  // Display context for the crew reminder a CONFIRMED account gets (Mail-infra
-  // F0): the caller's own name and the venue name, both through RLS. No venue
-  // name = no context = the magic-link fallback below, unchanged.
+  // Display context for the crew reminder (Mail-infra F0; every address since
+  // one invite mail, z8uq9m2yvp): the caller's own name and the venue name,
+  // both through RLS. No venue name = no context = the Supabase path below.
   const [myProfile, { data: venue }] = await Promise.all([
     getMyProfile(),
     supabase.from('venues').select('name').eq('id', venueId).maybeSingle(),
@@ -699,11 +703,10 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
       }
     : undefined;
 
-  // Invite-first, then the team mail or the magic-link fallback (shared with
-  // the venue-invite resend). The order matters: a crew member who never
-  // accepted is an UNCONFIRMED account, and signInWithOtp refuses those
-  // ("Signups not allowed") — only a re-invite reaches them; a confirmed
-  // account takes the team-mail (or magic-link) path.
+  // Shared with the venue-invite resend: with context and team mail active,
+  // our reminder mail (a crew member who never accepted is an UNCONFIRMED
+  // account and gets a fresh one-time sign-in button, since signInWithOtp
+  // refuses those); otherwise invite-first, then the magic-link fallback.
   const sent = await sendInviteEmail(profile.email, { existingAccountMail, mailCapVenueId: venueId });
   if (!sent.ok) {
     if (sent.reason === 'recent') return { ok: false, code: 'mail_recent', message: t.auth.inviteMailRecent };

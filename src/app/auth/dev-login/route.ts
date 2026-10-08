@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 import { devTotpCode } from '@/features/auth/dev-totp';
+import { onLocalDevStack } from '@/lib/local-stack';
 
 // LOCAL-ONLY one-hit dev login. Mints a magic-link token with the service role
 // and verifies it to set the session cookies — a STABLE, reusable URL so local
@@ -22,22 +23,9 @@ import { devTotpCode } from '@/features/auth/dev-totp';
 
 // Mirrors scripts/dev-mfa.mjs — the local-only fixed TOTP secret.
 const DEV_MFA_SECRET = 'PLUSONELOCALADMINDEVSECRET234567';
-function devLoginEnabled(): boolean {
-  const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-  // Hostname equality, never a substring match on the whole URL: `localhost`
-  // anywhere in the string also matches a real host like
-  // `https://localhost.attacker.dev` or `https://x.127.0.0.1.nip.io`. Prod is
-  // still covered by the NODE_ENV conjunct, but any non-prod deploy running
-  // `next dev` would otherwise hand this service-role login route a live host.
-  let onLocalSupabase = false;
-  try {
-    const { hostname } = new URL(supaUrl);
-    onLocalSupabase = hostname === 'localhost' || hostname === '127.0.0.1';
-  } catch {
-    onLocalSupabase = false; // unset or unparseable: not local, so not enabled
-  }
-  return process.env.NODE_ENV !== 'production' && onLocalSupabase;
-}
+// The gate itself (non-production build AND a localhost Supabase URL, hostname
+// equality) is shared with the stub mailer's Mailpit hand-off.
+const devLoginEnabled = onLocalDevStack;
 
 // A `next` the open-redirect guard refuses silently becomes /app, which reads
 // exactly like "the deep link is broken". Say so in the dev-server log instead.

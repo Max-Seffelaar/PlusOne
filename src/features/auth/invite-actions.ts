@@ -165,9 +165,10 @@ export async function inviteUserAction(
 
   // 2) Only now provision the auth identity AND notify the invitee by e-mail
   //    (invite-only, no public signups — #20). The invite row above is what
-  //    actually grants access — a transient notify failure for an EXISTING
-  //    account must not surface as a hard error; sendInviteEmail can be
-  //    retried via resendInviteAction either way.
+  //    actually grants access — a lost mail to an account that can already log
+  //    in ('notify') must not surface as a hard error; a new address whose mail
+  //    failed has no way in, so that is 'provision' (one invite mail,
+  //    z8uq9m2yvp). sendInviteEmail can be retried via resendInviteAction.
   const existingAccountMail = (await teamMailContext(venueId, 'join')) ?? undefined;
   const sent = await sendInviteEmail(email, { existingAccountMail, mailCapVenueId: venueId });
   if (!sent.ok && sent.reason === 'provision') {

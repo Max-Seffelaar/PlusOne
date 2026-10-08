@@ -11,6 +11,7 @@ import 'server-only';
 
 import { mailConfig } from './config';
 import { ResendAdapter } from './resend-adapter';
+import { onLocalDevStack } from '@/lib/local-stack';
 
 export interface OutgoingMail {
   to: string;
@@ -46,25 +47,18 @@ export interface MailProvider {
 
 /**
  * The local stack's mail catcher (Mailpit, where the Supabase CLI puts its own
- * auth mail), or null. The same hard gate as the dev-login route: never in a
- * production build, and only against a localhost Supabase URL (hostname
- * equality, never a substring match). INBUCKET_URL overrides the fixed port.
+ * auth mail), or null. The same gate as the dev-login route (onLocalDevStack:
+ * never a production build, only a localhost Supabase URL). INBUCKET_URL
+ * overrides the fixed port.
  */
 export function localMailCatcher(): string | null {
-  if (process.env.NODE_ENV === 'production') return null;
-  let hostname = '';
-  try {
-    hostname = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').hostname;
-  } catch {
-    return null;
-  }
-  if (hostname !== 'localhost' && hostname !== '127.0.0.1') return null;
+  if (!onLocalDevStack()) return null;
   return process.env.INBUCKET_URL || 'http://127.0.0.1:55324';
 }
 
 // Keyless fallback: local dev and CI. Logs type + idempotency key only. On the
-// local stack the mail also lands in Mailpit (best effort: a missing catcher
-// never fails the send, and its error is not logged with the address).
+// local stack the mail also lands in Mailpit: fire and forget, so a missing
+// catcher never fails or slows the send, and its error is never logged.
 export class StubMailProvider implements MailProvider {
   async send(mail: OutgoingMail): Promise<SendResult> {
     console.info('[mail:stub] not sent (no Resend key configured)', {
@@ -73,7 +67,7 @@ export class StubMailProvider implements MailProvider {
     });
     const catcher = localMailCatcher();
     if (catcher) {
-      await fetch(`${catcher}/api/v1/send`, {
+      void fetch(`${catcher}/api/v1/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

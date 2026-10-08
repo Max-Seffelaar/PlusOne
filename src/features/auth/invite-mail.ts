@@ -64,11 +64,14 @@ export interface SendInviteEmailOptions {
 export type InviteMailResult =
   /** Mail sent (invite mail or magic-link fallback). */
   | { ok: true }
-  /** The address could not be provisioned/invited at all — always an error. */
+  /** The address could not be provisioned/invited at all, or a new address's
+   *  mail (its only way in) failed — always an error. */
   | { ok: false; reason: 'provision' }
-  /** The account exists; only the notify mail failed. An initial invite may
-   *  proceed anyway (access comes from the invite row, not the mail); a RESEND
-   *  must surface this, because the mail is the whole point. */
+  /** An account that can already log in did not get its mail. An initial
+   *  invite may proceed anyway (access comes from the invite row, and they can
+   *  log in without the mail); a RESEND must surface this, because the mail is
+   *  the whole point. A new address whose mail failed is 'provision' instead:
+   *  without the mail it has no way in. */
   | { ok: false; reason: 'notify' }
   /** A mail already went to this address within the last minute (our
    *  per-recipient window, or GoTrue's own resend limit). Nothing was sent. */
@@ -100,6 +103,11 @@ async function sendOwnInviteMail(
   content: TeamMailContent,
   seedName: boolean
 ): Promise<InviteMailResult> {
+  // Set once generateLink handed out a sign-in link (a new or never-confirmed
+  // address). If the send then fails, no mail carries that link, and the
+  // admin must hear it (review of PR #430): it is a 'provision' failure, not
+  // the 'notify' a confirmed account's lost mail is.
+  let minted = false;
   const cta = async (): Promise<TeamMailCta> => {
     try {
       const { data, error } = await createServiceClient().auth.admin.generateLink({
@@ -114,6 +122,7 @@ async function sendOwnInviteMail(
         console.error('sendInviteEmail: generateLink failed', { code: error?.code, status: error?.status });
         return { kind: 'unavailable' };
       }
+      minted = true;
       return { kind: 'invite', link: { tokenHash: props.hashed_token, verifyType } };
     } catch (err) {
       console.error('sendInviteEmail: generateLink threw', { error: err instanceof Error ? err.name : 'unknown' });
@@ -125,7 +134,7 @@ async function sendOwnInviteMail(
   if (sent.ok) return { ok: true };
   if (sent.reason === 'recipient_window') return { ok: false, reason: 'recent' };
   if (sent.reason === 'venue_cap') return { ok: false, reason: 'cap' };
-  if (sent.reason === 'cta_unavailable') return { ok: false, reason: 'provision' };
+  if (sent.reason === 'cta_unavailable' || minted) return { ok: false, reason: 'provision' };
   return { ok: false, reason: 'notify' };
 }
 
