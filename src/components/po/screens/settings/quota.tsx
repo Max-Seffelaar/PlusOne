@@ -5,14 +5,17 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoTeam, usePoEvents, usePoEventAllowance, type PoAllowanceMember } from '@/features/po/hooks';
+import { usePoTeam, usePoEvents, usePoEventAllowance, usePoInvites, useBillingBlocked, type PoAllowanceMember } from '@/features/po/hooks';
 import { usePoSetDefaultQuota, usePoSetAllowance } from '@/features/po/mutations';
 import { useMfaGate, isAal2Error } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Empty, IconBtn, Label, MiniChip, Note, Scroll, Top, hitRing2, press } from '../../kit';
+import { Avatar, Btn, Empty, IconBtn, Label, MiniChip, Note, RefusedAction, Scroll, Top, hitRing2, press } from '../../kit';
 import { Sheet } from '../../shell';
 import type { PoTeamMember } from '@/features/po/adapters';
+import type { VenueRole } from '@/features/auth/roles';
+import { useIsDemoVenue } from '../../app-shell-data';
+import { TeamInviteForm, openInviteCount } from './team';
 import { col, FormError } from './_shared';
 
 // ── GEBRUIKERS & TOELAGES (pushed) — S6 default-quota, live ───────────────────
@@ -135,6 +138,24 @@ export function Allowance(): JSX.Element {
   const event = upcoming.find((e) => e.id === eventId) ?? null;
   const allowanceQ = usePoEventAllowance(eventId);
   const members = allowanceQ.data ?? [];
+  // "Invite team member" (z8uq9m2vg7): Team's own invite form, for who may invite
+  // (admin, user manager — the action re-checks role + billing). Same hide rules
+  // as Team: no button on a billing-locked company, an inert one in the demo.
+  const canInvite = caps.manageTeam;
+  const billingLock = useBillingBlocked();
+  const demo = useIsDemoVenue();
+  const invitesQ = usePoInvites();
+  const pendingInvites = canInvite ? openInviteCount(invitesQ.data) : 0;
+  const [inviting, setInviting] = useState(false);
+  const [email, setEmail] = useState('');
+  const [inviteRoles, setInviteRoles] = useState<VenueRole[]>([]);
+  const [quota, setQuota] = useState('');
+  const startInvite = (): void => {
+    setEmail('');
+    setInviteRoles([]);
+    setQuota('');
+    setInviting(true);
+  };
 
   if (!caps.viewQuota) {
     return (
@@ -144,6 +165,23 @@ export function Allowance(): JSX.Element {
           <Empty text={t.settings.quota.rolesNoRights} />
         </Scroll>
       </div>
+    );
+  }
+
+  // After sending, back on this screen: the invitee has no quota row until they
+  // accept, so the pending line above the list is what changes.
+  if (inviting && canInvite && !demo && !billingLock.blocked) {
+    return (
+      <TeamInviteForm
+        email={email}
+        onEmailChange={setEmail}
+        roles={inviteRoles}
+        onRolesChange={setInviteRoles}
+        quota={quota}
+        onQuotaChange={setQuota}
+        onBack={() => setInviting(false)}
+        onSent={() => setInviting(false)}
+      />
     );
   }
 
@@ -161,6 +199,22 @@ export function Allowance(): JSX.Element {
           <b>{t.settings.quota.allowanceNoteBold}</b>
           {t.settings.quota.allowanceNotePost}
         </Note>
+        {canInvite && !billingLock.blocked && (
+          <div className="mb-[14px] flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+            {demo ? (
+              <RefusedAction label={t.settings.quota.inviteCta} reason={t.auth.demoNoInvites} />
+            ) : (
+              <Btn kind="dark" full icon="plus" className="md:w-auto" onClick={startInvite}>
+                {t.settings.quota.inviteCta}
+              </Btn>
+            )}
+            {pendingInvites > 0 && (
+              <span data-testid="quota-invites-pending" className="text-[12.5px] text-faint">
+                {fmt(pendingInvites === 1 ? t.settings.quota.invitesPendingOne : t.settings.quota.invitesPendingMany, { n: pendingInvites })}
+              </span>
+            )}
+          </div>
+        )}
         {eventsQ.isLoading || (allowanceQ.isLoading && !!eventId) ? (
           <Empty text={t.settings.quota.loading} />
         ) : !eventId ? (

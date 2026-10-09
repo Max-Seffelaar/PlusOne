@@ -22,7 +22,6 @@ import { useDoorSyncStatus, useDoorToast } from '@/features/door/DoorProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
 import { usePoGuestRequests, usePoHomeEvents, usePoQuotaRequests } from '@/features/po/hooks';
 import { CheckInList } from '@/features/door/components/CheckInList';
-import { Taken as DoorTaken } from '@/features/door/components/Taken';
 import { GuestDetail } from '@/features/door/components/GuestDetail';
 import { AddOnSpot } from '@/features/door/components/AddOnSpot';
 import { SyncBar } from '@/features/door/components/SyncBar';
@@ -139,8 +138,6 @@ function DoorEventBar({ name, onChange }: { name: string; onChange: () => void }
 }
 
 export function PoDoorTab({
-  tab,
-  onTab,
   overlay,
   openGuest,
   openAdd,
@@ -148,8 +145,11 @@ export function PoDoorTab({
   currentEventName,
   onChangeEvent,
 }: {
+  /** The old Check-in/Tasks segment. The Tasks tab is gone (z8uq9m2vg7, Joeri's
+   *  walkthrough: it did nothing yet), so the door always shows the check-in
+   *  list; both props stay in the type so the route wiring (`?seg=taken` in an
+   *  old bookmark, DoorRoute's state) keeps compiling and simply lands here. */
   tab: 'deur' | 'taken';
-  /** Switch the Check-in/Tasks segment (the merged /app Door tab). */
   onTab?: (seg: 'deur' | 'taken') => void;
   overlay: DoorOverlay;
   openGuest: (id: string) => void;
@@ -174,10 +174,9 @@ export function PoDoorTab({
   let screen: JSX.Element;
   if (overlay?.kind === 'guest') screen = <GuestDetail guestId={overlay.id} onBack={closeOverlay} />;
   else if (overlay?.kind === 'add') screen = <AddOnSpot onBack={closeOverlay} />;
-  else if (tab === 'deur') screen = <CheckInList onOpenGuest={openGuest} onAdd={openAdd} />;
-  else screen = <DoorTaken onOpenGuest={openGuest} />;
+  else screen = <CheckInList onOpenGuest={openGuest} onAdd={openAdd} />;
 
-  const navKey = overlay ? overlay.kind + ('id' in overlay ? overlay.id : '') : tab;
+  const navKey = overlay ? overlay.kind + ('id' in overlay ? overlay.id : '') : 'deur';
 
   return (
     <DoorErrorBoundary>
@@ -202,24 +201,6 @@ export function PoDoorTab({
         <SyncBar />
         {!overlay && onChangeEvent && currentEventName && (
           <DoorEventBar name={currentEventName} onChange={onChangeEvent} />
-        )}
-        {!overlay && onTab && (
-          <div className="flex flex-none items-center gap-2 px-5 py-2">
-            {(['deur', 'taken'] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => onTab(s)}
-                className={cn(
-                  'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
-                  tab === s ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
-                  SEG_HIT,
-                )}
-              >
-                {s === 'deur' ? t.nav.checkin : t.nav.tasks}
-              </button>
-            ))}
-          </div>
         )}
         {/* Guest detail / add-on-spot are single-guest forms: on a tablet
             (641–1023px, T1) they sit in a centered 640px column like every

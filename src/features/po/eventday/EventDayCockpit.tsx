@@ -41,12 +41,10 @@ import { useStaleResumeGuard } from '@/features/door/sync/useStaleResumeGuard';
 import type { QueryFreshness } from './cockpitFreshness';
 import { useCockpitSync } from './useCockpitSync';
 import { useCanUncheck } from './useCanUncheck';
-import { CockpitTasksCard } from './CockpitTasksCard';
 import { CockpitRefuseModal } from './CockpitRefuseModal';
 import { CockpitGuestRow } from './CockpitGuestRow';
 import { CockpitConnectionPill } from './CockpitConnectionPill';
 import {
-  usePoAckNote,
   usePoApproveRequest,
   usePoCheckIn,
   usePoCheckOut,
@@ -261,7 +259,6 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const decideQuota = usePoDecideQuota();
   const refuseGuest = usePoRefuseGuest(eventId);
   const undoRefusal = usePoUndoRefusal(eventId);
-  const ackNote = usePoAckNote(eventId);
 
   const [q, setQ] = useState('');
   const [statF, setStatF] = useState<StatusFilter>('all');
@@ -445,9 +442,6 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
     undoRefusal.mutate({ guestId: g.id }, { onError: (e) => notify(e.message) });
     pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedUndoRefusal, { name: g.name }), accent: true });
     notify(fmt(t.cockpit.toastUndoRefusal, { name: g.name }), 'in');
-  }
-  function onAckNote(guestId: string, ack: boolean): void {
-    ackNote.mutate({ guestId, ack }, { onError: (e) => notify(e.message) });
   }
 
   const doorTime = editRow?.startsAt ? amsterdamHM(new Date(editRow.startsAt)) : null;
@@ -756,9 +750,6 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                 )}
               </Card>
             )}
-
-            {/* tasks — G2 door-parity */}
-            {canCheckIn && <CockpitTasksCard guests={guests} onAck={onAckNote} />}
 
             {/* aanwezig per tier */}
             <Card className="p-[22px]">

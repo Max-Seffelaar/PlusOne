@@ -352,7 +352,12 @@ export function TimeField({
   }, [open, value]);
 
   if (!desktop) {
-    return <Field icon="clock" type="time" value={value} onChange={onChange} className={className} />;
+    // No leading clock here (z8uq9m2vg8): the native time input already draws
+    // its own picker indicator on Android/Chromium, and the two icons plus the
+    // field padding left too little room — the value ("10:00 PM") was cut off
+    // in the narrow time column at 390px. Read-only keeps the icon: a plain
+    // span has no native indicator.
+    return <Field icon={onChange ? undefined : 'clock'} type="time" value={value} onChange={onChange} className={className} />;
   }
 
   return (

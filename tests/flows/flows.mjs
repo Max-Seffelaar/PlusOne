@@ -134,6 +134,30 @@ export const FLOWS = {
       'src/components/po/screens/settings/venue.tsx',
     ],
   },
+  'door-tasks-tab': {
+    title: 'Check-in — no Tasks view on either door variant (tab or cockpit card); an old ?seg=taken link lands on the list (z8uq9m2vg7)',
+    paths: [
+      'src/components/po/screens/door',
+      'src/components/po/door-branch.tsx',
+      'src/features/door/components/DoorRoute.tsx',
+      'src/features/po/eventday/EventDayCockpit.tsx',
+    ],
+  },
+  'event-screens': {
+    title: 'Event C + Dashboard B — Add guest, John Doe, guest Edit, deep link to another company, requests empty state, time picker, tier step, invite from Quota per event, templates Back (z8uq9m2vg7 + z8uq9m2vg8)',
+    paths: [
+      'src/components/po/screens/events',
+      'src/components/po/screens/home',
+      'src/components/po/screens/guests/profile',
+      'src/components/po/screens/guests/quick-add',
+      'src/components/po/screens/settings/quota',
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/templates',
+      'src/components/po/datetime-field',
+      // Q11/Q12/Q16: the deep link reads the event's venue_id from fetchEventForEdit.
+      'src/features/po/queries.ts',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [
