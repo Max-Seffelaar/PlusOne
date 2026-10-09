@@ -6,6 +6,7 @@ import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
 import { formatCompanyAddress } from '@/features/po/adapters';
+import { requestedHeadsOf } from '@/features/po/funnel';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -2132,6 +2133,9 @@ export interface PoRequestLink {
   views: number;
   /** Total requests submitted through the link (any status). */
   requests: number;
+  /** People asked for through the link: Σ(1 + plus_ones) over every request
+   *  (any status) — the same unit as approvedHeads/checkedInHeads. */
+  requestedHeads: number;
   /** Requests that made the list (status approved, manual or auto). */
   approved: number;
   /** Approved HEADCOUNT on the guest list via this link: sum of 1 + plus_ones
@@ -2175,6 +2179,7 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
     createdAt: r.created_at,
     views: r.views,
     requests: r.requests,
+    requestedHeads: requestedHeadsOf(r),
     approved: r.approved,
     approvedHeads: r.approved_heads,
     checkedInHeads: r.checked_in_heads,
@@ -2287,10 +2292,16 @@ export async function fetchVenueInfluencers(client: Client, venueId: string): Pr
 // functions self-guard on role (admin/finance/organizer) and RLS bounds the rest;
 // an out-of-scope caller gets []. Errors throw so React Query surfaces isError.
 
-/** The shared views → requests → approved → checked-in funnel numbers. */
+/** The shared views → requested → approved → checked-in funnel numbers. Every
+ *  step after views is a HEADCOUNT (1 + plus-ones); the math lives in
+ *  `./funnel.ts`. */
 export interface PoFunnel {
   views: number;
+  /** Request ROWS submitted (any status) — a count of submissions, not people.
+   *  Never divide a headcount by this; use `requestedHeads`. */
   requests: number;
+  /** People asked for: Σ(1 + plus_ones) over every request (any status). */
+  requestedHeads: number;
   approvedHeads: number;
   checkedInHeads: number;
 }
@@ -2325,6 +2336,7 @@ export async function fetchEventLinkFunnel(client: Client, eventId: string): Pro
     expiresAt: r.expires_at ?? null,
     views: r.views,
     requests: r.requests,
+    requestedHeads: requestedHeadsOf(r),
     approvedHeads: r.approved_heads,
     checkedInHeads: r.checked_in_heads,
   }));
@@ -2361,6 +2373,7 @@ export async function fetchInfluencerLeaderboard(
       eventsCount: r.events_count,
       views: r.views,
       requests: r.requests,
+      requestedHeads: requestedHeadsOf(r),
       approvedHeads: r.approved_heads,
       checkedInHeads: r.checked_in_heads,
     }));
@@ -2393,6 +2406,7 @@ export async function fetchVenueLabelFunnel(
     eventName: r.event_name,
     views: r.views,
     requests: r.requests,
+    requestedHeads: requestedHeadsOf(r),
     approvedHeads: r.approved_heads,
     checkedInHeads: r.checked_in_heads,
   }));

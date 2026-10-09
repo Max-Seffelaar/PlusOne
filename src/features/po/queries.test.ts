@@ -530,6 +530,7 @@ describe('fetchRequestLinks (86ey9e9wv/D1)', () => {
             created_at: '2026-01-01T00:00:00Z',
             views: 10,
             requests: 3,
+            requested_heads: 4,
             approved: 1,
             approved_heads: 2,
             checked_in_heads: 1,
@@ -549,6 +550,7 @@ describe('fetchRequestLinks (86ey9e9wv/D1)', () => {
             created_at: '2026-01-02T00:00:00Z',
             views: 40,
             requests: 2,
+            requested_heads: 5,
             approved: 2,
             approved_heads: 4,
             checked_in_heads: 3,
@@ -579,6 +581,7 @@ describe('fetchRequestLinks (86ey9e9wv/D1)', () => {
         createdAt: '2026-01-01T00:00:00Z',
         views: 10,
         requests: 3,
+        requestedHeads: 4, // people asked for — the unit approvedHeads is compared against
         approved: 1, // requests (3) and approved (1) are DISTINCT counts — B4
         approvedHeads: 2,
         checkedInHeads: 1,
@@ -599,6 +602,7 @@ describe('fetchRequestLinks (86ey9e9wv/D1)', () => {
         createdAt: '2026-01-02T00:00:00Z',
         views: 40,
         requests: 2,
+        requestedHeads: 5,
         approved: 2,
         approvedHeads: 4,
         checkedInHeads: 3,

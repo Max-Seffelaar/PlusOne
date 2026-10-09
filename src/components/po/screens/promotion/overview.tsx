@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';
 import type { PoFunnel, PoLinkFunnelRow } from '@/features/po/queries';
+import { funnelConversion, sumFunnels } from '@/features/po/funnel';
 import {
   usePoCanCreateLink,
   usePoEvents,
@@ -65,7 +66,7 @@ function LinkAvatar({ size = 42 }: { size?: number }): JSX.Element {
 function FunnelLine({ f }: { f: PoFunnel }): JSX.Element {
   const parts: [number, string][] = [
     [f.views, t.promo.funnelViews],
-    [f.requests, t.promo.funnelRequests],
+    [f.requestedHeads, t.promo.funnelRequests],
     [f.approvedHeads, t.promo.funnelApproved],
     [f.checkedInHeads, t.promo.funnelIn],
   ];
@@ -215,26 +216,20 @@ function OverviewCard({
   onPick: (id: string) => void;
   onManageLinks: () => void;
 }): JSX.Element {
-  const tot = links.reduce<PoFunnel>(
-    (a, l) => ({
-      views: a.views + l.views,
-      requests: a.requests + l.requests,
-      approvedHeads: a.approvedHeads + l.approvedHeads,
-      checkedInHeads: a.checkedInHeads + l.checkedInHeads,
-    }),
-    { views: 0, requests: 0, approvedHeads: 0, checkedInHeads: 0 },
-  );
+  // Every tile after Views counts people (1 + plus-ones), and each % is the
+  // ratio of the two tiles it sits between (src/features/po/funnel.ts).
+  const tot = sumFunnels(links);
   const tiles: [string, number][] = [
     [t.promo.stepViews, tot.views],
-    [t.promo.stepRequests, tot.requests],
+    [t.promo.stepRequests, tot.requestedHeads],
     [t.promo.stepApproved, tot.approvedHeads],
     [t.promo.stepCheckedIn, tot.checkedInHeads],
   ];
-  const pct = (part: number, whole: number): number => (whole ? Math.round((part / whole) * 100) : 0);
+  const c = funnelConversion(tot);
   const conv: [number, string][] = [
-    [pct(tot.requests, tot.views), t.promo.convRequested],
-    [pct(tot.approvedHeads, tot.requests), t.promo.convApproved],
-    [pct(tot.checkedInHeads, tot.approvedHeads), t.promo.convShowedUp],
+    [c.requested, t.promo.convRequested],
+    [c.approved, t.promo.convApproved],
+    [c.showedUp, t.promo.convShowedUp],
   ];
   return (
     <Card
@@ -245,6 +240,7 @@ function OverviewCard({
         <div>
           <Kicker className="mb-[7px]">{t.promo.overviewKicker}</Kicker>
           <div className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{t.promo.overviewTitle}</div>
+          <div className="mt-[3px] text-[13px] text-faint">{t.promo.overviewSub}</div>
         </div>
         <EventPicker events={events} selectedId={selectedId} onPick={onPick} />
       </div>

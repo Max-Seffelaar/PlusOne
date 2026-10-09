@@ -83,7 +83,14 @@ function LinkCard({
   };
 
   const stats =
-    fmt(t.links.stats, { views: link.views, requests: link.requests, approved: link.approved, checkedIn: link.checkedInHeads }) +
+    // People at every step after views (same unit as the Overview funnel), so
+    // "approved" can never outrun "requested" on a link with plus-ones.
+    fmt(t.links.stats, {
+      views: link.views,
+      requested: link.requestedHeads,
+      approved: link.approvedHeads,
+      checkedIn: link.checkedInHeads,
+    }) +
     (link.maxHeadcount != null
       ? fmt(t.links.statsCap, { heads: link.approvedHeads, max: link.maxHeadcount })
       : '');

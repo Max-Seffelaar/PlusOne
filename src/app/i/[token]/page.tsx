@@ -31,6 +31,8 @@ interface StatsEventPayload {
   slug?: string | null;
   views?: number;
   requests?: number;
+  /** Since 20261013120000; older payloads fall back to `requests`. */
+  requested_heads?: number;
   approved_heads?: number;
   checked_in_heads?: number;
 }
@@ -63,7 +65,7 @@ export default async function InfluencerStatsPage({
     name?: string;
     handle?: string | null;
     venue_name?: string;
-    totals?: { views?: number; requests?: number; approved_heads?: number; checked_in_heads?: number };
+    totals?: { views?: number; requests?: number; requested_heads?: number; approved_heads?: number; checked_in_heads?: number };
     events?: StatsEventPayload[];
   };
 
@@ -85,7 +87,7 @@ export default async function InfluencerStatsPage({
           startsMs,
           f: {
             views: e.views ?? 0,
-            requests: e.requests ?? 0,
+            requested: e.requested_heads ?? e.requests ?? 0,
             approved: e.approved_heads ?? 0,
             checkedIn: e.checked_in_heads ?? 0,
           },
@@ -100,7 +102,7 @@ export default async function InfluencerStatsPage({
       venueName,
       totals: {
         views: payload.totals?.views ?? 0,
-        requests: payload.totals?.requests ?? 0,
+        requested: payload.totals?.requested_heads ?? payload.totals?.requests ?? 0,
         approved: payload.totals?.approved_heads ?? 0,
         checkedIn: payload.totals?.checked_in_heads ?? 0,
       },
