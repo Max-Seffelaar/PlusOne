@@ -59,7 +59,13 @@ select tables_are(
     -- Mail-infra F0 (z8uq9m2yvt): one row per app-sent mail (no content,
     -- hashed recipient; platform admins read) + the Resend webhook ledger
     -- (RLS on, no policies, no grants). Writes only via service_role RPCs.
-    'mail_log', 'resend_webhook_events'
+    'mail_log', 'resend_webhook_events',
+    -- Gastcommunicatie F (z8uq9m2vpy): the guest-mail queue (no address, no
+    -- content; the team's note is dropped once a row settles), opt-outs per
+    -- company (address hash), the per-mail bearer links (sha256 only) and the
+    -- job's single-use tokens. RLS on, no policies, no app-role grants; the
+    -- service_role / anon RPCs are the only paths.
+    'guest_mail_queue', 'guest_mail_optouts', 'guest_mail_links', 'guest_mail_tokens'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );

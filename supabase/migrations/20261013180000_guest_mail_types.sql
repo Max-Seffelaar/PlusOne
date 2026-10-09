@@ -104,7 +104,11 @@ begin
   if p_type like 'billing\_%' then
     raise exception 'billing mails go through log_billing_mail' using errcode = '22023';
   end if;
-  if p_type like 'guest\_%' then
+  -- The nine guest types only: an unknown guest_* type still falls through to
+  -- the type check constraint (23514), like any other unknown type.
+  if p_type in ('guest_on_list', 'guest_plus_ones', 'guest_event_changed',
+                'guest_event_canceled', 'guest_removed', 'guest_reminder',
+                'guest_request_approved', 'guest_request_partly', 'guest_request_declined') then
     raise exception 'guest mails go through guest_mails_claim' using errcode = '22023';
   end if;
 
