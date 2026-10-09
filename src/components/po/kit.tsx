@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { isNativeShell } from '@/lib/platform';
-import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
+import { TERMS_URL, PRIVACY_URL, DPA_URL } from '@/lib/legal';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
@@ -732,13 +732,14 @@ export function Scroll({ children, pad = 20, bottom = 24, className }: { childre
 // with left/right left at auto the empty ::before is 0px wide and hits nothing.
 const toggleHit = "relative before:absolute before:inset-x-0 before:-inset-y-[8px] before:content-['']";
 
-export function Toggle({ on, onClick }: { on: boolean; onClick?: () => void }): JSX.Element {
+export function Toggle({ on, onClick, ariaLabel }: { on: boolean; onClick?: () => void; ariaLabel?: string }): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
       role="switch"
       aria-checked={on}
+      aria-label={ariaLabel}
       className={cn('flex h-[28px] w-[46px] cursor-pointer rounded-full p-[3px] transition-colors', press, toggleHit, on ? 'justify-end bg-acc' : 'justify-start bg-elev2')}
     >
       <span className={cn('block h-[22px] w-[22px] rounded-full', on ? 'bg-on-acc' : 'bg-faint')} />
@@ -753,7 +754,7 @@ export function ToggleRow({ title, sub, on, set, last }: { title: string; sub?: 
         <div className="font-body text-[14.5px] font-semibold text-text">{title}</div>
         {sub && <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>}
       </div>
-      <Toggle on={on} onClick={() => set(!on)} />
+      <Toggle on={on} onClick={() => set(!on)} ariaLabel={title} />
     </div>
   );
 }
@@ -1526,3 +1527,48 @@ export function ConsentCheck({
     </div>
   );
 }
+
+/**
+ * The company consent card (#40, Onboarding A z8uq9m2vg5): creating a company
+ * accepts the Data Processing Agreement, nothing else (Terms + Privacy belong
+ * to the account, at /consent). Same card and 44px link row as ConsentCheck.
+ */
+export function DpaCheck({
+  checked,
+  onChange,
+  companyName,
+  className,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  /** The name typed in the form; empty = "my company". */
+  companyName: string;
+  className?: string;
+}): JSX.Element {
+  const c = t.onboarding.venueCreate;
+  const name = companyName.trim();
+  return (
+    <div className={cn('rounded-[16px] border border-line bg-elev', className)}>
+      <label className="flex cursor-pointer items-start gap-[11px] p-4 pb-1.5 lg:[@media(pointer:fine)]:pb-2">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-[2px] h-[19px] w-[19px] shrink-0 accent-acc"
+        />
+        <span className="text-[13px] leading-[1.5] text-text">
+          {c.dpaPre}
+          <b className="font-semibold">{c.dpaDoc}</b>
+          {name ? fmt(c.dpaPost, { company: name }) : c.dpaPostNoName}
+        </span>
+      </label>
+      <div className="flex flex-wrap gap-x-3 pb-1 pl-[46px] pr-4 lg:[@media(pointer:fine)]:pb-4">
+        <ExternalLink tap href={DPA_URL} className="text-[13px] font-semibold text-acc underline">
+          {c.dpaDoc}
+        </ExternalLink>
+      </div>
+    </div>
+  );
+}
+
+export { PlacesField, type PlacePick } from './places-field';

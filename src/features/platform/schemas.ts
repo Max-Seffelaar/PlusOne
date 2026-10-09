@@ -15,9 +15,18 @@ export const inviteNoteSchema = z
   .nullable()
   .optional();
 
+// "Free until end of ADE" (Onboarding A, z8uq9m2vg5): the form sends 'true'
+// when ticked; absent or 'false' is false, anything else is refused. Stored on
+// platform_invites.free_until_ade; create_venue_with_owner reads it from
+// there, never from the mail or metadata.
+export const inviteFreeUntilAdeSchema = z
+  .union([z.literal('true'), z.literal('false'), z.null(), z.undefined()])
+  .transform((v) => v === 'true');
+
 export const betaInviteSchema = z.object({
   email: emailSchema,
   note: inviteNoteSchema,
+  freeUntilAde: inviteFreeUntilAdeSchema,
 });
 
 export const platformInviteIdSchema = z.object({

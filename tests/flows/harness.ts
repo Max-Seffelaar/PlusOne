@@ -1,6 +1,6 @@
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { test as base, expect, type Page, type Project } from '@playwright/test';
+import { test as base, expect, type Locator, type Page, type Project } from '@playwright/test';
 import { LAYOUT_DEVICES, type LayoutDevice } from '../e2e/layout/matrix';
 
 /**
@@ -207,6 +207,23 @@ export async function reportsNative(page: Page): Promise<boolean> {
     const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
     return Boolean(cap?.isNativePlatform?.());
   });
+}
+
+/**
+ * Click `button` until `next` is visible. On a cold dev server a route's first
+ * hit can paint its server HTML before React has hydrated it, and a click in
+ * that window lands on a button without a handler: nothing happens, and the
+ * flow waits for a step that never comes (company-rename Q1 on desktop, run
+ * 37988168882). Retrying the click until the step actually moves on is the
+ * web-first way to wait for hydration without a marker in app code or a fixed
+ * sleep. A click is only repeated while `next` is still absent, so a slow but
+ * successful click is never doubled.
+ */
+export async function clickUntilVisible(button: Locator, next: Locator, timeout = 60_000): Promise<void> {
+  await expect(async () => {
+    if (!(await next.isVisible())) await button.click({ timeout: 5_000 });
+    await expect(next).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout });
 }
 
 export { expect };
