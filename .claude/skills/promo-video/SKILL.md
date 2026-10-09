@@ -32,11 +32,33 @@ The cast matches the demo data, so the names in the app match the faces in the v
 
 1. **Story first.** Write the hook and what the viewer should believe after watching (e.g. "the door never stops, even offline"). Each shot is one beat of that story. Real-world logic matters: guests at the front of a queue face the host; the host is in control; nobody waits with their back to the door.
 2. **Shotlist.** Per shot: time, type (A/B/C), what we see, startframe + references, model, overlay text. Overlays are English and follow `tone-of-voice.md` (short, verb-first, no slop words like seamless/elevate).
-3. **App screens (type C and the green screens of B).** Seed the demo company locally with `pnpm promo:seed` (Kelder Nord: three events, 75+ guests each, real names in the audit log; log in via `/auth/dev-login?email=owner@kelder-nord.test&next=/app`). Store-sized stills come from `pnpm store:screenshots`. Never use production data in a promo.
+3. **App screens (type C and the green screens of B).** Seed the demo company locally with `pnpm promo:seed` (Kelder Nord: three events, 75+ guests each, real names in the audit log; log in via `/auth/dev-login?email=owner@kelder-nord.test&next=/app`). Then capture every storyboard screen with stable file names, on phone (1290×2796) and iPad landscape (2752×2064):
+
+   ```bash
+   npx playwright test -c .claude/skills/promo-video/scripts/screens.config.mjs
+   ```
+
+   It starts its own dev server on port 3100 and writes `~/Documents/PlusOne promo/app-screens/<device>/<nn>-<slug>.png` (override with `PROMO_SCREENS_DIR`; from a git worktree add `DEV_WEBPACK=1`). The screen list lives in `scripts/screens.spec.mjs`: add a row there when a new shot needs a new screen. Capture while the seeded live night is still live (it is anchored at seed time). When a shot needs a state the seed does not have (a specific refusal reason, a fresh request), create it in the app as the right persona before recording, so names and the audit log stay true. Interactions (typing, tapping) are screen recordings at the same viewport. Never use production data in a promo.
 4. **Characters.** Each recurring character gets a character sheet (portrait, side, full body, back, hands) on a plain charcoal backdrop, then a Soul Character in Higgsfield (for stills) and an `@` Element (for video). See `references/look-and-cast.md`.
 5. **Startframes.** Every video shot starts from an approved still. Rules below.
 6. **Video prompts.** Director format, see `references/prompt-format.md`. Test at 720p, 5 s, sound off. Generate the hardest/most important shot first.
 7. **Review every generation** with the checklist below before the next one costs credits.
+
+## Files and names
+
+Everything for a campaign lives in `~/Documents/PlusOne promo/`, and every setting line in the storyboard names a file there. File names go in the setting line above a prompt, never inside the prompt (the model never sees file names and may render them as text).
+
+| Folder | Holds | Example |
+|---|---|---|
+| `refs/` | Approved reference images and end frames cut from them | `REF-2_rij.jpg`, `REF-2_eindframe.jpg` |
+| `karakters/<name>/` | Character sheets | `karakters/lotte/lotte_1-portret.png` |
+| `startframes/trailer/`, `startframes/reels/` | New startframes per shot | `T01_lotte-kijkt-op.png`, `R2-A_daan.png` |
+| `generaties/trailer/`, `generaties/reels/` | Higgsfield videos per shot and version | `T04_v1.mp4`; approved: `T04_v3_ok.mp4` |
+| `app-screens/phone/`, `app-screens/ipad-landscape/` | Captured app screens (step 3) | `phone/04-door-checkin.png` |
+| `opnames/` | Screen recordings of the real app | `T03_check-in.mp4` |
+| `montage/` | Edit projects and exports | `trailer_v1.mp4` |
+
+Shot codes: trailer shots `T01`…`T12`, reel shots `R<reel>-<shot>` (`R1-3` = reel 1, shot 3); reel startframes keep their letter (`R1-A`). When Max sends an image, say which file name it should be saved as.
 
 ## Startframes
 
@@ -58,7 +80,7 @@ The startframe is literally the first frame of the video; the model only animate
 | Stills: character sheets, edits of approved images | Nano Banana Pro (inside Higgsfield) | image references |
 | Stills with a trained character | Soul Cinema + Soul Character | prompt + character |
 
-Model names and features change; check with the Higgsfield MCP `models_list` before recommending something new. The MCP in this setup can read the catalogue, credits and finished generations but cannot upload or generate — Max generates in the web app.
+Model names and features change; check with the Higgsfield MCP `models_list` before recommending something new (it is paginated: the Kling models are on the second page, `after: "20"`). Several models generate audio by default, so always tell Max to switch sound off. The MCP in this setup can read the catalogue, credits and finished generations but cannot upload or generate — Max generates in the web app.
 
 ## Reviewing a generation
 
@@ -89,4 +111,5 @@ Then give the fix as concrete changes: which input to swap, which line of the pr
 - Answer in Max's language (usually Dutch); prompts themselves are English.
 - Hand over complete, copy-paste-ready prompts — never fragments he has to assemble, and one image per message for image tools.
 - Credits are real money: ask him to send a startframe for a check before he spends credits on video.
-- Keep the storyboard doc current: approved references, new prompts, status per shot.
+- Keep the storyboard doc current: approved references, new prompts, status per shot. If you cannot read it in this session, say so and work from this skill's references.
+- Sensitive moments (a refusal, someone drunk) stay dignified: the guest is clearly adult, shown through posture rather than slapstick, no drink in hand, no physical contact; Lotte stays calm and respectful. The brand is a door that runs well, not a door that humiliates people.

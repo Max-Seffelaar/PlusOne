@@ -65,4 +65,4 @@ Settings: Kling v3.0 pro, startframe = close-up of Daan's hand holding a phone w
 
 ## Still prompts (startframes, references)
 
-Stills are described by appearance (that is their job), in the look-bible vocabulary, ending with `harsh direct on-camera flash, 35mm film grain, no text`. Edits of an approved image start with `Edit this image.` and say what changes and what must not (`Change only three people … Do not change anyone else: same faces, same clothes, same positions, same light, same composition.`).
+Stills are described by appearance (that is their job), in the look-bible vocabulary, ending with `harsh direct on-camera flash, 35mm film grain, no text, no smoking`. The still sets what the video can do: whatever is wrong in the startframe (phones out, vapor, a closed door where people must walk through) comes back in the video. Edits of an approved image start with `Edit this image.` and say what changes and what must not (`Change only three people … Do not change anyone else: same faces, same clothes, same positions, same light, same composition.`).
