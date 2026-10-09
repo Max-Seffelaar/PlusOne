@@ -201,16 +201,21 @@ jobs:
   # user flows in tests/flows/ on the four flow variants (desktop + phone browser,
   # phone + iPad inside the simulated native shell), screenshots every step, turns
   # the machine-answerable handoff questions into asserts, and publishes a contact
-  # sheet. Path-gated INSIDE the job: `select.mjs` maps the changed files to the
-  # flows that need them (registry: tests/flows/flows.mjs) — a README-only PR
-  # selects nothing and every later step is skipped. Not a required check.
-  flow-shots:
+  # sheet. Path-gated: `select.mjs` maps the changed files to the flows that need
+  # them (registry: tests/flows/flows.mjs) — a README-only PR selects nothing and
+  # no shard runs. Three jobs (z8uq9m43m9): select → one shard per variant
+  # (FLOW_SHARDS, each with its own stack, in parallel) → `flow-shots` merges the
+  # parts into the contact sheets + the one sticky PR comment. Serially, every
+  # flow × variant ran ~27 min and hit the old 30-min job timeout once a shared
+  # path selected them all. `flow-shots` is the check name; not a required check.
+  flow-shots-select:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
     permissions:
       contents: read
-      # Only for the sticky PR comment, through the built-in GITHUB_TOKEN.
-      pull-requests: write
+    outputs:
+      flows: ${{ steps.select.outputs.flows }}
+      shards: ${{ steps.select.outputs.shards }}
 
     steps:
       - uses: actions/checkout@v7
@@ -239,17 +244,30 @@ jobs:
             echo tests/flows/flows.mjs | node scripts/flow-shots/select.mjs
           fi
 
-      - name: No flow-relevant change
-        if: steps.select.outputs.flows == ''
-        run: echo "QA-0 flow shots — no flow-relevant paths changed, no flows run." >> "$GITHUB_STEP_SUMMARY"
+  flow-shots-shard:
+    needs: flow-shots-select
+    if: needs.flow-shots-select.outputs.flows != ''
+    runs-on: ubuntu-latest
+    # Per shard (= one variant, every selected flow). ~10 min on 2026-10-09
+    # (11 flows: ~3 min setup + ~7 min flows); the cap leaves room to grow.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      # Every variant's screenshots are worth having, even when one fails.
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.flow-shots-select.outputs.shards) }}
+    name: flow-shots (${{ matrix.variant }})
+
+    steps:
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
-        if: steps.select.outputs.flows != ''
         with:
           version: 9.0.0
 
       - uses: actions/setup-node@v7
-        if: steps.select.outputs.flows != ''
         with:
           node-version: 22
           cache: 'pnpm'
@@ -260,34 +278,119 @@ jobs:
       # the dropped set_venue_plan(uuid,text,boolean) overload and breaks the
       # wizard's plan/trial step on that stack.
       - name: Install dependencies (shared session-setup script)
-        if: steps.select.outputs.flows != ''
         run: node scripts/session-setup.mjs install
 
       - name: Setup Supabase CLI
-        if: steps.select.outputs.flows != ''
         uses: supabase/setup-cli@v3
         with:
           version: latest
 
       - name: Start local Supabase stack
-        if: steps.select.outputs.flows != ''
         run: supabase start
 
       - name: Provision .env.local from the running stack
-        if: steps.select.outputs.flows != ''
         run: node scripts/dev-env.mjs
 
       - name: Install Playwright browser
-        if: steps.select.outputs.flows != ''
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run flows (pnpm qa:flows)
-        if: steps.select.outputs.flows != ''
-        run: pnpm qa:flows ${{ steps.select.outputs.flows }}
+      - name: Run flows on this variant (pnpm qa:flows … --project)
+        env:
+          FLOWS: ${{ needs.flow-shots-select.outputs.flows }}
+          VARIANT: ${{ matrix.variant }}
+        # $FLOWS unquoted on purpose: space-separated flow names from the registry.
+        run: pnpm qa:flows $FLOWS -- --project "$VARIANT"
+
+      # Raw part only (flow-screenshots/<flow>/<variant>/): the merge job builds the
+      # contact sheets from all parts, so this shard's partial sheets stay behind.
+      - name: Upload this variant's screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flow-shots-part-${{ matrix.variant }}
+          path: |
+            flow-screenshots/
+            !flow-screenshots/*/contact-sheet.*
+            !flow-screenshots/index.html
+            !flow-screenshots/summary.md
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: flow-traces-${{ matrix.variant }}
+          path: test-results/flows/
+          if-no-files-found: ignore
+
+  flow-shots:
+    needs: [flow-shots-select, flow-shots-shard]
+    # Always: a failed or cancelled shard still gets its screenshots on the sheet
+    # and in the PR comment; the last step carries the shards' verdict.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Only for the sticky PR comment, through the built-in GITHUB_TOKEN.
+      pull-requests: write
+
+    steps:
+      - name: Selection must have succeeded
+        if: needs.flow-shots-select.result != 'success'
+        run: |
+          echo "flow-shots-select did not succeed (${{ needs.flow-shots-select.result }}) — see that job (registry self-check?)."
+          exit 1
+
+      - name: No flow-relevant change
+        if: needs.flow-shots-select.outputs.flows == ''
+        run: echo "QA-0 flow shots — no flow-relevant paths changed, no flows run." >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        if: needs.flow-shots-select.outputs.flows != ''
+
+      - name: Download every variant's screenshots
+        if: needs.flow-shots-select.outputs.flows != ''
+        uses: actions/download-artifact@v6
+        with:
+          pattern: flow-shots-part-*
+          path: flow-screenshots
+          merge-multiple: true
+
+      - uses: pnpm/action-setup@v6
+        if: needs.flow-shots-select.outputs.flows != ''
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v7
+        if: needs.flow-shots-select.outputs.flows != ''
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      # The contact sheet renders through Playwright's Chromium; no stack needed.
+      - name: Install dependencies (shared session-setup script)
+        if: needs.flow-shots-select.outputs.flows != ''
+        run: node scripts/session-setup.mjs install
+
+      - name: Install Playwright browser
+        if: needs.flow-shots-select.outputs.flows != ''
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build the contact sheets from all variants
+        if: needs.flow-shots-select.outputs.flows != ''
+        env:
+          FLOWS: ${{ needs.flow-shots-select.outputs.flows }}
+        run: |
+          if [ -d flow-screenshots ]; then
+            node scripts/flow-shots/contact-sheet.mjs $FLOWS
+          else
+            echo "No shard uploaded screenshots — nothing to merge."
+          fi
 
       - name: Upload contact sheets
         id: sheets
-        if: always() && steps.select.outputs.flows != ''
+        if: always() && needs.flow-shots-select.outputs.flows != ''
         uses: actions/upload-artifact@v7
         with:
           name: flow-contact-sheets
@@ -301,7 +404,7 @@ jobs:
 
       - name: Upload flow screenshots
         id: shots
-        if: always() && steps.select.outputs.flows != ''
+        if: always() && needs.flow-shots-select.outputs.flows != ''
         uses: actions/upload-artifact@v7
         with:
           name: flow-screenshots
@@ -310,9 +413,10 @@ jobs:
           if-no-files-found: warn
 
       - name: Write the job summary and the PR comment body
-        if: always() && steps.select.outputs.flows != ''
+        if: always() && needs.flow-shots-select.outputs.flows != ''
         env:
-          FLOWS: ${{ steps.select.outputs.flows }}
+          FLOWS: ${{ needs.flow-shots-select.outputs.flows }}
+          SHARDS: ${{ needs.flow-shots-shard.result }}
           SHEETS_URL: ${{ steps.sheets.outputs.artifact-url }}
           SHOTS_URL: ${{ steps.shots.outputs.artifact-url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -322,7 +426,7 @@ jobs:
             echo "<!-- qa-0-flow-shots -->"
             echo "## QA-0 flow shots — \`${SHA:0:7}\`"
             echo ""
-            echo "Flows: \`$FLOWS\` · [run]($RUN_URL)"
+            echo "Flows: \`$FLOWS\` · [run]($RUN_URL) · shards (one per variant): $SHARDS"
             if [ -n "$SHEETS_URL" ]; then
               echo "- **Contact sheets** (one PNG per flow, every step × variant + the assert table): [flow-contact-sheets]($SHEETS_URL)"
               echo "- Every full-page screenshot + \`flow.json\`: [flow-screenshots]($SHOTS_URL)"
@@ -339,7 +443,7 @@ jobs:
       # Sticky: one comment per PR, edited on every run. Fork PRs get a read-only
       # token, so a refused comment never fails the job — the summary above stays.
       - name: Post or update the PR comment
-        if: always() && github.event_name == 'pull_request' && steps.select.outputs.flows != ''
+        if: always() && github.event_name == 'pull_request' && needs.flow-shots-select.outputs.flows != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -354,9 +458,12 @@ jobs:
             gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@flow-comment.md > /dev/null
           fi
 
-      - uses: actions/upload-artifact@v7
-        if: failure() && steps.select.outputs.flows != ''
-        with:
-          name: flow-traces
-          path: test-results/flows/
-          if-no-files-found: ignore
+      # The check carries the shards' verdict: a failed assert or a cancelled shard
+      # turns `flow-shots` red, exactly as the single job did.
+      - name: Every shard passed
+        if: always() && needs.flow-shots-select.outputs.flows != ''
+        env:
+          SHARDS: ${{ needs.flow-shots-shard.result }}
+        run: |
+          echo "flow-shots shards: $SHARDS"
+          [ "$SHARDS" = "success" ]

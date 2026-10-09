@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — CI: flow-shots in parallel shards, one per variant (z8uq9m43m9)
+
+Milestone **Now** (golf D, decision Max 2026-10-09). A PR that touched a shared path (`src/lib/i18n/`, `tests/flows/flows.mjs`, …) selected every flow, and they ran one after another for ~27 min (11 flows × 4 variants, #441). With setup that sat at the 30-min job timeout (#441: 29 min 58 s). #438 and #441 ran into it on 2026-10-08/09, and a cancelled job leaves no contact sheet and no PR comment.
+
+- **Shape:** `flow-shots-select` (registry self-check + `select.mjs`, unchanged semantics) → `flow-shots-shard` matrix, one job per flow variant (`FLOW_SHARDS` in `tests/flows/flows.mjs`), each with its own stack, `pnpm qa:flows <flows> -- --project <variant>`, raw screenshots uploaded as `flow-shots-part-<variant>` → `flow-shots` (the check name the PR knows) downloads the parts, builds the contact sheets once and posts the same `flow-contact-sheets` / `flow-screenshots` artifacts and the one sticky comment. Its last step fails when any shard failed or was cancelled. Still not required. A README-only PR runs no shard.
+- **Why per variant, not per flow:** `crew-existing-account` takes ~4.4 min per variant, ~65% of the whole run. Splitting by flow would leave one shard at ~18 min however many shards there are. Each variant carries the same mix (~7 min of flows), so the run is ¼ of the serial time and grows at ¼ the rate per new flow. Timeout is 25 min per shard.
+- **Guard:** `select.mjs --self-check` fails when `FLOW_SHARDS` and the harness variants (`VARIANT_DEVICES` in `tests/flows/harness.ts`) drift apart, so a new variant can't silently stay out of CI.
+- **Install:** every job installs through `node scripts/session-setup.mjs install` (the merge job too: the contact sheet renders with Playwright's Chromium; no stack there).
+
+---
+
 ## 2026-10-09 — Promo demo seed "Kelder Nord" + no real name in the door placeholder
 
 Milestone **Now**: demo data for the promo reels and trailer (Higgsfield storyboard). No migration, no app behaviour change.
