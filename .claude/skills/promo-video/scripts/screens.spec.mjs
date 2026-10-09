@@ -18,6 +18,7 @@ const LIVE = 'b0300000-0000-7000-8000-000000000001'; // Velvet Hours, live now
 const UPCOMING = 'b0300000-0000-7000-8000-000000000002'; // Afterglow
 const PAST = 'b0300000-0000-7000-8000-000000000003'; // Season Opening
 const GUEST_PLUS_TWO = 'b0600000-0000-7000-8000-000000000100'; // approved, +2, not yet inside
+const GUEST_PAID = 'b0600000-0000-7000-8000-000000000115'; // Paid tier (EUR 17.50 at the door), +3, not yet inside
 
 const OWNER = 'owner@kelder-nord.test'; // Robin Vermeer, admin
 const DOOR = 'lotte@kelder-nord.test'; // Lotte Visser, head of door
@@ -76,6 +77,8 @@ const SCREENS = [
   { slug: '19-recap-past', as: OWNER, path: `/app/events/${PAST}/recap`, devices: BOTH },
   { slug: '20-home-door', as: DOOR, path: '/app', devices: PHONE },
   { slug: '21-home-promoter', as: PROMOTER, path: '/app', devices: PHONE },
+  { slug: '23-event-tiers-price', as: OWNER, path: `/app/events/${LIVE}/tiers`, devices: BOTH },
+  { slug: '22-door-paid-guest', as: DOOR, path: `/app/door?event=${LIVE}&guest=${GUEST_PAID}`, devices: PHONE },
 ];
 
 async function open(page, as, path) {

@@ -8,6 +8,15 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — `promo-video` skill: craft rules from the director review
+
+Follow-up to #447, no app code. The skill now holds the rules from the director review of the first campaign:
+- **`references/craft.md`:** story rules (a human between two UI shots; promoters are never the villain; show the money; never promise what the app does not do; one CTA per audience), how to build UI shots in the edit without filming, the sound layers, music licensing, finishing, and an animatic before any credits are spent.
+- **Screen capture:** two new screens for the money moment: `22-door-paid-guest` (the PAID label at the door) and `23-event-tiers-price` (the Paid tier at €17.50).
+- **Gotcha:** the door does not show the paid amount yet. The pay banner is still inert in `src/features/door/model.ts`, so promo copy must not promise a price at the door.
+
+---
+
 ## 2026-10-09 — `promo-video` skill: one look, cast and prompt format for PlusOne promo video
 
 Milestone **Now** (marketing). Captures the first reels/trailer session so later videos keep the same quality without re-learning it. No app code.
