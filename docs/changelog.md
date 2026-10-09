@@ -19,10 +19,13 @@ Milestone **Now** (golf D, task 5b of the October onboarding programme). Web sid
   - Reads are non-destructive. The shell keys its screen on the full URL (entrance animation), so the URL rewrite remounts the screen and a read-once inbox left the remounted screen empty. The text is cleared after a successful import. S6's native plugin calls `putSharedText`.
 - **Parser** (`quick-add-parser.ts`): `bulkLines` strips list markers (`-`, `•`, `*`, `1.`, `2)`) and skips a first-line column header ("Name<TAB>Email", "Naam, E-mail, Telefoon"). Tab/comma columns, e-mail and phone per line already worked. `pasteSummary` feeds the new preview count line "4 entries · 7 guests total · 2 with e-mail" (also on the normal Paste a list).
 - **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
-- **Found, not fixed (outside the fence, in the PR):**
-  - A GET share target still sends the text once to the server: the launch request is logged (the dev server prints it, Vercel logs it), and the SW's network-first navigation stores that URL in the session cache. A signed-out share goes through `/login?next=…`. Proposed fix: an SW hop to `#text=` (the client already reads it), or a POST share target via the SW.
+- **Service-worker share hop (Max 2026-10-09, option a; high-risk → fresh reviewer before merge):** with GET alone, the launch `/app/share?text=…` reached the server once (the dev server printed it; Vercel logs URLs). The SW's network-first path also stored it in the session cache under that URL, and a signed-out share carried it into `/login?next=…`.
+  - `public/service-worker.js` now answers that navigation itself with a 303 to `/app/share#text=…`: no fetch, no cache write. Every other navigation is unchanged.
+  - Residual risk: the very first launch before the SW controls the page still sends the query once. A signed-out share loses the text.
+  - The Sentry scrubber now also strips URL fragments.
+- **Found, not fixed (in the PR):**
   - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
-- **Tests:** flow `share` (Q1–Q12 × 4 variants, all green locally; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+- **Tests:** flow `share` (Q1–Q13 × 4 variants, all green locally; Q13: with an active SW no request with the text reaches the network, cross-checked in the dev-server log; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), SW share-hop tests (+6 in `service-worker-cache-scope.test.ts`), scrub fragment test, routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
 
 ---
 

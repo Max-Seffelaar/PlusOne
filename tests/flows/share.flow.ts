@@ -13,6 +13,8 @@ import { acceptConsent, adminClient } from '../e2e/helpers/supabase-admin';
  *   share URL → Paste a list with the text, URL stripped → event + tier picked
  *   → preview + count → Add → the event's guest list (rows in the database)
  *   → a reload of /app/share is empty (the text lived in memory only)
+ *   → over quota / no guest rights → with the service worker active (Q13) the
+ *     share launch is answered on the device: no request with the text leaves it
  *
  * Every request is recorded. The shared text may travel in exactly one request
  * after the share launch itself: the import (the existing bulk-add server
@@ -236,6 +238,50 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
     const { count } = await a.from('guests').select('id', { count: 'exact', head: true }).eq('event_id', SEED_EVENT).eq('full_name', DENIED);
     expect(count).toBe(0);
     expect(new URL(page.url()).pathname).toBe('/app/share');
+  });
+
+  // ── With an active service worker the share never reaches the network ────
+  // The worker is production-only; the e2e opt-in (`po:sw-dev-cache`, the same
+  // one the door-offline spec uses) turns it on for this dev server.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('po:sw-dev-cache', '1');
+    } catch {
+      /* ignore */
+    }
+  });
+  await page.goto('/app');
+  await page.waitForFunction(() => !!navigator.serviceWorker?.controller, undefined, { timeout: 60_000 });
+  const SW_LIST = `Iris Koster ${tag} +1`;
+  const swSeen: Request[] = [];
+  const onSwRequest = (r: Request): void => {
+    swSeen.push(r);
+  };
+  context.on('request', onSwRequest);
+  const launch = await page.goto(`/app/share?${new URLSearchParams({ text: SW_LIST }).toString()}`);
+  await expect(page.locator('textarea')).toHaveValue(SW_LIST);
+  await flow.shot('shared-via-service-worker');
+  context.off('request', onSwRequest);
+  await flow.check(13, 'With the service worker active, the share launch is answered on the device: no request carrying the text reaches the network, and the box still fills', async () => {
+    // The page's own navigation is answered by the worker (a 303 to #text=…);
+    // a request the WORKER made would show up with serviceWorker() set.
+    const first = launch?.request().redirectedFrom() ?? launch?.request();
+    expect(first?.url()).toContain('text=');
+    expect((await first?.response())?.fromServiceWorker()).toBe(true);
+    const carriers = swSeen.filter((r) => {
+      let blob = `${r.url()}\n${r.postData() ?? ''}`;
+      try {
+        blob = decodeURIComponent(blob.replace(/\+/g, ' '));
+      } catch {
+        /* keep raw */
+      }
+      // The full shared line; the bare name in the existing lookups is Q6's.
+      return blob.toLowerCase().includes(SW_LIST.toLowerCase());
+    });
+    const reachedNetwork = carriers.filter((r) => r.serviceWorker() !== null || r !== first);
+    expect(reachedNetwork.map((r) => `${r.method()} ${r.url().slice(0, 80)}`)).toEqual([]);
+    const u = new URL(page.url());
+    expect(u.pathname + u.search + u.hash).toBe('/app/share');
   });
 
   await flow.check(10, 'No step scrolls sideways and the page threw no uncaught errors', async () => {
