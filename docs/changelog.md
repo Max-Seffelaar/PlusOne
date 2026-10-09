@@ -53,6 +53,42 @@ queue calls; timeline component. pgTAP `billing_mails.test.sql` (68). Flow
 
 ---
 
+## 2026-10-09 — CI: flow-shots in parallel shards, one per variant (z8uq9m43m9)
+
+Milestone **Now** (golf D, decision Max 2026-10-09). A PR that touched a shared path (`src/lib/i18n/`, `tests/flows/flows.mjs`, …) selected every flow, and they ran one after another for ~27 min (11 flows × 4 variants, #441). With setup that sat at the 30-min job timeout (#441: 29 min 58 s). #438 and #441 ran into it on 2026-10-08/09, and a cancelled job leaves no contact sheet and no PR comment.
+
+- **Shape:** `flow-shots-select` (registry self-check + `select.mjs`, unchanged semantics) → `flow-shots-shard` matrix, one job per flow variant (`FLOW_SHARDS` in `tests/flows/flows.mjs`), each with its own stack, `pnpm qa:flows <flows> -- --project <variant>`, raw screenshots uploaded as `flow-shots-part-<variant>` → `flow-shots` (the check name the PR knows) downloads the parts, builds the contact sheets once and posts the same `flow-contact-sheets` / `flow-screenshots` artifacts and the one sticky comment. Its last step fails when any shard failed or was cancelled. Still not required. A README-only PR runs no shard.
+- **Why per variant, not per flow:** `crew-existing-account` takes ~4.4 min per variant, ~65% of the whole run. Splitting by flow would leave one shard at ~18 min however many shards there are. Each variant carries the same mix (~7 min of flows), so the run is ¼ of the serial time and grows at ¼ the rate per new flow. Timeout is 25 min per shard.
+- **Guard:** `select.mjs --self-check` fails when `FLOW_SHARDS` and the harness variants (`VARIANT_DEVICES` in `tests/flows/harness.ts`) drift apart, so a new variant can't silently stay out of CI.
+- **Install:** every job installs through `node scripts/session-setup.mjs install` (the merge job too: the contact sheet renders with Playwright's Chromium; no stack there).
+
+---
+
+## 2026-10-09 — Promo demo seed "Kelder Nord" + no real name in the door placeholder
+
+Milestone **Now**: demo data for the promo reels and trailer (Higgsfield storyboard). No migration, no app behaviour change.
+
+- **`pnpm promo:seed`** (`scripts/promo-seed.mjs`): a separate fictional company, Kelder Nord, on top of a fresh local stack. Nine people (two admins, finance, three promoters with quota, two door hosts, an external organizer; log in via dev-login as `owner@kelder-nord.test`, no MFA), three events with Guest / VIP / Paid (€17.50 at the door) and 75+ names each: Velvet Hours live (70 checked in, list locked), Afterglow upcoming (6 open requests, 2 quota requests), Season Opening past (~81% turnout, refusals, no-shows). 180 contacts (12 regulars) reused across events plus name-only guests; four request links per event with page views.
+- **Why a separate venue:** Club Vesper comes from `supabase/seed.sql`, which pgTAP relies on row for row, so its names and addresses cannot change. The Kelder Nord people are members of Kelder Nord only.
+- **Real names in the audit log:** one transaction over the local superuser connection with `request.jwt.claims` set per step, so the audit triggers record the actual person. No trigger is bypassed and nothing is hard-deleted. Auto-approved link sign-ups carry no `added_by`, like `submit_guest_request`.
+- **No duplicates and only fake contact data:** a unique full name per person, each first name at most twice in the venue, e-mail on `example.com`, phones in the `+316000…` series. Guarded by `tests/unit/promo-seed.test.ts` (13 tests, no DB), along with the local-only gate, 75+ per event, the three tiers and the quota math.
+- **Door placeholder:** `door.addInputPlaceholder` was `e.g. "Juri Braakman +2 vip"`, a real name; it is now `e.g. "John Doe +2 vip"`, the same as Add guests.
+- **Gotcha:** the script is a no-op once Kelder Nord exists. Times are anchored at the run, so for a fresh live night run `supabase db reset` and then `pnpm promo:seed` (one-DB-owner rule).
+- **Found, split off:** the Promotion funnel showed more than 100% approved on this data (approved heads over request rows), fixed separately (entry below).
+
+---
+
+## 2026-10-09 — Promotion funnel counts people at every step: no more "148% approved"
+
+The Promotion overview read "31 requests → 46 approved (148% approved)", and leaderboard rows showed the same ("35 requests → 55 approved"). Root cause: every funnel RPC returned `requests` as a count of `guest_requests` rows but `approved_heads`/`checked_in_heads` as headcounts (1 + plus-ones), and `overview.tsx` divided approved heads by request rows. Any request with plus-ones pushed the ratio past 100%.
+
+- **Decision:** after views, every funnel tile counts people (1 + plus-ones). Rows were rejected as the unit because the headline metric ("checked-in headcount", the leaderboard rank) is people. Each % compares like with like: *requested* = request rows per view (a headcount over views read "160%" on a small link with big parties), *approved* = approved people / requested people, *showed up* = checked-in / approved people. All are capped at 100%, because an admin can raise a guest's plus-ones after approval (`updateGuest`); the tiles keep the real counts.
+- **Migration `20261013120000_link_funnel_requested_heads`:** adds `requested_heads` = Σ(1 + `guest_requests.plus_ones`) over every request on the link (any status) to `event_link_funnel`, `venue_influencer_leaderboard`, `venue_label_link_funnel` (drop + create, grant matrix re-declared) and to `get_influencer_stats` (jsonb, `create or replace`, throttle/token logic unchanged). Each per-link `guest_requests` aggregate is one LATERAL pass, not two correlated scans. Expand–contract: `requests` (rows) stays. While `requested_heads` is absent (app deployed before the schema push), the approved % shows "–" and the Requested tile shows the request count as a floor; it never divides people by rows.
+- **UI:** the math lives in `src/features/po/funnel.ts` (`sumFunnels`, `funnelConversion`, `funnelPct`, `requestedDisplay`). The `/i/[token]` bars scale to the largest step instead of views. `scripts/dev/fake-supabase.mjs` carries `requested_heads`, so dev and flow screenshots don't show the old bug. Overview tiles, leaderboard/label funnel lines, per-event link cards and the public `/i/[token]` page show "Requested" (people) instead of "Requests" (rows); the overview card says "People counted, plus-ones included". The Events-screen links row stays on rows ("requests · approved") because it is row-consistent and has no percentages.
+- **Tests:** `src/features/po/funnel.test.ts` (the 148% case, small-link-big-party case, the post-approval plus-one edit, a ≤ 100% sweep over any data shape, empty funnel, unknown requested heads); pgTAP `promotion_stats` +7 (requested heads on all four RPCs, requested ≥ approved, grants on the re-created functions). Full pgTAP 95 files / 2417 assertions green on a fresh reset.
+
+---
+
 ## 2026-10-08 — Check-in: the Tasks view is gone on both door variants (z8uq9m2vg7, mini-PR)
 
 Joeri's walkthrough (Event C, item 3): the Tasks view did nothing yet. Split out of #438 because it lives in the Deur tab (decision Max 2026-10-08).

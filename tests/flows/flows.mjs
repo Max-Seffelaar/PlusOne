@@ -14,6 +14,17 @@
 // `select.mjs --self-check` (first step of the CI job) fails on a flow file
 // without an entry and on an entry without a flow file.
 
+/**
+ * CI shards: the `flow-shots` job runs one shard per flow variant (a Playwright
+ * project in tests/flows/harness.ts), each on its own runner and local stack, and
+ * a final job merges their screenshots into one contact sheet + one PR comment.
+ * A variant, not a flow, is the unit because one flow can dominate the run
+ * (crew-existing-account: ~4.4 min per variant on 2026-10-09) while every
+ * variant carries the same mix. `select.mjs --self-check` fails when this list
+ * and the harness variants drift apart.
+ */
+export const FLOW_SHARDS = ['desktop-browser', 'phone-browser', 'phone-native', 'ipad-native'];
+
 /** Paths every flow depends on. */
 export const SHARED_PATHS = [
   // the harness

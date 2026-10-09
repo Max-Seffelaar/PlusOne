@@ -139,7 +139,7 @@ export const door = {
   addSubQuotaLeft: 'your quota · {n} of {m} left',
   addSubFallback: 'at the door',
   addInputLabel: 'Type freely: name, +guests, tier',
-  addInputPlaceholder: 'e.g. "Juri Braakman +2 vip"',
+  addInputPlaceholder: 'e.g. "John Doe +2 vip"',
   tierRegular: 'Regular',
   tierFallback: 'Guest',
   // Not sure what you mean by "{x}". Pick one:

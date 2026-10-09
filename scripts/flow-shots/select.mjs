@@ -5,14 +5,15 @@
 //   node scripts/flow-shots/select.mjs --self-check                   # registry ↔ files + README-only
 //
 // Prints the selected flow names space-separated on stdout (empty = run nothing);
-// with GITHUB_OUTPUT set it also writes `flows=<names>`.
+// with GITHUB_OUTPUT set it also writes `flows=<names>` and `shards=<JSON list>`
+// (the CI matrix: one shard per flow variant, FLOW_SHARDS in flows.mjs).
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { FLOWS, SHARED_PATHS } = await import(pathToFileURL(join(ROOT, 'tests', 'flows', 'flows.mjs')).href);
+const { FLOWS, FLOW_SHARDS, SHARED_PATHS } = await import(pathToFileURL(join(ROOT, 'tests', 'flows', 'flows.mjs')).href);
 
 const matches = (file, prefixes) => prefixes.some((p) => file === p || file.startsWith(p));
 
@@ -42,6 +43,14 @@ function selfCheck() {
     const got = selectFlows(input);
     if (got.join(' ') !== want.join(' ')) problems.push(`selectFlows(${JSON.stringify(input)}) = [${got}] — want [${want}]`);
   }
+  // The CI matrix runs one shard per variant: a harness variant missing from
+  // FLOW_SHARDS would never run in CI, an extra one would fail on an unknown project.
+  const harness = readFileSync(join(ROOT, 'tests', 'flows', 'harness.ts'), 'utf8');
+  const devices = harness.match(/const VARIANT_DEVICES = \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const variants = [...devices.matchAll(/^\s*'([a-z0-9-]+)':\s*\{/gm)].map((m) => m[1]);
+  if (!variants.length) problems.push('could not read VARIANT_DEVICES from tests/flows/harness.ts');
+  else if ([...variants].sort().join(' ') !== [...FLOW_SHARDS].sort().join(' '))
+    problems.push(`FLOW_SHARDS [${FLOW_SHARDS}] in flows.mjs ≠ harness variants [${variants}]`);
   for (const p of [...SHARED_PATHS, ...Object.values(FLOWS).flatMap((d) => d.paths)]) {
     // A typo'd prefix would silently never match; every prefix must hit a tracked file.
     const hit = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '--', `${p}*`], { cwd: ROOT, encoding: 'utf8' }).trim();
@@ -51,7 +60,7 @@ function selfCheck() {
     console.error(`flow registry self-check failed:\n- ${problems.join('\n- ')}`);
     process.exit(1);
   }
-  console.error(`flow registry self-check ok (${Object.keys(FLOWS).length} flows; README-only selects none)`);
+  console.error(`flow registry self-check ok (${Object.keys(FLOWS).length} flows, ${FLOW_SHARDS.length} shards; README-only selects none)`);
 }
 
 function arg(name) {
@@ -69,6 +78,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       : readFileSync(0, 'utf8').split('\n');
     const flows = selectFlows(changed).join(' ');
     console.log(flows);
-    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `flows=${flows}\n`);
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `flows=${flows}\nshards=${JSON.stringify(FLOW_SHARDS)}\n`);
   }
 }
