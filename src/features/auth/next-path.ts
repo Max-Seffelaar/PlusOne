@@ -154,12 +154,46 @@ const RSC_QUERY = '_rsc';
  * — and only on requests that happen to carry `_rsc` (both reviews, 23/9).
  */
 export function requestPathForHeader(url: URL): string {
-  if (!url.searchParams.has(RSC_QUERY)) return url.pathname + url.search;
-  const kept = url.search
-    .slice(1)
-    .split('&')
-    .filter((pair) => pair !== RSC_QUERY && !pair.startsWith(`${RSC_QUERY}=`));
+  return dropQueryKeys(url, (key) => key === RSC_QUERY || isSharePayloadKey(url, key));
+}
+
+// Share-import S2 (z8uq9m43m8): the PWA's GET share target opens
+// `/app/share?text=…&title=…&url=…` — a guest list (PII) in the query. When no
+// service worker answers that navigation on the device (public/service-worker.js
+// `shareHop`), it reaches middleware; the list must then not be copied into a
+// second URL. Both `next=` builders drop these keys on that one path: the login
+// redirect (`loginNextPath`) and the /app gates' header (`requestPathForHeader`).
+// The text is lost on that path — the user shares again after signing in.
+const SHARE_PATH = '/app/share';
+const SHARE_PAYLOAD_KEYS = new Set(['text', 'title', 'url']);
+
+function isSharePayloadKey(url: URL, key: string): boolean {
+  return url.pathname.replace(/\/+$/, '') === SHARE_PATH && SHARE_PAYLOAD_KEYS.has(key);
+}
+
+/** The query key of one raw `a=b` pair, decoded the way URLSearchParams would. */
+function pairKey(pair: string): string {
+  const raw = pair.split('=', 1)[0].replace(/\+/g, ' ');
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/** `pathname + search` minus the query pairs whose key `drop` matches. The query
+ *  is edited as TEXT (see `requestPathForHeader`): kept pairs stay byte-for-byte. */
+function dropQueryKeys(url: URL, drop: (key: string) => boolean): string {
+  const pairs = url.search.slice(1).split('&').filter((pair) => pair !== '');
+  if (!pairs.some((pair) => drop(pairKey(pair)))) return url.pathname + url.search;
+  const kept = pairs.filter((pair) => !drop(pairKey(pair)));
   return kept.length > 0 ? `${url.pathname}?${kept.join('&')}` : url.pathname;
+}
+
+/** Middleware side: the `next=` for the signed-out redirect to /login. Path and
+ *  query as requested, except a share payload on `/app/share` (see above). */
+export function loginNextPath(url: URL): string {
+  return dropQueryKeys(url, (key) => isSharePayloadKey(url, key));
 }
 
 const APP_ROOT = '/app';
