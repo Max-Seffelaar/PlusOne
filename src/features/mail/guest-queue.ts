@@ -125,3 +125,11 @@ export function queueRequestDeclinedMail(requestId: string, remark: string, acto
     }
   });
 }
+
+/** Drain what is due, after the response (a company just added its contact address). */
+export function drainQueuedGuestMails(): void {
+  if (!guestMailActive()) return;
+  after(async () => {
+    await drainGuestMails(defaultGuestMailDeps());
+  });
+}

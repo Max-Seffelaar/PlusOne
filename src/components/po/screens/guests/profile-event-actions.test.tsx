@@ -195,7 +195,8 @@ describe('EventRowActions: remove', () => {
     const { onDone } = open();
     fireEvent.click(item(cp.removeFromList)!);
     fireEvent.click(screen.getByRole('button', { name: cp.removeConfirm }));
-    expect(H.removeMutate).toHaveBeenCalledWith('g1', expect.any(Object));
+    // The note (guest mail F) travels with the guest id; empty = no note.
+    expect(H.removeMutate).toHaveBeenCalledWith({ guestId: 'g1', note: undefined }, expect.any(Object));
     expect(onDone).toHaveBeenCalledWith({ toast: fmt(cp.removed, { event: 'FRENZY' }), removed: true });
   });
 

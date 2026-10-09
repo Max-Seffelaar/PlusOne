@@ -32,6 +32,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll } from '../../kit';
+import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
 import { AddTierInline, DupeOption, NoTiersBlock, press, col } from './_shared';
@@ -103,6 +104,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const { data: quota } = usePoQuota(evId);
   const add = usePoAddGuest(evId);
   const update = usePoUpdateGuest(evId);
+  const [sendConfirmation, setSendConfirmation] = useSendConfirmation();
   // The event's existing guests drive duplicate detection (S2.2). RLS-scoped, so
   // staff only match against their own guests — exactly the rows they may update.
   const { data: liveGuests = [] } = usePoGuests(evId);
@@ -284,6 +286,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
         email: emailVal,
         phone: phoneVal,
         source: 'app',
+        sendConfirmation: sendConfirmation && Boolean(emailVal),
         // Only on a clean insert: "add again anyway" means a DIFFERENT person who
         // happens to share the name, so it must never inherit the contact link.
         ...(existing === null && linkedContactId ? { contactId: linkedContactId } : {}),
@@ -482,6 +485,10 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                 </div>
               )}
             </div>
+
+            {parsed && effName && (parsed.email || contactEmail.trim()) && (
+              <SendConfirmationRow className="mt-3" on={sendConfirmation} set={setSendConfirmation} />
+            )}
 
             {/* Creating tiers shouldn't be a one-shot (retest 3/7, Q12): the same
                 inline form stays reachable once tiers exist. Same gate as the

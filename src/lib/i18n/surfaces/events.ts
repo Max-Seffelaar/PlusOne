@@ -92,6 +92,7 @@ export const events = {
   locationNamePlaceholder: 'e.g. Paradiso',
   locationAddressPlaceholder: 'Street and number, city',
   locationNameTooLong: 'That location name is too long.',
+  houseRulesTooLong: 'Keep the house rules under 500 characters.',
   locationAddressTooLong: 'That address is too long.',
   locationAria: 'Location',
   /** Template create path: the event exists, the follow-up location write failed. */
@@ -362,5 +363,19 @@ export const events = {
     assignError: "Couldn't add this person to the crew.",
     searchPlaceholder: 'Search returning crew…',
     searchEmpty: 'No match. Invite them by email instead.',
+  },
+  // Guest mail F: house rules for "You're on the list" + the platform-admin reminder test.
+  guestMail: {
+    houseRulesLabel: 'House rules (optional)',
+    houseRulesPlaceholder: 'e.g. 21+, no sportswear',
+    houseRulesHint: 'Shown in the "You\'re on the list" email.',
+    houseRulesSave: 'Save house rules',
+    houseRulesSaving: 'Saving…',
+    houseRulesSaved: 'House rules saved.',
+    reminderTitle: 'Send reminder',
+    reminderSub: 'Test, platform admins only. Mails every guest with an email who is on the list.',
+    reminderSend: 'Send reminder',
+    reminderSending: 'Sending…',
+    reminderSent: 'Reminder queued.',
   },
 } as const;

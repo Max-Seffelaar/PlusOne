@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
+import { queueGuestMails } from '@/features/mail/guest-queue';
 import {
   upsertContactSchema,
   togglePermanentSchema,
@@ -171,7 +172,7 @@ export async function toggleContactPermanent(input: TogglePermanentInput): Promi
 export async function addContactToEvent(input: AddContactToEventInput): Promise<ActionResult> {
   const parsed = addContactToEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { contactId, eventId, tierId, plusOnes } = parsed.data;
+  const { contactId, eventId, tierId, plusOnes, sendConfirmation } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -179,13 +180,19 @@ export async function addContactToEvent(input: AddContactToEventInput): Promise<
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { error } = await supabase.rpc('add_contact_to_event', {
+  const { data: guestId, error } = await supabase.rpc('add_contact_to_event', {
     p_contact_id: contactId,
     p_event_id: eventId,
     ...(tierId ? { p_tier_id: tierId } : {}),
     ...(plusOnes ? { p_plus_ones: plusOnes } : {}),
   });
   if (error) return mapMutationError(error);
+
+  // "You're on the list" (guest mail F); the enqueue RPC skips a guest
+  // without an address.
+  if (sendConfirmation && typeof guestId === 'string') {
+    queueGuestMails([{ type: 'guest_on_list', guestId }], user.id);
+  }
 
   return { ok: true };
 }
@@ -252,7 +259,8 @@ export async function importContacts(input: ImportContactsInput): Promise<Import
 export async function addContactsToEvent(input: AddContactsToEventInput): Promise<AddContactsToEventResult> {
   const parsed = addContactsToEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, contactIds, tierId } = parsed.data;
+  const { eventId, contactIds, tierId, sendConfirmation } = parsed.data;
+  const startedAt = new Date().toISOString();
 
   const supabase = await createClient();
   const {
@@ -279,6 +287,30 @@ export async function addContactsToEvent(input: AddContactsToEventInput): Promis
     return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
   }
   const r = parsedResult.data;
+
+  // "You're on the list" for the guests this call created (guest mail F). The
+  // RPC returns counts, not ids, so read them back through RLS: this event,
+  // these contacts, created by this call. The id list is the request's own
+  // (bounded by the schema), chunked like every .in().
+  if (sendConfirmation && r.added > 0) {
+    const guestIds: string[] = [];
+    for (let i = 0; i < contactIds.length; i += 120) {
+      const { data: rows } = await supabase
+        .from('guests')
+        .select('id')
+        .eq('event_id', eventId)
+        .eq('added_by', user.id)
+        .gte('created_at', startedAt)
+        .not('email', 'is', null)
+        .in('contact_id', contactIds.slice(i, i + 120));
+      for (const row of rows ?? []) guestIds.push(row.id);
+    }
+    queueGuestMails(
+      guestIds.map((id) => ({ type: 'guest_on_list' as const, guestId: id })),
+      user.id,
+    );
+  }
+
   return { ok: true, added: r.added, already: r.already, skipped: r.skipped };
 }
 

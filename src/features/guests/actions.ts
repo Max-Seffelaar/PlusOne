@@ -22,6 +22,11 @@ import {
   type ChangeTierBulkInput,
 } from './schemas';
 import { normalizeContactName, resolveContactMatches } from './contact-match';
+import { removeGuestSchema, type RemoveGuestInput } from './schemas';
+import { queueGuestMails } from '@/features/mail/guest-queue';
+import { guestMailActive } from '@/features/mail/config';
+import { t } from '@/lib/i18n';
+import { v7 as uuidv7 } from 'uuid';
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -79,7 +84,8 @@ async function verifyContactLinks(
 export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
   const parsed = addGuestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { id, eventId, tierId, fullName, plusOnes, email, phone, source, contactId } = parsed.data;
+  const { id, eventId, tierId, fullName, plusOnes, email, phone, source, contactId, sendConfirmation } =
+    parsed.data;
 
   const supabase = await createClient();
   const {
@@ -94,8 +100,15 @@ export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
   // added_by MUST be the actor — RLS pins it, we never accept it from the client (#27).
   // venue_id is populated by the set_event_scope BEFORE INSERT trigger
   // (migration 20260708120000); cast over the omitted column.
+  // "You're on the list" (guest mail F): only when the box was ticked, the
+  // guest has an address, and never for a door add. It needs the row id, so
+  // a confirmation insert always carries one (server-made UUIDv7 when the
+  // client sent none). Queued after the response; the enqueue RPC re-checks
+  // everything in the database.
+  const confirm = Boolean(sendConfirmation && source !== 'door' && email);
+  const rowId = id ?? (confirm ? uuidv7() : undefined);
   const { error } = await supabase.from('guests').insert({
-    ...(id ? { id } : {}),
+    ...(rowId ? { id: rowId } : {}),
     event_id: eventId,
     tier_id: tierId,
     full_name: fullName,
@@ -107,6 +120,10 @@ export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
     ...(contactId ? { contact_id: contactId } : {}),
   } as Database['public']['Tables']['guests']['Insert']);
   if (error) return mapMutationError(error);
+
+  if (confirm && rowId) {
+    queueGuestMails([{ type: 'guest_on_list', guestId: rowId }], user.id);
+  }
 
   return { ok: true };
 }
@@ -129,7 +146,7 @@ const BULK_DEADLOCK_RETRIES = 2;
 export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> {
   const parsed = bulkAddSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, guests, source } = parsed.data;
+  const { eventId, guests, source, sendConfirmation } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -147,7 +164,10 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
     return invalidInput(CONTACT_LINK_FAILED);
   }
 
-  const rows = guests.map((g) => ({
+  // A confirmation needs each row's id (guest mail F): give every row one.
+  const confirm = Boolean(sendConfirmation && source !== 'door');
+  const withIds = confirm ? guests.map((g) => ({ ...g, id: g.id ?? uuidv7() })) : guests;
+  const rows = withIds.map((g) => ({
     ...(g.id ? { id: g.id } : {}),
     event_id: eventId,
     tier_id: g.tierId,
@@ -168,6 +188,15 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
     if (!error || error.code !== DEADLOCK_DETECTED) break;
   }
   if (error) return mapMutationError(error);
+
+  if (confirm) {
+    queueGuestMails(
+      withIds
+        .filter((g): g is typeof g & { id: string } => Boolean(g.email && g.id))
+        .map((g) => ({ type: 'guest_on_list' as const, guestId: g.id })),
+      user.id,
+    );
+  }
 
   return { ok: true };
 }
@@ -195,12 +224,23 @@ export async function updateGuest(input: UpdateGuestInput): Promise<ActionResult
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
+  // A +N change mails the guest (guest mail F); only a real change counts.
+  let plusOnesBefore: number | null = null;
+  if (plusOnes !== undefined && guestMailActive()) {
+    const { data: before } = await supabase.from('guests').select('plus_ones').eq('id', guestId).maybeSingle();
+    plusOnesBefore = before?.plus_ones ?? null;
+  }
+
   const { error, count } = await supabase
     .from('guests')
     .update(patch, { count: 'exact' })
     .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
+
+  if (plusOnes !== undefined && plusOnesBefore !== null && plusOnesBefore !== plusOnes) {
+    queueGuestMails([{ type: 'guest_plus_ones', guestId }], user.id);
+  }
   return { ok: true };
 }
 
@@ -252,9 +292,16 @@ export async function changeGuestsTierBulk(input: ChangeTierBulkInput): Promise<
   return { ok: true };
 }
 
-/** Soft delete (#21): status -> removed. Hard delete is revoked at the DB. */
-export async function removeGuest(guestId: string): Promise<ActionResult> {
-  if (!/^[0-9a-f-]{36}$/i.test(guestId)) return invalidInput();
+/**
+ * Soft delete (#21): status -> removed. Hard delete is revoked at the DB.
+ * A guest with an address gets the removal mail (guest mail F), so the note
+ * for them is required then (copy v3: always shown). The note travels only in
+ * the mail queue (dropped once sent), never on the guest row.
+ */
+export async function removeGuest(input: RemoveGuestInput | string): Promise<ActionResult> {
+  const parsed = removeGuestSchema.safeParse(typeof input === 'string' ? { guestId: input } : input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { guestId, note } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -262,11 +309,22 @@ export async function removeGuest(guestId: string): Promise<ActionResult> {
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
+  let mailable = false;
+  if (guestMailActive()) {
+    const { data: guest } = await supabase.from('guests').select('email, status').eq('id', guestId).maybeSingle();
+    mailable = Boolean(guest?.email) && (guest?.status === 'approved' || guest?.status === 'checked_in');
+    if (mailable && !note) return invalidInput(t.guests.mail.removeNoteRequired);
+  }
+
   const { error, count } = await supabase
     .from('guests')
     .update({ status: 'removed' }, { count: 'exact' })
     .eq('id', guestId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
+
+  if (mailable && note) {
+    queueGuestMails([{ type: 'guest_removed', guestId, remark: note }], user.id);
+  }
   return { ok: true };
 }

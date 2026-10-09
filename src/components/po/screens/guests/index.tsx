@@ -34,6 +34,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Scroll, Top } from '../../kit';
+import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { BottomBar, Sheet } from '../../shell';
 import { DupeOption, NoTiersBlock, press, col } from './_shared';
 import { ContactLinkAmbiguous, ContactLinkOffer } from './contact-link';
@@ -413,6 +414,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const { data: quota } = usePoQuota(evId);
   const { data: evGuests = [] } = usePoGuests(evId);
   const addBulk = usePoAddGuestsBulk(evId);
+  const [sendConfirmation, setSendConfirmation] = useSendConfirmation();
   const update = usePoUpdateGuest(evId);
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
@@ -530,6 +532,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
         await addBulk.mutateAsync({
           eventId: evId,
           source: 'app',
+          sendConfirmation,
           guests: plan.inserts.map((r) => {
             // 'again' inserts a same-name row as a DIFFERENT person, so it must
             // not inherit the contact link the preview offered for that name.
@@ -738,6 +741,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                     {overQuota && t.guests.bulk.quotaBlocked}
                   </div>
                 )}
+                <SendConfirmationRow className="mt-3" on={sendConfirmation} set={setSendConfirmation} />
                 {(addBulk.isError || orchErr) && (
                   <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                     <Icon name="warn" size={16} stroke="#B5A6FF" />

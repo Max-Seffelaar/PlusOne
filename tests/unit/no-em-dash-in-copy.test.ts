@@ -79,6 +79,9 @@ describe('no em-dash / en-dash in the i18n catalogue', () => {
 // comments use em-dashes freely as house style, so a blind scan would be all
 // false positives. Add a file here only when it carries real user-facing copy.
 const HARDCODED_COPY_FILES = [
+  // Guest mail copy v3 + the noreply auto-reply (z8uq9m2vpy).
+  'src/features/mail/templates/guest-copy.ts',
+  'src/features/mail/templates/inbound-copy.ts',
   'src/features/billing/gate.ts',
   'src/features/billing/actions.ts',
   'src/features/door/DoorProvider.tsx',

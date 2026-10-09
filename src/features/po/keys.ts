@@ -67,6 +67,8 @@ export const poKeys = {
   userSessions: (targetUserId: string) => [...poKeys.all, 'user-sessions', targetUserId] as const,
   profile: (userId: string) => [...poKeys.all, 'profile', userId] as const,
   venueSettings: (venueId: string) => [...poKeys.all, 'venue-settings', venueId] as const,
+  /** Guest contact (contact email, channels, confirmation default; guest mail F). */
+  companyContact: (venueId: string) => [...poKeys.all, 'company-contact', venueId] as const,
   subscription: (venueId: string) => [...poKeys.all, 'subscription', venueId] as const,
   // Event templates (86exyp8gn) — reusable per-event-type setups scope to a venue;
   // a single template + its tier list key on the template id.
