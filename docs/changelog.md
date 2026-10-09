@@ -8,6 +8,21 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — Event locations L: saved locations per company, public pages show the event location (z8uq9m444c)
+
+Milestone **Now** (golf D, taak 3b, ADE). Decision Max 2026-10-07; spec #57 (amends #48(c), #53).
+
+- **Migration `20261013160000_event_locations`** (expand-only):
+  - `company_locations` (name, address_line, postal_code, city, country, place_id, archived_at). Members read, admins write (RLS); INSERT on the content columns only, UPDATE on the editable ones (venue_id immutable), no DELETE: archive. Caps 120/16/60 so a copy always fits `events.location_address` (200).
+  - Seed: one saved location per existing company with an address. Backfill: every event without its own location gets the company's name + address, once.
+  - `get_request_status` returns the event's `location_name`/`location_address` for every found token (every state, mirrors too) and no longer reads `venues`. The `venue_*` keys stay, always null, until a contract migration.
+- **App**:
+  - Company settings → Locations (`settings/venue-locations.tsx`, one render line in `venue.tsx`): list, add (Places fills street/postcode/city and the name when empty), edit, archive with a confirm. Server actions in `src/features/venues/location-actions.ts` through the user-scoped client.
+  - Event form: a new event starts at the first saved location, else the company; saved locations are chips (`events/location-picker.tsx`); the event stores a copy. Templates with a location still win. Hint now "Guests see this on the request link and their status page."
+  - `/r/[token]` shows the event location in every state; the adapter ignores the `venue_*` keys, so the deploy window before the prod push renders no company address.
+- **Tests**: pgTAP `event_locations.test.sql` (49; allowed/denied per role, grants, exact payload keys, no company address, mirror); `partial_approval` F2/F3 now assert no company address; full suite 98 files / 2505. Vitest: adapters, schemas, status view, request status, Locations section, event form. Flow `event-locations` (11 checks, four variants); `company-rename` Q7 follows the new default.
+- **Prod push**: Max, right after the merge (CLAUDE.md "Prod-push flow").
+
 ## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
 
 Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
