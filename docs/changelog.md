@@ -8,6 +8,25 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
+
+Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.
+
+- **Manifest:** `share_target` (GET, `title`/`text`/`url`) → `/app/share`. On Android Chrome the installed PWA shows up in the share sheet.
+- **`/app/share` (screen `share`, G1 route, nav highlight Guests):** `screens/share.tsx` mounts Paste a list with `share`. The text pre-fills the box. Event picker defaults to the next upcoming event, tier picker sets the tier for lines that name none. After Add the screen replaces itself with that event's guest list.
+- **Share inbox** (`src/features/guests/share-inbox.ts`): in-memory only. `captureShareFromLocation` moves `text` (else `title`; `url` is never a list) from the query or a `#text=` fragment into memory and rewrites the URL with `history.replaceState(null, …)`. Gotchas:
+  - Passing Next's own `history.state` (`__NA`) cleans the address bar but not the router, so the import's server-action POST still went to `/app/share?text=…`. The flow caught this in the dev-server log.
+  - Reads are non-destructive. The shell keys its screen on the full URL (entrance animation), so the URL rewrite remounts the screen and a read-once inbox left the remounted screen empty. The text is cleared after a successful import. S6's native plugin calls `putSharedText`.
+- **Parser** (`quick-add-parser.ts`): `bulkLines` strips list markers (`-`, `•`, `*`, `1.`, `2)`) and skips a first-line column header ("Name<TAB>Email", "Naam, E-mail, Telefoon"). Tab/comma columns, e-mail and phone per line already worked. `pasteSummary` feeds the new preview count line "4 entries · 7 guests total · 2 with e-mail" (also on the normal Paste a list).
+- **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
+- **Found, not fixed (outside the fence, in the PR):**
+  - A GET share target still sends the text once to the server: the launch request is logged (the dev server prints it, Vercel logs it), and the SW's network-first navigation stores that URL in the session cache. A signed-out share goes through `/login?next=…`. Proposed fix: an SW hop to `#text=` (the client already reads it), or a POST share target via the SW.
+  - Paste a list's K3 contact match puts each pasted name in a Supabase REST query string (pre-existing).
+  - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
+- **Tests:** flow `share` (Q1–Q12 × 4 variants, all green locally, incl. a network assert), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+
+---
+
 ## 2026-10-08 — Event C + Dashboard B: Add guest up front, guest Edit, deep link to another company, requests empty state (z8uq9m2vg7 + z8uq9m2vg8)
 
 Milestone **Now** (golf D, task 5 of the October onboarding programme). Joeri's walkthrough items for the event screens and the dashboard, plus two comments on the task: "Invite team member" on Quota per event and Sophie's Back bug on the template editor. No migration; the only `src/features` change is `venue_id` on the event-edit read (Max, 2026-10-08).
