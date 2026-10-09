@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — `promo-video` skill: one look, cast and prompt format for PlusOne promo video
+
+Milestone **Now** (marketing). Captures the first reels/trailer session so later videos keep the same quality without re-learning it. No app code.
+
+- **`.claude/skills/promo-video/`**: `SKILL.md` covers the three shot types (AI never renders UI or text; real screens come from `pnpm promo:seed` / `pnpm store:screenshots`), the workflow (story, shotlist, characters, startframes, director prompts, review), startframe rules, model choice in Higgsfield and the review checklist.
+- **`references/`**: `look-and-cast.md` (look bible, the approved REF prompts, character sheets for Lotte, Daan and Robin, building characters in Higgsfield), `prompt-format.md` (the four-block director format with worked examples) and `failure-modes.md` (every failed generation so far, with its cause and fix).
+- **`scripts/`**: `frames.mjs` pulls review stills from a generated .mp4 and `crop.mjs` cuts end frames. Both run headless Edge through Playwright, because the bundled Chromium has no H.264 decoder and the machine has no ffmpeg.
+- The live storyboard stays in the Claude Doc linked from the skill.
+- **Gotcha:** the main checkout is shared between sessions. Another session switched its branch between this session's `git checkout -b` and the commit, so the commit first landed on that session's branch (moved back, not pushed). Do branch work in a separate worktree when other sessions are active.
+
+---
+
 ## 2026-10-09 — CI: flow-shots in parallel shards, one per variant (z8uq9m43m9)
 
 Milestone **Now** (golf D, decision Max 2026-10-09). A PR that touched a shared path (`src/lib/i18n/`, `tests/flows/flows.mjs`, …) selected every flow, and they ran one after another for ~27 min (11 flows × 4 variants, #441). With setup that sat at the 30-min job timeout (#441: 29 min 58 s). #438 and #441 ran into it on 2026-10-08/09, and a cancelled job leaves no contact sheet and no PR comment.
