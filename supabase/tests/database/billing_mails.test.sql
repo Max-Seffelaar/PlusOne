@@ -57,7 +57,7 @@ begin
 end;
 $fn$;
 
-select plan(68);
+select plan(70);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner)
@@ -277,6 +277,13 @@ select throws_ok($$ select public.log_billing_mail('bb000000-0000-7000-8000-0000
 select throws_ok($$ select public.log_billing_mail('bb000000-0000-7000-8000-0000000000d7',
   'team_join', 'team_join', '11111111-1111-4111-8111-111111111111') $$,
   '22023', null, 'D14 only billing types pass');
+
+-- A rejected mail (bad address) is never retried: no hourly hammering.
+select ok(public.record_mail_send_result(current_setting('test.m14')::uuid, 'failed', null, 'provider_rejected'),
+  'D14b settle the trial-ended mail as rejected by the provider');
+select is(public.log_billing_mail('bb000000-0000-7000-8000-0000000000d4',
+  'billing_trial_ended', 'billing_trial_ended', '11111111-1111-4111-8111-111111111111'), null,
+  'D14c a provider_rejected mail is not retried (only transient failures are)');
 
 reset role;
 select is(

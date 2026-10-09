@@ -35,8 +35,9 @@
 --      (company, dedupe key, recipient). The dedupe key is the mail type for
 --      trial mails (once per company per type, decision Max) and
 --      'stripe:<event id>' for the two Stripe mails (once per EVENT, so every
---      failed payment gets its mail). A failed attempt (nothing left the
---      building) may be retried; queued/sent/delivered never again.
+--      failed payment gets its mail). A transiently failed attempt (quota,
+--      rate limit, provider down, timeout, network: nothing left the building)
+--      may be retried; a rejected one and queued/sent/delivered never again.
 --   6. log_billing_mail(): the only write path to mail_log for these types.
 --      Re-checks inside the database, whatever the caller says: the recipient
 --      is an admin or finance member of THAT company with a usable login
@@ -492,6 +493,7 @@ as $$
 declare
   v_email text;
   v_status text;
+  v_error text;
   v_id uuid;
   v_event_id text;
 begin
@@ -537,13 +539,20 @@ begin
     raise exception 'no queued stripe event for this mail' using errcode = '55000';
   end if;
 
-  select m.status into v_status
+  -- Only a TRANSIENT failure is retried (quota, rate limit, provider down,
+  -- timeout, network). Resend refusing the mail (provider_rejected: a bad
+  -- address, say) stays failed, so an hourly job never hammers the shared
+  -- Resend account, which also carries the login OTPs.
+  select m.status, m.error_code into v_status, v_error
     from public.billing_mail_deliveries d
     join public.mail_log m on m.id = d.mail_log_id
    where d.venue_id = p_venue_id
      and d.dedupe_key = p_dedupe_key
      and d.recipient_id = p_recipient_id;
-  if v_status is not null and v_status <> 'failed' then
+  if v_status is not null
+     and (v_status <> 'failed' or v_error is null or v_error not in (
+       'rate_limited', 'daily_quota_exceeded', 'monthly_quota_exceeded',
+       'provider_unavailable', 'timeout', 'network')) then
     return null;
   end if;
 
