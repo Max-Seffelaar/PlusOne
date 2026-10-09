@@ -1,4 +1,4 @@
--- pgTAP — Billing-mails B1 (z8uq9m2z19), 20261012180000_billing_mail_types.sql.
+-- pgTAP — Billing-mails B1 (z8uq9m2z19), 20261013170000_billing_mail_types.sql.
 --
 -- Proves, per role and with the database state asserted:
 --   A. Grants: the four tables closed to every app role (service_role too);

@@ -3,7 +3,7 @@ import 'server-only';
 // Billing-mail job (Billing-mails B1, z8uq9m2z19). One run = one call of the
 // route /api/webhooks/billing-mails, which pg_cron kicks hourly between 08:00
 // and 20:59 Amsterdam through pg_net with a single-use token
-// (billing_mails_tick in 20261012180000: the platform-digest pattern).
+// (billing_mails_tick in 20261013170000: the platform-digest pattern).
 //
 // What a run does, and nothing more:
 //   1. authenticate: billing_mails_begin CONSUMES the token before anything

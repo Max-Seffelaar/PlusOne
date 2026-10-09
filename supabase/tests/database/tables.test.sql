@@ -60,7 +60,7 @@ select tables_are(
     -- hashed recipient; platform admins read) + the Resend webhook ledger
     -- (RLS on, no policies, no grants). Writes only via service_role RPCs.
     'mail_log', 'resend_webhook_events',
-    -- Billing-mails B1 (z8uq9m2z19, 20261012180000): pause switch per company,
+    -- Billing-mails B1 (z8uq9m2z19, 20261013170000): pause switch per company,
     -- the Stripe-event mail queue, the per-recipient idempotency ledger and the
     -- job's single-use tokens. RLS on, no policies, no grants; definer RPCs only.
     'billing_mail_settings', 'billing_mail_events', 'billing_mail_deliveries', 'billing_mail_tokens'

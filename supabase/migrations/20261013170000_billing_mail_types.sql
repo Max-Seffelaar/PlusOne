@@ -110,7 +110,7 @@ $$;
 comment on function public.mail_venue_cap_reached(uuid) is
   'True when the venue sent mail_venue_daily_cap() invitation mails (failed '
   'attempts excluded since 20261011120000, billing mails excluded since '
-  '20261012180000) in the current UTC day. service_role only.';
+  '20261013170000) in the current UTC day. service_role only.';
 
 create or replace function public.log_mail_attempt(
   p_type text,
@@ -165,7 +165,7 @@ comment on function public.log_mail_attempt(text, uuid, text) is
   '(= the Resend Idempotency-Key). Refuses (PM429) a second mail to the same '
   'recipient within mail_recipient_window() (the two decline mail types are '
   'exempt, 20261007150100; failed attempts do not count, 20261011120000; '
-  'billing mails neither count nor pass here, 20261012180000) and a venue past '
+  'billing mails neither count nor pass here, 20261013170000) and a venue past '
   'mail_venue_daily_cap() for the UTC day.';
 
 -- ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ create table public.billing_mail_settings (
 );
 
 comment on table public.billing_mail_settings is
-  'Billing-mail switch per company (20261012180000): paused = no billing mail '
+  'Billing-mail switch per company (20261013170000): paused = no billing mail '
   'at all. Written only by set_billing_mails_paused (platform admin). No '
   'app-role grants.';
 
@@ -198,7 +198,7 @@ create table public.billing_mail_events (
 );
 
 comment on table public.billing_mail_events is
-  'Stripe-driven billing mails waiting for the job (20261012180000): one row '
+  'Stripe-driven billing mails waiting for the job (20261013170000): one row '
   'per Stripe event id. Written only by enqueue_billing_event_mail. No '
   'app-role grants.';
 
@@ -221,7 +221,7 @@ create table public.billing_mail_deliveries (
 );
 
 comment on table public.billing_mail_deliveries is
-  'Idempotency ledger for billing mails (20261012180000): one row per company, '
+  'Idempotency ledger for billing mails (20261013170000): one row per company, '
   'dedupe key and recipient. Written only by log_billing_mail. No app-role '
   'grants.';
 
@@ -235,7 +235,7 @@ create table public.billing_mail_tokens (
 );
 
 comment on table public.billing_mail_tokens is
-  'Single-use invocation tokens for the billing-mail job (20261012180000): '
+  'Single-use invocation tokens for the billing-mail job (20261013170000): '
   'sha256 only, 10-minute lifetime, consumed by billing_mails_begin. No '
   'app-role grants.';
 

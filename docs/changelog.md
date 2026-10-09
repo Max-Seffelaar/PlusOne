@@ -16,7 +16,7 @@ trial-12 (end − 2 d), trial-ended (end), trial-21 (end + 7 d), payment-failed 
 Stripe `invoice.payment_failed`), canceled (every `customer.subscription.deleted`).
 Sender `PlusOne <support@plus-one.io>`, reply-to support@. No amounts.
 
-**How.** Migration `20261012180000_billing_mail_types.sql`:
+**How.** Migration `20261013170000_billing_mail_types.sql`:
 - mail_log gains the seven types; billing mails are excluded from the company invite
   cap and the 60-s recipient window (log_mail_attempt refuses them: one path).
 - `billing_mail_deliveries` ledger, key = type (trial: once per company per type) or

@@ -190,7 +190,7 @@ export const FLOWS = {
   'billing-mails': {
     title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause',
     paths: [
-      'supabase/migrations/20261012180000_billing_mail_types.sql',
+      'supabase/migrations/20261013170000_billing_mail_types.sql',
       'src/features/billing/mail-',
       'src/features/mail/',
       'src/app/api/webhooks/billing-mails/',
