@@ -822,12 +822,27 @@ describe('share-target hop — a shared guest list never reaches the network or 
     expect(sw.cacheStorage.bucketsHolding(`${ORIGIN}/app/share`)).toEqual([SESSION]);
   });
 
+  it('hops a trailing-slash /app/share/ too, to the canonical path (review N1)', async () => {
+    const sw = await bootedSw();
+    const served = await sw.navigate('/app/share/?text=Noor');
+    expect(served?.status).toBe(303);
+    const target = new URL(served!.tag.replace(/^redirect:/, ''));
+    expect(target.pathname + target.search).toBe('/app/share');
+    expect(new URLSearchParams(target.hash.slice(1)).get('text')).toBe('Noor');
+    expect(sw.fetched).toEqual([]);
+  });
+
   it('only hops the share path, and only navigations', async () => {
     const sw = await bootedSw();
     await sw.navigate('/app/bulk?text=Noor');
     expect(sw.fetched).toEqual([`${ORIGIN}/app/bulk?text=Noor`]);
+    // A non-navigation request to the share URL (an RSC/cors fetch) is not
+    // hopped, not fetched by the worker and not cached (review N3).
+    const before = sw.fetched.length;
     const rsc = await sw.navigate(sharePath, { mode: 'cors' });
-    expect(rsc?.status).not.toBe(303);
+    expect(rsc).toBeUndefined();
+    expect(sw.fetched.length).toBe(before);
+    expect(sw.cacheStorage.bucketsHolding(new URL(sharePath, ORIGIN).href)).toEqual([]);
   });
 
   it('is off with the rest of the worker on plain localhost (dev kill-switch)', async () => {

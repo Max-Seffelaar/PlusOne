@@ -229,15 +229,29 @@ function navigationCache(pathname) {
 // No fetch, no cache write, nothing logged. The page then reads the fragment
 // (`captureShareFromLocation`, src/features/guests/share-inbox.ts) and drops it
 // with replaceState. The follow-up `/app/share` navigation (no query) goes
-// through the normal network-first path below. Without an active worker (the
-// very first launch right after install, before it controls the page) the old
-// path remains: the query reaches the server once and the page strips it.
+// through the normal network-first path below.
+//
+// WHEN THIS DOES NOT RUN (review S2, 2026-10-09) — the query reaches the server
+// once (request log), then the page replaces itself with the fragment form:
+//  (a) the PWA was installed from `/` (the manifest start_url) and the user
+//      shares before ever opening `/app` signed in — this worker only registers
+//      from a rendered `/app` or `/door` (src/components/register-sw.tsx);
+//  (b) after "clear site data", storage eviction or any other unregister;
+//  (c) the share is handled by the PRE-#443 worker during an update — that one
+//      runs network-first and stores `/app/share?text=…` in plusone-session-v1
+//      under that URL until the next sign-out (narrow: launching the updated
+//      WebAPK also triggers the update check).
+// In (a) and (b) the user is usually signed out; middleware then drops the share
+// keys from the `next=` it builds (`loginNextPath`), so the list is not copied
+// into a second URL. Signed out WITH this worker, the fragment rides the 307 to
+// /login, where the login form drops it unread (`dropShareFragment`).
 const SHARE_PATH = '/app/share';
 const SHARE_KEYS = ['text', 'title', 'url'];
 
 /** The redirect for a share-target navigation, or null when `url` is not one. */
 function shareHop(url) {
-  if (url.pathname !== SHARE_PATH) return null;
+  // `/app/share/` too (Next would 308 it, with the query, through the server).
+  if (url.pathname.replace(/\/+$/, '') !== SHARE_PATH) return null;
   if (!SHARE_KEYS.some((k) => url.searchParams.has(k))) return null;
   const fragment = new URLSearchParams();
   const rest = new URLSearchParams();
