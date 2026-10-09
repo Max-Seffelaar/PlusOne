@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { onLocalDevStack } from '@/lib/local-stack';
+
 // Mail configuration (Mail-infra F0, z8uq9m2yvt). The app sends its own mail
 // (team invites now; billing and guest mail later) through Resend's HTTP API
 // with a SEPARATE key from the SMTP key Supabase Auth uses for login mail
@@ -41,4 +43,15 @@ export const MAIL_FROM = 'PlusOne <noreply@plus-one.io>';
  */
 export function teamMailActive(): boolean {
   return mailConfig.resendEnabled || process.env.NODE_ENV !== 'production';
+}
+
+/**
+ * Whether billing mail (src/features/billing/mail-job.ts) may run. True with a
+ * Resend key; without one only on the local stack, where the stub hands the
+ * mail to Mailpit. Unlike teamMailActive there is no "stub in CI/preview"
+ * case: the job writes mail_log rows and a ledger that says "sent", so it runs
+ * only where a mail really lands somewhere.
+ */
+export function billingMailActive(): boolean {
+  return mailConfig.resendEnabled || onLocalDevStack();
 }
