@@ -154,7 +154,7 @@ login mail for existing accounts, so prod does not regress before the key is set
 ## Platform digest (z8uq9m2ybj)
 
 A daily numbers mail to the platform admins (Max, Joeri), decision §9 item 19.
-Migration `20261012160000_platform_digest.sql`, Edge Function
+Migration `20261013150000_platform_digest.sql`, Edge Function
 `supabase/functions/platform-digest/`, pgTAP `platform_digest.test.sql`, vitest
 `tests/unit/platform-digest.test.ts`.
 
@@ -190,7 +190,7 @@ Migration `20261012160000_platform_digest.sql`, Edge Function
 ### Going live (Max, after the orchestrator's go)
 
 1. Merge after vervolg A (`20261012150000`) is on prod, then the normal prod-push flow
-   (CLAUDE.md) for `20261012160000`.
+   (CLAUDE.md) for `20261013150000`.
 2. Edge Function secrets (Dashboard → Edge Functions → Secrets, or
    `supabase secrets set`): `RESEND_API_KEY` (the app-mail key, the same one as on
    Vercel; never the SMTP key) and `APP_URL=https://app.plus-one.io` (for the Overview

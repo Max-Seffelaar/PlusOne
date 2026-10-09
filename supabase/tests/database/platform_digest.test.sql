@@ -1,4 +1,4 @@
--- pgTAP — platform digest (z8uq9m2ybj vervolg, 20261012160000_platform_digest.sql).
+-- pgTAP — platform digest (z8uq9m2ybj vervolg, 20261013150000_platform_digest.sql).
 -- Run: pnpm db:test.
 --
 -- Proves (D1 needs 20261012150000, which adds trialing_payment_set_up):

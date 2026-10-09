@@ -99,6 +99,6 @@ verify_jwt = false
 # platform-digest Edge Function (z8uq9m2ybj): the daily numbers mail to the
 # platform admins. verify_jwt = false for the same reason as push-dispatch: the
 # only caller is pg_net (platform_digest_tick via pg_cron); the real gate is the
-# single-use token consumed in platform_digest_begin() (20261012160000).
+# single-use token consumed in platform_digest_begin() (20261013150000).
 [functions.platform-digest]
 verify_jwt = false

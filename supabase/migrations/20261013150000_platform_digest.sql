@@ -90,7 +90,7 @@ create table public.platform_digest_tokens (
 
 comment on table public.platform_digest_tokens is
   'Single-use invocation tokens for the platform-digest Edge Function '
-  '(20261012160000): sha256 only, 10-minute lifetime, consumed by '
+  '(20261013150000): sha256 only, 10-minute lifetime, consumed by '
   'platform_digest_begin. No app-role grants.';
 
 alter table public.platform_digest_tokens enable row level security;
@@ -107,7 +107,7 @@ create table public.platform_digest_deliveries (
 
 comment on table public.platform_digest_deliveries is
   'One row per platform admin per Amsterdam day the digest was attempted '
-  '(20261012160000). Makes a repeated cron run mail nothing. Written only by '
+  '(20261013150000). Makes a repeated cron run mail nothing. Written only by '
   'log_platform_digest_mail. No app-role grants.';
 
 create index platform_digest_deliveries_mail_log_idx
@@ -435,7 +435,7 @@ begin
 
   -- The decline mails are exempt from the window and do not start one. A
   -- failed attempt (nothing went out) does not start one either, and neither
-  -- does the daily platform digest (20261012160000).
+  -- does the daily platform digest (20261013150000).
   if p_type not in ('team_invite_declined', 'team_invite_declined_confirm')
      and exists (
        select 1 from public.mail_log m
@@ -463,7 +463,7 @@ comment on function public.log_mail_attempt(text, uuid, text) is
   '(= the Resend Idempotency-Key). Refuses (PM429) a second mail to the same '
   'recipient within mail_recipient_window() (the two decline mail types are '
   'exempt, 20261007150100; failed attempts do not count, 20261011120000; a '
-  'platform_digest row does not count, 20261012160000) and a venue past '
+  'platform_digest row does not count, 20261013150000) and a venue past '
   'mail_venue_daily_cap() for the UTC day. Check constraints validate the input.';
 
 -- ---------------------------------------------------------------------------

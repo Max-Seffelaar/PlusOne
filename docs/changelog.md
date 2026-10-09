@@ -12,7 +12,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (new service-role path + scheduler): fresh reviewer session before merge. Merges after vervolg A (`20261012150000`). No prod push, nothing deployed, nothing live.
 
-- **Migration `20261012160000_platform_digest`:**
+- **Migration `20261013150000_platform_digest`:**
   - `mail_log.type` + `platform_digest`.
   - `platform_digest_tokens`: single-use invocation tokens (sha256, 10 minutes), the push-dispatch pattern.
   - `platform_digest_deliveries`: a ledger per Amsterdam day per recipient. Both tables have RLS on, no policies and no grants.
