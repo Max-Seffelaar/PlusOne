@@ -2134,8 +2134,9 @@ export interface PoRequestLink {
   /** Total requests submitted through the link (any status). */
   requests: number;
   /** People asked for through the link: Σ(1 + plus_ones) over every request
-   *  (any status) — the same unit as approvedHeads/checkedInHeads. */
-  requestedHeads: number;
+   *  (any status) — the same unit as approvedHeads/checkedInHeads. null only
+   *  while the app runs ahead of migration 20261013120000. */
+  requestedHeads: number | null;
   /** Requests that made the list (status approved, manual or auto). */
   approved: number;
   /** Approved HEADCOUNT on the guest list via this link: sum of 1 + plus_ones
@@ -2300,8 +2301,9 @@ export interface PoFunnel {
   /** Request ROWS submitted (any status) — a count of submissions, not people.
    *  Never divide a headcount by this; use `requestedHeads`. */
   requests: number;
-  /** People asked for: Σ(1 + plus_ones) over every request (any status). */
-  requestedHeads: number;
+  /** People asked for: Σ(1 + plus_ones) over every request (any status).
+   *  null only while the app runs ahead of migration 20261013120000. */
+  requestedHeads: number | null;
   approvedHeads: number;
   checkedInHeads: number;
 }

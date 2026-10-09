@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_FUNNEL, funnelConversion, funnelPct, requestedHeadsOf, sumFunnels } from './funnel';
+import { EMPTY_FUNNEL, funnelConversion, funnelPct, requestedDisplay, requestedHeadsOf, sumFunnels } from './funnel';
 import type { PoFunnel } from './queries';
 
 const f = (p: Partial<PoFunnel>): PoFunnel => ({ ...EMPTY_FUNNEL, ...p });
@@ -8,6 +8,10 @@ describe('funnelPct', () => {
   it('rounds to a whole percentage', () => {
     expect(funnelPct(1, 3)).toBe(33);
     expect(funnelPct(2, 3)).toBe(67);
+  });
+
+  it('caps at 100 — a funnel step never converts more than everything', () => {
+    expect(funnelPct(5, 2)).toBe(100);
   });
 
   it('is 0 when there is nothing to divide by (no NaN/Infinity)', () => {
@@ -27,34 +31,50 @@ describe('funnelConversion — one unit (people) after views', () => {
     expect(c.approved).not.toBe(funnelPct(bugCase.approvedHeads, bugCase.requests));
   });
 
-  it('each percentage is the ratio of the two adjacent tiles', () => {
+  it('compares like with like: request rows per view, then people over people', () => {
     expect(funnelConversion(bugCase)).toEqual({
-      requested: funnelPct(52, 400),
+      requested: funnelPct(31, 400), // submissions per landing view
       approved: funnelPct(46, 52),
       showedUp: funnelPct(40, 46),
     });
   });
 
-  it('never exceeds 100% for normal data (approval only keeps or trims plus-ones)', () => {
-    // Every request fully approved with its plus-ones, everyone shows up.
-    const full = f({ views: 10, requests: 3, requestedHeads: 9, approvedHeads: 9, checkedInHeads: 9 });
-    expect(funnelConversion(full)).toEqual({ requested: 90, approved: 100, showedUp: 100 });
+  it('a small link with big parties does not read >100% requested (rows, not heads, per view)', () => {
+    // 10 views, 4 requests of +3 = 16 people: heads/views would be 160%.
+    const c = funnelConversion(f({ views: 10, requests: 4, requestedHeads: 16, approvedHeads: 16 }));
+    expect(c.requested).toBe(40);
+  });
 
-    // A sweep of plausible shapes: requested ≥ approved ≥ checked in, and
-    // views ≥ requested people.
-    for (let requests = 1; requests <= 12; requests++) {
-      for (let plus = 0; plus <= 3; plus++) {
-        const requestedHeads = requests * (1 + plus);
-        for (let approvedHeads = 0; approvedHeads <= requestedHeads; approvedHeads++) {
-          const c = funnelConversion(
-            f({ views: requestedHeads * 2, requests, requestedHeads, approvedHeads, checkedInHeads: Math.floor(approvedHeads / 2) }),
-          );
-          expect(c.requested).toBeLessThanOrEqual(100);
-          expect(c.approved).toBeLessThanOrEqual(100);
-          expect(c.showedUp).toBeLessThanOrEqual(100);
+  it('caps "approved" at 100% when a guest\'s plus-ones were raised after approval', () => {
+    // Approved +1 (2 requested), then edited to +4 → 5 approved people.
+    const c = funnelConversion(f({ views: 5, requests: 1, requestedHeads: 2, approvedHeads: 5 }));
+    expect(c.approved).toBe(100);
+  });
+
+  it('never exceeds 100%, whatever the shape of the data', () => {
+    for (const views of [0, 1, 3, 10, 400]) {
+      for (let requests = 0; requests <= 6; requests++) {
+        for (let plus = 0; plus <= 4; plus++) {
+          const requestedHeads = requests * (1 + plus);
+          for (const approvedHeads of [0, requestedHeads, requestedHeads + 3]) {
+            for (const checkedInHeads of [0, approvedHeads, approvedHeads + 2]) {
+              const c = funnelConversion(f({ views, requests, requestedHeads, approvedHeads, checkedInHeads }));
+              for (const v of [c.requested, c.approved, c.showedUp]) {
+                expect(v).not.toBeNull();
+                expect(v).toBeGreaterThanOrEqual(0);
+                expect(v).toBeLessThanOrEqual(100);
+              }
+            }
+          }
         }
       }
     }
+  });
+
+  it('leaves "approved" unknown (null) instead of dividing people by request rows when requested people is missing', () => {
+    const c = funnelConversion(f({ views: 400, requests: 31, requestedHeads: null, approvedHeads: 46 }));
+    expect(c.approved).toBeNull();
+    expect(c.requested).toBe(8);
   });
 
   it('reads 0% (not NaN) on an empty funnel', () => {
@@ -75,15 +95,24 @@ describe('sumFunnels', () => {
   it('is the empty funnel for no links', () => {
     expect(sumFunnels([])).toEqual(EMPTY_FUNNEL);
   });
+
+  it('an unknown requested headcount on any link makes the total unknown', () => {
+    expect(sumFunnels([f({ requestedHeads: 3 }), f({ requestedHeads: null })]).requestedHeads).toBeNull();
+  });
 });
 
-describe('requestedHeadsOf', () => {
+describe('requestedHeadsOf / requestedDisplay', () => {
   it('reads requested_heads from the RPC row', () => {
-    expect(requestedHeadsOf({ requests: 3, requested_heads: 7 })).toBe(7);
+    expect(requestedHeadsOf({ requested_heads: 7 })).toBe(7);
   });
 
-  it('falls back to the request count when the column is absent (app ahead of schema push)', () => {
-    expect(requestedHeadsOf({ requests: 3 })).toBe(3);
-    expect(requestedHeadsOf({ requests: 3, requested_heads: null })).toBe(3);
+  it('is null — never the request row count — when the column is absent (app ahead of schema push)', () => {
+    expect(requestedHeadsOf({})).toBeNull();
+    expect(requestedHeadsOf({ requested_heads: null })).toBeNull();
+  });
+
+  it('the Requested tile shows people, or the request count as a floor while unknown', () => {
+    expect(requestedDisplay({ requests: 3, requestedHeads: 7 })).toBe(7);
+    expect(requestedDisplay({ requests: 3, requestedHeads: null })).toBe(3);
   });
 });

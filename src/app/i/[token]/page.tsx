@@ -31,7 +31,8 @@ interface StatsEventPayload {
   slug?: string | null;
   views?: number;
   requests?: number;
-  /** Since 20261013120000; older payloads fall back to `requests`. */
+  /** Since 20261013120000; older payloads fall back to `requests` (a floor —
+   *  every request is at least one person). This page shows no percentages. */
   requested_heads?: number;
   approved_heads?: number;
   checked_in_heads?: number;

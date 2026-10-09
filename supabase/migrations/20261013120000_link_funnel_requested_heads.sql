@@ -15,8 +15,13 @@
 -- and every step-to-step percentage stays ≤ 100%.
 --
 -- Expand–contract: `requests` (row count) stays — the deployed app still reads
--- it, and the per-event link cards use it. The new column is additive; an older
--- client simply ignores it.
+-- it, and the new app keeps using it for the views → requested rate (request
+-- submissions per landing view) and as the Requested floor while this column is
+-- absent. The new column is additive; an older client simply ignores it.
+--
+-- Each per-link guest_requests aggregate (count + Σ heads) is computed in ONE
+-- pass (a LATERAL subquery), not two correlated scans per link — the
+-- venue-wide leaderboard runs over every link a venue ever made.
 --
 -- Rewritten (bodies otherwise identical to 20260811162000):
 --   * event_link_funnel, venue_influencer_leaderboard, venue_label_link_funnel
@@ -154,10 +159,8 @@ as $$
       sl.event_id,
       coalesce((select sum(p.views) from public.request_link_pageviews_daily p
                 where p.request_link_id = sl.id), 0)::bigint as views,
-      coalesce((select count(*) from public.guest_requests gr
-                where gr.request_link_id = sl.id), 0)::bigint as requests,
-      coalesce((select sum(1 + gr.plus_ones) from public.guest_requests gr
-                where gr.request_link_id = sl.id), 0)::bigint as requested_heads,
+      rq.requests,
+      rq.requested_heads,
       coalesce((select sum(public.link_headcount_contribution(gu, exists (
                                   select 1 from public.check_ins ci
                                   where ci.guest_id = gu.id and ci.voided_at is null)))
@@ -167,6 +170,12 @@ as $$
                 join public.check_ins ci on ci.guest_id = gu.id and ci.voided_at is null
                 where gu.request_link_id = sl.id), 0)::bigint as checked_in_heads
     from scoped_links sl
+    cross join lateral (
+      select count(*)::bigint as requests,
+             coalesce(sum(1 + gr.plus_ones), 0)::bigint as requested_heads
+      from public.guest_requests gr
+      where gr.request_link_id = sl.id
+    ) rq
   )
   select
     pl.influencer_id,
@@ -221,10 +230,8 @@ as $$
     e.name,
     coalesce((select sum(p.views) from public.request_link_pageviews_daily p
               where p.request_link_id = rl.id), 0)::bigint,
-    coalesce((select count(*) from public.guest_requests gr
-              where gr.request_link_id = rl.id), 0)::bigint,
-    coalesce((select sum(1 + gr.plus_ones) from public.guest_requests gr
-              where gr.request_link_id = rl.id), 0)::bigint,
+    rq.requests,
+    rq.requested_heads,
     coalesce((select sum(public.link_headcount_contribution(gu, exists (
                                   select 1 from public.check_ins ci
                                   where ci.guest_id = gu.id and ci.voided_at is null)))
@@ -235,6 +242,12 @@ as $$
               where gu.request_link_id = rl.id), 0)::bigint
   from public.request_links rl
   join public.events e on e.id = rl.event_id
+  cross join lateral (
+    select count(*)::bigint as requests,
+           coalesce(sum(1 + gr.plus_ones), 0)::bigint as requested_heads
+    from public.guest_requests gr
+    where gr.request_link_id = rl.id
+  ) rq
   where rl.venue_id = p_venue_id
     and rl.influencer_id is null
     and rl.archived_at is null
@@ -291,10 +304,8 @@ begin
         order by rl2.created_at desc limit 1) as slug,
       coalesce(sum((select sum(p.views) from public.request_link_pageviews_daily p
                     where p.request_link_id = rl.id)), 0)::bigint as views,
-      coalesce(sum((select count(*) from public.guest_requests gr
-                    where gr.request_link_id = rl.id)), 0)::bigint as requests,
-      coalesce(sum((select sum(1 + gr.plus_ones) from public.guest_requests gr
-                    where gr.request_link_id = rl.id)), 0)::bigint as requested_heads,
+      coalesce(sum(rq.requests), 0)::bigint as requests,
+      coalesce(sum(rq.requested_heads), 0)::bigint as requested_heads,
       coalesce(sum((select sum(public.link_headcount_contribution(gu, exists (
                                   select 1 from public.check_ins ci
                                   where ci.guest_id = gu.id and ci.voided_at is null)))
@@ -305,6 +316,14 @@ begin
                     where gu.request_link_id = rl.id)), 0)::bigint as checked_in_heads
     from public.request_links rl
     join public.events e on e.id = rl.event_id
+    -- One row per link (an aggregate without GROUP BY), so the join never
+    -- multiplies the per-event sums.
+    cross join lateral (
+      select count(*)::bigint as requests,
+             coalesce(sum(1 + gr.plus_ones), 0)::bigint as requested_heads
+      from public.guest_requests gr
+      where gr.request_link_id = rl.id
+    ) rq
     where rl.influencer_id = v_inf.id
       and rl.archived_at is null
     group by e.id, e.name, e.starts_at, e.ends_at

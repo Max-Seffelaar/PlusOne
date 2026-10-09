@@ -25,6 +25,7 @@ import { fmt, t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
 import type { PoInfluencer, PoRequestLink } from '@/features/po/queries';
 import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
+import { requestedDisplay } from '@/features/po/funnel';
 import { usePoCreateInfluencer, usePoUpdateLink } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
@@ -87,7 +88,7 @@ function LinkCard({
     // "approved" can never outrun "requested" on a link with plus-ones.
     fmt(t.links.stats, {
       views: link.views,
-      requested: link.requestedHeads,
+      requested: requestedDisplay(link),
       approved: link.approvedHeads,
       checkedIn: link.checkedInHeads,
     }) +

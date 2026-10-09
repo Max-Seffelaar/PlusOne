@@ -155,7 +155,9 @@ function MiniFunnel({ f, muted }: { f: InfluencerStatsFunnel; muted?: boolean })
     [t.influencerStats.funnelApproved, f.approved],
     [t.influencerStats.funnelIn, f.checkedIn],
   ];
-  const max = Math.max(1, f.views);
+  // Scale to the largest step, not views: requested/approved count people
+  // (1 + plus-ones), which can outnumber the views on a small link.
+  const max = Math.max(1, ...steps.map(([, v]) => v));
   return (
     <div className={cn('flex flex-col gap-[9px]', muted && 'opacity-85')}>
       {steps.map(([label, v], i) => {
