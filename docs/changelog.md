@@ -21,9 +21,8 @@ Milestone **Now** (golf D, task 5b of the October onboarding programme). Web sid
 - **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
 - **Found, not fixed (outside the fence, in the PR):**
   - A GET share target still sends the text once to the server: the launch request is logged (the dev server prints it, Vercel logs it), and the SW's network-first navigation stores that URL in the session cache. A signed-out share goes through `/login?next=…`. Proposed fix: an SW hop to `#text=` (the client already reads it), or a POST share target via the SW.
-  - Paste a list's K3 contact match puts each pasted name in a Supabase REST query string (pre-existing).
   - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
-- **Tests:** flow `share` (Q1–Q12 × 4 variants, all green locally, incl. a network assert), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+- **Tests:** flow `share` (Q1–Q12 × 4 variants, all green locally; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
 
 ---
 

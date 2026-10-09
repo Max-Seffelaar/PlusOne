@@ -158,31 +158,38 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
     const launch = seen.filter((r) => r.isNavigationRequest() && r.url().includes('text='));
     expect(launch, 'the share launch is one document request, no redirect re-carrying it').toHaveLength(1);
     const rest = seen.filter((r) => !launch.includes(r));
-    const body = (r: Request): string => {
+    // Lowercased: the contact match sends names normalized ("milan hendriks …").
+    const decode = (v: string): string => {
       try {
-        return decodeURIComponent(`${r.url()}\n${r.postData() ?? ''}`);
+        return decodeURIComponent(v.replace(/\+/g, ' ')).toLowerCase();
       } catch {
-        return `${r.url()}\n${r.postData() ?? ''}`;
+        return v.toLowerCase();
       }
     };
+    const body = (r: Request): string => `${decode(r.url())}\n${decode(r.postData() ?? '')}`;
+    const has = (r: Request, needle: string): boolean => body(r).includes(needle.toLowerCase());
     // The text itself: the whole blob, any shared line that is more than a bare
     // name (+N, e-mail, Sheets columns), or an e-mail from it. Noor's line IS
     // her bare name, which the name rule below covers.
     const textLines = [SHARED, ...LINES.slice(0, 3)];
-    const carriesText = rest.filter((r) => textLines.some((l) => body(r).includes(l)) || body(r).includes(`.${tag}@example.com`));
+    const carriesText = rest.filter((r) => textLines.some((l) => has(r, l)) || has(r, `.${tag}@example.com`));
     const importReqs = rest.filter((r) => r.method() === 'POST' && new URL(r.url()).origin === origin && !!r.headers()['next-action']);
     expect(carriesText.filter((r) => !importReqs.includes(r)).map((r) => r.url())).toEqual([]);
     expect(seen.indexOf(importReqs[0])).toBeGreaterThanOrEqual(importsBefore);
     // Bare names: the import, plus the two existing lookups (K3 contact match,
-    // duplicate check) — on Supabase, never on our own server.
-    const carriesName = rest.filter((r) => NAMES.some((n) => body(r).includes(n)));
+    // duplicate check) — POST bodies to Supabase RPCs, never a URL, never our
+    // own server.
+    expect(rest.filter((r) => NAMES.some((n) => decode(r.url()).includes(n.toLowerCase()))).map((r) => r.url()), 'a name in a URL').toEqual([]);
+    const LOOKUPS = new Set(['/rest/v1/rpc/search_contacts_for_reuse', '/rest/v1/rpc/find_event_guests_by_names']);
+    const carriesName = rest.filter((r) => NAMES.some((n) => has(r, n)));
     const unexpected = carriesName.filter((r) => {
       if (importReqs.includes(r)) return false;
       const u = new URL(r.url());
-      if (u.origin === origin) return true;
-      return !(u.pathname === '/rest/v1/contacts' || u.pathname === '/rest/v1/rpc/find_event_guests_by_names');
+      return u.origin === origin || r.method() !== 'POST' || !LOOKUPS.has(u.pathname);
     });
     expect(unexpected.map((r) => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual([]);
+    // The lookups are real (else this check proves nothing about them).
+    expect(carriesName.some((r) => new URL(r.url()).pathname === '/rest/v1/rpc/search_contacts_for_reuse')).toBe(true);
   });
 
   await page.goto('/app/share');
