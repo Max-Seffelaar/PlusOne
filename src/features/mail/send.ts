@@ -51,8 +51,18 @@ export function recipientHash(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
 }
 
-function appUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL || 'https://app.plus-one.io';
+/**
+ * The origin the mail's links point at. A production build without the env
+ * falls back to the prod origin. Outside one, a link to prod is never right:
+ * the /auth/confirm token was minted by the local stack, so prod can't verify
+ * it. There it falls back to the dev server's own port (dev-env.mjs hands
+ * `PORT` to `next dev`).
+ */
+export function appUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (configured) return configured;
+  if (process.env.NODE_ENV !== 'production') return `http://localhost:${process.env.PORT || 7000}`;
+  return 'https://app.plus-one.io';
 }
 
 export async function sendTeamMail(mail: TeamMail, options: TeamMailOptions = {}): Promise<TeamMailResult> {

@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — Local invite mail links to the local dev server, not prod
+
+Milestone **Now** (dev friction on every onboarding test). Max hit it testing #437: in local dev every invite mail on our own path (team/crew via `sendInviteEmail`, and the company invite) put its `/auth/confirm?token_hash=…` button on `https://app.plus-one.io`. The token was minted by the LOCAL Supabase, so prod could never verify it, and a resend didn't help. Prod was unaffected.
+
+- **Root cause:** `appUrl()` in `src/features/mail/send.ts` fell back to the prod origin whenever `NEXT_PUBLIC_APP_URL` was unset, and `scripts/dev-env.mjs` never wrote that key.
+- **`appUrl()`:** still env first. Without it, only a production build (Vercel prod and previews) falls back to the prod origin. Any other build uses `http://localhost:$PORT` (7000 if unset). Prod behaviour is unchanged.
+- **`scripts/dev-env.mjs`:** a fresh `.env.local` gets `NEXT_PUBLIC_APP_URL=http://localhost:<port>` for the port it serves on (`PORT` or 7000 without `--serve`, so also `pnpm stack` and CI). An existing `.env.local` is still never rewritten. If it lacks the key, `pnpm dev` prints a hint. If it holds a localhost origin on another port (CI writes 7000, Playwright serves 3000; a worktree on 70xx), `next dev` gets the right one as a process env var for that run. A non-localhost value, or one set in the shell, is left alone. `next dev` always gets `PORT`. Pure logic lives in `scripts/lib/dev-app-url.mjs`.
+- **Tests:** `tests/unit/dev-app-url.test.ts` (written body, hint, port correction, non-local values kept) and `appUrl` cases in `src/features/mail/send.test.ts` (env wins, dev fallback, prod fallback, the invite button lands on the dev port).
+- **Verified by hand:** `pnpm dev` on a non-7000 port with a key-less `.env.local`, a team invite as manager@ to a new address, the Mailpit link opened `http://localhost:<port>/auth/confirm…` and signed the invitee in (consent screen, "Signed in as …").
+
+---
+
 ## 2026-10-09 — CI: flow-shots in parallel shards, one per variant (z8uq9m43m9)
 
 Milestone **Now** (golf D, decision Max 2026-10-09). A PR that touched a shared path (`src/lib/i18n/`, `tests/flows/flows.mjs`, …) selected every flow, and they ran one after another for ~27 min (11 flows × 4 variants, #441). With setup that sat at the 30-min job timeout (#441: 29 min 58 s). #438 and #441 ran into it on 2026-10-08/09, and a cancelled job leaves no contact sheet and no PR comment.
