@@ -165,7 +165,7 @@ test('company rename: wizard → More → Company settings → events with a loc
   // ── New event with a location ─────────────────────────────────────────────
   await goApp(page, '/app/events/new', baseURL);
   const locName = page.getByRole('textbox', { name: 'Location name' });
-  const locAddress = page.getByRole('textbox', { name: 'Location address' });
+  const locAddress = page.getByRole('combobox', { name: 'Location address' });
   await flow.check(7, 'New event: no "Company" field (always the active company), and the location placeholders are the company name + address', async () => {
     await expect(page.getByText('Company', { exact: true })).toHaveCount(0);
     await expect(locName).toHaveAttribute('placeholder', COMPANY);
@@ -216,7 +216,7 @@ test('company rename: wizard → More → Company settings → events with a loc
       await page.getByRole('button', { name: TPL }).click();
       await page.getByPlaceholder('e.g. FRENZY').fill(EV_TPL);
       await page.getByRole('textbox', { name: 'Location name' }).fill(OWN_NAME);
-      await page.getByRole('textbox', { name: 'Location address' }).fill(OWN_ADDRESS);
+      await page.getByRole('combobox', { name: 'Location address' }).fill(OWN_ADDRESS);
       const date = page.getByLabel('Pick a date').first();
       await date.fill(typedDate(5));
       await date.press('Enter');
@@ -284,7 +284,7 @@ test('company rename: wizard → More → Company settings → events with a loc
       await goApp(page, '/app/events/new', baseURL);
       await page.getByRole('button', { name: TPL2 }).click();
       await expect(page.getByRole('textbox', { name: 'Location name' })).toHaveValue(OWN_NAME);
-      await expect(page.getByRole('textbox', { name: 'Location address' })).toHaveValue(OWN_ADDRESS);
+      await expect(page.getByRole('combobox', { name: 'Location address' })).toHaveValue(OWN_ADDRESS);
       await flow.shot('template-prefill');
       await page.getByPlaceholder('e.g. FRENZY').fill(EV_FROM);
       const date = page.getByLabel('Pick a date').first();

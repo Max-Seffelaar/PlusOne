@@ -209,10 +209,8 @@ describe('consent Terms/Privacy links reach 44 on touch (QA-1, option b)', () =>
   });
 
   it('ConsentCheck renders both links with the 44px box, outside the checkbox label', () => {
-    render(
-      <kitExports.ConsentCheck checked={false} onChange={() => {}} copy={t.onboarding.venueCreate} />,
-    );
-    for (const name of [t.onboarding.venueCreate.consentTerms, t.onboarding.venueCreate.consentPrivacy]) {
+    render(<kitExports.ConsentCheck checked={false} onChange={() => {}} copy={t.auth} />);
+    for (const name of [t.auth.consentTerms, t.auth.consentPrivacy]) {
       const a = screen.getByRole('link', { name });
       expect(minPx(a.className, 'h')).toBe(MIN);
       expect(minPx(a.className, 'w')).toBe(MIN);
@@ -220,6 +218,16 @@ describe('consent Terms/Privacy links reach 44 on touch (QA-1, option b)', () =>
       expect(a.closest('label')).toBeNull();
     }
     expect(screen.getByRole('checkbox')).not.toBeChecked();
+  });
+
+  it('DpaCheck renders the DPA link with the 44px box, outside the checkbox label', () => {
+    render(<kitExports.DpaCheck checked={false} onChange={() => {}} companyName="LOFI" />);
+    const a = screen.getByRole('link', { name: t.onboarding.venueCreate.dpaDoc });
+    expect(minPx(a.className, 'h')).toBe(MIN);
+    expect(minPx(a.className, 'w')).toBe(MIN);
+    expect(a.closest('label')).toBeNull();
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(screen.getByText(/on behalf of LOFI\./)).toBeInTheDocument();
   });
 });
 

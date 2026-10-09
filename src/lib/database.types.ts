@@ -1215,9 +1215,11 @@ export type Database = {
       }
       platform_invites: {
         Row: {
+          ade_trial_venue_id: string | null
           anonymized_at: string | null
           created_at: string
           email: string | null
+          free_until_ade: boolean
           id: string
           invited_by: string
           last_sent_at: string
@@ -1226,9 +1228,11 @@ export type Database = {
           revoked_by: string | null
         }
         Insert: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by: string
           last_sent_at?: string
@@ -1237,9 +1241,11 @@ export type Database = {
           revoked_by?: string | null
         }
         Update: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by?: string
           last_sent_at?: string
@@ -1248,6 +1254,13 @@ export type Database = {
           revoked_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "platform_invites_ade_trial_venue_id_fkey"
+            columns: ["ade_trial_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "platform_invites_invited_by_fkey"
             columns: ["invited_by"]
@@ -2085,10 +2098,15 @@ export type Database = {
         }[]
       }
       cleanup_landing_request_throttle: { Args: never; Returns: number }
+      cleanup_venueless_mail_log: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
       complete_push_outbox: {
         Args: { p_error?: string; p_id: string; p_outcome: string }
         Returns: string
       }
+      consume_places_throttle: { Args: never; Returns: boolean }
       consume_platform_invite_throttle: { Args: never; Returns: boolean }
       consume_public_throttle: {
         Args: { p_key: string; p_max: number; p_window_min: number }
@@ -2324,6 +2342,10 @@ export type Database = {
       is_aal2: { Args: never; Returns: boolean }
       is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      is_tied_to_venue: {
+        Args: { p_user_id: string; p_venue_id: string }
+        Returns: boolean
+      }
       is_valid_event_status_transition: {
         Args: {
           p_from: Database["public"]["Enums"]["event_status"]

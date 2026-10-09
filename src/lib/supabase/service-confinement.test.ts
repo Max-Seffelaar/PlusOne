@@ -105,3 +105,37 @@ describe('Resend secret confinement (secret-grep)', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// Onboarding A (z8uq9m2vg5): the Google Places API key gets the same
+// treatment. It is referenced in exactly ONE module, the server-only Places
+// client, which no Client Component may import; no NEXT_PUBLIC_ variant.
+const PLACES_SERVER_MODULE = path.join('lib', 'places', 'server.ts');
+const PLACES_KEY_ENV = ['GOOGLE', 'PLACES', 'API', 'KEY'].join('_');
+
+describe('Google Places key confinement (secret-grep)', () => {
+  it('references the Places key in only the server-only Places module', () => {
+    const offenders = FILES.filter(
+      (f) => !f.endsWith(PLACES_SERVER_MODULE) && readFileSync(f, 'utf8').includes(PLACES_KEY_ENV)
+    ).map((f) => path.relative(SRC, f));
+    expect(offenders).toEqual([]);
+    const server = readFileSync(path.join(SRC, PLACES_SERVER_MODULE), 'utf8');
+    expect(server).toContain(PLACES_KEY_ENV);
+    expect(server).toMatch(/import\s+['"]server-only['"]/);
+  });
+
+  it('no NEXT_PUBLIC_ variant of a Google key exists anywhere in src/', () => {
+    const offenders = FILES.filter((f) => /NEXT_PUBLIC_GOOGLE/.test(readFileSync(f, 'utf8'))).map((f) =>
+      path.relative(SRC, f)
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('the Places server module is never imported by a Client Component', () => {
+    const offenders = FILES.filter((f) => {
+      const src = readFileSync(f, 'utf8');
+      if (!/^\s*['"]use client['"]/m.test(src)) return false;
+      return /from\s+['"][^'"]*lib\/places\/server['"]/.test(src);
+    }).map((f) => path.relative(SRC, f));
+    expect(offenders).toEqual([]);
+  });
+});

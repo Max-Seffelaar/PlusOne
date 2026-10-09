@@ -1,12 +1,12 @@
 // Central source of truth for the legal consent gate (#20/#40): the Terms &
-// Privacy links shown at first-login consent AND at venue creation, plus the
-// accepted-terms version. Bumping TERMS_VERSION re-prompts every user to accept.
+// Privacy links shown at first-login consent, the DPA link shown at company
+// creation, plus the accepted-terms version. Bumping TERMS_VERSION re-prompts every user to accept.
 //
 // The legal pages live on the marketing site (plus-one.io, repo Plus-One.io),
 // not in this app (app.plus-one.io): one `/legal` page whose tab is picked by
 // the hash (#terms, #privacy, #dpa, #subprocessors, #guest-terms, #guests).
 // Override per-environment via NEXT_PUBLIC_TERMS_URL / NEXT_PUBLIC_PRIVACY_URL /
-// NEXT_PUBLIC_GUEST_TERMS_URL.
+// NEXT_PUBLIC_DPA_URL / NEXT_PUBLIC_GUEST_TERMS_URL.
 //
 // Legal v0.3 wave D (z8uq9m2hm7, 86ey1vbrj): the site publishes the lawyer-approved
 // texts as Version 1.0 (2026-10-06), generated from docs/legal/ (Plus-One.io
@@ -20,6 +20,14 @@ export const TERMS_URL = process.env.NEXT_PUBLIC_TERMS_URL ?? 'https://plus-one.
 
 /** Privacy Policy. */
 export const PRIVACY_URL = process.env.NEXT_PUBLIC_PRIVACY_URL ?? 'https://plus-one.io/legal#privacy';
+
+/**
+ * Data Processing Agreement (Onboarding A, z8uq9m2vg5): the one thing accepted
+ * when a company is created (decision Max 2026-10-06, #40 consent: the account
+ * accepts Terms + Privacy at /consent, the company accepts the DPA). Stored in
+ * venues.terms_accepted_* with TERMS_VERSION. Same /legal page, `#dpa` tab.
+ */
+export const DPA_URL = process.env.NEXT_PUBLIC_DPA_URL ?? 'https://plus-one.io/legal#dpa';
 
 /**
  * Guest Terms (decision 11, Legal v0.3): accepted by a guest on the public request

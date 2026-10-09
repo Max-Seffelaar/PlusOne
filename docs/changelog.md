@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
+
+Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
+
+- **"Free until end of ADE" invite** — migration `20261013130000_platform_invite_ade_trial`. It replaces the first build's "Always free via the invite" (scope change by Max, 2026-10-08, during review):
+  - `platform_invites.free_until_ade` (set on insert, frozen after) and `ade_trial_venue_id`. Only `create_venue_with_owner` writes it, once: the guard checks `current_user`, the insert policy pins it null.
+  - `create_venue_with_owner` starts the invitee's first company as an ordinary `trialing` Pro when the caller's own auth e-mail has an open, unused ADE invite whose inviter is still a platform admin.
+  - Its `trial_ends_at` is `greatest(2026-10-27 00:00 Europe/Amsterdam, now() + 14 days)`. The date is in one place in the migration.
+  - One `audit_log` row (`update`, trial end) names the inviter. Never comped through this route.
+  - `mail_log` type `platform_invite`.
+  - Platform → Invite has a "Free until end of ADE" toggle that hides after the date (`src/features/platform/ade.ts`).
+  - After ADE a follow-up drops the option (expand–contract).
+- **Company invite mail**: the platform invite goes through the same path as team/crew (#430): mail_log first, then `generateLink` with no metadata, then our own Resend mail.
+  - Content: "You've been invited to try PlusOne", the inviter's name, three steps, one button, the link fallback and "expires after 24 hours". It never mentions free or a price.
+  - Resend sends a fresh link.
+  - Without a Resend key the Supabase path is unchanged.
+- **One consent per moment**: the wizard's company step and the switcher quick-create ask only "I accept the Data Processing Agreement on behalf of {company}" (`DpaCheck` in the kit, `DPA_URL`). Terms + Privacy stay on `/consent`. `venues.terms_accepted_*` now means the DPA acceptance (spec #40).
+- **Places**:
+  - `POST /api/places` runs in the nodejs runtime. Order of checks: Zod union, then `getUser` (401), then no key → `{enabled:false}`, then `consume_places_throttle` (migration `20261013130100`, 120 per 10 min per user; 429 when spent).
+  - Google calls use Essentials field masks only (no displayName) and a 3 s timeout. The input text is never logged.
+  - `PlacesField` (kit) is on the wizard address, Company settings (fills street, postcode, city and country) and the event location.
+  - The secret-grep guard covers `GOOGLE_PLACES_API_KEY`.
+- **Review round (#437)**, fixed:
+  - a Places pick in Company settings replaces the whole address (it used to keep parts of the old one);
+  - PlacesField cancels its pending lookup on blur, Escape and pick, and starts a new session token per focus;
+  - VenueStep caps the picked address at 200 characters and never overwrites a name typed meanwhile;
+  - a resend bumps `last_sent_at` only after the mail went;
+  - `NEXT_PUBLIC_DPA_URL` override.
+- **Tests**:
+  - pgTAP `platform_invite_ade_trial` (25) and `places_throttle` (14); full suite 96 files / 2403.
+  - Vitest: route, PlacesField, company template, invite mail/actions, DpaCheck.
+  - Flows: `onboarding` gains Q14 (DPA). New flow `onboarding-ade-trial` (7 checks: platform invite → Mailpit → wizard → Billing TRIAL until 27 Oct → audit), green on 4 variants.
+
+---
+
 ## 2026-10-09 — `promo-video` skill: craft rules from the director review
 
 Follow-up to #447, no app code. The skill now holds the rules from the director review of the first campaign:

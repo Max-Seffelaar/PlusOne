@@ -12,7 +12,7 @@ import { COUNTRIES } from '@/lib/countries';
 import { normalizeWebsite } from '@/features/venues/website';
 import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, ExternalLink, Field, IconBtn, Label, MiniChip, Note, RefusedAction, Scroll, ToggleRow, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, ExternalLink, Field, IconBtn, Label, PlacesField, MiniChip, Note, RefusedAction, Scroll, ToggleRow, Top, press } from '../../kit';
 import { SearchSelect, type SearchSelectOption } from '../../search-select';
 import { BottomBar } from '../../shell';
 import { useIsDemoAccount } from '../../app-shell-data';
@@ -350,7 +350,27 @@ export function VenueSettings(): JSX.Element {
 
         <Label className="mb-[10px]">{t.settings.venue.addressLabel}</Label>
         <Label className="mb-2">{t.settings.venue.streetFieldLabel}</Label>
-        <Field icon="pin" value={form.addressLine} onChange={editStr('addressLine')} placeholder={t.settings.venue.streetPlaceholder} className="mb-[14px]" />
+        {/* Places (z8uq9m2vg5): one pick fills street, postcode, city and
+            country; without a server key it is the plain street field. */}
+        <PlacesField
+          value={form.addressLine}
+          onChange={editStr('addressLine')}
+          // A pick replaces the whole address: a part Google leaves out is
+          // cleared, never kept from the previous address (review #437).
+          onPick={(p) =>
+            p.address &&
+            setForm((f) => ({
+              ...f,
+              addressLine: p.address?.addressLine ?? '',
+              postalCode: p.address?.postalCode ?? '',
+              city: p.address?.city ?? '',
+              country: p.address?.country ?? f.country,
+            }))
+          }
+          ariaLabel={t.settings.venue.streetFieldLabel}
+          placeholder={t.settings.venue.streetPlaceholder}
+          className="mb-[14px]"
+        />
         <div className="mb-[14px] flex gap-2">
           <div className="min-w-0 flex-1">
             <Label className="mb-2">{t.settings.venue.postalFieldLabel}</Label>
