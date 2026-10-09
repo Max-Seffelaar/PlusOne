@@ -195,12 +195,12 @@ Besluiten Max 2026-10-08 (startcheck):
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
 | 2b Platform R | `session_01S21GgWgcHy3SietyoPFoCv` | [#436](https://github.com/Max-Seffelaar/PlusOne/pull/436) | **gemerged**; handoff 10–15 beantwoord (13 ✅ lokaal met Stripe-sandbox; 15 = "latest"; 15b `past_due` telt mee als converted). Vervolgen (besluit Max): A tegel "Trial, payment set up", B dagelijkse digest (high-risk) | `20261012130000` **op prod** (geverifieerd: functies + grants) |
-| 2b-A tegel "Trial, payment set up" | `session_01UbwAGHr1WcV7rff36rdKdm` | — | in bouw (verse sessie; de 2b-worker weigerde terecht nieuwe scope via de orchestrator) | `20261012150000` |
-| 2b-B dagelijkse digest (HIGH-RISK) | `session_01TSU99HJy5NuhTaEQtQaLEq` | — | in bouw; merget na 2b-A | `20261012160000` |
-| 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | [#437](https://github.com/Max-Seffelaar/PlusOne/pull/437) | opgeleverd (`1a40fd6`, CI groen); bouwer: `pnpm db:test` 96 bestanden / 2403, `CI=1 pnpm test` 3177; reviewer-sessie `session_01Bu6w5MQPNse56ZFGfNx7m3` loopt. Buiten scope: DPA-checkbox ook op "New company" (besluit Max) | `20261012140000` + `…140100`, ná `…130000` |
+| 2b-A tegel "Trial, payment set up" | `session_01UbwAGHr1WcV7rff36rdKdm` | [#439](https://github.com/Max-Seffelaar/PlusOne/pull/439) | reviewer SCHOON; main-merge (changelog) + nits | `20261012150000` na #437 |
+| 2b-B dagelijkse digest (HIGH-RISK) | `session_01TSU99HJy5NuhTaEQtQaLEq` | [#440](https://github.com/Max-Seffelaar/PlusOne/pull/440) | reviewer BLOKKEREND (parity-wrapper mist kolom van #439; conflict + spec #56 bezet); security schoon; terug naar bouwer, daarna delta-review | `20261012160000` na #439 |
+| 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | [#437](https://github.com/Max-Seffelaar/PlusOne/pull/437) | head `7cf6251`: ADE-trial i.p.v. Always free + review-fixes; reviewer SCHOON (4 should-fix verwerkt), delta-review SCHOON (2 nits); CI lint-and-test + layout groen. Wacht op handoff Max + merge | `20261012140000` + `…140100` ná merge, vóór `…150000` |
 | 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | [#438](https://github.com/Max-Seffelaar/PlusOne/pull/438) | **gemerged** (`e9b9c02`, 2026-10-09, op verzoek van Max door de orchestrator). Handoff: 21/22 ✅, deep link test A ✅; test B en 23/24 (toestel, icoon) niet getest, Max akkoord. Mini-PR [#441](https://github.com/Max-Seffelaar/PlusOne/pull/441) Tasks-tab + cockpit-Tasks-kaart weg: **gemerged** (`7e284aa`, 2026-10-09, op verzoek van Max) | geen migratie |
-| 5b Share-import S2 ([z8uq9m43m8](https://app.clickup.com/t/z8uq9m43m8)) | `session_015ZzQNhovkZxGoGVKQNyGqZ` | — | in bouw | geen migratie |
-| CI flow-shots shards ([z8uq9m43m9](https://app.clickup.com/t/z8uq9m43m9)) | `session_01F4FBXk5WxRLEsmAtyLnGk5` | — | in bouw (besluit Max: ja) | — |
+| 5b Share-import S2 ([z8uq9m43m8](https://app.clickup.com/t/z8uq9m43m8)) | `session_015ZzQNhovkZxGoGVKQNyGqZ` | [#443](https://github.com/Max-Seffelaar/PlusOne/pull/443) | opgeleverd; lint + layout groen; wacht op copy-keuze Max | geen migratie |
+| CI flow-shots shards ([z8uq9m43m9](https://app.clickup.com/t/z8uq9m43m9)) | `session_01F4FBXk5WxRLEsmAtyLnGk5` | [#442](https://github.com/Max-Seffelaar/PlusOne/pull/442) | klaar voor merge: 4 shards, 29m58 → 11m47, alle flows groen | — |
 | 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012170000` |
 
 Besluiten Max 2026-10-09 (copy-review golf E, `docs/copy-review/`; v2 van de bestanden volgt):
