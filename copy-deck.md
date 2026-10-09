@@ -188,7 +188,8 @@
 | "Net binnen"-kop | `Just in` |
 | Detail-acties | `Open the door` · `Guest list` · `Requests ({n})` · `Edit` · `Tiers` |
 | Edit-titel / velden | `New event` / `Edit event` · `Company` · `Name` · `Date` · `Doors` · `Location` · `Landing page` · `Auto-lock` · `Lock list` · `Allow check-out` |
-| Locatie (#53) | velden `Location name` / `Location address` (placeholder = naam en adres van de company) · hint `Empty means your company address. Filled in, guests see it on the request page.` · fouten `That location name is too long.` / `That address is too long.` |
+| Locatie (#53, z8uq9m444c) | velden `Location name` / `Location address` (een nieuw event start op de eerste opgeslagen locatie, anders naam en adres van de company) · chips met opgeslagen locaties (aria `Saved locations`) · hint `Guests see this on the request link and their status page.` · fouten `That location name is too long.` / `That address is too long.` |
+| Locations (Company settings, z8uq9m444c) | label `Locations` · uitleg `Where your events happen. Pick one per event. Guests see it on the request link.` · leeg `No saved locations yet. Add the places where you run events.` · knoppen `Add location` / `Edit` / `Archive` / `Save location` · sheet `New location` / `Edit location` · archiveren `Archive {name}? Events that use it keep their address.` → `Archive location` · fouten `Give the location a name.` / `That's too long.` |
 | Lock-hint | `Locked lists can't be changed by staff.` |
 | Opslaan | `Create event` / `Save event` |
 | Tiers | titel `Tiers` · `Add tier` · veld `Name, e.g. "Guest"` · leeg `No tiers yet. Add one like "VIP" or "Guest".` (aliasveld verborgen sinds 17/9/2026 — `TIER_ALIASES_UI`) |

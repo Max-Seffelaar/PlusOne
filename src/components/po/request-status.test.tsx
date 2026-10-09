@@ -19,19 +19,19 @@ const base: RequestStatusData = {
   eventName: 'Saturday Sessions',
   date: 'Sat 26 Sept',
   time: '23:00 to 05:00',
-  address: 'Warmoesstraat 12, 1012 JD Amsterdam',
+  location: 'Paradiso, Weteringschans 6, 1017 SG Amsterdam',
   message: 'Happy birthday!\nDoors close at 01:00.',
 };
 
 describe('RequestStatus', () => {
-  it('reduced approval: approved vs requested, the message, the address and the window', () => {
+  it('reduced approval: approved vs requested, the message, the event location and the window', () => {
     render(<RequestStatus data={base} />);
     expect(screen.getByText("You're on the list.")).toBeInTheDocument();
     expect(screen.getByText('· Approved for 3 of 5 people', { exact: false })).toBeInTheDocument();
     expect(screen.queryByText(/Party of 5/)).not.toBeInTheDocument();
     expect(screen.getByText('Message from the company')).toBeInTheDocument();
     expect(screen.getByText(/Happy birthday!/)).toBeInTheDocument();
-    expect(screen.getByText('Warmoesstraat 12, 1012 JD Amsterdam')).toBeInTheDocument();
+    expect(screen.getByText('Paradiso, Weteringschans 6, 1017 SG Amsterdam')).toBeInTheDocument();
     expect(screen.getByText('23:00 to 05:00')).toBeInTheDocument();
   });
 
@@ -51,24 +51,30 @@ describe('RequestStatus', () => {
   });
 
   it('approved with nothing confirmed for this token (a duplicate submission): no party-size claim', () => {
-    render(<RequestStatus data={{ ...base, approvedPlusOnes: null, address: null, message: null }} />);
+    render(<RequestStatus data={{ ...base, approvedPlusOnes: null, location: null, message: null }} />);
     expect(screen.getByText("You're on the list.")).toBeInTheDocument();
     expect(screen.queryByText(/Party of/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Approved for/)).not.toBeInTheDocument();
   });
 
-  it('pending: the window, no address, the party as asked', () => {
-    render(<RequestStatus data={{ ...base, status: 'pending', approvedPlusOnes: null, address: null, message: null }} />);
+  it('pending: the window, the event location, the party as asked', () => {
+    render(<RequestStatus data={{ ...base, status: 'pending', approvedPlusOnes: null, message: null }} />);
     expect(screen.getByText("You're in the queue.")).toBeInTheDocument();
     expect(screen.getByText('23:00 to 05:00')).toBeInTheDocument();
     expect(screen.getByText(/Party of 5/)).toBeInTheDocument();
-    expect(screen.queryByText(/Warmoesstraat/)).not.toBeInTheDocument();
+    expect(screen.getByText('Paradiso, Weteringschans 6, 1017 SG Amsterdam')).toBeInTheDocument();
+  });
+
+  it('an event without a location shows no location chip', () => {
+    render(<RequestStatus data={{ ...base, location: null }} />);
+    expect(screen.queryByText(/Location:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Paradiso/)).not.toBeInTheDocument();
   });
 
   it('not found stays neutral: no event, no time, no address', () => {
     const { container } = render(<RequestStatus data={null} />);
     expect(screen.getByText('Nothing here.')).toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/Saturday|23:00|Warmoes/);
+    expect(container.textContent).not.toMatch(/Saturday|23:00|Paradiso/);
   });
 
   it('the footer links to plus-one.io in a new tab without leaking the bearer URL', () => {

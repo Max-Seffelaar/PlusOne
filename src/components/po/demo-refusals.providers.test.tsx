@@ -68,12 +68,13 @@ vi.mock('@/features/po/hooks', () => ({
   usePoAssignableCrew: () => ({ data: [], isLoading: false }),
   usePoEvent: () => ({ event: { name: 'Event' } }),
   usePoEventForEdit: () => ({ data: { defaultMemberQuota: 2 } }),
+  usePoCompanyLocations: () => ({ data: [], isLoading: false, isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => {
   const names = [
     'usePoUpdateVenueSettings', 'usePoInviteUser', 'usePoInviteExternalCrew', 'usePoRevokeInvite', 'usePoResendInvite',
     'usePoResendCrewInvite', 'usePoUpdateMemberRoles', 'usePoRemoveMember', 'usePoAssignCrew', 'usePoSetCrewQuota', 'usePoRemoveCrew',
-    'usePoRevokeCrewInvite',
+    'usePoRevokeCrewInvite', 'usePoCreateCompanyLocation', 'usePoUpdateCompanyLocation', 'usePoArchiveCompanyLocation',
   ];
   return Object.fromEntries(names.map((n) => [n, () => (H.mutations[n] ??= stub())]));
 });
