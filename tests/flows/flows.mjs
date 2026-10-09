@@ -187,6 +187,18 @@ export const FLOWS = {
       'src/lib/i18n/surfaces/platform.ts',
     ],
   },
+  'billing-mails': {
+    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause',
+    paths: [
+      'supabase/migrations/20261012180000_billing_mail_types.sql',
+      'src/features/billing/mail-',
+      'src/features/mail/',
+      'src/app/api/webhooks/billing-mails/',
+      'src/components/po/screens/platform-billing-mails',
+      'src/components/po/screens/platform-venues',
+      'src/lib/i18n/surfaces/platform.ts',
+    ],
+  },
   'platform-billing': {
     title: 'Billing G — Platform → Companies: always free / trial until, audited on the admin',
     paths: [
