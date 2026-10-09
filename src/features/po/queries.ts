@@ -2558,6 +2558,16 @@ export async function fetchPlatformCompanies(
   return out;
 }
 
+/** Billing-mails B1 (z8uq9m2z19): one company's billing-mail timeline, as
+ *  platform_billing_mail_timeline returns it (jsonb; adapted by
+ *  toPlatformBillingMails). Platform admins only: 42501 otherwise. Counts
+ *  only, never an address. */
+export async function fetchPlatformBillingMails(client: Client, venueId: string): Promise<unknown> {
+  const { data, error } = await client.rpc('platform_billing_mail_timeline', { p_venue_id: venueId });
+  if (error) throw error;
+  return data;
+}
+
 export type PlatformSubscriptionCountsRow =
   Database['public']['Functions']['platform_subscription_counts']['Returns'][number];
 export type PlatformTrialFunnelRow =

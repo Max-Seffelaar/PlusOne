@@ -51,6 +51,7 @@ import { formatShortDate, toDateInput } from '@/features/po/format';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav, usePo } from '../context';
 import { CompanyDetail, companyStatusLabel } from './platform-company';
+import { BillingMailTimeline } from './platform-billing-mails';
 import { Btn, Empty, Field, FieldErrorText, Label, MiniChip, Note, PageNav, Scroll, StatTile, ToggleRow, Top } from '../kit';
 
 const col = 'flex h-full flex-col';
@@ -209,6 +210,9 @@ function VenueCard({
       ) : (
         !companyLoading && billing && <BillingControls venueId={venue.venueId} billing={billing} />
       )}
+
+      {/* Billing-mails B1 (z8uq9m2z19): collapsed until opened; reads only then. */}
+      <BillingMailTimeline venueId={venue.venueId} name={venue.name} />
 
       <div className="mt-[11px] flex flex-wrap gap-2">
         <Btn kind="ghost" sm icon="history" className="min-h-[44px]" onClick={onViewAudit}>

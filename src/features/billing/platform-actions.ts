@@ -21,8 +21,10 @@ import { getAuthContext } from '@/lib/auth/context';
 import { t } from '@/lib/i18n';
 import { invalidInput, mapMutationError, unauthorized, type MutationError } from '@/lib/db-errors';
 import {
+  platformBillingMailsPausedSchema,
   platformCompedSchema,
   platformTrialEndSchema,
+  type PlatformBillingMailsPausedInput,
   type PlatformCompedInput,
   type PlatformTrialEndInput,
 } from './schemas';
@@ -75,5 +77,28 @@ export async function setVenueCompedAction(input: PlatformCompedInput): Promise<
   if (error) return platformBillingError(error);
 
   revalidatePath('/app');
+  return { ok: true };
+}
+
+/**
+ * Billing-mails B1 (z8uq9m2z19): pause or resume every billing mail to one
+ * company. Same shape as the two above: user-scoped client, the RPC
+ * (set_billing_mails_paused) re-checks is_platform_admin() and raises 42501
+ * for anyone else; it stamps who paused on the settings row.
+ */
+export async function setBillingMailsPausedAction(
+  input: PlatformBillingMailsPausedInput
+): Promise<PlatformBillingResult> {
+  const parsed = platformBillingMailsPausedSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('set_billing_mails_paused', {
+    p_venue_id: parsed.data.venueId,
+    p_paused: parsed.data.paused,
+  });
+  if (error) return mapMutationError(error);
   return { ok: true };
 }
