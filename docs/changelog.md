@@ -8,6 +8,25 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — Gastcommunicatie F, PR 6a: guest mail (z8uq9m2vpy)
+
+Milestone **Now** (golf E, ADE). Spec #13 revised: no marketing and no invitations, but transactional guest mail about a guest's own spot. Copy v3 (`docs/copy-review/guest-mails.html`, Max 2026-10-09) word for word in `src/features/mail/templates/guest-copy.ts`. PR 6b (team mail + notification prefs, migration `20261013180300`) follows.
+
+- **Migrations** `20261013180000_guest_mail_types`, `…180100_company_contact_channels`, `…180200_guest_mail_optout`:
+  - `mail_log.type` gains nine `guest_*` types; the list is a superset of main, the platform digest (#440) and the billing mails (#446). Guest mail stays out of the 25-a-day invitation cap and the 60-second recipient window, and `log_mail_attempt` refuses the guest types.
+  - `guest_mail_queue`: one row per guest per mail, no address, no name. The facts are read again at send time; the team's note is dropped once the row settles. Enqueue RPCs are service_role only, called after the user-scoped mutation succeeded, with ordering rules (removed before the confirmation went: no mail at all; +N while the confirmation is pending: no second mail; debounce 60 s for +N, 120 s for event edits).
+  - `venues.contact_email` (reply-to + footer; without it guest mail waits), `contact_channels` (phone/Instagram/Facebook/Snapchat/TikTok, on the status page), `guest_confirmation_default`; `events.house_rules`.
+  - `guest_mail_links` (sha256 of per-mail tokens: status page, opt-out, reply key), `guest_mail_optouts` (company + address hash), the claim/settle job with per-company (1000/day) and global (5000/day) budgets, pg_cron every minute behind the Vault secret `plusone_guest_mails_url` (unset = sleeps).
+  - Public `get_guest_status` and `unsubscribe_guest_mail` on the bound `st` throttle (shared with `/r/[token]`), one neutral answer for anything not live.
+- **Sending**: queued in `after()` by the actions (QuickAdd, paste a list, contacts single/bulk/import, +N edit, removal with a required note when the guest has an address, event time/location change, cancel, request approval) and drained right there; the cron route `/api/webhooks/guest-mails` (single-use token) is the safety net. Resend batch API, 100 per call, idempotency key per batch from the `mail_log` ids. Sender `"{event_name} via PlusOne" <noreply+<key>@plus-one.io>`, reply-to the company contact, `List-Unsubscribe` + one-click POST. The door never queues mail.
+- **Calendar**: `.ics` served at `/s/[token]/calendar.ics` (UID = event id, so a later download updates the entry) plus a Google Calendar template link. Not an attachment: Resend's batch endpoint takes none.
+- **Public pages**: `/s/[token]` guest status page and `/u/[token]` opt-out (GET only asks, POST opts out; same answer for any token). Middleware lists `/s/` and `/u/` as public.
+- **Inbound**: `email.received` on the existing Resend webhook answers a mail to `noreply@` once (ledger first, so a replay never answers twice), with the company contact behind a live reply key or a generic footer pointer; one per sender per 24 h, 200 per hour overall.
+- **UI**: Company settings → Guest contact (own file `settings/venue-contact.tsx`), "Send confirmation" on every add path, the removal note, house rules + platform-admin "Send reminder" (`GUEST_REMINDER_ENABLED=true`) in event edit (own file `events/guest-mail.tsx`).
+- **Bug found by the flow**: the enqueue helpers called `service.rpc` detached from its client, so supabase-js lost `this` and every enqueue threw inside `after()` (logged, never surfaced). Bound now, regression test `guest-queue.test.ts`.
+- **Tests**: vitest on the templates (every count, "1 person", price line only with a price, status link only when the page exists, injection), the job, batch adapter, inbound, status adapter, opt-out route, actions; pgTAP `guest_mail.test.sql` (85); flow `tests/flows/guest-mail.flow.ts` (10 checks).
+- **Not in 6a**: the "no confirmation" marker in the guest list (the RPC `event_guest_mail_status` exists), the auto-approve request-link path (needs the guest id from `submit_guest_request`), the decline mail wiring (task 7 calls `queueRequestDeclinedMail`).
+
 ## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
 
 Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
