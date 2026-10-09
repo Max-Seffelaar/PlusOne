@@ -44,6 +44,7 @@ import { HomeHeaderActions } from './home-header-actions';
 import { PulseTile } from './home-pulse';
 import { ComboChart } from './home-chart';
 import { NoUpcomingEvents } from './no-upcoming-events';
+import { RequestsBlock } from './home-requests-empty';
 import { EventRow, StatusChip, matchesBoardQuery, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
@@ -279,6 +280,10 @@ export function Home(): JSX.Element {
   const guestReqQ = usePoGuestRequests();
   const quotaReqQ = usePoQuotaRequests();
   const firstName = usePoProfile().data?.firstName ?? '';
+  // Requests empty state (z8uq9m2vg8): only for who can make a request link —
+  // admin, or an organizer here (same gate as usePoCanCreateLink). Everyone
+  // else keeps the chart and never sends the links read.
+  const canCreateLink = isAdmin || canManageTemplates;
 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -483,7 +488,16 @@ export function Home(): JSX.Element {
           </div>
 
           {/* combined graph — requested vs on-the-list, per event */}
-          {board.length > 0 && <ComboChart data={series} />}
+          {canCreateLink ? (
+            <RequestsBlock
+              requests={guestReqQ.data}
+              targetEventId={series[0]?.id ?? null}
+              onCreate={(id) => nav.push('links', { id })}
+              chart={board.length > 0 ? <ComboChart data={series} /> : null}
+            />
+          ) : (
+            board.length > 0 && <ComboChart data={series} />
+          )}
 
           {/* Upcoming events section */}
           <div>

@@ -1392,7 +1392,10 @@ export interface PlatformSubscriptionCounts {
   trialing: number;
   /** Running trials without a payment set up: trialing − trialingPaymentSetUp. */
   trialingNoPayment: number;
-  /** Running trials with a Stripe subscription (payment set up in Checkout). */
+  /** Running trials with a Stripe subscription (payment set up in Checkout).
+   *  Known limit: a trial cancelled in the portal during the trial
+   *  (cancel_at_period_end, status stays trialing) still counts here — we
+   *  don't store cancel_at_period_end. */
   trialingPaymentSetUp: number;
   trialLapsed: number;
   paidMonthly: number;

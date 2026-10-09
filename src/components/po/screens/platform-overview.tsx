@@ -13,9 +13,10 @@
  *    is not is_platform_admin() — before they touch a table.
  *  - Aggregates only, computed in SQL. No company name, no person, no guest.
  *
- * Status buckets: in the browser, Trial and "Trial, payment set up" split the
- * SQL trialing bucket (20261012150000) so every company still sits in exactly
- * one tile. The native shell shows no payment copy (store-tax seam, guarded by
+ * Status buckets: in the browser, "Trial, no payment yet" and "Trial, payment
+ * set up" split the
+ * SQL trialing bucket (20261012150000) so every company still sits in
+ * exactly one tile. The native shell shows no payment copy (store-tax seam, guarded by
  * PURCHASE_COPY in the flows), so there Trial is the whole trialing bucket.
  *
  * Revenue: MRR = monthly payers × the monthly price + yearly payers × the
@@ -100,10 +101,15 @@ function OverviewConsole(): JSX.Element {
         <div className={grid} data-testid="platform-overview-status">
           <StatTile label={t.platform.overviewTotal} value={n(counts?.total)} accent />
           {/* Store-tax seam: no payment copy inside the native shell, so there
-              Trial stays one tile with every running trial. */}
-          <StatTile label={t.platform.overviewTrialing} value={n(native ? counts?.trialing : counts?.trialingNoPayment)} />
-          {!native && (
-            <StatTile label={t.platform.overviewTrialingPaymentSetUp} value={n(counts?.trialingPaymentSetUp)} />
+              "Trial" stays one tile with every running trial. The browser
+              labels both halves, so one label never means two numbers. */}
+          {native ? (
+            <StatTile label={t.platform.overviewTrialing} value={n(counts?.trialing)} />
+          ) : (
+            <>
+              <StatTile label={t.platform.overviewTrialingNoPayment} value={n(counts?.trialingNoPayment)} />
+              <StatTile label={t.platform.overviewTrialingPaymentSetUp} value={n(counts?.trialingPaymentSetUp)} />
+            </>
           )}
           <StatTile label={t.platform.overviewTrialLapsed} value={n(counts?.trialLapsed)} />
           <StatTile label={t.platform.overviewPaidMonthly} value={n(counts?.paidMonthly)} />

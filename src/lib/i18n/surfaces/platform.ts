@@ -207,6 +207,7 @@ export const platform = {
   overviewStatusTitle: 'Companies by status',
   overviewTotal: 'All companies',
   overviewTrialing: 'Trial',
+  overviewTrialingNoPayment: 'Trial, no payment yet',
   overviewTrialingPaymentSetUp: 'Trial, payment set up',
   overviewTrialLapsed: 'Trial ended',
   overviewPaidMonthly: 'Paid monthly',

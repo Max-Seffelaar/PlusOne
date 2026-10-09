@@ -13,8 +13,38 @@ records (repo root), and `engineering-review-2026-07.md`.
 Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
 
 - **Migration `20261012150000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
-- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). Overview shows "Trial" (no payment yet) next to the new "Trial, payment set up" tile, so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
-- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: tiles match the database; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). In the browser, Overview shows "Trial, no payment yet" next to the new "Trial, payment set up" tile (review: one label never means two numbers), so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: both tiles match the database exactly; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+
+---
+
+## 2026-10-08 — Check-in: the Tasks view is gone on both door variants (z8uq9m2vg7, mini-PR)
+
+Joeri's walkthrough (Event C, item 3): the Tasks view did nothing yet. Split out of #438 because it lives in the Deur tab (decision Max 2026-10-08).
+
+- **Outbox door (phone/tablet/touch):** `PoDoorTab` (`src/components/po/screens/door.tsx`, shared by the `/app` Deur tab and the standalone `/door` route) no longer renders the Check-in/Tasks segment or the Tasks screen; it always shows the check-in list. `door-branch.tsx` uses one title. The `tab`/`onTab` props and the `?seg=taken` route stay, so an old bookmark lands on Check-in.
+- **Desktop cockpit (Max's handoff on #441: "Tasks zijn nog zichtbaar"):** the `CockpitTasksCard` mount is gone from `EventDayCockpit.tsx` and the file is deleted (nothing else used it), with the cockpit's now-unused `ackNote` locals. The `usePoAckNote` hook itself is unchanged.
+- **Kept:** guest notes (the door's guest detail still shows them), the outbox, check-in, and the door's `Taken` component and `tasks*` strings (unused now, later cleanup).
+- **Layout suite:** `tasks.door` (an old `?seg=taken` link) now renders the check-in list, so it joins `checkin.door` under the existing kit-wide FIELD known issue for `field-targets`.
+- **Tests:** flow `door-tasks-tab` (4 variants; Q1 fails on the old code; the cockpit variant now asserts no Tasks card).
+
+---
+
+## 2026-10-08 — Event C + Dashboard B: Add guest up front, guest Edit, deep link to another company, requests empty state (z8uq9m2vg7 + z8uq9m2vg8)
+
+Milestone **Now** (golf D, task 5 of the October onboarding programme). Joeri's walkthrough items for the event screens and the dashboard, plus two comments on the task: "Invite team member" on Quota per event and Sophie's Back bug on the template editor. No migration; the only `src/features` change is `venue_id` on the event-edit read (Max, 2026-10-08).
+
+- **Event detail:** a full-width "+ Add guest" is the first control on an open event (same role rule as the Events tab: a guest-writing venue role or an organizer of the event). Check-in turns dark next to it.
+- **Quick add:** placeholder "John Doe +2 vip" (was Joeri's own name); the paste-a-list example too.
+- **Guest detail:** the per-event "…" is a visible "Edit" (opens the same actions sheet; "Open event" for a viewer who can only open it, computed with `profileRowActions`). The phone row lost its icon (the glyph read as a slanted arrow).
+- **Deep link to another company's event:** `EventView` falls back to the unscoped `usePoEventForEdit` read it already made. That read now also returns the event's `venue_id` (decision Max 2026-10-08: the one select in `fetchEventForEdit` plus the field on `EventEditRow`, the only `src/features` change). If that company is one of the user's own (`usePo().myVenues`) and not the active one, the screen shows "This event belongs to {company}" + "Switch to {company}" through the existing `switchToVenue(…, '/app/events/<id>')`. A non-member keeps "This event isn't available anymore.", and the page never names the company.
+- **Home:** 0 requests and no request link the company made itself (the default link per event comes from a trigger and doesn't count) → compact card "Let guests request a spot" + "Create request link" (opens the next event's request links). With data the chart stays. Only for admin/organizer, so the links read never runs for anyone else (`home-requests-empty.tsx`, unit-tested condition).
+- **Time field (touch):** no second clock in front of the native one; at 390px the value had about 80px and "10:00 PM" was cut off, now 110+. The "Instellen"/Set button in the report is the Android OS time dialog, which the web app can't size (🖐 on a device).
+- **Tier step:** "Add your first tier" is a primary button; the guide is plain text with Guest, Backstage, Artist, Photographer.
+- **Quota per event:** "Invite team member" for admin/user_manager (in practice admin: user_manager can't open this screen, `viewQuota`), hidden on a billing-locked company, inert in the demo venue. It opens Team's own form, now exported as `TeamInviteForm` (fields controlled by the caller, so Team behaves exactly as before), and shows "{n} invite pending".
+- **Templates:** the list's effect that pushed the editor whenever the list was empty is gone (it re-fired after Back). The empty state has "Create your first template".
+- **Not in this PR:** the Tasks tab next to Check-in lives in the Deur tab (`screens/door.tsx`, `door-branch.tsx`), outside this task's fence. Max (2026-10-08): a separate mini-PR.
+- **Tests:** flow `event-screens` (Q1–Q20, 4 variants, all green), unit tests for the deep-link match, the requests condition, the template empty state, the tier button and the Quota invite; i18n snapshot updated on purpose.
 
 ---
 

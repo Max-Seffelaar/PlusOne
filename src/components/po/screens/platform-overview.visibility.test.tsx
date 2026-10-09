@@ -94,8 +94,10 @@ describe('Platform > Overview visibility (z8uq9m2ybj)', () => {
     H.isPlatformAdmin = true;
     render(<PlatformOverview />);
     const status = screen.getByTestId('platform-overview-status');
-    expect(status).toHaveTextContent(`2${t.platform.overviewTrialing}`);
+    expect(status).toHaveTextContent(`2${t.platform.overviewTrialingNoPayment}`);
     expect(status).toHaveTextContent(`1${t.platform.overviewTrialingPaymentSetUp}`);
+    // The bare "Trial" label is native-only (every running trial).
+    expect(screen.queryByText(t.platform.overviewTrialing)).toBeNull();
     expect(screen.getByText(/Converted means it pays now, past due included\./)).toBeDefined();
   });
 
@@ -106,6 +108,7 @@ describe('Platform > Overview visibility (z8uq9m2ybj)', () => {
     const status = screen.getByTestId('platform-overview-status');
     expect(status).toHaveTextContent(`3${t.platform.overviewTrialing}`);
     expect(screen.queryByText(t.platform.overviewTrialingPaymentSetUp)).toBeNull();
+    expect(screen.queryByText(t.platform.overviewTrialingNoPayment)).toBeNull();
     expect(document.body.textContent ?? '').not.toMatch(/payment/i);
   });
 

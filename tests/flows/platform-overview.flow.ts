@@ -133,14 +133,17 @@ test('platform-overview: Overview numbers, invite chip → Switch, Companies det
     await expect(tile(status, 'Always free')).toContainText(String(db.comped));
   });
 
-  await flow.check(11, 'Browser: Trial and "Trial, payment set up" split the running trials (database); native: one Trial tile, no payment copy', async () => {
-    const trial = status.locator('div.rounded-\\[14px\\]').filter({ hasText: /^\d+Trial$/ });
+  await flow.check(11, 'Browser: "Trial, no payment yet" and "Trial, payment set up" split the running trials (database); native: one Trial tile, no payment copy', async () => {
+    // Exact tile text (value + label): a substring match would let "10" pass for "0".
+    const exact = (label: string) =>
+      status.locator('div.rounded-\\[14px\\]').filter({ hasText: new RegExp(`^(\\d+|—)${label}$`) });
     if (flow.native) {
-      await expect(trial).toHaveText(`${db.trial_no_payment + db.trial_payment}Trial`);
-      await expect(status.getByText('Trial, payment set up')).toHaveCount(0);
+      await expect(exact('Trial')).toHaveText(`${db.trial_no_payment + db.trial_payment}Trial`);
+      await expect(status.getByText(/payment/i)).toHaveCount(0);
     } else {
-      await expect(trial).toHaveText(`${db.trial_no_payment}Trial`);
-      await expect(tile(status, 'Trial, payment set up')).toContainText(String(db.trial_payment));
+      await expect(exact('Trial, no payment yet')).toHaveText(`${db.trial_no_payment}Trial, no payment yet`);
+      await expect(exact('Trial, payment set up')).toHaveText(`${db.trial_payment}Trial, payment set up`);
+      await expect(exact('Trial')).toHaveCount(0);
     }
     await expect(page.getByText(/Converted means it pays now, past due included\./)).toBeVisible();
   });

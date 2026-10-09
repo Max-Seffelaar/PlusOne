@@ -11,6 +11,8 @@ export const templates = {
   loadError: "Couldn't load templates. Try again in a moment.",
   empty: 'No templates yet. Create one and pick it when you add an event.',
   emptyNoRights: 'No templates yet.',
+  // Empty-state button (replaces the auto-open that broke Back, z8uq9m2vg7).
+  emptyCta: 'Create your first template',
   cardCapacity: 'Capacity {n}',
   cardNoCapacity: 'No capacity limit',
   cardTiers: '{n} tiers',
