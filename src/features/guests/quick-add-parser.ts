@@ -482,20 +482,77 @@ export function resolveAmbiguity(
   return { name: result.name, plusOnes: result.plusOnes, tierId };
 }
 
-/** Parse a pasted block (WhatsApp list) into one result per non-empty line. */
+// ── Pasted / shared blocks (share-import S2) ────────────────────────────────
+// A list that arrives from Notes or a WhatsApp message is often bulleted or
+// numbered ("- Milan +2", "• Fleur", "3. Sem"), and a range copied out of Excel
+// or Sheets usually brings its column header ("Name<TAB>Email"). Both are list
+// furniture, not guests: strip the marker, skip the header.
+
+// One leading bullet (-, •, *, ·, –, —) or a 1–3 digit "1." / "1)" number, then
+// whitespace. A "+2" or a phone ("06 12…") never matches: neither is followed by
+// "." / ")" and they carry no bullet glyph.
+const LIST_MARKER = /^(?:[-•*·–—]|\d{1,3}[.)])\s+/;
+
+// Column titles a spreadsheet export or a typed list puts on its first row.
+// Normalized (lowercase, no diacritics, no surrounding punctuation).
+const HEADER_WORDS = new Set([
+  'name', 'names', 'naam', 'namen', 'full name', 'first name', 'last name', 'voornaam', 'achternaam',
+  'guest', 'guests', 'gast', 'gasten',
+  'email', 'e-mail', 'mail', 'email address', 'e-mail address', 'emailadres', 'e-mailadres',
+  'phone', 'phone number', 'mobile', 'telefoon', 'tel', 'telefoonnummer', 'mobiel',
+  '+1', '+n', 'plus ones', 'plus-ones', 'plusones', 'plus one', 'extra',
+  'tier', 'ticket', 'type', 'notes', 'note', 'notitie', 'opmerking',
+]);
+const NAME_HEADERS = new Set(['name', 'names', 'naam', 'namen', 'full name', 'first name', 'voornaam', 'guest', 'guests', 'gast', 'gasten']);
+
+/** True when a line is a column header ("Name, Email" / "Naam<TAB>Telefoon"):
+ *  every cell is a known column title and one of them names the guest. Only
+ *  ever asked of the FIRST line — a guest called "Name" further down stays. */
+export function isHeaderLine(line: string): boolean {
+  const cells = line
+    .split(/[,;\t]/)
+    .map((c) => normalize(c).replace(/^[^a-z0-9+]+|[^a-z0-9]+$/g, ''))
+    .filter(Boolean);
+  if (cells.length === 0) return false;
+  return cells.every((c) => HEADER_WORDS.has(c)) && cells.some((c) => NAME_HEADERS.has(c));
+}
+
+/** Split a pasted block into its guest lines: trimmed, list markers stripped,
+ *  blanks dropped, a leading column header skipped. */
+export function bulkLines(text: string): string[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(LIST_MARKER, '').trim())
+    .filter((line) => line.length > 0);
+  return lines.length > 0 && isHeaderLine(lines[0]) ? lines.slice(1) : lines;
+}
+
+/** Parse a pasted block (WhatsApp list, Notes, an Excel range) into one result
+ *  per guest line — see `bulkLines` for what is not a guest line. */
 export function parseBulk(
   text: string,
   tiers: QuickAddTier[],
   defaultTierId: string
 ): ParseResult[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => parseQuickAdd(line, tiers, defaultTierId));
+  return bulkLines(text).map((line) => parseQuickAdd(line, tiers, defaultTierId));
 }
 
 /** Total quota impact of a set of parsed/resolved lines (1 + plusOnes each). */
 export function totalSlots(results: Array<{ slots?: number; plusOnes: number }>): number {
   return results.reduce((sum, r) => sum + (r.slots ?? 1 + r.plusOnes), 0);
+}
+
+/** The preview's count line (share-import S2): "6 entries = 9 total guests
+ *  (2 with email)". `guests` is the head count, 1 + plusOnes per entry — the
+ *  same number the quota math uses (decision #22). */
+export function pasteSummary(rows: Array<{ plusOnes: number; email?: string | null }>): {
+  entries: number;
+  guests: number;
+  withEmail: number;
+} {
+  return {
+    entries: rows.length,
+    guests: totalSlots(rows),
+    withEmail: rows.filter((r) => !!r.email && r.email.trim() !== '').length,
+  };
 }
