@@ -8,7 +8,8 @@
 //
 // The text is PII. On mount it moves from the URL into the in-memory share
 // inbox and the address bar is rewritten without it — nothing here stores,
-// logs or sends it anywhere before the user presses Add.
+// logs or sends it anywhere before the user presses Add. Leaving the screen
+// forgets it.
 import { type JSX, useEffect, useState } from 'react';
 import { captureShareFromLocation, clearSharedText, peekSharedText } from '@/features/guests/share-inbox';
 import { BulkPaste } from './guests/bulk-paste';
@@ -17,10 +18,12 @@ export function ShareScreen(): JSX.Element | null {
   // null = not captured yet: BulkPaste seeds its textarea once, at mount.
   const [text, setText] = useState<string | null>(null);
   useEffect(() => {
-    // Rewriting the URL remounts this screen (the shell keys it on the URL);
-    // the second mount finds the URL clean and reads the same inbox.
-    captureShareFromLocation();
-    setText(peekSharedText() ?? '');
+    // 'reloading': a fresh document (without the query) replaces this one and
+    // captures the text itself — render nothing until then.
+    if (captureShareFromLocation() === 'reloading') return undefined;
+    // StrictMode's second pass finds the URL clean: keep what the first took.
+    setText((prev) => peekSharedText() ?? prev ?? '');
+    return () => clearSharedText();
   }, []);
   if (text === null) return null;
   return <BulkPaste share initialText={text} onImported={clearSharedText} />;

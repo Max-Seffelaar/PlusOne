@@ -6,6 +6,7 @@
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { StrictMode } from 'react';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { clearSharedText, peekSharedText, putSharedText } from '@/features/guests/share-inbox';
 
@@ -60,22 +61,35 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('ShareScreen', () => {
-  it('a remount after the URL rewrite (the shell keys screens on the URL) still has the text', async () => {
-    window.history.replaceState(null, '', `/app/share?text=${encodeURIComponent('Noor +1')}`);
-    const first = render(<ShareScreen />);
-    await waitFor(() => expect(textarea()).toHaveValue('Noor +1'));
-    first.unmount();
-    render(<ShareScreen />);
-    await waitFor(() => expect(textarea()).toHaveValue('Noor +1'));
-  });
-
-  it('fills Paste a list from ?text= and rewrites the URL without it', async () => {
-    window.history.replaceState(null, '', `/app/share?text=${encodeURIComponent(SHARED)}`);
+  it('fills Paste a list from #text= (the service-worker path) and drops the fragment', async () => {
+    window.history.replaceState(null, '', `/app/share#${new URLSearchParams({ text: SHARED }).toString()}`);
     render(<ShareScreen />);
     const box = await waitFor(() => textarea());
     expect(box).toHaveValue(SHARED);
     expect(window.location.href).not.toContain('Milan');
-    expect(window.location.pathname + window.location.search).toBe('/app/share');
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe('/app/share');
+  });
+
+  it("StrictMode's double effect keeps the text (the second pass finds the URL clean)", async () => {
+    window.history.replaceState(null, '', `/app/share#text=${encodeURIComponent('Noor +1')}`);
+    render(
+      <StrictMode>
+        <ShareScreen />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(textarea()).toHaveValue('Noor +1'));
+  });
+
+  it('leaving the screen without Add forgets the text (review N6)', async () => {
+    putSharedText('Noor +1');
+    const view = render(<ShareScreen />);
+    await waitFor(() => expect(textarea()).toHaveValue('Noor +1'));
+    view.unmount();
+    expect(peekSharedText()).toBeNull();
+    render(<ShareScreen />);
+    await waitFor(() => expect(textarea()).toHaveValue(''));
+    // The empty box says what to do (a share made while signed out is dropped).
+    expect(screen.getByTestId('share-empty-hint')).toHaveTextContent('Share the list again');
   });
 
   it('reads the in-memory inbox the native plugin fills (S6)', async () => {
