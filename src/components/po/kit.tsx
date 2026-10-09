@@ -409,7 +409,10 @@ export function Select({
   className?: string;
 }): JSX.Element {
   return (
-    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
+    // The <select> itself is the tap target, so it fills the box (44px + 2px
+    // padding + border = the same 50px Field height) instead of sitting as a
+    // 23px line inside 13px of padding (layout suite, 44px on touch).
+    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[2px]', className)}>
       {icon && (
         <span className="text-faint">
           <Icon name={icon} size={19} />
@@ -419,7 +422,7 @@ export function Select({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label={ariaLabel}
-        className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none"
+        className="h-[44px] min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none"
       >
         {placeholder != null && <option value="">{placeholder}</option>}
         {options.map((o) => (
