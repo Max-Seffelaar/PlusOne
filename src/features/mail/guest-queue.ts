@@ -48,7 +48,7 @@ type Service = ReturnType<typeof createServiceClient>;
 type UntypedRpc = (fn: string, args: Record<string, unknown>) => Promise<{ error: { code?: string } | null }>;
 
 async function enqueueOne(service: Service, mail: GuestMailOne, actorId: string | null): Promise<void> {
-  const rpc = service.rpc as unknown as UntypedRpc;
+  const rpc = service.rpc.bind(service) as unknown as UntypedRpc;
   const { error } = await rpc('enqueue_guest_mail', {
     p_guest_id: mail.guestId,
     p_type: mail.type,
@@ -61,7 +61,7 @@ async function enqueueOne(service: Service, mail: GuestMailOne, actorId: string 
 }
 
 async function enqueueEvent(service: Service, mail: GuestMailEvent, actorId: string | null): Promise<void> {
-  const rpc = service.rpc as unknown as UntypedRpc;
+  const rpc = service.rpc.bind(service) as unknown as UntypedRpc;
   const { error } = await rpc('enqueue_event_mail', {
     p_event_id: mail.eventId,
     p_type: mail.type,
@@ -112,7 +112,8 @@ export function queueRequestDeclinedMail(requestId: string, remark: string, acto
   if (!guestMailActive()) return;
   after(async () => {
     try {
-      const rpc = createServiceClient().rpc as unknown as UntypedRpc;
+      const service = createServiceClient();
+      const rpc = service.rpc.bind(service) as unknown as UntypedRpc;
       const { error } = await rpc('enqueue_request_declined_mail', {
         p_request_id: requestId,
         p_remark: remark,

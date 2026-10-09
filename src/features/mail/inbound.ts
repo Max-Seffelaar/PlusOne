@@ -132,7 +132,7 @@ export async function answerInbound(eventId: string, data: InboundData, deps: In
 
 export function defaultInboundDeps(): InboundDeps {
   const service = createServiceClient();
-  const rpc = service.rpc as unknown as (
+  const rpc = service.rpc.bind(service) as unknown as (
     fn: string,
     args: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: { code?: string } | null }>;

@@ -286,7 +286,7 @@ export function defaultGuestMailDeps(): GuestMailDeps {
   return {
     rpc: async (fn, args) => {
       const { data, error } = await (
-        service.rpc as unknown as (f: string, a: Record<string, unknown>) => Promise<RpcResult>
+        service.rpc.bind(service) as unknown as (f: string, a: Record<string, unknown>) => Promise<RpcResult>
       )(fn, args);
       return { data, error };
     },
