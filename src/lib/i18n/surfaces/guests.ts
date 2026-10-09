@@ -255,6 +255,12 @@ export const guests = {
     guestMany: 'guests',
     slotOne: 'slot',
     slotMany: 'slots',
+    // Preview count (share-import S2): entries, head count incl. +N, e-mails.
+    countLine: '{entries} {entryWord} · {guests} {guestWord} total · {email} with e-mail',
+    entryOne: 'entry',
+    entryMany: 'entries',
+    // Share landing (/app/share): under the tier picker.
+    shareTierHint: 'Names without a tier get this one.',
   },
   // ── Contacts (address book) ───────────────────────────────────────────────
   contacts: {

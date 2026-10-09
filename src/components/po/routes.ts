@@ -77,6 +77,10 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
       return id ? `/app/events/${id}/add` : '/app/add';
     case 'bulk':
       return id ? `/app/events/${id}/bulk` : '/app/bulk';
+    // Share-import S2: the Web Share Target lands here. The shared text is never
+    // a prop — it travels in memory (features/guests/share-inbox), not the URL.
+    case 'share':
+      return '/app/share';
     case 'pastevent':
       return `/app/events/${id}/recap`;
     case 'guest':
@@ -241,6 +245,7 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
   // and events/:id/bulk forms above, which are used when an event IS in scope.
   if (first === 'add') return { kind: 'screen', name: 'quickadd', props: {} };
   if (first === 'bulk') return { kind: 'screen', name: 'bulk', props: {} };
+  if (first === 'share') return { kind: 'screen', name: 'share', props: {} };
   // Venue-scoped with an internal event picker — see screenPath's comment.
   if (first === 'allowance') return { kind: 'screen', name: 'allowance', props: {} };
 
