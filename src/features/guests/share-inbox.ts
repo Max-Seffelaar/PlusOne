@@ -4,7 +4,10 @@
  *
  * Two producers, one consumer:
  *   • the installed PWA's Web Share Target (`public/manifest.json`, method GET):
- *     the OS opens `/app/share?text=…&title=…&url=…`; the screen calls
+ *     the OS opens `/app/share?text=…&title=…&url=…`; the service worker answers
+ *     that navigation on the device with a 303 to `/app/share#text=…` (no
+ *     network, no cache), and without an active worker the query arrives as is.
+ *     Either way the screen calls
  *     `captureShareFromLocation()` on mount, which moves the text in here and
  *     rewrites the address bar WITHOUT it (`history.replaceState`);
  *   • the native share plugin (S6, `PlusOneShareInbox`, a later store build)
@@ -66,9 +69,10 @@ function hasShareParams(params: URLSearchParams): boolean {
 
 /**
  * Move a share-target payload from the current URL into the inbox and strip it
- * from the address bar. Reads the query (what a GET share target produces) and
- * the fragment (`#text=…`, which never reaches a server — the shape a future
- * service-worker hop would hand over). Every other query key is kept. Guarded
+ * from the address bar. Reads the fragment (`#text=…`, which never reaches a
+ * server — what `public/service-worker.js` turns the share-target navigation
+ * into) and, as the fallback without an active worker, the query (what the GET
+ * share target produces). Every other query key is kept. Guarded
  * for SSR/webviews without `window`/`history`; a no-op when nothing was shared.
  */
 export function captureShareFromLocation(win: Pick<Window, 'location' | 'history'> | undefined = typeof window === 'undefined' ? undefined : window): void {

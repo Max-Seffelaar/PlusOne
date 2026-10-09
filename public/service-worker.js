@@ -220,6 +220,32 @@ function navigationCache(pathname) {
   return null;
 }
 
+// SHARE TARGET HOP (share-import S2, z8uq9m43m8). The installed PWA's manifest
+// `share_target` is method GET, so the OS opens `/app/share?text=…` — a guest
+// list (names, e-mails, phones) in a URL that would otherwise reach the server
+// (request log, middleware `next=`) and land in SESSION_CACHE under that URL.
+// The worker answers that one navigation itself: a 303 to the same path with
+// the share keys moved into the FRAGMENT, which never leaves the browser.
+// No fetch, no cache write, nothing logged. The page then reads the fragment
+// (`captureShareFromLocation`, src/features/guests/share-inbox.ts) and drops it
+// with replaceState. The follow-up `/app/share` navigation (no query) goes
+// through the normal network-first path below. Without an active worker (the
+// very first launch right after install, before it controls the page) the old
+// path remains: the query reaches the server once and the page strips it.
+const SHARE_PATH = '/app/share';
+const SHARE_KEYS = ['text', 'title', 'url'];
+
+/** The redirect for a share-target navigation, or null when `url` is not one. */
+function shareHop(url) {
+  if (url.pathname !== SHARE_PATH) return null;
+  if (!SHARE_KEYS.some((k) => url.searchParams.has(k))) return null;
+  const fragment = new URLSearchParams();
+  const rest = new URLSearchParams();
+  url.searchParams.forEach((value, key) => (SHARE_KEYS.includes(key) ? fragment : rest).append(key, value));
+  const qs = rest.toString();
+  return Response.redirect(`${self.location.origin}${SHARE_PATH}${qs ? `?${qs}` : ''}#${fragment.toString()}`, 303);
+}
+
 /** Offline fallback shell for a navigation we could not serve from its own key.
  *  Same-surface only — a wrong shell is worse than an error, and one event's
  *  door HTML must never stand in for another's. */
@@ -467,6 +493,11 @@ self.addEventListener('fetch', (event) => {
 
   // App-shell navigations: network-first, fall back to cache (offline boot).
   if (request.mode === 'navigate') {
+    const hop = shareHop(url);
+    if (hop) {
+      event.respondWith(Promise.resolve(hop));
+      return;
+    }
     const cacheName = navigationCache(url.pathname);
     const fallback = fallbackFor(url.pathname);
     const epochAtStart = sessionEpoch;
