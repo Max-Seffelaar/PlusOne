@@ -1,4 +1,4 @@
-import { test, expect, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY, type Flow } from './harness';
+import { test, expect, clickUntilVisible, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY, type Flow } from './harness';
 import type { Page } from '@playwright/test';
 
 /**
@@ -60,10 +60,8 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
     await wizardHasNoPurchaseCopy(page, flow);
   });
   await flow.shot('welcome');
-  await page.getByRole('button', { name: /Set up account/i }).click();
-
   const name = page.getByPlaceholder('e.g. LOFI');
-  await expect(name).toBeVisible();
+  await clickUntilVisible(page.getByRole('button', { name: /Set up account/i }), name);
   await flow.shot('company-empty');
   await name.fill(VENUE);
   await page.getByPlaceholder('Wibautstraat 150, Amsterdam').fill('Wibautstraat 150, Amsterdam');
