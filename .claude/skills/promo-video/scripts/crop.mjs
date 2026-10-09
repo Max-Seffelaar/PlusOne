@@ -4,12 +4,25 @@
 //   node .claude/skills/promo-video/scripts/crop.mjs <image> <out.jpg> <x> <y> <w> <h> <outW> <outH>
 //
 // x/y/w/h are in source pixels (the source size is printed); keep w/h in the
-// target aspect ratio (16:9 or 9:16) so nothing is stretched. Uses headless Edge
-// through Playwright and a canvas, so no image library is needed.
+// target aspect ratio (16:9 or 9:16) so nothing is stretched. Uses a headless
+// browser (Edge, Chrome or Playwright's Chromium) and a canvas, so no image
+// library is needed.
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
+
+/** Edge, then Chrome (both decode H.264), then Playwright's own Chromium. */
+async function launchBrowser() {
+  for (const channel of ['msedge', 'chrome']) {
+    try {
+      return await chromium.launch({ channel, headless: true });
+    } catch {
+      // Not installed on this machine; try the next one.
+    }
+  }
+  return chromium.launch({ headless: true });
+}
 
 const [image, out, ...nums] = process.argv.slice(2);
 const [x, y, w, h, outW, outH] = nums.map(Number);
@@ -18,7 +31,7 @@ if (!image || !out || nums.length !== 6 || nums.some((n) => Number.isNaN(Number(
   process.exit(1);
 }
 
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const browser = await launchBrowser();
 try {
   const page = await browser.newPage();
   await page.goto(pathToFileURL(resolve(image)).href);

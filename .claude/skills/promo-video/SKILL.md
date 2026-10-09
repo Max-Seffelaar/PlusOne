@@ -90,7 +90,7 @@ When Max sends an image, look at it directly. When he sends an .mp4 path or a Hi
 node .claude/skills/promo-video/scripts/frames.mjs <video.mp4> <outDir> 0.1 1.5 3 4.5 9
 ```
 
-(Headless Edge via Playwright; times past the end clamp to the last frame. Copy downloads into a scratch directory first.) To make an end frame from a startframe, crop and upscale it:
+(Headless Edge or Chrome via Playwright, whichever is installed; times past the end clamp to the last frame. Copy downloads into a scratch directory first.) To make an end frame from a startframe, crop and upscale it:
 
 ```bash
 node .claude/skills/promo-video/scripts/crop.mjs <image> <out.jpg> <x> <y> <w> <h> 1920 1080
