@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Billing mail copy v2</title>
+<title>Billing mail copy v3</title>
 <style>
 :root{--bg:#f6f5fa;--card:#fff;--ink:#0B0B0D;--muted:#5b5866;--line:#e4e1ec;--accent:#B5A6FF;--accent-soft:#efebff;--ph:#5a3fd6}
 *{box-sizing:border-box}
@@ -63,35 +63,38 @@ th{background:#f0eef6}
 .sched td:first-child{white-space:nowrap;font-weight:600}
 @media (max-width:600px){h1{font-size:23px}.meta-row{grid-template-columns:1fr;gap:0}}
 
-.chosen{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start}
-.variant.pick-card{border:2px solid var(--accent)}
+.chosen{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:20px;align-items:start}
+.variant.final{border:2px solid var(--accent)}
 .calrow{font-size:14px;margin:0 0 12px}
-.calrow a,.linky{color:var(--ph);text-decoration:underline}
+.calrow a{color:var(--ph);text-decoration:underline}
 .cond-inline{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-left:6px}
-.price{font-weight:600}
 .decisions{border-left:4px solid var(--ink)}
-.piece{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:15px}
-.piece p{margin:0 0 8px}
 .small{font-size:13px;color:var(--muted)}
+.dyn{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr));gap:6px;margin:0 0 12px}
+.dyn>div{border:1px dashed #c9c2e8;border-radius:8px;padding:6px 8px;background:#fdfcff;font-size:14px}
+.details .dyn{margin:4px 0 0}
+.details .dyn>div{background:#fff}
+.dyn .dl{display:block;font-size:10px;font-weight:700;color:var(--ph);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.meta .dyn{margin:2px 0}
+.meta .dyn>div{font-size:13px}
 </style>
 </head>
 <body>
 <div class="wrap">
-<h1>Billing mails: copy review v2</h1>
-<p class="lead">v2 after Max's picks. Part 1 shows the chosen variant of each of the seven mails, revised. Part 2 has three variants for the one new piece: the help line that invites a reply. Every chosen mail renders with the recommended help line. Copy only, nothing built yet.</p>
-<p class="lead"><strong>Every variant passed the humanizer check (no em dashes, no AI vocabulary).</strong> Voice: tone-of-voice.md. No amounts anywhere; prices live in Stripe.</p>
-<div class="box howto"><h3>How to choose</h3><p style="margin:0">Reply with one letter for the help line, for example <code>help-line: A</code>. Edits to a chosen mail: name the id and the line.</p></div>
+<h1>Billing mails: final copy v3</h1>
+<p class="lead">Final copy after Max's picks: one version per mail, the help line decided. Copy only, nothing built yet.</p>
+<p class="lead"><strong>Every variant passed the humanizer check (no em dashes, no AI vocabulary).</strong> Voice: tone-of-voice.md.</p>
 <div class="box decisions"><h3>Decisions (Max, 2026-10-09)</h3><ol>
-<li>Picks: trial-0 B, trial-7 C, trial-12 A, trial-ended A, trial-21 C, payment-failed A, canceled A.</li>
-<li>Billing mails are replyable. Every help line says "reply to this email"; replies go to support@plus-one.io (reply-to). The help line has 3 variants below.</li>
+<li>Final picks: trial-0 B, trial-7 C, trial-12 A, trial-ended A, trial-21 C, payment-failed A, canceled A. Help line B.</li>
+<li>Billing mails are replyable. Every footer ends with "Reply to this email with any question. It goes straight to the PlusOne team."; replies go to support@plus-one.io (reply-to).</li>
 <li>Days 7, 12, 14 and 21 count from the trial end date, so a trial override moves them along.</li>
 <li>Day 21 is sent.</li>
 <li>payment-failed and canceled go out every time, keyed per Stripe event or invoice, not once per company.</li>
 <li>A short trial override skips any mail whose day has already passed. No catch-up.</li>
+<li>No amounts anywhere; prices live in Stripe. No dynamic counts in billing mails.</li>
 </ol></div>
 <div class="box"><h3>Sender</h3><ul>
-<li>Shown as From: PlusOne &lt;support@plus-one.io&gt;, Reply-to: support@plus-one.io. A visible "noreply@" next to "reply to this email" reads as a contradiction, so sending from support@ is the recommendation. If it stays noreply@, the reply-to still routes replies to support@ and the copy holds.</li>
-<li>The help line starts with "Reply", with no filler word in front of it, per the banned filler list in docs/copy-prompt.md.</li>
+<li>From: PlusOne &lt;support@plus-one.io&gt;, Reply-to: support@plus-one.io. A visible "noreply@" next to "Reply to this email" reads as a contradiction. If the sender stays noreply@, reply-to still routes replies to support@ and the copy holds.</li>
 </ul></div>
 <div class="box"><h3>Schedule</h3>
 <div class="tablewrap"><table class="sched"><thead><tr><th>Mail</th><th>Standard trial</th><th>Rule</th><th>Example: trial until 27 Oct</th></tr></thead><tbody>
@@ -107,10 +110,9 @@ th{background:#f0eef6}
 <li>Short override: a mail whose day is already in the past when the override is set is skipped, never sent late. Example: a trial set on 24 Oct to end on 27 Oct skips trial-7 (20 Oct) and gets trial-12 on 25 Oct.</li>
 <li>Trial mails stop once the subscription is active. Nothing goes to comped companies or companies with billing mails paused.</li>
 <li>Build note: the ClickUp task (z8uq9m2z19) still says "day 8 without a day-7 mail sends day 7 anyway" and "unique (company, type)". Both change with these decisions. A missed daily job run is a separate case; the task should say whether that one catches up.</li>
-</ul></div><ul class="toc"><li><a href="#trial-0">trial-0</a></li><li><a href="#trial-7">trial-7</a></li><li><a href="#trial-12">trial-12</a></li><li><a href="#trial-ended">trial-ended</a></li><li><a href="#trial-21">trial-21</a></li><li><a href="#payment-failed">payment-failed</a></li><li><a href="#canceled">canceled</a></li><li><a href="#help-line">help-line</a></li></ul><section class="mailsec"><h2>Part 1: chosen mails, revised</h2><div class="chosen"><div id="trial-0"><h3 style="margin:0 0 4px"><code>trial-0</code> Trial started (day 0)</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> A company is created and its Pro trial starts. To: admins and finance.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">Chosen: B, revised</span></header>
+</ul></div><ul class="toc"><li><a href="#trial-0">trial-0</a></li><li><a href="#trial-7">trial-7</a></li><li><a href="#trial-12">trial-12</a></li><li><a href="#trial-ended">trial-ended</a></li><li><a href="#trial-21">trial-21</a></li><li><a href="#payment-failed">payment-failed</a></li><li><a href="#canceled">canceled</a></li></ul><section class="mailsec"><div class="chosen"><div id="trial-0"><h3 style="margin:0 0 4px"><code>trial-0</code> Trial started (day 0)</h3>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> A company is created and its Pro trial starts. To: admins and finance.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 B</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>You&#x27;re in. <span class="ph">{company}</span> is on PlusOne</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your Pro trial runs until <span class="ph">{trial_end_date}</span>.</span></div>
@@ -126,9 +128,8 @@ th{background:#f0eef6}
   </div>
   <p class="wc">Body: 69 words (limit 130)</p>
 </article></div><div id="trial-7"><h3 style="margin:0 0 4px"><code>trial-7</code> One week left (day 7)</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> 7 days before the trial end date. To: admins and finance.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Added an invitation to reply, now that replies reach a person.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Chosen: C, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> 7 days before the trial end date. To: admins and finance.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 C</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Keep PlusOne after <span class="ph">{trial_end_date}</span>?</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your trial for <span class="ph">{company}</span> ends in 7 days.</span></div>
@@ -144,9 +145,8 @@ th{background:#f0eef6}
   </div>
   <p class="wc">Body: 73 words (limit 130)</p>
 </article></div><div id="trial-12"><h3 style="margin:0 0 4px"><code>trial-12</code> 2 days left (day 12)</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> 2 days before the trial end date. To: admins and finance.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> 2 days before the trial end date. To: admins and finance.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your trial ends in 2 days</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">After <span class="ph">{trial_end_date}</span>, new events and invites pause until payment is set up.</span></div>
@@ -162,9 +162,8 @@ th{background:#f0eef6}
   </div>
   <p class="wc">Body: 52 words (limit 130)</p>
 </article></div><div id="trial-ended"><h3 style="margin:0 0 4px"><code>trial-ended</code> Trial ended (day 14)</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The trial end moment has passed and no payment is set up. To: admins and finance.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The trial end moment has passed and no payment is set up. To: admins and finance.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne trial has ended</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your door and planned events keep running. New events are paused.</span></div>
@@ -180,9 +179,8 @@ th{background:#f0eef6}
   </div>
   <p class="wc">Body: 47 words (limit 130)</p>
 </article></div><div id="trial-21"><h3 style="margin:0 0 4px"><code>trial-21</code> Last reminder (day 21)</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> 7 days after the trial end date, payment still not set up. Sent (decided). Last trial mail. To: admins and finance.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> &quot;Mail support@plus-one.io&quot; became &quot;reply to this email&quot;.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Chosen: C, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> 7 days after the trial end date, payment still not set up. Sent (decided). Last trial mail. To: admins and finance.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 C</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Was something missing in PlusOne?</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your trial ended a week ago. Tell us what didn&#x27;t work.</span></div>
@@ -198,9 +196,8 @@ th{background:#f0eef6}
   </div>
   <p class="wc">Body: 58 words (limit 130)</p>
 </article></div><div id="payment-failed"><h3 style="margin:0 0 4px"><code>payment-failed</code> Payment failed</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> Every Stripe invoice.payment_failed event (keyed per Stripe event, never on a replay). To: admins and finance.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> Every Stripe invoice.payment_failed event (keyed per Stripe event, never on a replay). To: admins and finance.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne payment didn&#x27;t go through</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Update your payment method in Billing.</span></div>
@@ -216,9 +213,8 @@ th{background:#f0eef6}
   </div>
   <p class="wc">Body: 36 words (limit 130)</p>
 </article></div><div id="canceled"><h3 style="margin:0 0 4px"><code>canceled</code> Subscription canceled</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> Every Stripe customer.subscription.deleted event (keyed per Stripe event). To: admins and finance.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> Every Stripe customer.subscription.deleted event (keyed per Stripe event). To: admins and finance.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne subscription has ended</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your data and planned events stay. You can reactivate any time.</span></div>
@@ -233,20 +229,7 @@ th{background:#f0eef6}
     <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
   <p class="wc">Body: 47 words (limit 130)</p>
-</article></div></div></section><section class="mailsec"><h2>Part 2: new piece</h2></section><section class="mailsec" id="help-line">
-  <div class="sechead"><h2><code>help-line</code> Help line in the footer (new)</h2><p class="trigger"><strong>Where:</strong> Last footer line of all seven billing mails, replacing &quot;Questions? Mail support@plus-one.io.&quot;</p></div>
-  <div class="variants"><article class="variant">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Shortest</span></header>
-  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately. <span class="cond-inline">payment mails only</span></p><p><strong>Questions? Reply to this email.</strong></p></div></div>
-</article><article class="variant rec">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">Says where the reply lands</span><span class="badge">Recommended</span></header>
-  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately. <span class="cond-inline">payment mails only</span></p><p><strong>Reply to this email with any question. It goes straight to the PlusOne team.</strong></p></div></div>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Says who answers</span></header>
-  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately. <span class="cond-inline">payment mails only</span></p><p><strong>Something unclear? Hit reply. A person at PlusOne answers.</strong></p></div></div>
-</article></div>
-  <p class="pick"><strong>Pick: B.</strong> It tells a reader who is used to no-reply mail that a reply actually reaches someone, without promising a response time.</p>
-</section><section class="mailsec" id="summary"><h2>Summary</h2><div class="tablewrap"><table><thead><tr><th>id</th><th>pick</th><th>note</th></tr></thead><tbody><tr><td><a href="#trial-0"><code>trial-0</code></a></td><td>B (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#trial-7"><code>trial-7</code></a></td><td>C (chosen, revised)</td><td>Added an invitation to reply, now that replies reach a person.</td></tr><tr><td><a href="#trial-12"><code>trial-12</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#trial-ended"><code>trial-ended</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#trial-21"><code>trial-21</code></a></td><td>C (chosen, revised)</td><td>&quot;Mail support@plus-one.io&quot; became &quot;reply to this email&quot;.</td></tr><tr><td><a href="#payment-failed"><code>payment-failed</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#canceled"><code>canceled</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#help-line"><code>help-line</code></a></td><td>recommend B</td><td>Says a reply reaches the PlusOne team.</td></tr></tbody></table></div></section>
+</article></div></div></section><section class="mailsec" id="summary"><h2>Summary</h2><div class="tablewrap"><table><thead><tr><th>id</th><th>built from</th><th>button</th></tr></thead><tbody><tr><td><a href="#trial-0"><code>trial-0</code></a></td><td>v2 B</td><td>Create your first event</td></tr><tr><td><a href="#trial-7"><code>trial-7</code></a></td><td>v2 C</td><td>Set up payment</td></tr><tr><td><a href="#trial-12"><code>trial-12</code></a></td><td>v2 A</td><td>Set up payment</td></tr><tr><td><a href="#trial-ended"><code>trial-ended</code></a></td><td>v2 A</td><td>Set up payment</td></tr><tr><td><a href="#trial-21"><code>trial-21</code></a></td><td>v2 C</td><td>Set up payment</td></tr><tr><td><a href="#payment-failed"><code>payment-failed</code></a></td><td>v2 A</td><td>Update payment method</td></tr><tr><td><a href="#canceled"><code>canceled</code></a></td><td>v2 A</td><td>Reactivate billing</td></tr></tbody></table></div></section>
 </div>
 </body>
 </html>

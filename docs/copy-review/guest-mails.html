@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Guest mail copy v2</title>
+<title>Guest mail copy v3</title>
 <style>
 :root{--bg:#f6f5fa;--card:#fff;--ink:#0B0B0D;--muted:#5b5866;--line:#e4e1ec;--accent:#B5A6FF;--accent-soft:#efebff;--ph:#5a3fd6}
 *{box-sizing:border-box}
@@ -63,112 +63,117 @@ th{background:#f0eef6}
 .sched td:first-child{white-space:nowrap;font-weight:600}
 @media (max-width:600px){h1{font-size:23px}.meta-row{grid-template-columns:1fr;gap:0}}
 
-.chosen{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start}
-.variant.pick-card{border:2px solid var(--accent)}
+.chosen{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:20px;align-items:start}
+.variant.final{border:2px solid var(--accent)}
 .calrow{font-size:14px;margin:0 0 12px}
-.calrow a,.linky{color:var(--ph);text-decoration:underline}
+.calrow a{color:var(--ph);text-decoration:underline}
 .cond-inline{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-left:6px}
-.price{font-weight:600}
 .decisions{border-left:4px solid var(--ink)}
-.piece{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:15px}
-.piece p{margin:0 0 8px}
 .small{font-size:13px;color:var(--muted)}
+.dyn{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr));gap:6px;margin:0 0 12px}
+.dyn>div{border:1px dashed #c9c2e8;border-radius:8px;padding:6px 8px;background:#fdfcff;font-size:14px}
+.details .dyn{margin:4px 0 0}
+.details .dyn>div{background:#fff}
+.dyn .dl{display:block;font-size:10px;font-weight:700;color:var(--ph);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.meta .dyn{margin:2px 0}
+.meta .dyn>div{font-size:13px}
 </style>
 </head>
 <body>
 <div class="wrap">
-<h1>Guest mails: copy review v2</h1>
-<p class="lead">v2 after Max's picks. Part 1 shows the chosen variant of each mail, revised to the rules below. Part 2 has three variants for each new piece: the reminder, the price line, the status link, and the footer. Every chosen mail renders with the recommended piece; your pick of a piece swaps in everywhere. Copy only, nothing built yet.</p>
+<h1>Guest mails: final copy v3</h1>
+<p class="lead">Final copy after Max's picks: one version per mail, every piece decided. Dashed boxes are the dynamic forms of one line, rendered for 0, 1 and n plus-ones (request-partly: 1, 2 and 4 approved out of 5 asked). Copy only, nothing built yet.</p>
 <p class="lead"><strong>Every variant passed the humanizer check (no em dashes, no AI vocabulary).</strong> Voice: tone-of-voice.md.</p>
-<div class="box howto"><h3>How to choose</h3><p style="margin:0">Reply with one letter per new piece, for example <code>guest-reminder: A, price-line: B, status-link: A, footer: C</code>. Edits to a chosen mail: name the id and the line.</p></div>
 <div class="box decisions"><h3>Decisions (Max, 2026-10-09)</h3><ol>
-<li>Picks: guest-on-list A, guest-plus-ones A, guest-event-changed A, guest-event-canceled A, guest-removed A, request-approved A, request-partly B, request-declined B. guest-reminder is rewritten as a very short mail (3 variants below).</li>
+<li>Final picks: guest-on-list A, guest-plus-ones A, guest-event-changed A, guest-event-canceled A, guest-removed A, guest-reminder A (short), request-approved A, request-partly B, request-declined B. Pieces: price line A ("Entry per person"), status link B ("Check your status"), footer A.</li>
 <li>No company name in the subject or body. The event name is what guests recognise. The company appears only in the footer.</li>
 <li>Every mail shows <span class="ph">{event_date}</span> and <span class="ph">{event_time}</span>, plus <span class="ph">{location}</span> where a spot exists.</li>
 <li>Every mail with a spot shows the tier (<span class="ph">{tier_name}</span>). A split over tiers lists each tier with its count.</li>
-<li>A tier with a door price adds a price line with <span class="ph">{tier_price}</span> (conditional, 3 variants below). No amount is ever written into the copy.</li>
-<li>Every mail with a spot links to the guest's status page (<span class="ph">{status_url}</span>, conditional on the page existing, 3 variants below).</li>
-<li>"Add to calendar" (.ics attachment plus a Google Calendar link) in on-list, plus-ones, event-changed, approved, partly, and reminder.</li>
-<li>The footer names the company's contact address explicitly; the unsubscribe line stays; support@plus-one.io only as "Trouble with this email?" (3 variants below).</li>
-<li>request-declined: the reply line names <span class="ph">{contact_email}</span>.</li>
+<li>A tier with a door price adds "Entry per person: <span class="ph">{tier_price}</span>, pay at the door". No amount is ever written into the copy.</li>
+<li>Every mail with a spot has a "Check your status" button to <span class="ph">{status_url}</span>, only when the status page exists.</li>
+<li>"Add to calendar" (.ics attachment plus a Google Calendar link) in on-list, plus-ones, event-changed, reminder, approved, and partly.</li>
+<li>Footer: reason line, "Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.", the unsubscribe line, and "Trouble with this email? support@plus-one.io" last.</li>
+<li>request-declined names <span class="ph">{contact_email}</span> in the body.</li>
 <li>On the request path only one mail goes out: request-approved or request-partly replaces guest-on-list.</li>
 <li>Sender under evaluation: "<span class="ph">{event_name}</span> via PlusOne" &lt;noreply@plus-one.io&gt;, reply-to <span class="ph">{contact_email}</span>.</li>
 <li>Spelling: "canceled".</li>
+<li><strong>Every +N and people count is dynamic.</strong> Each mail shows its three rendered forms side by side (dashed boxes):
+  <ul>
+  <li>0 plus-ones: never "+0". The sentence drops the plus-ones part ("You're still on the list.") or says "without a plus-one"; the tier line reads "<span class="ph">{tier_name}</span> · 1 person"; the price line reads "Entry:" instead of "Entry per person:".</li>
+  <li>1 plus-one: "+1", "2 people". Removed: "Your +1 is off the list too."</li>
+  <li>n plus-ones (2 or more): "+n" and the total in people (+3 means "4 people"). Removed: "Your +n are off the list too."</li>
+  <li>Singular and plural everywhere: "1 person", otherwise "people". That includes request-partly's approved total and each per-tier count ("Backstage: 1 person", "Guest: 3 people").</li>
+  </ul></li>
 </ol></div>
 <div class="box"><h3>Reading the cards</h3><ul>
-<li>Gray block = event details. Lines tagged in small caps are conditional (price, per-tier lines, house rules, the team's note, the status link).</li>
-<li><span class="ph">{people}</span> = 1 + <span class="ph">{plus_ones}</span>; the renderer writes "1 person", and with no plus-ones the tier line reads "<span class="ph">{tier_name}</span> · 1 person".</li>
-<li>"Note from the team" keeps the company name out of the body. The team's own words (<span class="ph">{remark}</span>) can still name anything they like.</li>
-<li>The sender is noreply@ but replies reach <span class="ph">{contact_email}</span> through reply-to. If "{event_name} via PlusOne" is dropped, the from-line goes back to "{company} via PlusOne" and nothing in the body changes.</li>
-</ul></div><ul class="toc"><li><a href="#guest-on-list">guest-on-list</a></li><li><a href="#guest-plus-ones">guest-plus-ones</a></li><li><a href="#guest-event-changed">guest-event-changed</a></li><li><a href="#guest-event-canceled">guest-event-canceled</a></li><li><a href="#guest-removed">guest-removed</a></li><li><a href="#request-approved">request-approved</a></li><li><a href="#request-partly">request-partly</a></li><li><a href="#request-declined">request-declined</a></li><li><a href="#guest-reminder">guest-reminder</a></li><li><a href="#price-line">price-line</a></li><li><a href="#status-link">status-link</a></li><li><a href="#footer">footer</a></li></ul><section class="mailsec"><h2>Part 1: chosen mails, revised</h2><div class="chosen"><div id="guest-on-list"><h3 style="margin:0 0 4px"><code>guest-on-list</code> You&#x27;re on the list</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> A guest with an email address is added by hand, from contacts, or by bulk import, with &quot;Send confirmation&quot; ticked. Not on the request path (see request-approved).</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Company out of the body; tier, price line, calendar row and status link added.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<li>Gray block = event details. Small-caps tags mark conditional lines (price, house rules, the team's note, the status button).</li>
+<li>"Note from the team" keeps the company name out of the body; the team's own words (<span class="ph">{remark}</span>) can say anything.</li>
+<li>The sender is noreply@, but replies reach <span class="ph">{contact_email}</span> through reply-to.</li>
+</ul></div><ul class="toc"><li><a href="#guest-on-list">guest-on-list</a></li><li><a href="#guest-plus-ones">guest-plus-ones</a></li><li><a href="#guest-event-changed">guest-event-changed</a></li><li><a href="#guest-event-canceled">guest-event-canceled</a></li><li><a href="#guest-removed">guest-removed</a></li><li><a href="#guest-reminder">guest-reminder</a></li><li><a href="#request-approved">request-approved</a></li><li><a href="#request-partly">request-partly</a></li><li><a href="#request-declined">request-declined</a></li></ul><section class="mailsec"><div class="chosen"><div id="guest-on-list"><h3 style="margin:0 0 4px"><code>guest-on-list</code> You&#x27;re on the list</h3>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> A guest with an email address is added by hand, from contacts, or by bulk import, with &quot;Send confirmation&quot; ticked. Not on the request path.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>You&#x27;re on the list for <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre"><span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>. Give your name at the door.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong>You&#x27;re on the list for <span class="ph">{event_name}</span></strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><span class="pre"><span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>. Give your name at the door.</span></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
     <p>Hi <span class="ph">{guest_first_name}</span>,</p>
 <p>You&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p>
-<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class=""><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door<span class="cond-inline">only if the tier has a door price</span></div></div>
+<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class="dyn"><div><span class="dl">+0 (no plus-ones)</span><span class="ph">{tier_name}</span> · 1 person<br><span class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+1</span><span class="ph">{tier_name}</span> · You +1 (2 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+3 (any n of 2 or more)</span><span class="ph">{tier_name}</span> · You +3 (4 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div></div></div>
 <p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
 <p>At the door, give your name. You don&#x27;t need a QR code or a screenshot.</p>
 <p class="rules">House rules: <span class="ph">{house_rules}</span><span class="cond">only when the event has house rules</span></p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
+    <p class="btnrow"><span class="btn">Check your status</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
     <hr>
     <div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 52 words incl. details block (limit 90)</p>
+  <p class="wc">Body: 53 words for the longest form, incl. details block (limit 90)</p>
 </article></div><div id="guest-plus-ones"><h3 style="margin:0 0 4px"><code>guest-plus-ones</code> Your +N changed</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The team changes a guest&#x27;s plus-ones, up or down.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> &quot;<span class="ph">{company}</span> changed your spot&quot; became &quot;Your spot changed&quot;; the details block now carries date, doors, location and tier.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The team changes a guest&#x27;s plus-ones, up or down.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Your spot for <span class="ph">{event_name}</span> changed</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">You&#x27;re now on the list with +<span class="ph">{plus_ones}</span>.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong>Your spot for <span class="ph">{event_name}</span> changed</strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><div class="dyn "><div><span class="dl">+0 (no plus-ones)</span>You&#x27;re now on the list without a plus-one.</div><div><span class="dl">+1</span>You&#x27;re now on the list with +1.</div><div><span class="dl">+3 (any n of 2 or more)</span>You&#x27;re now on the list with +3.</div></div></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
     <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p>Your spot for <span class="ph">{event_name}</span> changed. You&#x27;re now on the list with +<span class="ph">{plus_ones}</span>, so <span class="ph">{people}</span> people in total.</p>
+<div class="dyn "><div><span class="dl">+0 (no plus-ones)</span>Your spot for <span class="ph">{event_name}</span> changed. You&#x27;re now on the list without a plus-one.</div><div><span class="dl">+1</span>Your spot for <span class="ph">{event_name}</span> changed. You&#x27;re now on the list with +1, so 2 people in total.</div><div><span class="dl">+3 (any n of 2 or more)</span>Your spot for <span class="ph">{event_name}</span> changed. You&#x27;re now on the list with +3, so 4 people in total.</div></div>
 <div class="note">Note from the team: &quot;<span class="ph">{remark}</span>&quot;<span class="cond">only when the team wrote one</span></div>
-<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class=""><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door<span class="cond-inline">only if the tier has a door price</span></div></div>
+<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class="dyn"><div><span class="dl">+0 (no plus-ones)</span><span class="ph">{tier_name}</span> · 1 person<br><span class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+1</span><span class="ph">{tier_name}</span> · You +1 (2 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+3 (any n of 2 or more)</span><span class="ph">{tier_name}</span> · You +3 (4 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div></div></div>
 <p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
 <p>Everything else stays the same. Give your name at the door.</p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
+    <p class="btnrow"><span class="btn">Check your status</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
     <hr>
     <div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 60 words incl. details block (limit 90)</p>
+  <p class="wc">Body: 61 words for the longest form, incl. details block (limit 90)</p>
 </article></div><div id="guest-event-changed"><h3 style="margin:0 0 4px"><code>guest-event-changed</code> Event time or location changed</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The team changes the date, doors time, or location. To every guest on the list with an email address.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Company out; the .ics keeps the same event id so it updates the old calendar entry instead of adding a second one (build note).</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The team changes the date, doors time, or location. To every guest on the list with an email address. The .ics keeps the same event id, so it updates the old calendar entry.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>New details for <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre"><span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>, <span class="ph">{location}</span>.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong>New details for <span class="ph">{event_name}</span></strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><span class="pre"><span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>, <span class="ph">{location}</span>.</span></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
     <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p><span class="ph">{event_name}</span> has new details. You&#x27;re still on the list with +<span class="ph">{plus_ones}</span>.</p>
-<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class=""><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door<span class="cond-inline">only if the tier has a door price</span></div></div>
+<div class="dyn "><div><span class="dl">+0 (no plus-ones)</span><span class="ph">{event_name}</span> has new details. You&#x27;re still on the list.</div><div><span class="dl">+1</span><span class="ph">{event_name}</span> has new details. You&#x27;re still on the list with +1.</div><div><span class="dl">+3 (any n of 2 or more)</span><span class="ph">{event_name}</span> has new details. You&#x27;re still on the list with +3.</div></div>
+<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class="dyn"><div><span class="dl">+0 (no plus-ones)</span><span class="ph">{tier_name}</span> · 1 person<br><span class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+1</span><span class="ph">{tier_name}</span> · You +1 (2 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+3 (any n of 2 or more)</span><span class="ph">{tier_name}</span> · You +3 (4 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div></div></div>
 <p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
 <p>Give your name at the door, as planned.</p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
+    <p class="btnrow"><span class="btn">Check your status</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
     <hr>
     <div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 46 words incl. details block (limit 90)</p>
+  <p class="wc">Body: 47 words for the longest form, incl. details block (limit 90)</p>
 </article></div><div id="guest-event-canceled"><h3 style="margin:0 0 4px"><code>guest-event-canceled</code> Event canceled</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The team cancels the event. To every guest on the list with an email address.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Company out of body and preheader; the &quot;reply to reach&quot; line moved to the footer. No spot left, so no tier, status link or calendar row.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The team cancels the event. To every guest on the list with an email address.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong><span class="ph">{event_name}</span> is canceled</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre"><span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>, won&#x27;t go ahead.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong><span class="ph">{event_name}</span> is canceled</strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><span class="pre"><span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>, won&#x27;t go ahead.</span></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
@@ -179,74 +184,88 @@ th{background:#f0eef6}
     <hr>
     <div class="foot"><p>You got this email because you were on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u></p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 24 words incl. details block (limit 90)</p>
+  <p class="wc">Body: 24 words for the longest form, incl. details block (limit 90)</p>
 </article></div><div id="guest-removed"><h3 style="margin:0 0 4px"><code>guest-removed</code> Removed from the list</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The team removes a guest. The note is mandatory and always shown.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> &quot;<span class="ph">{company}</span> took you off&quot; became &quot;You&#x27;re off&quot;; the note label is &quot;Note from the team&quot;. The +N sentence renders only when plus_ones &gt; 0.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The team removes a guest. The note is mandatory and always shown.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>You&#x27;re no longer on the list for <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">A note about your spot for <span class="ph">{event_date}</span>.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong>You&#x27;re no longer on the list for <span class="ph">{event_name}</span></strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><span class="pre">A note about your spot for <span class="ph">{event_date}</span>.</span></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
     <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p>You&#x27;re off the guest list for <span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>. Your +<span class="ph">{plus_ones}</span> are off the list too.</p>
+<div class="dyn "><div><span class="dl">+0 (no plus-ones)</span>You&#x27;re off the guest list for <span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>.</div><div><span class="dl">+1</span>You&#x27;re off the guest list for <span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>. Your +1 is off the list too.</div><div><span class="dl">+3 (any n of 2 or more)</span>You&#x27;re off the guest list for <span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>. Your +3 are off the list too.</div></div>
 <div class="note">Note from the team: &quot;<span class="ph">{remark}</span>&quot;<span class="cond">always shown (mandatory)</span></div>
     <p class="nobtn">No button (no spot left)</p>
     <hr>
     <div class="foot"><p>You got this email because you were on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u></p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 25 words incl. details block (limit 90)</p>
-</article></div><div id="request-approved"><h3 style="margin:0 0 4px"><code>request-approved</code> Request approved (in full)</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The team approves a request exactly as asked, and the requester left an email address. Replaces guest-on-list on this path.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> &quot;<span class="ph">{company}</span> approved your request&quot; became &quot;Your request is approved&quot;.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+  <p class="wc">Body: 25 words for the longest form, incl. details block (limit 90)</p>
+</article></div><div id="guest-reminder"><h3 style="margin:0 0 4px"><code>guest-reminder</code> Reminder before the event</h3>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> A platform admin taps &quot;Send reminder&quot; on the event (test, behind GUEST_REMINDER_ENABLED). To every guest on the list with an email address.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 reminder A</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>You&#x27;re on the list for <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your request is approved. <span class="ph">{people}</span> people, <span class="ph">{event_date}</span>.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong>Reminder: you&#x27;re on the list for <span class="ph">{event_name}</span></strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><span class="pre"><span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>, <span class="ph">{location}</span>.</span></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
     <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p>Your request is approved. You&#x27;re on the guest list for <span class="ph">{event_name}</span>, <span class="ph">{people}</span> people in total.</p>
-<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class=""><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door<span class="cond-inline">only if the tier has a door price</span></div></div>
+<p>You&#x27;re on the list for <span class="ph">{event_name}</span>.</p>
+<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class="dyn"><div><span class="dl">+0 (no plus-ones)</span><span class="ph">{tier_name}</span> · 1 person<br><span class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+1</span><span class="ph">{tier_name}</span> · You +1 (2 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+3 (any n of 2 or more)</span><span class="ph">{tier_name}</span> · You +3 (4 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div></div></div>
+<p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
+    <p class="btnrow"><span class="btn">Check your status</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
+    <hr>
+    <div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
+  </div>
+  <p class="wc">Body: 34 words for the longest form, incl. details block (limit 90)</p>
+</article></div><div id="request-approved"><h3 style="margin:0 0 4px"><code>request-approved</code> Request approved (in full)</h3>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The team approves a request exactly as asked, and the requester left an email address. Replaces guest-on-list on this path.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 A</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong>You&#x27;re on the list for <span class="ph">{event_name}</span></strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><div class="dyn "><div><span class="dl">+0 (no plus-ones)</span>Your request is approved for <span class="ph">{event_date}</span>.</div><div><span class="dl">+1</span>Your request is approved. 2 people, <span class="ph">{event_date}</span>.</div><div><span class="dl">+3 (any n of 2 or more)</span>Your request is approved. 4 people, <span class="ph">{event_date}</span>.</div></div></div></div>
+  </div>
+  <div class="mail">
+    <p class="brand"><span class="ph">{event_name}</span></p>
+    <p>Hi <span class="ph">{guest_first_name}</span>,</p>
+<div class="dyn "><div><span class="dl">+0 (no plus-ones)</span>Your request is approved. You&#x27;re on the guest list for <span class="ph">{event_name}</span>.</div><div><span class="dl">+1</span>Your request is approved. You&#x27;re on the guest list for <span class="ph">{event_name}</span>, 2 people in total.</div><div><span class="dl">+3 (any n of 2 or more)</span>Your request is approved. You&#x27;re on the guest list for <span class="ph">{event_name}</span>, 4 people in total.</div></div>
+<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class="dyn"><div><span class="dl">+0 (no plus-ones)</span><span class="ph">{tier_name}</span> · 1 person<br><span class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+1</span><span class="ph">{tier_name}</span> · You +1 (2 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div><div><span class="dl">+3 (any n of 2 or more)</span><span class="ph">{tier_name}</span> · You +3 (4 people)<br><span class="price">Entry per person: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">price line only if the tier has a door price</span></div></div></div>
 <div class="note">Note from the team: &quot;<span class="ph">{remark}</span>&quot;<span class="cond">only when the team wrote one</span></div>
 <p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
 <p>Give your name at the door.</p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
+    <p class="btnrow"><span class="btn">Check your status</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
     <hr>
     <div class="foot"><p>You got this email because you asked for a spot on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 53 words incl. details block (limit 90)</p>
+  <p class="wc">Body: 54 words for the longest form, incl. details block (limit 90)</p>
 </article></div><div id="request-partly"><h3 style="margin:0 0 4px"><code>request-partly</code> Request partly approved</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The team approves fewer people than asked (lower +N, part declined, or a split over tiers). The note is mandatory. Replaces guest-on-list on this path.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> &quot;<span class="ph">{company}</span> couldn&#x27;t fit&quot; became &quot;We couldn&#x27;t fit&quot; (the sender is the event); the details block lists each tier with its count, and a price line per priced tier.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">Chosen: B, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The team approves fewer people than asked (lower +N, part declined, or a split over tiers). The note is mandatory. Replaces guest-on-list on this path. Examples below: asked for 5.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 B</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>On the list for <span class="ph">{event_name}</span>: <span class="ph">{people}</span> people</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Not the full group, but you&#x27;re on the list.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><div class="dyn "><div><span class="dl">1 approved (asked 5)</span>On the list for <span class="ph">{event_name}</span>: 1 person</div><div><span class="dl">2 approved (asked 5)</span>On the list for <span class="ph">{event_name}</span>: 2 people</div><div><span class="dl">4 approved (asked 5)</span>On the list for <span class="ph">{event_name}</span>: 4 people</div></div></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><span class="pre">Not the full group, but you&#x27;re on the list.</span></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
     <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p>You&#x27;re on the list for <span class="ph">{event_name}</span>. We couldn&#x27;t fit all <span class="ph">{requested_people}</span> people you asked for, so your spot covers <span class="ph">{people}</span>.</p>
+<div class="dyn "><div><span class="dl">1 approved (asked 5)</span>You&#x27;re on the list for <span class="ph">{event_name}</span>. We couldn&#x27;t fit all 5 people you asked for, so your spot covers 1 person.</div><div><span class="dl">2 approved (asked 5)</span>You&#x27;re on the list for <span class="ph">{event_name}</span>. We couldn&#x27;t fit all 5 people you asked for, so your spot covers 2 people.</div><div><span class="dl">4 approved (asked 5)</span>You&#x27;re on the list for <span class="ph">{event_name}</span>. We couldn&#x27;t fit all 5 people you asked for, so your spot covers 4 people.</div></div>
 <div class="note">Note from the team: &quot;<span class="ph">{remark}</span>&quot;<span class="cond">always shown (mandatory)</span></div>
-<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class="">Your spot: <span class="ph">{people}</span> people</div><div><span class="ph">{tier_name}</span>: <span class="ph">{tier_people}</span> people<span class="cond-inline">one line per tier</span></div><div class="price"><span class="ph">{tier_name}</span> entry: <span class="ph">{tier_price}</span>, pay at the door<span class="cond-inline">per tier with a door price</span></div></div>
+<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class="dyn"><div><span class="dl">1 approved (asked 5)</span><strong>Your spot: 1 person</strong><div><span class="ph">{tier_name}</span>: 1 person</div><span class="price">Entry per person for <span class="ph">{tier_name}</span>: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">one price line per tier with a door price</span></div><div><span class="dl">2 approved (asked 5)</span><strong>Your spot: 2 people</strong><div>Backstage: 1 person</div><div>Guest: 1 person</div><span class="price">Entry per person for <span class="ph">{tier_name}</span>: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">one price line per tier with a door price</span></div><div><span class="dl">4 approved (asked 5)</span><strong>Your spot: 4 people</strong><div>Backstage: 1 person</div><div>Guest: 3 people</div><span class="price">Entry per person for <span class="ph">{tier_name}</span>: <span class="ph">{tier_price}</span>, pay at the door</span><span class="cond-inline" style="margin-left:0;display:block">one price line per tier with a door price</span></div></div></div>
 <p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
 <p>Give your name at the door.</p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
+    <p class="btnrow"><span class="btn">Check your status</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
     <hr>
     <div class="foot"><p>You got this email because you asked for a spot on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 67 words incl. details block (limit 90)</p>
+  <p class="wc">Body: 68 words for the longest form, incl. details block (limit 90)</p>
 </article></div><div id="request-declined"><h3 style="margin:0 0 4px"><code>request-declined</code> Request declined</h3>
-<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The team declines a whole request. The note is mandatory.</p>
-<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> The reply line now names <span class="ph">{contact_email}</span>; it leaves out the company name so the body stays company-free.</p><article class="variant pick-card">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">Chosen: B, revised</span></header>
+<p class="small" style="margin:0 0 8px"><strong>Trigger:</strong> The team declines a whole request. The note is mandatory.</p><article class="variant final">
+  <header class="vhead"><span class="angle">Final</span><span class="small">built from v2 B</span></header>
   <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Your guest list request for <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">An answer about <span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>.</span></div>
+    <div class="meta-row"><span class="k">Subject</span><div><strong>Your guest list request for <span class="ph">{event_name}</span></strong></div></div>
+    <div class="meta-row"><span class="k">Preheader</span><div><span class="pre">An answer about <span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>.</span></div></div>
   </div>
   <div class="mail">
     <p class="brand"><span class="ph">{event_name}</span></p>
@@ -258,101 +277,8 @@ th{background:#f0eef6}
     <hr>
     <div class="foot"><p>You got this email because you asked for a spot on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u></p><p>Trouble with this email? support@plus-one.io</p></div>
   </div>
-  <p class="wc">Body: 30 words incl. details block (limit 90)</p>
-</article></div></div></section><section class="mailsec"><h2>Part 2: new pieces, choose one each</h2></section><section class="mailsec" id="guest-reminder">
-  <div class="sechead"><h2><code>guest-reminder</code> Reminder before the event (new, very short)</h2><p class="trigger"><strong>Where:</strong> A platform admin taps &quot;Send reminder&quot; on the event (test, behind GUEST_REMINDER_ENABLED). To every guest on the list with an email address.</p></div>
-  <div class="variants"><article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span><span class="badge">Recommended</span></header>
-  <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Reminder: you&#x27;re on the list for <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre"><span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>, <span class="ph">{location}</span>.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand"><span class="ph">{event_name}</span></p>
-    <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p>You&#x27;re on the list for <span class="ph">{event_name}</span>.</p>
-<div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div class=""><span class="ph">{event_date}</span> · Doors <span class="ph">{event_time}</span></div><div class=""><span class="ph">{location}</span></div><div class=""><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door<span class="cond-inline">only if the tier has a door price</span></div></div>
-<p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
-  </div>
-  <p class="wc">Body: 33 words incl. details block (limit 90)</p>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">One sentence</span></header>
-  <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>See you at <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">You&#x27;re on the list. Doors <span class="ph">{event_time}</span>.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand"><span class="ph">{event_name}</span></p>
-    <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p>You&#x27;re on the list for <span class="ph">{event_name}</span> on <span class="ph">{event_date}</span>. Doors open at <span class="ph">{event_time}</span> at <span class="ph">{location}</span>, and you&#x27;re down as <span class="ph">{tier_name}</span>, you +<span class="ph">{plus_ones}</span>.</p>
-<p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
-  </div>
-  <p class="wc">Body: 32 words incl. details block (limit 90)</p>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Lead with the date</span></header>
-  <div class="meta"><div class="meta-row"><span class="k">From</span><span><span class="ph">{event_name}</span> via PlusOne &lt;noreply@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span class="ph">{contact_email}</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong><span class="ph">{event_date}</span>: <span class="ph">{event_name}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">You&#x27;re on the list. Doors <span class="ph">{event_time}</span>.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand"><span class="ph">{event_name}</span></p>
-    <p>Hi <span class="ph">{guest_first_name}</span>,</p>
-<p><span class="ph">{event_date}</span>, doors <span class="ph">{event_time}</span>, <span class="ph">{location}</span>.</p>
-<p>That&#x27;s <span class="ph">{event_name}</span>, and you&#x27;re on the list as <span class="ph">{tier_name}</span>, you +<span class="ph">{plus_ones}</span>.</p>
-<p class="calrow">Add to calendar: <a>Apple or Outlook (.ics)</a> · <a>Google Calendar</a></p>
-    <p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div>
-  </div>
-  <p class="wc">Body: 26 words incl. details block (limit 90)</p>
-</article></div>
-  <p class="pick"><strong>Pick: A.</strong> It says the one thing a reminder needs, then the facts in the same block as every other mail, so guests learn one layout.</p>
-</section><section class="mailsec" id="price-line">
-  <div class="sechead"><h2><code>price-line</code> Door price line (new, conditional)</h2><p class="trigger"><strong>Where:</strong> Details block of every mail with a spot, only when the guest&#x27;s tier has a door price. Split requests get one line per priced tier (&quot;<span class="ph">{tier_name}</span> entry: <span class="ph">{tier_price}</span>, pay at the door&quot;).</p></div>
-  <div class="variants"><article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain, fits the details block</span><span class="badge">Recommended</span></header>
-  <div class="piece"><div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Entry: <span class="ph">{tier_price}</span>, pay at the door</div></div><p class="small">Only when the tier has a door price. Last line of the details block.</p></div>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">Names it as a guest list price</span></header>
-  <div class="piece"><div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Guest list price: <span class="ph">{tier_price}</span>, paid at the door</div></div><p class="small">Only when the tier has a door price. Last line of the details block.</p></div>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Full sentence</span></header>
-  <div class="piece"><div class="details"><div class="dt-strong"><span class="ph">{event_name}</span></div><div><span class="ph">{tier_name}</span> · You +<span class="ph">{plus_ones}</span> (<span class="ph">{people}</span> people)</div><div class="price">Your tier has a door price of <span class="ph">{tier_price}</span>. You pay it at the door.</div></div><p class="small">Only when the tier has a door price. Last line of the details block.</p></div>
-</article></div>
-  <p class="pick"><strong>Pick: A.</strong> Shortest, reads as a fact next to the date and doors, and &quot;pay at the door&quot; says how without a second sentence.</p><ul class="notes"><li><span class="ph">{tier_price}</span> comes from the tier, formatted with currency by the renderer. The copy never holds an amount.</li></ul>
-</section><section class="mailsec" id="status-link">
-  <div class="sechead"><h2><code>status-link</code> Status page link (new, conditional)</h2><p class="trigger"><strong>Where:</strong> Every mail with a spot: on-list, plus-ones, event-changed, approved, partly, reminder. Not in canceled, removed, or declined.</p></div>
-  <div class="variants"><article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Button, about the spot</span><span class="badge">Recommended</span></header>
-  <div class="piece"><p class="btnrow"><span class="btn">View your spot</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p><p class="small">Only when the guest has a status page.</p></div>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">Button, about the status</span></header>
-  <div class="piece"><p class="btnrow"><span class="btn">Check your status</span><span class="cond-inline">only if the status page exists</span></p><p class="fallback">Button not working? Open <span class="ph">{status_url}</span></p><p class="small">Only when the guest has a status page.</p></div>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Text link with a reason to open it</span></header>
-  <div class="piece"><p class="calrow">Changes to your spot show up here: <span class="ph">{status_url}</span><span class="cond-inline">only if the status page exists</span></p><p class="small">Only when the guest has a status page.</p></div>
-</article></div>
-  <p class="pick"><strong>Pick: A.</strong> &quot;Your spot&quot; is the guest&#x27;s own word for it across these mails, and a button is easier to tap on a phone than a bare URL.</p>
-</section><section class="mailsec" id="footer">
-  <div class="sechead"><h2><code>footer</code> Footer block (new)</h2><p class="trigger"><strong>Where:</strong> Every guest mail.</p></div>
-  <div class="variants"><article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Contact first, plain</span><span class="badge">Recommended</span></header>
-  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions? Mail <span class="ph">{company}</span> at <span class="ph">{contact_email}</span>, or reply to this email.</p><p>Don&#x27;t want updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Trouble with this email? support@plus-one.io</p></div><p class="small" style="margin-top:8px">Shown for a mail with a spot. Canceled, removed and declined drop "You stay on the list." and use the matching reason line.</p></div>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">Says who reads the address</span></header>
-  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p>Questions about your spot? <span class="ph">{company}</span> reads <span class="ph">{contact_email}</span>. Replying to this email works too.</p><p>Not interested in updates from <span class="ph">{company}</span>? <u>Unsubscribe</u>. You stay on the list.</p><p>Sent by PlusOne for <span class="ph">{company}</span>. Trouble with this email? support@plus-one.io</p></div><p class="small" style="margin-top:8px">Shown for a mail with a spot. Canceled, removed and declined drop "You stay on the list." and use the matching reason line.</p></div>
-</article><article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Company and address as a signature line</span></header>
-  <div class="piece"><div class="foot"><p><span class="ph">{company}</span>, <span class="ph">{contact_email}</span></p><p>Reply to this email or mail <span class="ph">{contact_email}</span> with questions about your spot. You got this email because you&#x27;re on the guest list for <span class="ph">{event_name}</span>.</p><p><u>Unsubscribe</u> from <span class="ph">{company}</span> updates. You stay on the list.</p><p>PlusOne sends this for <span class="ph">{company}</span>. Something wrong with this email? support@plus-one.io</p></div><p class="small" style="margin-top:8px">Shown for a mail with a spot. Canceled, removed and declined drop "You stay on the list." and use the matching reason line.</p></div>
-</article></div>
-  <p class="pick"><strong>Pick: A.</strong> It answers &quot;who do I ask&quot; with the address in plain sight, and keeps PlusOne support out of the guest&#x27;s way on the last line.</p>
-</section><section class="mailsec" id="summary"><h2>Summary</h2><div class="tablewrap"><table><thead><tr><th>id</th><th>pick</th><th>note</th></tr></thead><tbody><tr><td><a href="#guest-on-list"><code>guest-on-list</code></a></td><td>A (chosen, revised)</td><td>Company out of the body; tier, price line, calendar row and status link added.</td></tr><tr><td><a href="#guest-plus-ones"><code>guest-plus-ones</code></a></td><td>A (chosen, revised)</td><td>&quot;<span class="ph">{company}</span> changed your spot&quot; became &quot;Your spot changed&quot;; the details block now carries date, doors, location and tier.</td></tr><tr><td><a href="#guest-event-changed"><code>guest-event-changed</code></a></td><td>A (chosen, revised)</td><td>Company out; the .ics keeps the same event id so it updates the old calendar entry instead of adding a second one (build note).</td></tr><tr><td><a href="#guest-event-canceled"><code>guest-event-canceled</code></a></td><td>A (chosen, revised)</td><td>Company out of body and preheader; the &quot;reply to reach&quot; line moved to the footer. No spot left, so no tier, status link or calendar row.</td></tr><tr><td><a href="#guest-removed"><code>guest-removed</code></a></td><td>A (chosen, revised)</td><td>&quot;<span class="ph">{company}</span> took you off&quot; became &quot;You&#x27;re off&quot;; the note label is &quot;Note from the team&quot;. The +N sentence renders only when plus_ones &gt; 0.</td></tr><tr><td><a href="#request-approved"><code>request-approved</code></a></td><td>A (chosen, revised)</td><td>&quot;<span class="ph">{company}</span> approved your request&quot; became &quot;Your request is approved&quot;.</td></tr><tr><td><a href="#request-partly"><code>request-partly</code></a></td><td>B (chosen, revised)</td><td>&quot;<span class="ph">{company}</span> couldn&#x27;t fit&quot; became &quot;We couldn&#x27;t fit&quot; (the sender is the event); the details block lists each tier with its count, and a price line per priced tier.</td></tr><tr><td><a href="#request-declined"><code>request-declined</code></a></td><td>B (chosen, revised)</td><td>The reply line now names <span class="ph">{contact_email}</span>; it leaves out the company name so the body stays company-free.</td></tr><tr><td><a href="#guest-reminder"><code>guest-reminder</code></a></td><td>recommend A</td><td>It says the one thing a reminder needs, then the facts in the same block as every other mail, so guests learn one layout.</td></tr><tr><td><a href="#price-line"><code>price-line</code></a></td><td>recommend A</td><td>Shortest, sits in the details block.</td></tr><tr><td><a href="#status-link"><code>status-link</code></a></td><td>recommend A</td><td>"View your spot", a button.</td></tr><tr><td><a href="#footer"><code>footer</code></a></td><td>recommend A</td><td>Contact address first, support last.</td></tr></tbody></table></div></section>
+  <p class="wc">Body: 30 words for the longest form, incl. details block (limit 90)</p>
+</article></div></div></section><section class="mailsec" id="summary"><h2>Summary</h2><div class="tablewrap"><table><thead><tr><th>id</th><th>built from</th><th>extras</th></tr></thead><tbody><tr><td><a href="#guest-on-list"><code>guest-on-list</code></a></td><td>v2 A</td><td>status button, calendar</td></tr><tr><td><a href="#guest-plus-ones"><code>guest-plus-ones</code></a></td><td>v2 A</td><td>status button, calendar</td></tr><tr><td><a href="#guest-event-changed"><code>guest-event-changed</code></a></td><td>v2 A</td><td>status button, calendar</td></tr><tr><td><a href="#guest-event-canceled"><code>guest-event-canceled</code></a></td><td>v2 A</td><td>no spot: no tier, status or calendar</td></tr><tr><td><a href="#guest-removed"><code>guest-removed</code></a></td><td>v2 A</td><td>no spot: no tier, status or calendar</td></tr><tr><td><a href="#guest-reminder"><code>guest-reminder</code></a></td><td>v2 reminder A</td><td>status button, calendar</td></tr><tr><td><a href="#request-approved"><code>request-approved</code></a></td><td>v2 A</td><td>status button, calendar</td></tr><tr><td><a href="#request-partly"><code>request-partly</code></a></td><td>v2 B</td><td>status button, calendar</td></tr><tr><td><a href="#request-declined"><code>request-declined</code></a></td><td>v2 B</td><td>no spot: no tier, status or calendar</td></tr></tbody></table></div></section>
 </div>
 </body>
 </html>
