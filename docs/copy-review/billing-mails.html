@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Billing mail copy</title>
+<title>Billing mail copy v2</title>
 <style>
 :root{--bg:#f6f5fa;--card:#fff;--ink:#0B0B0D;--muted:#5b5866;--line:#e4e1ec;--accent:#B5A6FF;--accent-soft:#efebff;--ph:#5a3fd6}
 *{box-sizing:border-box}
@@ -62,525 +62,191 @@ th{background:#f0eef6}
 .tablewrap{overflow-x:auto}
 .sched td:first-child{white-space:nowrap;font-weight:600}
 @media (max-width:600px){h1{font-size:23px}.meta-row{grid-template-columns:1fr;gap:0}}
+
+.chosen{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start}
+.variant.pick-card{border:2px solid var(--accent)}
+.calrow{font-size:14px;margin:0 0 12px}
+.calrow a,.linky{color:var(--ph);text-decoration:underline}
+.cond-inline{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-left:6px}
+.price{font-weight:600}
+.decisions{border-left:4px solid var(--ink)}
+.piece{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:15px}
+.piece p{margin:0 0 8px}
+.small{font-size:13px;color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
-<h1>Billing mails: copy review</h1>
-<p class="lead">Seven mails PlusOne sends to company admins and finance about the trial and payments (ClickUp Billing-mails B1, z8uq9m2z19). Copy only: nothing here is built yet. Each mail has three variants; the recommended one has a lavender border.</p>
-<p class="lead"><strong>Every variant passed the humanizer check (no em dashes, no AI vocabulary).</strong> Voice: tone-of-voice.md, method: docs/copy-prompt.md (A plain, B house voice, C different structure).</p>
-<div class="box howto"><h3>How to choose</h3>
-<p style="margin:0 0 6px">Reply with one letter per id, for example <code>trial-7: B, payment-failed: A</code>. Mix freely ("trial-12: A with the subject of C"). No reply on an id means the recommended pick.</p></div>
-<div class="box"><h3>Shared rules in every billing mail</h3><ul>
-<li>From PlusOne &lt;noreply@plus-one.io&gt;. To: admins and finance of the company. Never to Always free (comped) companies, never when billing mails are paused.</li>
-<li>No amounts and no price ids. Prices live in Stripe. Stripe sends invoices and payment confirmations itself; we never do.</li>
-<li>Placeholders: <span class="ph">{first_name}</span> (no profile name: "Hi,"), <span class="ph">{company}</span>, <span class="ph">{trial_end_date}</span> (any date, so longer trials work), <span class="ph">{cta_url}</span> (Billing in the web app; the native app only claims auth links, so the button always opens the browser).</li>
-<li>The soft block, stated the same way everywhere: new events, team invites, and imports pause; the door, planned events, their guest lists, and all data keep working.</li>
-<li>Structure follows the team mails in src/features/mail/templates.ts: wordmark, heading, body, one button, fallback link, footer with support@plus-one.io.</li>
+<h1>Billing mails: copy review v2</h1>
+<p class="lead">v2 after Max's picks. Part 1 shows the chosen variant of each of the seven mails, revised. Part 2 has three variants for the one new piece: the help line that invites a reply. Every chosen mail renders with the recommended help line. Copy only, nothing built yet.</p>
+<p class="lead"><strong>Every variant passed the humanizer check (no em dashes, no AI vocabulary).</strong> Voice: tone-of-voice.md. No amounts anywhere; prices live in Stripe.</p>
+<div class="box howto"><h3>How to choose</h3><p style="margin:0">Reply with one letter for the help line, for example <code>help-line: A</code>. Edits to a chosen mail: name the id and the line.</p></div>
+<div class="box decisions"><h3>Decisions (Max, 2026-10-09)</h3><ol>
+<li>Picks: trial-0 B, trial-7 C, trial-12 A, trial-ended A, trial-21 C, payment-failed A, canceled A.</li>
+<li>Billing mails are replyable. Every help line says "reply to this email"; replies go to support@plus-one.io (reply-to). The help line has 3 variants below.</li>
+<li>Days 7, 12, 14 and 21 count from the trial end date, so a trial override moves them along.</li>
+<li>Day 21 is sent.</li>
+<li>payment-failed and canceled go out every time, keyed per Stripe event or invoice, not once per company.</li>
+<li>A short trial override skips any mail whose day has already passed. No catch-up.</li>
+</ol></div>
+<div class="box"><h3>Sender</h3><ul>
+<li>Shown as From: PlusOne &lt;support@plus-one.io&gt;, Reply-to: support@plus-one.io. A visible "noreply@" next to "reply to this email" reads as a contradiction, so sending from support@ is the recommendation. If it stays noreply@, the reply-to still routes replies to support@ and the copy holds.</li>
+<li>The help line starts with "Reply", with no filler word in front of it, per the banned filler list in docs/copy-prompt.md.</li>
 </ul></div>
 <div class="box"><h3>Schedule</h3>
-<p style="margin:0 0 8px;color:var(--muted)">Day numbers are for a standard 14-day trial. Every mail after day 0 is counted from the trial end date, so a trial override moves them along (ClickUp: "override +30 days: the day-12 mail comes 2 days before the new end date"). Trial mails stop as soon as the subscription is active.</p>
 <div class="tablewrap"><table class="sched"><thead><tr><th>Mail</th><th>Standard trial</th><th>Rule</th><th>Example: trial until 27 Oct</th></tr></thead><tbody>
 <tr><td>trial-0</td><td>day 0</td><td>trial start (company created)</td><td>day of creation</td></tr>
 <tr><td>trial-7</td><td>day 7</td><td>trial end minus 7 days</td><td>20 Oct</td></tr>
 <tr><td>trial-12</td><td>day 12</td><td>trial end minus 2 days</td><td>25 Oct</td></tr>
-<tr><td>trial-ended</td><td>day 14</td><td>trial end date (after the end moment)</td><td>27 Oct</td></tr>
-<tr><td>trial-21</td><td>day 21</td><td>trial end plus 7 days, last one</td><td>3 Nov</td></tr>
-<tr><td>payment-failed</td><td>any time</td><td>webhook invoice.payment_failed</td><td>n/a</td></tr>
-<tr><td>canceled</td><td>any time</td><td>webhook customer.subscription.deleted</td><td>n/a</td></tr>
-</tbody></table></div></div>
-<ul class="toc"><li><a href="#trial-0">trial-0</a></li><li><a href="#trial-7">trial-7</a></li><li><a href="#trial-12">trial-12</a></li><li><a href="#trial-ended">trial-ended</a></li><li><a href="#trial-21">trial-21</a></li><li><a href="#payment-failed">payment-failed</a></li><li><a href="#canceled">canceled</a></li></ul>
-<section class="mailsec" id="trial-0">
-  <div class="sechead">
-    <h2><code>trial-0</code> Trial started (day 0)</h2>
-    <p class="trigger"><strong>Trigger:</strong> Sent when a company is created and its Pro trial starts (create_venue_with_owner). To: admins and finance of the company (at that moment, usually only the owner). Never for Always free (comped) companies.</p>
-  </div>
-  <div class="variants">
-<article class="variant">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne trial has started</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Free until <span class="ph">{trial_end_date}</span>. Payment can wait.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Welcome to PlusOne</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p><span class="ph">{company}</span> is on PlusOne. Your free trial of Pro runs until <span class="ph">{trial_end_date}</span>.</p>
-<p>You don&#x27;t need to set up payment yet. When you want to, open Billing in your browser. You can pay monthly, or yearly with 20% off, by card, SEPA Direct Debit, or iDEAL.</p>
-<p>A good first step is to create an event and invite your team.</p>
-    <p class="btnrow"><span class="btn">Create an event</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 63 words (limit 130)</p>
-</article>
-<article class="variant rec">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">House voice</span><span class="badge">Recommended</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
+<tr><td>trial-ended</td><td>day 14</td><td>after the trial end moment</td><td>27 Oct</td></tr>
+<tr><td>trial-21</td><td>day 21</td><td>trial end plus 7 days; sent; the last trial mail</td><td>3 Nov</td></tr>
+<tr><td>payment-failed</td><td>any time</td><td>every invoice.payment_failed, keyed per Stripe event or invoice</td><td>n/a</td></tr>
+<tr><td>canceled</td><td>any time</td><td>every customer.subscription.deleted, keyed per Stripe event</td><td>n/a</td></tr>
+</tbody></table></div>
+<ul class="notes" style="margin-top:10px">
+<li>Short override: a mail whose day is already in the past when the override is set is skipped, never sent late. Example: a trial set on 24 Oct to end on 27 Oct skips trial-7 (20 Oct) and gets trial-12 on 25 Oct.</li>
+<li>Trial mails stop once the subscription is active. Nothing goes to comped companies or companies with billing mails paused.</li>
+<li>Build note: the ClickUp task (z8uq9m2z19) still says "day 8 without a day-7 mail sends day 7 anyway" and "unique (company, type)". Both change with these decisions. A missed daily job run is a separate case; the task should say whether that one catches up.</li>
+</ul></div><ul class="toc"><li><a href="#trial-0">trial-0</a></li><li><a href="#trial-7">trial-7</a></li><li><a href="#trial-12">trial-12</a></li><li><a href="#trial-ended">trial-ended</a></li><li><a href="#trial-21">trial-21</a></li><li><a href="#payment-failed">payment-failed</a></li><li><a href="#canceled">canceled</a></li><li><a href="#help-line">help-line</a></li></ul><section class="mailsec"><h2>Part 1: chosen mails, revised</h2><div class="chosen"><div id="trial-0"><h3 style="margin:0 0 4px"><code>trial-0</code> Trial started (day 0)</h3>
+<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> A company is created and its Pro trial starts. To: admins and finance.</p>
+<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
+  <header class="vhead"><span class="vlabel">B</span><span class="angle">Chosen: B, revised</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>You&#x27;re in. <span class="ph">{company}</span> is on PlusOne</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your Pro trial runs until <span class="ph">{trial_end_date}</span>.</span></div>
   </div>
   <div class="mail">
     <p class="brand">PlusOne</p>
     <h4 class="mail-h">Let&#x27;s fill your first list</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p><span class="ph">{company}</span> is live on PlusOne, and your Pro trial runs until <span class="ph">{trial_end_date}</span>. You get every feature while it lasts.</p>
-<p>Create an event and send your team an invite. The list fills from there.</p>
-<p>Payment can wait until you&#x27;re ready. You set it up in Billing, in your browser: monthly, or yearly with 20% off. Card, SEPA Direct Debit, and iDEAL all work.</p>
-    <p class="btnrow"><span class="btn">Create your first event</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
+    <p>Hi <span class="ph">{first_name}</span>,</p><p><span class="ph">{company}</span> is live on PlusOne, and your Pro trial runs until <span class="ph">{trial_end_date}</span>. You get every feature while it lasts.</p><p>Create an event and send your team an invite. The list fills from there.</p><p>Payment can wait until you&#x27;re ready. You set it up in Billing, in your browser: monthly, or yearly with 20% off. Card, SEPA Direct Debit, and iDEAL all work.</p>
+    <p class="btnrow"><span class="btn">Create your first event</span></p>
+    <p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
     <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
+    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
   <p class="wc">Body: 69 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Lead with the date</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Free until <span class="ph">{trial_end_date}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your PlusOne trial for <span class="ph">{company}</span> has started.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Your trial runs until <span class="ph">{trial_end_date}</span></h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>That&#x27;s the date to remember. Until then, <span class="ph">{company}</span> gets all of Pro for free.</p>
-<p>Before it ends, set up payment in Billing, in your browser. Pick monthly, or yearly with 20% off. You can pay by card, SEPA Direct Debit, or iDEAL.</p>
-<p>We&#x27;ll email you a week before the trial ends, and again 2 days before.</p>
-    <p class="btnrow"><span class="btn">Open PlusOne</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 63 words (limit 130)</p>
-</article>
-  </div>
-  <p class="pick"><strong>Pick: B.</strong> It&#x27;s the welcome, so the onboarding dial (medium wink) applies, and it leads with the first action instead of payment.</p>
-  <ul class="notes"><li>No first name on the profile: the greeting renders as &quot;Hi,&quot;. Same rule in every billing mail.</li><li>&quot;In your browser&quot; is deliberate: the native app shows Billing read-only, and the mail is the allowed place to say where payment happens.</li></ul>
-</section>
-<section class="mailsec" id="trial-7">
-  <div class="sechead">
-    <h2><code>trial-7</code> One week left (day 7)</h2>
-    <p class="trigger"><strong>Trigger:</strong> Sent 7 days before the trial end date (day 7 of a standard 14-day trial). To: admins and finance. Skipped once payment is set up (status active), for comped companies, and when billing mails are paused.</p>
-  </div>
-  <div class="variants">
-<article class="variant">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Your trial ends in 7 days</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Set up payment before <span class="ph">{trial_end_date}</span> to keep everything running.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">7 days left on your trial</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The PlusOne trial for <span class="ph">{company}</span> ends on <span class="ph">{trial_end_date}</span>. Set up payment before then and nothing changes for your team.</p>
-<p>You pay monthly, or yearly with 20% off. Card, SEPA Direct Debit, and iDEAL all work. You&#x27;ll find it in Billing, in your browser.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 51 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">House voice</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>One week left on your PlusOne trial</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Keep Pro running after <span class="ph">{trial_end_date}</span>.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">A week to go</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>Your trial for <span class="ph">{company}</span> runs until <span class="ph">{trial_end_date}</span>. If PlusOne is running your door by now, set up payment and keep it that way.</p>
-<p>Go monthly, or go yearly and get 20% off. Pay by card, SEPA Direct Debit, or iDEAL.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 46 words (limit 130)</p>
-</article>
-<article class="variant rec">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">A question, plus what happens if you wait</span><span class="badge">Recommended</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
+</article></div><div id="trial-7"><h3 style="margin:0 0 4px"><code>trial-7</code> One week left (day 7)</h3>
+<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> 7 days before the trial end date. To: admins and finance.</p>
+<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Added an invitation to reply, now that replies reach a person.</p><article class="variant pick-card">
+  <header class="vhead"><span class="vlabel">C</span><span class="angle">Chosen: C, revised</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Keep PlusOne after <span class="ph">{trial_end_date}</span>?</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your trial for <span class="ph">{company}</span> ends in 7 days.</span></div>
   </div>
   <div class="mail">
     <p class="brand">PlusOne</p>
     <h4 class="mail-h">Staying with PlusOne?</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>Your trial for <span class="ph">{company}</span> ends in 7 days, on <span class="ph">{trial_end_date}</span>. To keep creating events and inviting your team after that, set up payment in Billing.</p>
-<p>There&#x27;s one plan, Pro. Pay monthly, or yearly with 20% off, by card, SEPA Direct Debit, or iDEAL.</p>
-<p>Not ready to decide? Your planned events and the door keep running either way.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
+    <p>Hi <span class="ph">{first_name}</span>,</p><p>Your trial for <span class="ph">{company}</span> ends in 7 days, on <span class="ph">{trial_end_date}</span>. To keep creating events and inviting your team after that, set up payment in Billing.</p><p>There&#x27;s one plan, Pro. Pay monthly, or yearly with 20% off, by card, SEPA Direct Debit, or iDEAL.</p><p>Not ready to decide? Your planned events and the door keep running either way. Reply to this email if you want to talk it through.</p>
+    <p class="btnrow"><span class="btn">Set up payment</span></p>
+    <p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
     <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
+    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
-  <p class="wc">Body: 62 words (limit 130)</p>
-</article>
-  </div>
-  <p class="pick"><strong>Pick: C.</strong> It names the real choice and tells them early that the door never stops, which takes the pressure out without a joke about money.</p>
-  <ul class="notes"><li>Written as &quot;7 days before the end&quot;, not &quot;halfway&quot;, so it stays true for a longer trial (for example free until 27 October).</li></ul>
-</section>
-<section class="mailsec" id="trial-12">
-  <div class="sechead">
-    <h2><code>trial-12</code> 2 days left (day 12)</h2>
-    <p class="trigger"><strong>Trigger:</strong> Sent 2 days before the trial end date. To: admins and finance. Same skip rules as trial-7.</p>
-  </div>
-  <div class="variants">
-<article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span><span class="badge">Recommended</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
+  <p class="wc">Body: 73 words (limit 130)</p>
+</article></div><div id="trial-12"><h3 style="margin:0 0 4px"><code>trial-12</code> 2 days left (day 12)</h3>
+<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> 2 days before the trial end date. To: admins and finance.</p>
+<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
+  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your trial ends in 2 days</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">After <span class="ph">{trial_end_date}</span>, new events and invites pause until payment is set up.</span></div>
   </div>
   <div class="mail">
     <p class="brand">PlusOne</p>
     <h4 class="mail-h">2 days left on your trial</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The PlusOne trial for <span class="ph">{company}</span> ends on <span class="ph">{trial_end_date}</span>.</p>
-<p>If payment isn&#x27;t set up by then, you can&#x27;t create new events, invite people, or import contacts. Events you already planned keep running, and so does the door.</p>
-<p>Set up payment in Billing, in your browser.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
+    <p>Hi <span class="ph">{first_name}</span>,</p><p>The PlusOne trial for <span class="ph">{company}</span> ends on <span class="ph">{trial_end_date}</span>.</p><p>If payment isn&#x27;t set up by then, you can&#x27;t create new events, invite people, or import contacts. Events you already planned keep running, and so does the door.</p><p>Set up payment in Billing, in your browser.</p>
+    <p class="btnrow"><span class="btn">Set up payment</span></p>
+    <p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
     <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
+    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
   <p class="wc">Body: 52 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">House voice</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>2 days left on your PlusOne trial</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Set up payment and your team won&#x27;t notice a thing.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Almost time, <span class="ph">{first_name}</span></h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>Your trial for <span class="ph">{company}</span> ends on <span class="ph">{trial_end_date}</span>. Set up payment now and your team won&#x27;t notice a thing.</p>
-<p>If you skip it, new events, invites, and imports pause until you do. Your planned events keep going and the door stays open.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 46 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Lead with what keeps working</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>What happens after <span class="ph">{trial_end_date}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your trial ends in 2 days. Your door keeps working.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Your trial ends in 2 days</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>On <span class="ph">{trial_end_date}</span>, the trial for <span class="ph">{company}</span> ends. Your door keeps working, and so do the events you already planned, their guest lists, and your data.</p>
-<p>New events, team invites, and imports pause. They come back as soon as payment is set up in Billing.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 52 words (limit 130)</p>
-</article>
-  </div>
-  <p class="pick"><strong>Pick: A.</strong> Two days out, the reader needs the consequence and the action in that order, and A has nothing else in the way.</p>
-  
-</section>
-<section class="mailsec" id="trial-ended">
-  <div class="sechead">
-    <h2><code>trial-ended</code> Trial ended (day 14)</h2>
-    <p class="trigger"><strong>Trigger:</strong> Sent on the trial end date when no payment is set up. To: admins and finance. Never for comped or paused companies.</p>
-  </div>
-  <div class="variants">
-<article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span><span class="badge">Recommended</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
+</article></div><div id="trial-ended"><h3 style="margin:0 0 4px"><code>trial-ended</code> Trial ended (day 14)</h3>
+<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> The trial end moment has passed and no payment is set up. To: admins and finance.</p>
+<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
+  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne trial has ended</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your door and planned events keep running. New events are paused.</span></div>
   </div>
   <div class="mail">
     <p class="brand">PlusOne</p>
     <h4 class="mail-h">Your trial has ended</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The trial for <span class="ph">{company}</span> ended on <span class="ph">{trial_end_date}</span>.</p>
-<p>Still working: the door, the events you already planned, their guest lists, and all your data.</p>
-<p>Paused: new events, team invites, and imports.</p>
-<p>Set up payment in Billing and the paused features come back.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
+    <p>Hi <span class="ph">{first_name}</span>,</p><p>The trial for <span class="ph">{company}</span> ended on <span class="ph">{trial_end_date}</span>.</p><p>Still working: the door, the events you already planned, their guest lists, and all your data.</p><p>Paused: new events, team invites, and imports.</p><p>Set up payment in Billing and the paused features come back.</p>
+    <p class="btnrow"><span class="btn">Set up payment</span></p>
+    <p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
     <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
+    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
   <p class="wc">Body: 47 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">House voice</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Your trial is over. Your door isn&#x27;t.</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Planned events keep running. Set up payment to plan new ones.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Your trial has ended</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The PlusOne trial for <span class="ph">{company}</span> ended on <span class="ph">{trial_end_date}</span>. Nothing you planned is affected. Your events, their guest lists, and the door all keep running.</p>
-<p>To create new events, invite people, or import contacts again, set up payment in Billing.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 45 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Lead with the reader&#x27;s next event</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong><span class="ph">{company}</span>: your planned events go ahead</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your trial ended on <span class="ph">{trial_end_date}</span>. New events are paused.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Your next event is safe</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>Your trial ended on <span class="ph">{trial_end_date}</span>, and every event <span class="ph">{company}</span> already planned goes ahead as usual. Your team can still add guests, and the door checks people in like before.</p>
-<p>New events, team invites, and imports are paused until you set up payment in Billing.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 51 words (limit 130)</p>
-</article>
-  </div>
-  <p class="pick"><strong>Pick: A.</strong> Billing copy carries no wink, and the two labelled lines answer &quot;what still works&quot; and &quot;what stopped&quot; faster than any sentence.</p>
-  <ul class="notes"><li>Copy says &quot;has ended&quot;, so the job must send it after the trial end moment, not on the morning of the end date.</li></ul>
-</section>
-<section class="mailsec" id="trial-21">
-  <div class="sechead">
-    <h2><code>trial-21</code> Last reminder (day 21)</h2>
-    <p class="trigger"><strong>Trigger:</strong> Sent 7 days after the trial end date if payment is still not set up. To: admins and finance. After this, no more trial mails.</p>
-  </div>
-  <div class="variants">
-<article class="variant">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne trial ended a week ago</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Set up payment to create new events again.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Your trial ended a week ago</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The trial for <span class="ph">{company}</span> ended on <span class="ph">{trial_end_date}</span>. New events, team invites, and imports are still paused. Your planned events, the door, and your data are untouched.</p>
-<p>To start planning again, set up payment in Billing.</p>
-<p>This is the last email we send about your trial.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 53 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">House voice</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Ready to plan the next event?</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Set up payment and <span class="ph">{company}</span> is back to full speed.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">The list is waiting</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>It&#x27;s been a week since the trial for <span class="ph">{company}</span> ended on <span class="ph">{trial_end_date}</span>. Your data is still here, so you can pick up where you left off.</p>
-<p>Set up payment in Billing and new events, invites, and imports open up again. Monthly, or yearly with 20% off.</p>
-<p>We won&#x27;t email you about this again.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 59 words (limit 130)</p>
-</article>
-<article class="variant rec">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Ask what was missing</span><span class="badge">Recommended</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
+</article></div><div id="trial-21"><h3 style="margin:0 0 4px"><code>trial-21</code> Last reminder (day 21)</h3>
+<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> 7 days after the trial end date, payment still not set up. Sent (decided). Last trial mail. To: admins and finance.</p>
+<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> &quot;Mail support@plus-one.io&quot; became &quot;reply to this email&quot;.</p><article class="variant pick-card">
+  <header class="vhead"><span class="vlabel">C</span><span class="angle">Chosen: C, revised</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Was something missing in PlusOne?</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your trial ended a week ago. Tell us what didn&#x27;t work.</span></div>
   </div>
   <div class="mail">
     <p class="brand">PlusOne</p>
     <h4 class="mail-h">Did PlusOne fit <span class="ph">{company}</span>?</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>Your trial ended on <span class="ph">{trial_end_date}</span>. If something didn&#x27;t work for <span class="ph">{company}</span>, mail support@plus-one.io and tell us what it was.</p>
-<p>Ready to carry on? Set up payment in Billing and new events open up again. Your planned events and your data are untouched.</p>
-<p>This is our last email about your trial.</p>
-    <p class="btnrow"><span class="btn">Set up payment</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
+    <p>Hi <span class="ph">{first_name}</span>,</p><p>Your trial ended on <span class="ph">{trial_end_date}</span>. If something didn&#x27;t work for <span class="ph">{company}</span>, reply to this email and tell us what it was.</p><p>Ready to carry on? Set up payment in Billing and new events open up again. Your planned events and your data are untouched.</p><p>This is our last email about your trial.</p>
+    <p class="btnrow"><span class="btn">Set up payment</span></p>
+    <p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
     <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Questions? Mail support@plus-one.io.</p></div>
+    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
-  <p class="wc">Body: 56 words (limit 130)</p>
-</article>
-  </div>
-  <p class="pick"><strong>Pick: C.</strong> After three &quot;set up payment&quot; mails, asking what was missing is the one message that can still teach us something, and it keeps the button.</p>
-  
-</section>
-<section class="mailsec" id="payment-failed">
-  <div class="sechead">
-    <h2><code>payment-failed</code> Payment failed</h2>
-    <p class="trigger"><strong>Trigger:</strong> Sent when Stripe reports invoice.payment_failed (webhook, after the ledger check, never on a replay). To: admins and finance. Subscription is now past due; nothing in the app is blocked yet. Stripe&#x27;s own dunning mails are off.</p>
-  </div>
-  <div class="variants">
-<article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span><span class="badge">Recommended</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
+  <p class="wc">Body: 58 words (limit 130)</p>
+</article></div><div id="payment-failed"><h3 style="margin:0 0 4px"><code>payment-failed</code> Payment failed</h3>
+<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> Every Stripe invoice.payment_failed event (keyed per Stripe event, never on a replay). To: admins and finance.</p>
+<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
+  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne payment didn&#x27;t go through</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Update your payment method in Billing.</span></div>
   </div>
   <div class="mail">
     <p class="brand">PlusOne</p>
     <h4 class="mail-h">Your payment didn&#x27;t go through</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>We couldn&#x27;t collect the latest payment for the PlusOne subscription of <span class="ph">{company}</span>.</p>
-<p>Please update your payment method in Billing. Nothing is paused right now, and your events keep running.</p>
-    <p class="btnrow"><span class="btn">Update payment method</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
+    <p>Hi <span class="ph">{first_name}</span>,</p><p>We couldn&#x27;t collect the latest payment for the PlusOne subscription of <span class="ph">{company}</span>.</p><p>Please update your payment method in Billing. Nothing is paused right now, and your events keep running.</p>
+    <p class="btnrow"><span class="btn">Update payment method</span></p>
+    <p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
     <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Stripe sends your invoices separately. Questions? Mail support@plus-one.io.</p></div>
+    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
   <p class="wc">Body: 36 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">House voice</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Check your payment method for PlusOne</strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">The last payment failed. Everything still works for now.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Your payment didn&#x27;t go through</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The latest payment for <span class="ph">{company}</span> on PlusOne failed. Cards expire and banks sometimes block a charge, so it&#x27;s usually a quick fix.</p>
-<p>Update the payment method in Billing. Your events, guest lists, and the door keep working in the meantime.</p>
-    <p class="btnrow"><span class="btn">Update payment method</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Stripe sends your invoices separately. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 47 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Lead with what still works</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Payment failed for <span class="ph">{company}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your events keep running. Update your payment method to keep it that way.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Everything still works, for now</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>Your events, guest lists, and the door are running as usual. The latest payment for <span class="ph">{company}</span> failed, though.</p>
-<p>Update your payment method in Billing so the subscription stays active. If the payment keeps failing, the subscription ends and new events pause.</p>
-    <p class="btnrow"><span class="btn">Update payment method</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Stripe sends your invoices separately. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 48 words (limit 130)</p>
-</article>
-  </div>
-  <p class="pick"><strong>Pick: A.</strong> Money gets zero wink: A says what happened without blaming anyone, gives the one action, and reassures in a single sentence.</p>
-  <ul class="notes"><li>None of the variants mentions an amount or the retry schedule. Both live in Stripe.</li><li>C&#x27;s last sentence is only true if the Stripe dunning setting ends with &quot;cancel the subscription&quot;. See open questions.</li></ul>
-</section>
-<section class="mailsec" id="canceled">
-  <div class="sechead">
-    <h2><code>canceled</code> Subscription canceled</h2>
-    <p class="trigger"><strong>Trigger:</strong> Sent when Stripe reports customer.subscription.deleted (webhook). To: admins and finance. This happens at the end of the paid period after a cancellation, or when dunning gives up.</p>
-  </div>
-  <div class="variants">
-<article class="variant rec">
-  <header class="vhead"><span class="vlabel">A</span><span class="angle">Plain</span><span class="badge">Recommended</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
+</article></div><div id="canceled"><h3 style="margin:0 0 4px"><code>canceled</code> Subscription canceled</h3>
+<p class="small" style="margin:0 0 4px"><strong>Trigger:</strong> Every Stripe customer.subscription.deleted event (keyed per Stripe event). To: admins and finance.</p>
+<p class="small" style="margin:0 0 8px"><strong>Changed:</strong> Unchanged body; new help line.</p><article class="variant pick-card">
+  <header class="vhead"><span class="vlabel">A</span><span class="angle">Chosen: A, revised</span></header>
+  <div class="meta"><div class="meta-row"><span class="k">From</span><span>PlusOne &lt;support@plus-one.io&gt;</span></div><div class="meta-row"><span class="k">Reply-to</span><span>support@plus-one.io</span></div>
     <div class="meta-row"><span class="k">Subject</span><strong>Your PlusOne subscription has ended</strong></div>
     <div class="meta-row"><span class="k">Preheader</span><span class="pre">Your data and planned events stay. You can reactivate any time.</span></div>
   </div>
   <div class="mail">
     <p class="brand">PlusOne</p>
     <h4 class="mail-h">Your subscription has ended</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The PlusOne subscription for <span class="ph">{company}</span> has ended.</p>
-<p>Your data stays, and the events you already planned keep running, door included. New events, team invites, and imports are paused.</p>
-<p>Want to come back? Reactivate billing and the paused features open up again.</p>
-    <p class="btnrow"><span class="btn">Reactivate billing</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
+    <p>Hi <span class="ph">{first_name}</span>,</p><p>The PlusOne subscription for <span class="ph">{company}</span> has ended.</p><p>Your data stays, and the events you already planned keep running, door included. New events, team invites, and imports are paused.</p><p>Want to come back? Reactivate billing and the paused features open up again.</p>
+    <p class="btnrow"><span class="btn">Reactivate billing</span></p>
+    <p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
     <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Stripe sends your invoices separately. Questions? Mail support@plus-one.io.</p></div>
+    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately.</p><p>Reply to this email with any question. It goes straight to the PlusOne team.</p></div>
   </div>
   <p class="wc">Body: 47 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">B</span><span class="angle">House voice</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Pro has ended for <span class="ph">{company}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">The door stays open for the events you planned.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Your subscription has ended</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>Pro has ended for <span class="ph">{company}</span>. If that wasn&#x27;t the plan, you can reactivate it in Billing.</p>
-<p>The events you already planned still run on PlusOne, door and guest lists included, and your data stays where it is. New events, invites, and imports wait until you&#x27;re back.</p>
-    <p class="btnrow"><span class="btn">Reactivate billing</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Stripe sends your invoices separately. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 52 words (limit 130)</p>
-</article>
-<article class="variant">
-  <header class="vhead"><span class="vlabel">C</span><span class="angle">Ask if this was the plan</span></header>
-  <div class="meta">
-    <div class="meta-row"><span class="k">From</span><span>PlusOne &lt;noreply@plus-one.io&gt;</span></div>
-    <div class="meta-row"><span class="k">Subject</span><strong>Subscription ended for <span class="ph">{company}</span></strong></div>
-    <div class="meta-row"><span class="k">Preheader</span><span class="pre">Didn&#x27;t expect this? Reactivate in Billing.</span></div>
-  </div>
-  <div class="mail">
-    <p class="brand">PlusOne</p>
-    <h4 class="mail-h">Was this the plan?</h4>
-    <p>Hi <span class="ph">{first_name}</span>,</p>
-<p>The PlusOne subscription for <span class="ph">{company}</span> ended today. That happens after a cancellation, or when payments keep failing.</p>
-<p>If you didn&#x27;t expect it, reactivate billing. Your data and planned events are still here, and the door works as usual.</p>
-    <p class="btnrow"><span class="btn">Reactivate billing</span></p><p class="fallback">Button not working? Open <span class="ph">{cta_url}</span></p>
-    <hr>
-    <div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne. Stripe sends your invoices separately. Questions? Mail support@plus-one.io.</p></div>
-  </div>
-  <p class="wc">Body: 44 words (limit 130)</p>
-</article>
-  </div>
-  <p class="pick"><strong>Pick: A.</strong> It doesn&#x27;t assume why the subscription ended (a choice or failed payments), and it lists what stays before what stops.</p>
-  <ul class="notes"><li>&quot;Reactivate billing&quot; matches the in-app block message (&quot;Reactivate billing to make changes&quot;).</li></ul>
-</section>
-<section class="mailsec" id="summary">
-<h2>Summary</h2>
-<div class="tablewrap"><table><thead><tr><th>id</th><th>recommended</th><th>why</th></tr></thead><tbody><tr><td><a href="#trial-0"><code>trial-0</code></a></td><td><strong>B</strong></td><td>It&#x27;s the welcome, so the onboarding dial (medium wink) applies, and it leads with the first action instead of payment.</td></tr><tr><td><a href="#trial-7"><code>trial-7</code></a></td><td><strong>C</strong></td><td>It names the real choice and tells them early that the door never stops, which takes the pressure out without a joke about money.</td></tr><tr><td><a href="#trial-12"><code>trial-12</code></a></td><td><strong>A</strong></td><td>Two days out, the reader needs the consequence and the action in that order, and A has nothing else in the way.</td></tr><tr><td><a href="#trial-ended"><code>trial-ended</code></a></td><td><strong>A</strong></td><td>Billing copy carries no wink, and the two labelled lines answer &quot;what still works&quot; and &quot;what stopped&quot; faster than any sentence.</td></tr><tr><td><a href="#trial-21"><code>trial-21</code></a></td><td><strong>C</strong></td><td>After three &quot;set up payment&quot; mails, asking what was missing is the one message that can still teach us something, and it keeps the button.</td></tr><tr><td><a href="#payment-failed"><code>payment-failed</code></a></td><td><strong>A</strong></td><td>Money gets zero wink: A says what happened without blaming anyone, gives the one action, and reassures in a single sentence.</td></tr><tr><td><a href="#canceled"><code>canceled</code></a></td><td><strong>A</strong></td><td>It doesn&#x27;t assume why the subscription ended (a choice or failed payments), and it lists what stays before what stops.</td></tr></tbody></table></div>
-</section>
-<section class="mailsec" id="questions"><h2>Open questions for Max</h2><div class="box"><ol>
-<li><strong>Day 21: send or skip?</strong> Recommendation: send, as variant C (ask what was missing). It's the last one either way.</li>
-<li><strong>Days counted from the trial end</strong> (not from the start) for 7, 12, 14 and 21. That's how the copy is written ("ends in 7 days"). Confirm.</li>
-<li><strong>payment-failed once or every time?</strong> The ClickUp task makes mail_log unique on (company, type). For payment-failed and canceled that would mean one mail per company, ever. Suggest keying those two on the Stripe invoice or event id instead.</li>
-<li><strong>Stripe dunning end state.</strong> payment-failed C says "if the payment keeps failing, the subscription ends". True only if dunning ends in "cancel subscription". If you want A or B, it doesn't matter.</li>
-<li><strong>A short trial override</strong> (for example ending in 5 days) skips trial-7. Fine, or send trial-7 straight away?</li>
-</ol></div></section>
+</article></div></div></section><section class="mailsec"><h2>Part 2: new piece</h2></section><section class="mailsec" id="help-line">
+  <div class="sechead"><h2><code>help-line</code> Help line in the footer (new)</h2><p class="trigger"><strong>Where:</strong> Last footer line of all seven billing mails, replacing &quot;Questions? Mail support@plus-one.io.&quot;</p></div>
+  <div class="variants"><article class="variant">
+  <header class="vhead"><span class="vlabel">A</span><span class="angle">Shortest</span></header>
+  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately. <span class="cond-inline">payment mails only</span></p><p><strong>Questions? Reply to this email.</strong></p></div></div>
+</article><article class="variant rec">
+  <header class="vhead"><span class="vlabel">B</span><span class="angle">Says where the reply lands</span><span class="badge">Recommended</span></header>
+  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately. <span class="cond-inline">payment mails only</span></p><p><strong>Reply to this email with any question. It goes straight to the PlusOne team.</strong></p></div></div>
+</article><article class="variant">
+  <header class="vhead"><span class="vlabel">C</span><span class="angle">Says who answers</span></header>
+  <div class="piece"><div class="foot"><p>You got this email because you&#x27;re an admin or in finance at <span class="ph">{company}</span> on PlusOne.</p><p>Stripe sends your invoices separately. <span class="cond-inline">payment mails only</span></p><p><strong>Something unclear? Hit reply. A person at PlusOne answers.</strong></p></div></div>
+</article></div>
+  <p class="pick"><strong>Pick: B.</strong> It tells a reader who is used to no-reply mail that a reply actually reaches someone, without promising a response time.</p>
+</section><section class="mailsec" id="summary"><h2>Summary</h2><div class="tablewrap"><table><thead><tr><th>id</th><th>pick</th><th>note</th></tr></thead><tbody><tr><td><a href="#trial-0"><code>trial-0</code></a></td><td>B (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#trial-7"><code>trial-7</code></a></td><td>C (chosen, revised)</td><td>Added an invitation to reply, now that replies reach a person.</td></tr><tr><td><a href="#trial-12"><code>trial-12</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#trial-ended"><code>trial-ended</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#trial-21"><code>trial-21</code></a></td><td>C (chosen, revised)</td><td>&quot;Mail support@plus-one.io&quot; became &quot;reply to this email&quot;.</td></tr><tr><td><a href="#payment-failed"><code>payment-failed</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#canceled"><code>canceled</code></a></td><td>A (chosen, revised)</td><td>Unchanged body; new help line.</td></tr><tr><td><a href="#help-line"><code>help-line</code></a></td><td>recommend B</td><td>Says a reply reaches the PlusOne team.</td></tr></tbody></table></div></section>
 </div>
 </body>
 </html>
