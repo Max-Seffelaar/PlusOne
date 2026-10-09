@@ -38,7 +38,6 @@ export function Gebruikers(): JSX.Element {
   const invitesQ = usePoInvites();
   const crewQ = usePoVenueCrew();
   const eventsQ = usePoEvents();
-  const inviteUser = usePoInviteUser();
   const inviteCrew = usePoInviteExternalCrew();
   const revokeInvite = usePoRevokeInvite();
   const resendInvite = usePoResendInvite();
@@ -78,8 +77,6 @@ export function Gebruikers(): JSX.Element {
     setInvite(true);
   };
 
-  const toggleInviteRole = (r: VenueRole): void =>
-    setInviteRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
   const toggleInviteEvent = (id: string): void =>
     setInviteEvents((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   // Event-organizer scope is admin-only (mirrors assignOrganizer / the invite RLS),
@@ -88,8 +85,6 @@ export function Gebruikers(): JSX.Element {
   const allEventsSelected = upcomingEvents.length > 0 && inviteEvents.length === upcomingEvents.length;
   const toggleAllEvents = (): void =>
     setInviteEvents(allEventsSelected ? [] : upcomingEvents.map((e) => e.id));
-  const sensitive = requiresMfa(inviteRoles);
-  const canSubmit = /.+@.+\..+/.test(email) && inviteRoles.length > 0 && !inviteUser.isPending;
 
   // A member without team-read rights (e.g. plain staff) gets a permission state.
   if (!caps.viewTeam) {
@@ -223,60 +218,22 @@ export function Gebruikers(): JSX.Element {
     }
 
     // Step 2b — Venue user (Team): email + roles + quota. No event scope — a Team
-    // member already works every event (86ey21vre).
-    const submit = (): void =>
-      inviteUser.mutate(
-        {
-          email: email.trim(),
-          roles: inviteRoles,
-          defaultQuota: quota === '' ? undefined : Number(quota),
-        },
-        {
-          onSuccess: () => {
-            setInvite(false);
-            resetInviteForm();
-          },
-          // AAL1 user → open the MFA step-up sheet and retry the invite after.
-          onError: (e) => mfa.guard(e, submit),
-        },
-      );
+    // member already works every event (86ey21vre). The form itself is
+    // TeamInviteForm below, shared with Quota per event (z8uq9m2vg7).
     return (
-      <div className={col}>
-        <Top onBack={() => (callerIsAdmin ? setInviteKind('choose') : setInvite(false))} title={t.settings.team.inviteTitle} />
-        <Scroll bottom={130}>
-          <Label className="mb-2">{t.settings.team.emailLabel}</Label>
-          <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
-          <Label className="mb-[10px]">{t.settings.team.rolesLabel}</Label>
-          <RolePicker selected={inviteRoles} toggle={toggleInviteRole} callerIsAdmin={callerIsAdmin} />
-          {sensitive && (
-            <Note icon="shield">
-              {t.settings.team.mfaNotePre}
-              <b>{t.settings.team.mfaNoteBold}</b>
-              {t.settings.team.mfaNotePost}
-            </Note>
-          )}
-
-          <Label className="mb-2 mt-[18px]">{t.settings.team.quotaLabel}</Label>
-          <Field
-            icon="ticket"
-            placeholder={t.settings.team.quotaPlaceholder}
-            value={quota}
-            onChange={(v) => setQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
-            inputMode="numeric"
-            className="mb-1.5"
-          />
-          <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
-            {t.settings.team.quotaHelp}
-          </div>
-          <FormError error={inviteUser.isError && !isAal2Error(inviteUser.error) ? inviteUser.error : null} />
-        </Scroll>
-        <BottomBar>
-          <Btn kind="primary" full icon="arrowR" disabled={!canSubmit} onClick={submit} className={canSubmit ? '' : 'opacity-[0.45]'}>
-            {inviteUser.isPending ? t.settings.team.sending : t.settings.team.sendInvite}
-          </Btn>
-        </BottomBar>
-        {mfa.sheet}
-      </div>
+      <TeamInviteForm
+        email={email}
+        onEmailChange={setEmail}
+        roles={inviteRoles}
+        onRolesChange={setInviteRoles}
+        quota={quota}
+        onQuotaChange={setQuota}
+        onBack={() => (callerIsAdmin ? setInviteKind('choose') : setInvite(false))}
+        onSent={() => {
+          setInvite(false);
+          resetInviteForm();
+        }}
+      />
     );
   }
 
@@ -286,13 +243,13 @@ export function Gebruikers(): JSX.Element {
   const inviteCount = invitesQ.data?.length ?? 0;
   // "Open" in the header = not yet accepted or declined (the list itself also
   // shows those invites, with their status, per T8).
-  const openInviteCount = (invitesQ.data ?? []).filter((iv) => iv.status !== 'accepted' && iv.status !== 'declined').length;
+  const openInvites = openInviteCount(invitesQ.data);
   return (
     <div className={col}>
       <Top
         onBack={nav.back}
         title={t.settings.team.title}
-        sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: openInviteCount })}
+        sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: openInvites })}
         right={caps.manageTeam && !billingLock.blocked ? <IconBtn name="plus" disabled={demo} onClick={startInvite} /> : undefined}
       />
       <Scroll bottom={24}>
@@ -475,6 +432,102 @@ export function Gebruikers(): JSX.Element {
     </div>
   );
 }
+
+/**
+ * The Team invite form (email + roles + default quota), one full-screen step.
+ * Extracted from Gebruikers (z8uq9m2vg7) so Quota per event opens the SAME form
+ * instead of a second one; behaviour unchanged. The fields are controlled by the
+ * caller, so a back-and-forth through Team's Team/Crew chooser keeps what was
+ * typed, exactly as before. The server action (inviteUserAction) still does the
+ * role check, the billing gate and the audit — this only collects the input.
+ */
+export function TeamInviteForm({
+  email,
+  onEmailChange,
+  roles,
+  onRolesChange,
+  quota,
+  onQuotaChange,
+  onBack,
+  onSent,
+}: {
+  email: string;
+  onEmailChange: (v: string) => void;
+  roles: VenueRole[];
+  onRolesChange: (v: VenueRole[]) => void;
+  quota: string;
+  onQuotaChange: (v: string) => void;
+  onBack: () => void;
+  onSent: () => void;
+}): JSX.Element {
+  const { roles: callerRoles } = usePoIdentity();
+  const callerIsAdmin = callerRoles.includes('admin');
+  const inviteUser = usePoInviteUser();
+  const mfa = useMfaGate();
+  const toggleInviteRole = (r: VenueRole): void =>
+    onRolesChange(roles.includes(r) ? roles.filter((x) => x !== r) : [...roles, r]);
+  const sensitive = requiresMfa(roles);
+  const canSubmit = /.+@.+\..+/.test(email) && roles.length > 0 && !inviteUser.isPending;
+
+  const submit = (): void =>
+    inviteUser.mutate(
+      {
+        email: email.trim(),
+        roles,
+        defaultQuota: quota === '' ? undefined : Number(quota),
+      },
+      {
+        onSuccess: onSent,
+        // AAL1 user → open the MFA step-up sheet and retry the invite after.
+        onError: (e) => mfa.guard(e, submit),
+      },
+    );
+  return (
+    <div className={col}>
+      <Top onBack={onBack} title={t.settings.team.inviteTitle} />
+      <Scroll bottom={130}>
+        <Label className="mb-2">{t.settings.team.emailLabel}</Label>
+        <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={onEmailChange} inputMode="email" autoFocus className="mb-[18px]" />
+        <Label className="mb-[10px]">{t.settings.team.rolesLabel}</Label>
+        <RolePicker selected={roles} toggle={toggleInviteRole} callerIsAdmin={callerIsAdmin} />
+        {sensitive && (
+          <Note icon="shield">
+            {t.settings.team.mfaNotePre}
+            <b>{t.settings.team.mfaNoteBold}</b>
+            {t.settings.team.mfaNotePost}
+          </Note>
+        )}
+
+        <Label className="mb-2 mt-[18px]">{t.settings.team.quotaLabel}</Label>
+        <Field
+          icon="ticket"
+          placeholder={t.settings.team.quotaPlaceholder}
+          value={quota}
+          onChange={(v) => onQuotaChange(v.replace(/[^0-9]/g, '').slice(0, 4))}
+          inputMode="numeric"
+          className="mb-1.5"
+        />
+        <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
+          {t.settings.team.quotaHelp}
+        </div>
+        <FormError error={inviteUser.isError && !isAal2Error(inviteUser.error) ? inviteUser.error : null} />
+      </Scroll>
+      <BottomBar>
+        <Btn kind="primary" full icon="arrowR" disabled={!canSubmit} onClick={submit} className={canSubmit ? '' : 'opacity-[0.45]'}>
+          {inviteUser.isPending ? t.settings.team.sending : t.settings.team.sendInvite}
+        </Btn>
+      </BottomBar>
+      {mfa.sheet}
+    </div>
+  );
+}
+
+/** Invites still waiting on an answer (not accepted, not declined) — the "open"
+ *  count Team's header shows, shared with Quota per event's pending line. */
+export function openInviteCount(invites: readonly { status: string }[] | undefined): number {
+  return (invites ?? []).filter((iv) => iv.status !== 'accepted' && iv.status !== 'declined').length;
+}
+
 
 // Member action sheet: edit roles or revoke venue access. Both writes go through
 // the role + escalation + last-admin guarded venues actions; the sheet only

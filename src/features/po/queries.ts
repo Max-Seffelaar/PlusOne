@@ -776,6 +776,8 @@ export async function fetchPastEventStats(
 
 export interface EventEditRow {
   id: string;
+  /** The owning company — tells a deep link into another company apart from a missing event (z8uq9m2vg7). */
+  venueId: string;
   name: string;
   startsAt: string;
   endsAt: string | null;
@@ -814,7 +816,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, venues(name, allow_uncheck, address_line, postal_code, city)'
+        'id, venue_id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, venues(name, allow_uncheck, address_line, postal_code, city)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -841,6 +843,7 @@ export async function fetchEventForEdit(
     landingSlug: e.landing_slug,
     listLocked: e.list_locked,
     autoLockAt: e.auto_lock_at,
+    venueId: e.venue_id,
     venueName: e.venues?.name ?? '',
     isOrganizer: !!org,
     allowUncheck: resolveAllowUncheck(e.allow_uncheck, venueAllowUncheck),

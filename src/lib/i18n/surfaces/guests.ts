@@ -129,7 +129,7 @@ export const guests = {
     noRights: "You don't have rights to add guests to this event. Ask an admin or organizer for access.",
     noTiers: 'This event has no guest tiers yet. Add one in event settings before you add guests.',
     inputLabel: 'Type freely: name, +guests, tier',
-    inputPlaceholder: 'e.g. "Juri Braakman +2 vip"',
+    inputPlaceholder: 'e.g. "John Doe +2 vip"',
     ambiguityQuestion: 'Not sure what you mean by "{x}". Pick one:',
     tierPickQuestion: 'Which tier for this guest?',
     choiceDefault: 'Default',
@@ -206,7 +206,7 @@ export const guests = {
     subFallback: 'One guest per line',
     noUpcoming: 'No upcoming event to add to.',
     noTiers: 'This event has no guest tiers yet. Add one in event settings.',
-    placeholder: 'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink table\nLucas van Os +1',
+    placeholder: 'John Doe +2 vip\nNoor de Wit\nSem Aaltink table\nLucas van Os +1',
     preview: 'Preview · {n} lines',
     toCheck: '{n} to check',
     rowUnknown: '"{x}" unknown',
@@ -436,7 +436,8 @@ export const guests = {
     loadingGuest: 'Loading guest…',
     notFoundGuest: "This guest isn't available, or you don't have access to it.",
     // Per-event row actions (the "…" sheet on each event card)
-    rowActionsAria: 'Actions for {event}',
+    // The visible "Edit" button on each event card (z8uq9m2vg7, was a "…").
+    rowEdit: 'Edit',
     openEvent: 'Open event',
     removeFromList: 'Remove from list',
     tiersLoading: 'Loading tiers…',

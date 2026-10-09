@@ -206,8 +206,11 @@ describe('Guided setup step after creating an event (item 7)', () => {
     tiersData = [];
     render(<Tiers eventId="evt-1" setup />);
 
-    expect(screen.getByText(t.events.setupStep.title)).toBeInTheDocument();
+    expect(screen.getByText(t.events.setupStep.body)).toBeInTheDocument();
     expect(screen.queryByText(t.events.newTier)).not.toBeInTheDocument();
+    // z8uq9m2vg8: "Add your first tier" is a real button that opens the form.
+    fireEvent.click(screen.getByRole('button', { name: t.events.emptyTiersCta }));
+    expect(screen.getByText(t.events.newTier)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: t.events.setupStep.skip }));
     expect(nav.replace).toHaveBeenCalledWith('event', { id: 'evt-1' });
@@ -224,7 +227,7 @@ describe('Guided setup step after creating an event (item 7)', () => {
   it('keeps the plain visit unguided, auto-opening the form on a tier-less event', () => {
     tiersData = [];
     render(<Tiers eventId="evt-1" />);
-    expect(screen.queryByText(t.events.setupStep.title)).not.toBeInTheDocument();
+    expect(screen.queryByText(t.events.setupStep.body)).not.toBeInTheDocument();
     expect(screen.getByText(t.events.newTier)).toBeInTheDocument();
   });
 });
