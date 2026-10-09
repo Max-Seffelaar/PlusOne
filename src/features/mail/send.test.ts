@@ -15,7 +15,7 @@ vi.mock('./config', () => ({ teamMailActive: () => H.active, mailConfig: {}, MAI
 vi.mock('./provider', () => ({ mailProvider: { send: H.send } }));
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ rpc: H.rpc }) }));
 
-import { recipientHash, sendTeamMail, type TeamMail } from './send';
+import { appUrl, recipientHash, sendTeamMail, type TeamMail } from './send';
 
 const LOG_ID = '0192f0aa-0000-7000-8000-000000000001';
 const MAIL: TeamMail = {
@@ -170,5 +170,48 @@ describe('sendTeamMail — the cta (one invite mail)', () => {
       p_provider_message_id: undefined,
       p_error_code: 'provision_failed',
     });
+  });
+});
+
+// The origin of the mail's links. Locally the /auth/confirm token is minted by
+// the local stack, so a button pointing at prod can never verify (#437 testing,
+// 2026-10-09). Only a production build may fall back to the prod origin.
+describe('appUrl', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('uses NEXT_PUBLIC_APP_URL when set, in every build', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:7042');
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(appUrl()).toBe('http://localhost:7042');
+  });
+
+  it('falls back to the dev server port outside a production build, never to prod', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('PORT', '7042');
+    expect(appUrl()).toBe('http://localhost:7042');
+    vi.stubEnv('PORT', '');
+    expect(appUrl()).toBe('http://localhost:7000');
+  });
+
+  it('keeps the prod origin as the production fallback', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('PORT', '7042');
+    expect(appUrl()).toBe('https://app.plus-one.io');
+  });
+
+  it('the invite button lands on the local dev server', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('PORT', '7042');
+    await sendTeamMail(MAIL, {
+      cta: async () => ({ kind: 'invite', link: { tokenHash: 'pkce_x', verifyType: 'invite' } }),
+    });
+    const sent = H.send.mock.calls[0][0] as { text: string };
+    expect(sent.text).toContain('http://localhost:7042/auth/confirm?token_hash=pkce_x');
+    expect(sent.text).not.toContain('app.plus-one.io');
   });
 });
