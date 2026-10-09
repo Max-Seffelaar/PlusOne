@@ -274,6 +274,11 @@ export function BulkPaste({
           <NoTiersBlock eventId={evId} canCreate={exempt} />
         ) : (
           <>
+            {share && text.trim() === '' && (
+              <p className="mb-2 text-[12.5px] text-faint" data-testid="share-empty-hint">
+                {t.guests.bulk.shareEmptyHint}
+              </p>
+            )}
             <textarea
               value={text}
               onChange={(e) => {

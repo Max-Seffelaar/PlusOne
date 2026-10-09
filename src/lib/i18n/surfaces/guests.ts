@@ -261,6 +261,9 @@ export const guests = {
     entryMany: 'entries',
     // Share landing (/app/share): under the tier picker.
     shareTierHint: 'Names without a tier get this one.',
+    // Share landing with an empty box: nothing arrived (a share made while signed
+    // out is dropped at the login, review S3), or the screen was opened directly.
+    shareEmptyHint: 'Nothing came through? Share the list again, or paste it below.',
   },
   // ── Contacts (address book) ───────────────────────────────────────────────
   contacts: {

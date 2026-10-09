@@ -40,6 +40,14 @@ describe('scrubText', () => {
     expect(scrubText('/app/share?keep=1#text=Noor')).toBe('/app/share?[filtered]');
   });
 
+  it('strips a keyed fragment on a single-segment path — the signed-out share on /login (review S3)', () => {
+    expect(scrubText('/login?next=%2Fapp%2Fshare#text=Iris+Koster')).toBe('/login?next=%2Fapp%2Fshare#[filtered]');
+    expect(scrubText('navigated to /login#title=Friday')).toBe('navigated to /login#[filtered]');
+    // A plain anchor and free text with a # stay as they are.
+    expect(scrubText('/login#top')).toBe('/login#top');
+    expect(scrubText('see issue #12')).toBe('see issue #12');
+  });
+
   it('leaves a URL without a query string untouched', () => {
     expect(scrubText('GET https://x.supabase.co/rest/v1/contacts')).toBe(
       'GET https://x.supabase.co/rest/v1/contacts',

@@ -35,6 +35,10 @@ const RELATIVE_URL_QUERY_RE = /(\/[\w.-]+(?:\/[\w.-]+)+)\?[^\s"']*/g;
 // the query patterns already swallow a fragment that follows a query.
 const URL_FRAGMENT_RE = /(https?:\/\/[^\s"'#?]+)#[^\s"']*/g;
 const RELATIVE_URL_FRAGMENT_RE = /(\/[\w.-]+(?:\/[\w.-]+)+)#[^\s"']*/g;
+// A single-segment path too, once its fragment carries a key=value pair: a share
+// made while signed out lands on `/login?next=%2Fapp%2Fshare#text=…` (review S3).
+// The `key=` requirement keeps a plain anchor (`/login#top`) and free text alone.
+const KEYED_FRAGMENT_RE = /(\/[^\s"'#]*)#[\w-]+=[^\s"']*/g;
 
 export function scrubText(input: string): string {
   return input
@@ -42,6 +46,7 @@ export function scrubText(input: string): string {
     .replace(RELATIVE_URL_QUERY_RE, '$1?[filtered]')
     .replace(URL_FRAGMENT_RE, '$1#[filtered]')
     .replace(RELATIVE_URL_FRAGMENT_RE, '$1#[filtered]')
+    .replace(KEYED_FRAGMENT_RE, '$1#[filtered]')
     .replace(PG_KEY_DETAIL_RE, 'Key ([redacted])=([redacted])')
     .replace(EMAIL_RE, '[email]')
     .replace(PHONE_RE, '[phone]');
