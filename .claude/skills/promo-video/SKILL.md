@@ -30,7 +30,7 @@ The cast matches the demo data, so the names in the app match the faces in the v
 
 ## Workflow for a new video
 
-1. **Story first.** Write the hook and what the viewer should believe after watching (e.g. "the door never stops, even offline"). Each shot is one beat of that story. Real-world logic matters: guests at the front of a queue face the host; the host is in control; nobody waits with their back to the door.
+1. **Story first.** Write the hook and what the viewer should believe after watching (e.g. "the door never stops, even offline"). Each shot is one beat of that story. Real-world logic matters: guests at the front of a queue face the host; the host is in control; nobody waits with their back to the door. Read `references/craft.md` before planning: a human between two UI shots, promoters never the villain, show the money, never promise what the app does not do, one CTA per audience, sound and finishing rules, and an animatic before any credits are spent.
 2. **Shotlist.** Per shot: time, type (A/B/C), what we see, startframe + references, model, overlay text. Overlays are English and follow `tone-of-voice.md` (short, verb-first, no slop words like seamless/elevate).
 3. **App screens (type C and the green screens of B).** Seed the demo company locally with `pnpm promo:seed` (Kelder Nord: three events, 75+ guests each, real names in the audit log; log in via `/auth/dev-login?email=owner@kelder-nord.test&next=/app`). Then capture every storyboard screen with stable file names, on phone (1290×2796) and iPad landscape (2752×2064):
 
