@@ -12,7 +12,7 @@ const H = vi.hoisted(() => ({
   rpc: vi.fn(),
 }));
 
-vi.mock('./config', () => ({ mailConfig: H.config, teamMailActive: () => true, MAIL_FROM: 'PlusOne <noreply@plus-one.io>' }));
+vi.mock('./config', () => ({ mailConfig: H.config, teamMailActive: () => true, MAIL_FROM: 'PlusOne <noreply@plus-one.io>', MAIL_DOMAIN: 'plus-one.io' }));
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ rpc: H.rpc }) }));
 
 import { handleResendWebhook, verifySvixSignature, TIMESTAMP_TOLERANCE_SECONDS } from './resend-webhook';
@@ -152,5 +152,30 @@ describe('handleResendWebhook', () => {
   it('refuses an oversized body before verifying it', async () => {
     const res = await handleResendWebhook('x'.repeat(300 * 1024), { id: 'a', timestamp: '1', signature: 'v1,a' });
     expect(res.status).toBe(413);
+  });
+
+  it('email.received: ledgers first, answers once; a replay neither mutates nor answers again', async () => {
+    const body = JSON.stringify({
+      type: 'email.received',
+      data: { email_id: 'in_1', from: 'Lotte <lotte@example.test>', to: ['noreply@plus-one.io'] },
+    });
+    const ts = String(Math.floor(Date.now() / 1000));
+    const headers = { id: 'msg_in_1', timestamp: ts, signature: sign('msg_in_1', ts, body) };
+    const answer = vi.fn(async () => true);
+    const inbound = () => ({
+      resolve: vi.fn(async () => null),
+      consume: answer,
+      provider: { send: vi.fn(async () => ({ ok: true as const, providerMessageId: 're_r' })) },
+    });
+    H.rpc.mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: false, error: null });
+    expect(await handleResendWebhook(body, headers, inbound)).toEqual({ status: 200, body: 'ok' });
+    expect(H.rpc).toHaveBeenCalledWith('apply_resend_webhook_event', {
+      p_event_id: 'msg_in_1',
+      p_event_type: 'email.received',
+      p_provider_message_id: 'in_1',
+    });
+    expect(answer).toHaveBeenCalledTimes(1);
+    expect(await handleResendWebhook(body, headers, inbound)).toEqual({ status: 200, body: 'replay' });
+    expect(answer).toHaveBeenCalledTimes(1);
   });
 });

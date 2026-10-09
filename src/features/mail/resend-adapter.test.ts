@@ -78,3 +78,49 @@ describe('ResendAdapter.send', () => {
     expect(await new ResendAdapter('k').send(MAIL)).toEqual({ ok: false, errorCode: 'network' });
   });
 });
+
+describe('ResendAdapter.sendBatch', () => {
+  const second: OutgoingMail = { ...MAIL, to: 'b@example.test', idempotencyKey: 'mail_log/2' };
+
+  it('posts all mails to the batch endpoint with one key, sender/reply-to/headers per mail', async () => {
+    const fetchFn = stubFetch(200, { data: [{ id: 're_a' }, { id: 're_b' }] });
+    const res = await new ResendAdapter('re_test_key').sendBatch(
+      [{ ...MAIL, from: '"Neon via PlusOne" <noreply+k@plus-one.io>', replyTo: 'hi@club.test', headers: { 'List-Unsubscribe': '<https://x/u/t>' } }, second],
+      'guest_batch/abc',
+    );
+    expect(res).toEqual([
+      { ok: true, providerMessageId: 're_a' },
+      { ok: true, providerMessageId: 're_b' },
+    ]);
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.resend.com/emails/batch');
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('guest_batch/abc');
+    const body = JSON.parse(String(init.body)) as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(2);
+    expect(body[0].from).toBe('"Neon via PlusOne" <noreply+k@plus-one.io>');
+    expect(body[0].reply_to).toEqual(['hi@club.test']);
+    expect(body[0].headers).toEqual({ 'List-Unsubscribe': '<https://x/u/t>' });
+    expect(body[1].from).toBe('PlusOne <noreply@plus-one.io>');
+    expect(body[1].reply_to).toBeUndefined();
+  });
+
+  it('a refused batch fails every mail with the mapped code (daily quota: no retry storm)', async () => {
+    stubFetch(429, { name: 'daily_quota_exceeded', message: 'quota for b@example.test' });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await new ResendAdapter('k').sendBatch([MAIL, second], 'guest_batch/x');
+    expect(res).toEqual([
+      { ok: false, errorCode: 'daily_quota_exceeded' },
+      { ok: false, errorCode: 'daily_quota_exceeded' },
+    ]);
+  });
+
+  it('a network error fails the batch without throwing; an empty batch makes no call', async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    vi.stubGlobal('fetch', fetchFn);
+    expect(await new ResendAdapter('k').sendBatch([MAIL], 'x')).toEqual([{ ok: false, errorCode: 'network' }]);
+    expect(await new ResendAdapter('k').sendBatch([], 'x')).toEqual([]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+});

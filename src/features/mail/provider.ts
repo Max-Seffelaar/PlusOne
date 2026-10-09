@@ -22,6 +22,12 @@ export interface OutgoingMail {
   idempotencyKey: string;
   /** Mail type, sent as a provider tag (ASCII, no PII). */
   type: string;
+  /** Sender override (billing mail: support@); default MAIL_FROM. */
+  from?: string;
+  /** Reply-To address (billing mail: support@, answered by the team). */
+  replyTo?: string;
+  /** Extra headers (guest mail: List-Unsubscribe + List-Unsubscribe-Post). */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -43,7 +49,16 @@ export type SendResult =
 
 export interface MailProvider {
   send(mail: OutgoingMail): Promise<SendResult>;
+  /**
+   * Up to MAIL_BATCH_MAX mails in one provider call (guest mail). One result
+   * per mail, in order. A batch the provider refuses as a whole fails every
+   * mail in it with the same code.
+   */
+  sendBatch(mails: OutgoingMail[], idempotencyKey: string): Promise<SendResult[]>;
 }
+
+/** Resend's batch limit. */
+export const MAIL_BATCH_MAX = 100;
 
 /**
  * The local stack's mail catcher (Mailpit, where the Supabase CLI puts its own
@@ -54,6 +69,17 @@ export interface MailProvider {
 export function localMailCatcher(): string | null {
   if (!onLocalDevStack()) return null;
   return process.env.INBUCKET_URL || 'http://127.0.0.1:55324';
+}
+
+/** `PlusOne <support@plus-one.io>` -> `support@plus-one.io`. */
+function senderAddress(from: string): string {
+  return /<([^>]+)>/.exec(from)?.[1] ?? from;
+}
+
+/** `"Neon Friday via PlusOne" <x@y>` -> `Neon Friday via PlusOne`. */
+function senderDisplay(from: string): string {
+  const m = /^\s*"?([^"<]*?)"?\s*</.exec(from);
+  return m?.[1]?.trim() || 'PlusOne';
 }
 
 // Keyless fallback: local dev and CI. Logs type + idempotency key only. On the
@@ -71,8 +97,13 @@ export class StubMailProvider implements MailProvider {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          From: { Email: 'noreply@plus-one.io', Name: 'PlusOne' },
+          From: {
+            Email: mail.from ? senderAddress(mail.from) : 'noreply@plus-one.io',
+            Name: mail.from ? senderDisplay(mail.from) : 'PlusOne',
+          },
           To: [{ Email: mail.to }],
+          ...(mail.replyTo ? { ReplyTo: [{ Email: mail.replyTo }] } : {}),
+          ...(mail.headers ? { Headers: mail.headers } : {}),
           Subject: mail.subject,
           Text: mail.text,
           HTML: mail.html,
@@ -82,6 +113,12 @@ export class StubMailProvider implements MailProvider {
       }).catch(() => undefined);
     }
     return { ok: true, providerMessageId: null };
+  }
+
+  async sendBatch(mails: OutgoingMail[]): Promise<SendResult[]> {
+    const results: SendResult[] = [];
+    for (const mail of mails) results.push(await this.send(mail));
+    return results;
   }
 }
 
