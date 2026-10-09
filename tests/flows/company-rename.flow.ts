@@ -1,4 +1,4 @@
-import { test, expect, expectNoHorizontalOverflow } from './harness';
+import { test, expect, clickUntilVisible, expectNoHorizontalOverflow } from './harness';
 import type { Page } from '@playwright/test';
 import { adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
 
@@ -86,8 +86,7 @@ test('company rename: wizard → More → Company settings → events with a loc
     await page.getByRole('button', { name: /Create account|Agree/i }).first().click();
   }
   await page.waitForURL(/\/onboarding/);
-  await page.getByRole('button', { name: /Set up account/i }).click();
-  await expect(page.getByPlaceholder('e.g. LOFI')).toBeVisible();
+  await clickUntilVisible(page.getByRole('button', { name: /Set up account/i }), page.getByPlaceholder('e.g. LOFI'));
 
   await flow.check(1, 'Wizard company step says "company" (heading, name label, button), never "venue"', async () => {
     await expect(page.getByText('Tell us about your company').first()).toBeVisible();
