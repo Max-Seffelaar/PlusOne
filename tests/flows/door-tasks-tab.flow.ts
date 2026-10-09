@@ -2,12 +2,14 @@ import { test, expect, expectNoHorizontalOverflow } from './harness';
 import { acceptConsent } from '../e2e/helpers/supabase-admin';
 
 /**
- * Flow: the Tasks tab next to Check-in is gone (z8uq9m2vg7, Joeri's walkthrough:
- * it did nothing yet). door@ opens the Check-in tab on the seed event in every
+ * Flow: the Tasks view is gone on both door variants (z8uq9m2vg7, Joeri's
+ * walkthrough: it did nothing yet; Max's handoff on #441: the desktop cockpit's
+ * Tasks card too). door@ opens the Check-in tab on the seed event in every
  * variant: phone (390) and iPad get the offline-outbox door, the 1280 mouse
  * variant gets the Event-day cockpit (plan decision 14). An old bookmark with
- * `?seg=taken` lands on the check-in list too. Nothing about the outbox or the
- * check-in itself changes; the door-checkin flow covers those.
+ * `?seg=taken` lands on the check-in list too. Guest notes stay (the guest
+ * detail shows them); nothing about the outbox or the check-in itself changes;
+ * the door-checkin flow covers those.
  *
  * Numbered checks = the ✅ half of the mini-PR's test handoff.
  */
@@ -25,23 +27,21 @@ test('door: no Tasks tab next to Check-in, an old ?seg=taken link lands on Check
   await expect(page.getByText('Juri Braakman').first()).toBeVisible({ timeout: 30_000 });
   await flow.shot(cockpit ? 'cockpit' : 'door');
 
-  await flow.check(1, 'The Check-in tab shows no "Tasks" tab next to Check-in', async () => {
+  await flow.check(1, 'No Tasks anywhere on Check-in: no tab next to Check-in, no Tasks card in the desktop cockpit', async () => {
     await expect(page.getByRole('button', { name: 'Tasks', exact: true })).toHaveCount(0);
+    await expect(page.getByText('Tasks', { exact: true })).toHaveCount(0);
+    // "open jobs at the door" was the subtitle of both the door's Tasks screen
+    // and the cockpit's Tasks card.
+    await expect(page.getByText('open jobs at the door')).toHaveCount(0);
   });
 
   await page.goto(`/app/door?event=${SEED_EVENT}&seg=taken`);
   await expect(page.getByText('Juri Braakman').first()).toBeVisible({ timeout: 30_000 });
   await flow.shot(cockpit ? 'cockpit-old-tasks-link' : 'door-old-tasks-link');
-  if (!cockpit) {
-    // "open jobs at the door" is the Tasks screen's subtitle. (The desktop
-    // cockpit has its own Tasks card with that line; it never had the segment.)
-    await flow.check(2, 'An old ?seg=taken link opens the check-in list, not the Tasks screen', async () => {
-      await expect(page.getByText('open jobs at the door')).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Tasks', exact: true })).toHaveCount(0);
-    });
-  } else {
-    flow.skip(2, 'An old ?seg=taken link opens the check-in list (outbox door only; the cockpit never had the segment)');
-  }
+  await flow.check(2, 'An old ?seg=taken link opens the check-in list (or the cockpit), not a Tasks view', async () => {
+    await expect(page.getByText('open jobs at the door')).toHaveCount(0);
+    await expect(page.getByText('Tasks', { exact: true })).toHaveCount(0);
+  });
 
   await flow.check(3, 'No step scrolls sideways', async () => {
     expectNoHorizontalOverflow(flow);

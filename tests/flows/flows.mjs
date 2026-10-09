@@ -135,11 +135,12 @@ export const FLOWS = {
     ],
   },
   'door-tasks-tab': {
-    title: 'Check-in — no Tasks tab next to Check-in; an old ?seg=taken link lands on the list (z8uq9m2vg7)',
+    title: 'Check-in — no Tasks view on either door variant (tab or cockpit card); an old ?seg=taken link lands on the list (z8uq9m2vg7)',
     paths: [
       'src/components/po/screens/door',
       'src/components/po/door-branch.tsx',
       'src/features/door/components/DoorRoute.tsx',
+      'src/features/po/eventday/EventDayCockpit.tsx',
     ],
   },
   'native-shell-guard': {
