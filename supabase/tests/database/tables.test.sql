@@ -59,7 +59,10 @@ select tables_are(
     -- Mail-infra F0 (z8uq9m2yvt): one row per app-sent mail (no content,
     -- hashed recipient; platform admins read) + the Resend webhook ledger
     -- (RLS on, no policies, no grants). Writes only via service_role RPCs.
-    'mail_log', 'resend_webhook_events'
+    'mail_log', 'resend_webhook_events',
+    -- Event locations L (z8uq9m444c): saved locations per company. Members
+    -- read, admins write, archive instead of delete; events keep a copy.
+    'company_locations'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );
