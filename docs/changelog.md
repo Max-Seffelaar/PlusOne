@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — Promo demo seed "Kelder Nord" + no real name in the door placeholder
+
+Milestone **Now**: demo data for the promo reels and trailer (Higgsfield storyboard). No migration, no app behaviour change.
+
+- **`pnpm promo:seed`** (`scripts/promo-seed.mjs`): a separate fictional company, Kelder Nord, on top of a fresh local stack. Nine people (two admins, finance, three promoters with quota, two door hosts, an external organizer; log in via dev-login as `owner@kelder-nord.test`, no MFA), three events with Guest / VIP / Paid (€17.50 at the door) and 75+ names each: Velvet Hours live (70 checked in, list locked), Afterglow upcoming (6 open requests, 2 quota requests), Season Opening past (~81% turnout, refusals, no-shows). 180 contacts (12 regulars) reused across events plus name-only guests; four request links per event with page views.
+- **Why a separate venue:** Club Vesper comes from `supabase/seed.sql`, which pgTAP relies on row for row, so its names and addresses cannot change. The Kelder Nord people are members of Kelder Nord only.
+- **Real names in the audit log:** one transaction over the local superuser connection with `request.jwt.claims` set per step, so the audit triggers record the actual person. No trigger is bypassed and nothing is hard-deleted. Auto-approved link sign-ups carry no `added_by`, like `submit_guest_request`.
+- **No duplicates and only fake contact data:** a unique full name per person, each first name at most twice in the venue, e-mail on `example.com`, phones in the `+316000…` series. Guarded by `tests/unit/promo-seed.test.ts` (13 tests, no DB), along with the local-only gate, 75+ per event, the three tiers and the quota math.
+- **Door placeholder:** `door.addInputPlaceholder` was `e.g. "Juri Braakman +2 vip"`, a real name; it is now `e.g. "John Doe +2 vip"`, the same as Add guests.
+- **Gotcha:** the script is a no-op once Kelder Nord exists. Times are anchored at the run, so for a fresh live night run `supabase db reset` and then `pnpm promo:seed` (one-DB-owner rule).
+- **Found, split off:** the Promotion funnel divides approved heads by request rows and can show more than 100% approved (separate task).
+
+---
+
 ## 2026-10-08 — Check-in: the Tasks view is gone on both door variants (z8uq9m2vg7, mini-PR)
 
 Joeri's walkthrough (Event C, item 3): the Tasks view did nothing yet. Split out of #438 because it lives in the Deur tab (decision Max 2026-10-08).

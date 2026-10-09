@@ -38,7 +38,7 @@ describe('AddOnSpot commit — never claim success for a rejected write (86ey9e8
   });
 
   function typeAndCommit(name: string): void {
-    const input = screen.getByPlaceholderText('e.g. "Juri Braakman +2 vip"');
+    const input = screen.getByPlaceholderText('e.g. "John Doe +2 vip"');
     fireEvent.change(input, { target: { value: name } });
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`Add · ${name}`) }));
   }
@@ -50,7 +50,7 @@ describe('AddOnSpot commit — never claim success for a rejected write (86ey9e8
 
     expect(addOnSpotMock).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Just added · 1')).toBeInTheDocument();
-    expect((screen.getByPlaceholderText('e.g. "Juri Braakman +2 vip"') as HTMLInputElement).value).toBe('');
+    expect((screen.getByPlaceholderText('e.g. "John Doe +2 vip"') as HTMLInputElement).value).toBe('');
   });
 
   it('does NOT mark the guest as added or clear the input when addOnSpot rejects the payload', () => {
@@ -60,6 +60,6 @@ describe('AddOnSpot commit — never claim success for a rejected write (86ey9e8
 
     expect(addOnSpotMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/Just added/)).not.toBeInTheDocument();
-    expect((screen.getByPlaceholderText('e.g. "Juri Braakman +2 vip"') as HTMLInputElement).value).toBe('Anna');
+    expect((screen.getByPlaceholderText('e.g. "John Doe +2 vip"') as HTMLInputElement).value).toBe('Anna');
   });
 });
