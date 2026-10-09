@@ -14,7 +14,7 @@ export const influencerStats = {
 
   // ── Totals card ─────────────────────────────────────────────────────────────
   totalViews: 'Views',
-  totalRequests: 'Requests',
+  totalRequests: 'Requested',
   totalApproved: 'Approved',
   totalDoor: 'Through the door',
   zeroTitle: 'Share your link',
@@ -33,7 +33,7 @@ export const influencerStats = {
   chipUpcoming: 'Upcoming',
   chipPast: 'Past',
   funnelViews: 'Views',
-  funnelRequests: 'Requests',
+  funnelRequests: 'Requested',
   funnelApproved: 'Approved',
   funnelIn: 'In',
   notLive: 'Not live yet. Share to get this rolling.',

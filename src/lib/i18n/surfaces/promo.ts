@@ -18,8 +18,11 @@ export const promo = {
   // ── Overview card ───────────────────────────────────────────────────────────
   overviewKicker: 'Overview',
   overviewTitle: 'How your links are pulling',
+  /** Every step after Views counts people, not requests — so a request with
+   *  plus-ones can never make "approved" outrun "requested". */
+  overviewSub: 'People counted, plus-ones included',
   stepViews: 'Views',
-  stepRequests: 'Requests',
+  stepRequests: 'Requested',
   stepApproved: 'Approved',
   stepCheckedIn: 'Checked in',
   convRequested: 'requested',
@@ -38,7 +41,7 @@ export const promo = {
   rowSub: '{links} links · {events} events',
   checkedInLabel: 'checked in',
   funnelViews: 'views',
-  funnelRequests: 'requests',
+  funnelRequests: 'requested',
   funnelApproved: 'approved',
   funnelIn: 'in',
   showing: 'Showing',
