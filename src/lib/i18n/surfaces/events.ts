@@ -31,6 +31,13 @@ export const events = {
   detailTitle: 'Event',
   loading: 'Loading…',
   eventUnavailable: "This event isn't available anymore.",
+  /** Deep link to an event of another company the user is a member of (z8uq9m2vg7,
+   *  decision Max 2026-10-06: explain + button, never switch silently). */
+  otherCompany: {
+    title: 'This event belongs to {company}',
+    body: "You're working in {active} right now. Switch to open this event.",
+    cta: 'Switch to {company}',
+  },
   statOnTheWay: 'On the way',
   statOnList: 'On the list',
   statInside: 'Inside',
@@ -195,8 +202,9 @@ export const events = {
   // The guided step right after creating an event (z8uq9m0hw3, item 7): save the
   // event first, then its tiers. `skip` shows while there are no tiers yet.
   setupStep: {
-    title: 'Next: add your guest tiers',
-    body: 'Guests need a tier before they can go on the list. Start with one like "Guest" or "VIP".',
+    // The guided tier step after creating an event (z8uq9m2vg8): plain
+    // explanation, the button is the call to action. Examples per the task.
+    body: 'Tiers sort your guest list. Think Guest, Backstage, Artist or Photographer. Guests need a tier before they can go on the list.',
     done: 'Go to event',
     skip: 'Skip for now',
   },
@@ -231,7 +239,7 @@ export const events = {
   loadingTiers: 'Loading tiers…',
   loadTiersError: "Couldn't load tiers. Try again in a moment.",
   emptyTiers: 'No guest tiers yet. Add one like "VIP" or "Guest".',
-  emptyTiersCta: '+ Add your first tier',
+  emptyTiersCta: 'Add your first tier',
   tierUsedOfMax: '{used} / {max} used',
   tierUsedNoMax: '{used} · no max',
   tierDefault: 'DEFAULT',

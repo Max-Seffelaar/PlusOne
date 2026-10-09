@@ -20,6 +20,24 @@ Joeri's walkthrough (Event C, item 3): the Tasks view did nothing yet. Split out
 
 ---
 
+## 2026-10-08 — Event C + Dashboard B: Add guest up front, guest Edit, deep link to another company, requests empty state (z8uq9m2vg7 + z8uq9m2vg8)
+
+Milestone **Now** (golf D, task 5 of the October onboarding programme). Joeri's walkthrough items for the event screens and the dashboard, plus two comments on the task: "Invite team member" on Quota per event and Sophie's Back bug on the template editor. No migration; the only `src/features` change is `venue_id` on the event-edit read (Max, 2026-10-08).
+
+- **Event detail:** a full-width "+ Add guest" is the first control on an open event (same role rule as the Events tab: a guest-writing venue role or an organizer of the event). Check-in turns dark next to it.
+- **Quick add:** placeholder "John Doe +2 vip" (was Joeri's own name); the paste-a-list example too.
+- **Guest detail:** the per-event "…" is a visible "Edit" (opens the same actions sheet; "Open event" for a viewer who can only open it, computed with `profileRowActions`). The phone row lost its icon (the glyph read as a slanted arrow).
+- **Deep link to another company's event:** `EventView` falls back to the unscoped `usePoEventForEdit` read it already made. That read now also returns the event's `venue_id` (decision Max 2026-10-08: the one select in `fetchEventForEdit` plus the field on `EventEditRow`, the only `src/features` change). If that company is one of the user's own (`usePo().myVenues`) and not the active one, the screen shows "This event belongs to {company}" + "Switch to {company}" through the existing `switchToVenue(…, '/app/events/<id>')`. A non-member keeps "This event isn't available anymore.", and the page never names the company.
+- **Home:** 0 requests and no request link the company made itself (the default link per event comes from a trigger and doesn't count) → compact card "Let guests request a spot" + "Create request link" (opens the next event's request links). With data the chart stays. Only for admin/organizer, so the links read never runs for anyone else (`home-requests-empty.tsx`, unit-tested condition).
+- **Time field (touch):** no second clock in front of the native one; at 390px the value had about 80px and "10:00 PM" was cut off, now 110+. The "Instellen"/Set button in the report is the Android OS time dialog, which the web app can't size (🖐 on a device).
+- **Tier step:** "Add your first tier" is a primary button; the guide is plain text with Guest, Backstage, Artist, Photographer.
+- **Quota per event:** "Invite team member" for admin/user_manager (in practice admin: user_manager can't open this screen, `viewQuota`), hidden on a billing-locked company, inert in the demo venue. It opens Team's own form, now exported as `TeamInviteForm` (fields controlled by the caller, so Team behaves exactly as before), and shows "{n} invite pending".
+- **Templates:** the list's effect that pushed the editor whenever the list was empty is gone (it re-fired after Back). The empty state has "Create your first template".
+- **Not in this PR:** the Tasks tab next to Check-in lives in the Deur tab (`screens/door.tsx`, `door-branch.tsx`), outside this task's fence. Max (2026-10-08): a separate mini-PR.
+- **Tests:** flow `event-screens` (Q1–Q20, 4 variants, all green), unit tests for the deep-link match, the requests condition, the template empty state, the tier button and the Quota invite; i18n snapshot updated on purpose.
+
+---
+
 ## 2026-10-08 — Platform R: company detail per invite + Platform → Overview (z8uq9m2ybj, golf D task 2b)
 
 Milestone **Now** (decision Max 2026-10-06: right after Billing G). Draft PR, not merged; no prod push.
