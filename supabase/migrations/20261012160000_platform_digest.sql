@@ -13,21 +13,28 @@
 --      row and mails nothing; only a day whose attempt FAILED (nothing left the
 --      building, 20261011120000's stance) may be tried again.
 --   4. Service-role-only aggregate wrappers that return the SAME numbers as the
---      Platform > Overview RPCs of 20261012130000:
+--      Platform > Overview RPCs (20261012130000, and 20261012150000 for
+--      platform_subscription_counts, which added trialing_payment_set_up):
 --        platform_digest_subscription_counts()  = platform_subscription_counts()
 --        platform_digest_trial_funnel()         = platform_trial_funnel()
 --        platform_digest_usage_30d()            = platform_usage_30d()
 --      The Overview RPCs stay as they are (platform-admin-only via auth.uid();
---      a cron run has no uid, so it cannot call them). The bodies are copies;
---      pgTAP (platform_digest.test.sql, section D) compares each wrapper with
---      its Overview twin for a platform admin, so a later change to one side
---      that forgets the other fails CI instead of drifting silently.
+--      a cron run has no uid, so it cannot call them). The bodies are copies,
+--      deliberately: sharing one internal body would mean a third drop and
+--      re-create of platform_subscription_counts() here (its result type is
+--      OUT parameters), on the function 20261012150000 just rebuilt. pgTAP
+--      (platform_digest.test.sql, section D) compares each wrapper with its
+--      Overview twin column for column, so a later change to one side that
+--      forgets the other fails CI instead of drifting silently.
 --   5. platform_digest_begin(token): consumes the token (42501 otherwise) and
 --      returns the digest date, the aggregates and the recipients: platform
 --      admins resolved at send time, never hard-coded.
 --   6. log_platform_digest_mail(recipient): the venue-less mail_log write path.
---      No company cap, no 60-second recipient window (one mail per recipient
---      per Amsterdam day is the limit), idempotent through the ledger.
+--      No company cap and no 60-second recipient window of its own (one mail
+--      per recipient per Amsterdam day is the limit), idempotent through the
+--      ledger. log_mail_attempt is re-created (section 6b) so a digest row
+--      does not START that window either: a team invite to a platform admin
+--      right after 07:45 is not refused because of the digest.
 --   7. kick_platform_digest() + platform_digest_tick() and the pg_cron job.
 --
 -- CONFIG: one Vault secret, nothing hard-coded:
@@ -113,7 +120,7 @@ alter table public.platform_digest_deliveries enable row level security;
 -- ---------------------------------------------------------------------------
 -- 3. Aggregate wrappers (service_role only) — same numbers as Overview
 -- ---------------------------------------------------------------------------
--- Copies of the bodies in 20261012130000 minus the is_platform_admin() guard
+-- Copies of the bodies in 20261012130000 (counts: 20261012150000) minus the is_platform_admin() guard
 -- (the caller is the service role, which has no uid). EXECUTE is revoked from
 -- every role but service_role in section 8; that grant IS the guard.
 
@@ -128,7 +135,8 @@ returns table (
   past_due integer,
   canceled integer,
   comped integer,
-  no_subscription integer
+  no_subscription integer,
+  trialing_payment_set_up integer
 )
 language sql
 stable
@@ -151,7 +159,10 @@ as $$
     count(*) filter (where s.status = 'past_due')::int,
     count(*) filter (where s.status = 'canceled')::int,
     count(*) filter (where s.status = 'comped')::int,
-    count(*) filter (where s.venue_id is null)::int
+    count(*) filter (where s.venue_id is null)::int,
+    count(*) filter (
+      where s.status = 'trialing'
+        and s.stripe_subscription_id is not null)::int
   from public.venues v
   left join public.subscriptions s on s.venue_id = v.id;
 $$;
@@ -395,6 +406,65 @@ comment on function public.log_platform_digest_mail(uuid) is
   'for a current platform admin and return its id, or NULL when today''s '
   'digest to them is already queued/sent (one per Amsterdam day; a failed '
   'attempt may be retried). 42501 for anyone who is not a platform admin.';
+
+-- ---------------------------------------------------------------------------
+-- 6b. log_mail_attempt: platform_digest rows do not start the recipient window
+-- ---------------------------------------------------------------------------
+-- Body is the live one from 20261011120000 with only 'platform_digest' added
+-- to the types the window ignores. The digest never goes through this
+-- function (it has its own per-day limit above), so only the "does not start
+-- one" half matters. Signature, security, search_path and grants unchanged
+-- (create or replace keeps the ACL).
+
+create or replace function public.log_mail_attempt(
+  p_type text,
+  p_venue_id uuid,
+  p_recipient_hash text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  -- Serialise concurrent sends to one recipient so two parallel calls can't
+  -- both pass the window check.
+  perform pg_advisory_xact_lock(hashtextextended('mail_log:' || coalesce(p_recipient_hash, ''), 0));
+
+  -- The decline mails are exempt from the window and do not start one. A
+  -- failed attempt (nothing went out) does not start one either, and neither
+  -- does the daily platform digest (20261012160000).
+  if p_type not in ('team_invite_declined', 'team_invite_declined_confirm')
+     and exists (
+       select 1 from public.mail_log m
+        where m.recipient_hash = p_recipient_hash
+          and m.type not in ('team_invite_declined', 'team_invite_declined_confirm', 'platform_digest')
+          and m.status <> 'failed'
+          and m.created_at > now() - public.mail_recipient_window()
+     ) then
+    raise exception 'mail throttled: recipient' using errcode = 'PM429';
+  end if;
+
+  if p_venue_id is not null and public.mail_venue_cap_reached(p_venue_id) then
+    raise exception 'mail throttled: venue daily cap' using errcode = 'PM429';
+  end if;
+
+  insert into public.mail_log (type, venue_id, recipient_hash)
+  values (p_type, p_venue_id, p_recipient_hash)
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+comment on function public.log_mail_attempt(text, uuid, text) is
+  'Mail sender (service_role): record a queued send and return its id '
+  '(= the Resend Idempotency-Key). Refuses (PM429) a second mail to the same '
+  'recipient within mail_recipient_window() (the two decline mail types are '
+  'exempt, 20261007150100; failed attempts do not count, 20261011120000; a '
+  'platform_digest row does not count, 20261012160000) and a venue past '
+  'mail_venue_daily_cap() for the UTC day. Check constraints validate the input.';
 
 -- ---------------------------------------------------------------------------
 -- 7. Config, kick, tick (owner-only)

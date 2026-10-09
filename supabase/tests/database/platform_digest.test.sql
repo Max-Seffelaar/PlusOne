@@ -1,7 +1,7 @@
 -- pgTAP — platform digest (z8uq9m2ybj vervolg, 20261012160000_platform_digest.sql).
 -- Run: pnpm db:test.
 --
--- Proves:
+-- Proves (D1 needs 20261012150000, which adds trialing_payment_set_up):
 --   A. privileges: the aggregate wrappers, platform_digest_begin and
 --      log_platform_digest_mail are service_role-only; config/kick/tick/today
 --      are owner-only; both new tables are closed to every app role;
@@ -61,7 +61,7 @@ create function pg_temp.queued() returns int language sql as $fn$
   where url = 'http://127.0.0.1:9/functions/v1/platform-digest';
 $fn$;
 
-select plan(53);
+select plan(55);
 
 select set_config('request.jwt.claims', '{}', true);
 
@@ -345,6 +345,19 @@ select pg_temp.as_postgres();
 
 select is(public.mail_venue_cap_reached('aa000000-0000-7000-8000-000000000001'), false,
   'E16 digest rows carry no venue, so no company''s daily mail cap moves');
+
+-- The digest row (sent above, inside the window) does not start the 60-second
+-- recipient window of log_mail_attempt: a team mail right after it goes out.
+select pg_temp.as_service();
+select isnt(
+  public.log_mail_attempt('team_join', 'aa000000-0000-7000-8000-000000000001',
+    encode(extensions.digest('platform@plusone.test', 'sha256'), 'hex')),
+  null, 'E17 a team mail to a platform admin right after the digest is not throttled');
+select throws_ok(
+  $$ select public.log_mail_attempt('team_resend', 'aa000000-0000-7000-8000-000000000001',
+       encode(extensions.digest('platform@plusone.test', 'sha256'), 'hex')) $$,
+  'PM429', null, 'E18 …while a second team mail within the window still is (the window itself is unchanged)');
+select pg_temp.as_postgres();
 
 select * from finish();
 rollback;

@@ -22,6 +22,8 @@ export interface DigestSubscriptions {
   canceled: number;
   comped: number;
   no_subscription: number;
+  /** Subset of `trialing`: trials with a Stripe subscription (20261012150000). */
+  trialing_payment_set_up: number;
 }
 
 export interface DigestFunnel {
@@ -118,6 +120,7 @@ function sectionsFor(d: DigestNumbers): Section[] {
         ['Yearly', String(n(s.paid_yearly))],
         ...(n(s.paid_unknown) > 0 ? ([['Paying, interval unknown', String(n(s.paid_unknown))]] as [string, string][]) : []),
         ['In trial', String(n(s.trialing))],
+        ['Trial, payment set up', String(n(s.trialing_payment_set_up))],
         ['Trial ended, not paying', String(n(s.trial_lapsed))],
         ['Past due', String(n(s.past_due))],
         ['Canceled', String(n(s.canceled))],

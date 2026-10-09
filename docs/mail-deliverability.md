@@ -178,6 +178,12 @@ Migration `20261012160000_platform_digest.sql`, Edge Function
   written by `log_platform_digest_mail()`. The ledger `platform_digest_deliveries` makes a
   repeated run on the same Amsterdam day send nothing; only a `failed` attempt may be tried
   again (new row, new Resend Idempotency-Key). Settled with `record_mail_send_result()`.
+  There is one effective run per day, so "may be tried again" means a **manual** kick
+  (`select public.kick_platform_digest();`, runbook triage row). A digest row does not
+  start the 60-second recipient window of `log_mail_attempt`, so a team invite to a
+  platform admin right after 07:45 still goes out.
+- **The function's response body is `{ "ok": true }` only.** pg_net keeps it in
+  `net._http_response`, which app roles can read; the totals are in the function log.
 - **Without config it sleeps:** no Vault URL means no kick; no `RESEND_API_KEY` on the
   function means a 503 `mail_not_configured` after authentication and no `mail_log` row.
 
@@ -195,7 +201,7 @@ Migration `20261012160000_platform_digest.sql`, Edge Function
    `select vault.create_secret('https://tolxwgqhppdcvnogdpel.supabase.co/functions/v1/platform-digest', 'plusone_platform_digest_url');`
    This is the switch: from the next 07:45 on, the digest goes out.
 5. Check: Dashboard → Edge Functions → platform-digest → Logs shows `done` with
-   `sent: 2`; `select status from mail_log where type = 'platform_digest' order by created_at desc limit 2;`.
+   `sent: 2` (the HTTP response itself is only `{"ok":true}`); `select status from mail_log where type = 'platform_digest' order by created_at desc limit 2;`.
    Pause: `select cron.unschedule('plusone-platform-digest');` or delete the Vault secret.
 
 ### Local test
@@ -207,7 +213,8 @@ and `APP_URL=http://localhost:7000`:
 `select vault.create_secret('http://supabase_kong_PlusOne_Guestlist:8000/functions/v1/platform-digest', 'plusone_platform_digest_url');`
 and `select public.kick_platform_digest();`. The mail lands in Mailpit
 (`http://127.0.0.1:55324`); `select status_code, content from net._http_response order by id desc limit 1;`
-shows the function's totals. A second kick answers `skipped: 1`. The catcher is honoured
+shows `{"ok":true}`; the totals (`sent: 1`, a second kick `skipped: 1`) are in the
+`supabase functions serve` output. The catcher is honoured
 only when the function's `SUPABASE_URL` is a local host; `supabase db reset` removes the
 Vault secret again.
 

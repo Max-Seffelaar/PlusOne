@@ -345,6 +345,8 @@ export async function handleDigest(req: Request, deps: DigestDeps): Promise<Resp
     }
   }
 
+  // Totals go to the log only: pg_net stores this response body in
+  // net._http_response, which app roles can read.
   log('done', { ...totals, transport: transport.kind });
-  return json(200, totals);
+  return json(200, { ok: true });
 }

@@ -3,7 +3,7 @@
 // (supabase/functions/platform-digest/digest.ts) and is exercised here with a
 // mocked fetch, because CI does not run Deno tests. The SQL side (token,
 // ledger, wrappers) is proven in supabase/tests/database/platform_digest.test.sql.
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   handleDigest,
   isLocalSupabaseUrl,
@@ -32,6 +32,7 @@ const NUMBERS = {
     canceled: 0,
     comped: 1,
     no_subscription: 0,
+    trialing_payment_set_up: 1,
   },
   funnel: { ending_7d: 3, ended_30d: 5, converted_30d: 2, ended_90d: 9, converted_90d: 4, canceled_30d: 1 },
   usage: { active_companies: 6, events: 21, check_ins: 840, dormant_companies: 2 },
@@ -89,6 +90,19 @@ function request(token: string | null = TOKEN, method = 'POST'): Request {
   });
 }
 
+// Every handler call below logs through `capture`; the totals live only in
+// the `done` event (the response body is just { ok: true }).
+let logged: [string, Record<string, unknown> | undefined][] = [];
+const capture = (event: string, fields?: Record<string, unknown>) => {
+  logged.push([event, fields]);
+};
+beforeEach(() => {
+  logged = [];
+});
+function doneTotals(): Record<string, unknown> | undefined {
+  return logged.find(([e]) => e === 'done')?.[1];
+}
+
 const ENV: DigestEnv = {
   SUPABASE_URL: SUPABASE,
   SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY,
@@ -99,21 +113,21 @@ const ENV: DigestEnv = {
 describe('platform-digest caller gate', () => {
   it('405 for anything but POST, before any DB call', async () => {
     const f = fakeFetch({});
-    const res = await handleDigest(request(TOKEN, 'GET'), { env: ENV, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(TOKEN, 'GET'), { env: ENV, fetch: f.fetch, log: capture });
     expect(res.status).toBe(405);
     expect(f.calls).toHaveLength(0);
   });
 
   it.each([null, '', 'short', 'AB'.repeat(32), `${TOKEN}0`])('401 without a well-formed token (%s), no DB call', async (t) => {
     const f = fakeFetch({});
-    const res = await handleDigest(request(t), { env: ENV, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(t), { env: ENV, fetch: f.fetch, log: capture });
     expect(res.status).toBe(401);
     expect(f.calls).toHaveLength(0);
   });
 
   it('401 when begin refuses the token (42501): nothing logged, nothing sent', async () => {
     const f = fakeFetch({ platform_digest_begin: () => jsonResponse(401, { code: '42501', message: 'not authorized' }) });
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'invalid_token' });
     expect(f.calls.map((c) => c.url)).toEqual([`${SUPABASE}/rest/v1/rpc/platform_digest_begin`]);
@@ -121,23 +135,24 @@ describe('platform-digest caller gate', () => {
 
   it('a 401 WITHOUT 42501 is our service key being rejected (502), never "bad caller"', async () => {
     const f = fakeFetch({ platform_digest_begin: () => jsonResponse(401, { message: 'Invalid API key' }) });
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: 'service_key_rejected' });
   });
 
   it('500 when the runtime env is missing, before any DB call', async () => {
     const f = fakeFetch({});
-    const res = await handleDigest(request(), { env: { RESEND_API_KEY: RESEND_KEY }, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(), { env: { RESEND_API_KEY: RESEND_KEY }, fetch: f.fetch, log: capture });
     expect(res.status).toBe(500);
     expect(f.calls).toHaveLength(0);
   });
 
   it('passes the token to begin with the service key and reads nothing from the request body', async () => {
     const f = fakeFetch({ platform_digest_begin: okBegin([]) });
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ recipients: 0, sent: 0, skipped: 0, failed: 0 });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(doneTotals()).toMatchObject({ recipients: 0, sent: 0, skipped: 0, failed: 0 });
     const begin = f.calls[0]!;
     expect(begin.body).toEqual({ p_token: TOKEN });
     expect((begin.init.headers as Record<string, string>).Authorization).toBe(`Bearer ${SERVICE_KEY}`);
@@ -149,7 +164,7 @@ describe('platform-digest caller gate', () => {
     const f = fakeFetch({
       platform_digest_begin: () => jsonResponse(200, { ...NUMBERS, recipients: [{ id: 'nope', email: 'x@y.z' }] }),
     });
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
     expect(res.status).toBe(502);
     expect(f.calls).toHaveLength(1);
   });
@@ -163,9 +178,10 @@ describe('platform-digest delivery', () => {
       'api.resend.com/emails': () => jsonResponse(200, { id: 'resend-msg-1' }),
       record_mail_send_result: () => jsonResponse(200, true),
     });
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: () => {} });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ recipients: 2, sent: 2, skipped: 0, failed: 0 });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(doneTotals()).toMatchObject({ recipients: 2, sent: 2, skipped: 0, failed: 0 });
 
     const logs = f.calls.filter((c) => c.url.endsWith('/log_platform_digest_mail'));
     expect(logs.map((c) => c.body)).toEqual(ADMINS.map((a) => ({ p_recipient_id: a.id })));
@@ -191,8 +207,9 @@ describe('platform-digest delivery', () => {
       platform_digest_begin: okBegin(),
       log_platform_digest_mail: () => jsonResponse(200, null),
     });
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: () => {} });
-    expect(await res.json()).toEqual({ recipients: 2, sent: 0, skipped: 2, failed: 0 });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(doneTotals()).toMatchObject({ recipients: 2, sent: 0, skipped: 2, failed: 0 });
     expect(f.calls.some((c) => c.url.includes('resend'))).toBe(false);
   });
 
@@ -207,14 +224,14 @@ describe('platform-digest delivery', () => {
           : jsonResponse(200, { id: 'm2' }),
       record_mail_send_result: () => jsonResponse(200, true),
     });
-    const events: [string, Record<string, unknown> | undefined][] = [];
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: (e, x) => events.push([e, x]) });
-    expect(await res.json()).toEqual({ recipients: 2, sent: 1, skipped: 0, failed: 1 });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(doneTotals()).toMatchObject({ recipients: 2, sent: 1, skipped: 0, failed: 1 });
     const settles = f.calls.filter((c) => c.url.endsWith('/record_mail_send_result'));
     expect(settles[0]!.body).toMatchObject({ p_status: 'failed', p_error_code: 'daily_quota_exceeded' });
     expect(settles[1]!.body).toMatchObject({ p_status: 'sent' });
     // Never the provider message (it quotes the address), never the address.
-    expect(JSON.stringify(events)).not.toContain('example.test');
+    expect(JSON.stringify(logged)).not.toContain('example.test');
   });
 
   it('a recipient who stopped being a platform admin mid-run (42501 on log) is skipped', async () => {
@@ -222,8 +239,9 @@ describe('platform-digest delivery', () => {
       platform_digest_begin: okBegin([ADMINS[0]!]),
       log_platform_digest_mail: () => jsonResponse(403, { code: '42501' }),
     });
-    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: () => {} });
-    expect(await res.json()).toEqual({ recipients: 1, sent: 0, skipped: 1, failed: 0 });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(doneTotals()).toMatchObject({ recipients: 1, sent: 0, skipped: 1, failed: 0 });
   });
 
   it('without a Resend key and off the local stack: 503 after auth, no mail_log row', async () => {
@@ -231,7 +249,7 @@ describe('platform-digest delivery', () => {
     const res = await handleDigest(request(), {
       env: { ...ENV, RESEND_API_KEY: undefined, PLATFORM_DIGEST_MAIL_CATCHER_URL: 'http://mailpit:8025' },
       fetch: f.fetch,
-      log: () => {},
+      log: capture,
     });
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'mail_not_configured' });
@@ -251,10 +269,22 @@ describe('platform-digest delivery', () => {
       PLATFORM_DIGEST_MAIL_CATCHER_URL: 'http://mailpit:8025/',
     };
     // fakeFetch keys RPCs by path, so the kong URL works the same.
-    const res = await handleDigest(request(), { env, fetch: f.fetch, log: () => {} });
-    expect(await res.json()).toEqual({ recipients: 1, sent: 1, skipped: 0, failed: 0 });
+    const res = await handleDigest(request(), { env, fetch: f.fetch, log: capture });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(doneTotals()).toMatchObject({ recipients: 1, sent: 1, skipped: 0, failed: 0 });
     const sent = f.calls.find((c) => c.url === 'http://mailpit:8025/api/v1/send')!;
     expect(sent.body.To).toEqual([{ Email: ADMINS[0]!.email }]);
+  });
+
+  it('the response body is only { ok: true }: pg_net stores it where app roles can read', async () => {
+    const f = fakeFetch({
+      platform_digest_begin: okBegin(),
+      log_platform_digest_mail: okLog(),
+      'api.resend.com/emails': () => jsonResponse(200, { id: 'm' }),
+      record_mail_send_result: () => jsonResponse(200, true),
+    });
+    const res = await handleDigest(request(), { env: ENV, fetch: f.fetch, log: capture });
+    expect(await res.text()).toBe('{"ok":true}');
   });
 
   it('never logs an address, the token or a key', async () => {
@@ -330,6 +360,8 @@ describe('platform-digest template', () => {
     }
     // Paying = monthly + yearly + unknown.
     expect(mail.text).toContain('Paying: 5');
+    // The subset of trials with a payment set up (20261012150000).
+    expect(mail.text).toContain('Trial, payment set up: 1');
   });
 
   it('no Overview link when the origin is unknown', () => {
