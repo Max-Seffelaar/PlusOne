@@ -26,6 +26,17 @@ Milestone **Now** (golf D, task 5b of the October onboarding programme). Web sid
 
 ---
 
+## 2026-10-09 — Promotion funnel counts people at every step: no more "148% approved"
+
+The Promotion overview read "31 requests → 46 approved (148% approved)", and leaderboard rows showed the same ("35 requests → 55 approved"). Root cause: every funnel RPC returned `requests` as a count of `guest_requests` rows but `approved_heads`/`checked_in_heads` as headcounts (1 + plus-ones), and `overview.tsx` divided approved heads by request rows. Any request with plus-ones pushed the ratio past 100%.
+
+- **Decision:** after views, every funnel tile counts people (1 + plus-ones). Rows were rejected as the unit because the headline metric ("checked-in headcount", the leaderboard rank) is people. Each % compares like with like: *requested* = request rows per view (a headcount over views read "160%" on a small link with big parties), *approved* = approved people / requested people, *showed up* = checked-in / approved people. All are capped at 100%, because an admin can raise a guest's plus-ones after approval (`updateGuest`); the tiles keep the real counts.
+- **Migration `20261013120000_link_funnel_requested_heads`:** adds `requested_heads` = Σ(1 + `guest_requests.plus_ones`) over every request on the link (any status) to `event_link_funnel`, `venue_influencer_leaderboard`, `venue_label_link_funnel` (drop + create, grant matrix re-declared) and to `get_influencer_stats` (jsonb, `create or replace`, throttle/token logic unchanged). Each per-link `guest_requests` aggregate is one LATERAL pass, not two correlated scans. Expand–contract: `requests` (rows) stays. While `requested_heads` is absent (app deployed before the schema push), the approved % shows "–" and the Requested tile shows the request count as a floor; it never divides people by rows.
+- **UI:** the math lives in `src/features/po/funnel.ts` (`sumFunnels`, `funnelConversion`, `funnelPct`, `requestedDisplay`). The `/i/[token]` bars scale to the largest step instead of views. `scripts/dev/fake-supabase.mjs` carries `requested_heads`, so dev and flow screenshots don't show the old bug. Overview tiles, leaderboard/label funnel lines, per-event link cards and the public `/i/[token]` page show "Requested" (people) instead of "Requests" (rows); the overview card says "People counted, plus-ones included". The Events-screen links row stays on rows ("requests · approved") because it is row-consistent and has no percentages.
+- **Tests:** `src/features/po/funnel.test.ts` (the 148% case, small-link-big-party case, the post-approval plus-one edit, a ≤ 100% sweep over any data shape, empty funnel, unknown requested heads); pgTAP `promotion_stats` +7 (requested heads on all four RPCs, requested ≥ approved, grants on the re-created functions). Full pgTAP 95 files / 2417 assertions green on a fresh reset.
+
+---
+
 ## 2026-10-08 — Check-in: the Tasks view is gone on both door variants (z8uq9m2vg7, mini-PR)
 
 Joeri's walkthrough (Event C, item 3): the Tasks view did nothing yet. Split out of #438 because it lives in the Deur tab (decision Max 2026-10-08).

@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';
 import type { PoFunnel, PoLinkFunnelRow } from '@/features/po/queries';
+import { funnelConversion, requestedDisplay, sumFunnels } from '@/features/po/funnel';
 import {
   usePoCanCreateLink,
   usePoEvents,
@@ -65,7 +66,7 @@ function LinkAvatar({ size = 42 }: { size?: number }): JSX.Element {
 function FunnelLine({ f }: { f: PoFunnel }): JSX.Element {
   const parts: [number, string][] = [
     [f.views, t.promo.funnelViews],
-    [f.requests, t.promo.funnelRequests],
+    [requestedDisplay(f), t.promo.funnelRequests],
     [f.approvedHeads, t.promo.funnelApproved],
     [f.checkedInHeads, t.promo.funnelIn],
   ];
@@ -215,26 +216,20 @@ function OverviewCard({
   onPick: (id: string) => void;
   onManageLinks: () => void;
 }): JSX.Element {
-  const tot = links.reduce<PoFunnel>(
-    (a, l) => ({
-      views: a.views + l.views,
-      requests: a.requests + l.requests,
-      approvedHeads: a.approvedHeads + l.approvedHeads,
-      checkedInHeads: a.checkedInHeads + l.checkedInHeads,
-    }),
-    { views: 0, requests: 0, approvedHeads: 0, checkedInHeads: 0 },
-  );
+  // Every tile after Views counts people (1 + plus-ones); each % compares like
+  // with like and is capped at 100 (src/features/po/funnel.ts).
+  const tot = sumFunnels(links);
   const tiles: [string, number][] = [
     [t.promo.stepViews, tot.views],
-    [t.promo.stepRequests, tot.requests],
+    [t.promo.stepRequests, requestedDisplay(tot)],
     [t.promo.stepApproved, tot.approvedHeads],
     [t.promo.stepCheckedIn, tot.checkedInHeads],
   ];
-  const pct = (part: number, whole: number): number => (whole ? Math.round((part / whole) * 100) : 0);
-  const conv: [number, string][] = [
-    [pct(tot.requests, tot.views), t.promo.convRequested],
-    [pct(tot.approvedHeads, tot.requests), t.promo.convApproved],
-    [pct(tot.checkedInHeads, tot.approvedHeads), t.promo.convShowedUp],
+  const c = funnelConversion(tot);
+  const conv: [number | null, string][] = [
+    [c.requested, t.promo.convRequested],
+    [c.approved, t.promo.convApproved],
+    [c.showedUp, t.promo.convShowedUp],
   ];
   return (
     <Card
@@ -245,6 +240,7 @@ function OverviewCard({
         <div>
           <Kicker className="mb-[7px]">{t.promo.overviewKicker}</Kicker>
           <div className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{t.promo.overviewTitle}</div>
+          <div className="mt-[3px] text-[13px] text-faint">{t.promo.overviewSub}</div>
         </div>
         <EventPicker events={events} selectedId={selectedId} onPick={onPick} />
       </div>
@@ -265,7 +261,8 @@ function OverviewCard({
         {conv.map(([v, label], i) => (
           <span key={label} className="inline-flex items-center gap-2">
             <span>
-              <b className="font-bold tabular-nums text-dim">{v}%</b> {label}
+              {/* null = requested people unknown (app ahead of the schema push). */}
+              <b className="font-bold tabular-nums text-dim">{v == null ? '–' : `${v}%`}</b> {label}
             </span>
             {i < 2 && <span className="text-ghost">→</span>}
           </span>

@@ -30,7 +30,7 @@ begin
 end;
 $fn$;
 
-select plan(21);
+select plan(28);
 
 -- Fixture: approve Robin (+1) through Jayden's link and check him in with his
 -- plus-one → approved_heads 2, checked_in_heads 2 on that link.
@@ -63,6 +63,19 @@ select ok(
    from public.event_link_funnel('ee000000-0000-7000-8000-000000000001')
    where slug = 'launch-night-jayden'),
   'A3 …and carries its pageviews + request count');
+
+-- 20261013120000: requested_heads puts "requests" in the same unit as approved
+-- heads — Robin (+1) + Sofia (+0) = 3 people asked for, 2 approved. Request
+-- rows (2) would let a plus-one push approved past requested.
+select is(
+  (select requested_heads::int || ':' || approved_heads::int
+   from public.event_link_funnel('ee000000-0000-7000-8000-000000000001')
+   where slug = 'launch-night-jayden'),
+  '3:2', 'A3d requested_heads counts people (1 + plus_ones) over every request, ≥ approved_heads');
+select ok(
+  (select bool_and(requested_heads >= approved_heads and requested_heads >= requests)
+   from public.event_link_funnel('ee000000-0000-7000-8000-000000000001')),
+  'A3e on every link requested heads ≥ approved heads and ≥ request rows');
 
 -- 86ey9e9wv/D1: widened with approved/tier_id/created_at so fetchRequestLinks
 -- could fold onto this RPC instead of its own guest_requests read + Maps.
@@ -107,6 +120,15 @@ select is(
      'aa000000-0000-7000-8000-000000000001', now() + interval '30 days')),
   0, 'B3 the starts_at window filters events out of range');
 select is(
+  (select requested_heads::int || ':' || approved_heads::int from public.venue_influencer_leaderboard(
+     'aa000000-0000-7000-8000-000000000001')
+   where influencer_name = 'Jayden Promo'),
+  '3:2', 'B1a the leaderboard carries requested heads in the same unit as approved heads');
+select ok(
+  (select bool_and(requested_heads >= requests) from public.venue_label_link_funnel(
+     'aa000000-0000-7000-8000-000000000001')),
+  'B1b label-only links carry requested_heads too (people, ≥ request rows)');
+select is(
   (select is_default from public.venue_label_link_funnel(
      'aa000000-0000-7000-8000-000000000001')
    where event_name = 'PLUSONE Launch Night' limit 1),
@@ -126,6 +148,10 @@ select is(
   (select r ->> 'found' || ':' || (r ->> 'name') || ':' || (r -> 'totals' ->> 'checked_in_heads')
    from public.get_influencer_stats(encode(extensions.digest('tok-if-test', 'sha256'), 'hex'), 'ip-if-a') r),
   'true:Jayden Promo:2', 'C1 the token resolves to the influencer''s own aggregates');
+select is(
+  (select (r -> 'totals' ->> 'requested_heads') || ':' || (r -> 'events' -> 0 ->> 'requested_heads')
+   from public.get_influencer_stats(encode(extensions.digest('tok-if-test', 'sha256'), 'hex'), 'ip-if-a') r),
+  '3:3', 'C1a the public page carries requested heads (people) per event and in the totals');
 select is(
   (select jsonb_array_length(public.get_influencer_stats(
      encode(extensions.digest('tok-if-test', 'sha256'), 'hex'), 'ip-if-a') -> 'events')),
@@ -180,6 +206,13 @@ select ok(not has_function_privilege('anon', 'public.event_link_funnel(uuid)', '
   'D1 anon cannot execute event_link_funnel');
 select ok(has_function_privilege('authenticated', 'public.event_link_funnel(uuid)', 'EXECUTE'),
   'D2 authenticated can execute event_link_funnel');
+-- 20261013120000 drop+recreated the two venue-wide funnels as well.
+select ok(not has_function_privilege('anon', 'public.venue_influencer_leaderboard(uuid, timestamptz, timestamptz)', 'EXECUTE')
+       and not has_function_privilege('anon', 'public.venue_label_link_funnel(uuid, timestamptz, timestamptz)', 'EXECUTE'),
+  'D3 anon cannot execute the venue-wide leaderboard / label funnel');
+select ok(has_function_privilege('authenticated', 'public.venue_influencer_leaderboard(uuid, timestamptz, timestamptz)', 'EXECUTE')
+       and has_function_privilege('authenticated', 'public.venue_label_link_funnel(uuid, timestamptz, timestamptz)', 'EXECUTE'),
+  'D4 authenticated can execute the venue-wide leaderboard / label funnel');
 
 select * from finish();
 
