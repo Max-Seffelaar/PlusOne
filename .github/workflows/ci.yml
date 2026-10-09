@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [main, develop]
 
+# One live run per PR: a new push cancels the PR's superseded run, so its 7 jobs
+# stop holding runners that the new head is queued behind (#437: lint-and-test
+# sat queued 5 min). Branch protection only reads the checks on the PR's head
+# commit, so a cancelled run on an older commit never blocks the merge.
+# Pushes to main/develop are never cancelled or queued: each push run gets its
+# own group (run_id). A shared per-ref group would not be enough, because GitHub
+# cancels a *pending* run in the group even with cancel-in-progress off, so a
+# third push to main would cancel the second one's run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
