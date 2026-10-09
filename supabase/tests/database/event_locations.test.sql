@@ -24,7 +24,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(48);
+select plan(49);
 
 create function pg_temp.login(p_user uuid)
 returns void language plpgsql as $fn$
@@ -112,8 +112,12 @@ select ok(
   'A3 anon holds nothing on company_locations');
 select ok(
   has_table_privilege('authenticated', 'public.company_locations', 'SELECT')
-  and has_table_privilege('authenticated', 'public.company_locations', 'INSERT'),
-  'A4 authenticated may select and insert (RLS decides which rows)');
+  and has_column_privilege('authenticated', 'public.company_locations', 'name', 'INSERT')
+  and has_column_privilege('authenticated', 'public.company_locations', 'venue_id', 'INSERT')
+  and not has_column_privilege('authenticated', 'public.company_locations', 'created_at', 'INSERT')
+  and not has_column_privilege('authenticated', 'public.company_locations', 'archived_at', 'INSERT')
+  and not has_column_privilege('authenticated', 'public.company_locations', 'id', 'INSERT'),
+  'A4 authenticated selects and inserts the content columns only (RLS decides which rows); id, archived_at, created_at are server-set');
 select ok(
   not has_table_privilege('authenticated', 'public.company_locations', 'DELETE')
   and not has_table_privilege('authenticated', 'public.company_locations', 'TRUNCATE'),
@@ -171,6 +175,10 @@ select lives_ok(
   $$ insert into public.company_locations (venue_id, name, address_line, postal_code, city, country, place_id)
      values ('aa000000-0000-7000-8000-000000000001', 'Melkweg', 'Lijnbaansgracht 234A', '1017 PH', 'Amsterdam', 'NL', 'ChIJ-test') $$,
   'B9 admin inserts a saved location');
+select throws_ok(
+  $$ insert into public.company_locations (venue_id, name, created_at)
+     values ('aa000000-0000-7000-8000-000000000001', 'Backdated', now() - interval '1 year') $$,
+  '42501', null, 'B9b not even an admin can backdate a location to the front of the list (created_at is server-set)');
 select is(
   pg_temp.rowcount($$ update public.company_locations set name = 'Paradiso Grote Zaal'
                       where id = 'c1000000-0000-7000-8000-000000000002' $$),

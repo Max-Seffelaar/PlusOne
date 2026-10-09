@@ -13,8 +13,9 @@
 --    last disjunct, #49). Write: admin only (has_venue_role admin). No DELETE
 --    for any app role: a location is archived (archived_at), never removed —
 --    events hold their own copy, so nothing references a row. venue_id is
---    immutable (column-level UPDATE grant leaves it out). Grant matrix below:
---    revoke first, then grant.
+--    immutable (column-level UPDATE grant leaves it out); id, archived_at and
+--    the timestamps are server-set on insert. Grant matrix below: revoke
+--    first, then grant.
 --    Length caps keep a formatted copy ("line, postcode city") within the
 --    200-char events.location_address cap: 120 + 2 + 16 + 1 + 60 = 199.
 --
@@ -87,11 +88,15 @@ create policy company_locations_update on public.company_locations
   using (public.has_venue_role(venue_id, array['admin']::public.venue_role[]))
   with check (public.has_venue_role(venue_id, array['admin']::public.venue_role[]));
 
--- Grant matrix: revoke first, then grant. anon nothing; authenticated read,
--- insert, and UPDATE on the editable columns only (venue_id, id and the
--- timestamps are not client-writable); no DELETE, no TRUNCATE.
+-- Grant matrix: revoke first, then grant. anon nothing; authenticated reads,
+-- INSERTs the content columns only (id, archived_at and the timestamps are
+-- server-set: created_at orders the default location, so a client may not
+-- backdate a row to the front) and UPDATEs the editable columns only
+-- (venue_id is immutable); no DELETE, no TRUNCATE.
 revoke all on table public.company_locations from public, anon, authenticated;
-grant select, insert on table public.company_locations to authenticated;
+grant select on table public.company_locations to authenticated;
+grant insert (venue_id, name, address_line, postal_code, city, country, place_id)
+  on table public.company_locations to authenticated;
 grant update (name, address_line, postal_code, city, country, place_id, archived_at)
   on table public.company_locations to authenticated;
 
