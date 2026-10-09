@@ -165,10 +165,12 @@ test('company rename: wizard → More → Company settings → events with a loc
   await goApp(page, '/app/events/new', baseURL);
   const locName = page.getByRole('textbox', { name: 'Location name' });
   const locAddress = page.getByRole('combobox', { name: 'Location address' });
-  await flow.check(7, 'New event: no "Company" field (always the active company), and the location placeholders are the company name + address', async () => {
+  // z8uq9m444c: no saved locations yet, so a new event starts at the company
+  // itself (name + address), as a copy the form saves.
+  await flow.check(7, 'New event: no "Company" field (always the active company), and the location starts at the company name + address', async () => {
     await expect(page.getByText('Company', { exact: true })).toHaveCount(0);
-    await expect(locName).toHaveAttribute('placeholder', COMPANY);
-    await expect(locAddress).toHaveAttribute('placeholder', COMPANY_ADDRESS);
+    await expect(locName).toHaveValue(COMPANY);
+    await expect(locAddress).toHaveValue(COMPANY_ADDRESS);
     expect(await visibleVenueWords(page)).toEqual([]);
   });
   await page.getByPlaceholder('e.g. FRENZY').fill(EV_OWN);
