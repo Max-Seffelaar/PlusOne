@@ -11,8 +11,9 @@
  * - item 5: a tier card opens the same form, prefilled, and saves through
  *   updateTier. Aliases are never sent on an edit (stored ones survive), the
  *   tier's own colour is never blocked, and a max below current use warns.
- * - item 7: `setup` is the guided step right after creating an event: a
- *   GuideCard on top and a bottom bar that moves on to the event. It does NOT
+ * - item 7: `setup` is the guided step right after creating an event: an
+ *   explanation on top (z8uq9m2vg8: plain text with examples, "Add your first
+ *   tier" is the button) and a bottom bar that moves on to the event. It does NOT
  *   auto-open the create form, so the guide is read before a sheet covers it.
  *
  * Adding and editing tiers is admin + organizer of this event (RLS
@@ -30,7 +31,7 @@ import { blankTierDraft, draftAliases, draftToWrite, tierToDraft, type TierDraft
 import { nextAvailableColor } from '@/lib/po/tier-colors';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Btn, Empty, GuideCard, Label, MiniChip, Note, Scroll, Top, cardPress } from '../../kit';
+import { Btn, Empty, Label, MiniChip, Note, Scroll, Top, cardPress } from '../../kit';
 import { BottomBar } from '../../shell';
 import { TierFormSheet } from './tier-form';
 import { col } from './shared';
@@ -188,7 +189,9 @@ export function Tiers({ eventId, setup }: { eventId?: string; setup?: boolean })
     <div className={col}>
       <Top onBack={nav.back} title={t.events.tiersTitle} sub={event?.name} />
       <Scroll bottom={24}>
-        {setup && <GuideCard icon="ticket" title={t.events.setupStep.title} body={t.events.setupStep.body} />}
+        {/* The guided step (z8uq9m2vg8): plain explanation with real examples;
+            the button below is the call to action, not this text. */}
+        {setup && <p className="mb-4 text-[14px] leading-[1.5] text-dim">{t.events.setupStep.body}</p>}
         {err && !form && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {TIER_ALIASES_UI && <Note icon="spark">{t.events.aliasesNote}</Note>}
         {isLoading ? (
@@ -198,14 +201,14 @@ export function Tiers({ eventId, setup }: { eventId?: string; setup?: boolean })
         ) : tiers.length === 0 ? (
           !form &&
           (canManage ? (
-            <button
-              type="button"
-              onClick={openAdd}
-              className="flex w-full flex-col items-center gap-2 rounded-[18px] border border-dashed border-line bg-elev/40 py-[30px] text-center transition-[filter] hover:brightness-110"
-            >
-              <span className="text-[14px] text-faint">{t.events.emptyTiers}</span>
-              <span className="font-display text-[14px] font-bold text-acc">{t.events.emptyTiersCta}</span>
-            </button>
+            // "Add your first tier" is THE button (z8uq9m2vg8) — it used to be
+            // lavender text inside a dashed box that read as a hint.
+            <div className="flex flex-col gap-3">
+              {!setup && <p className="text-center text-[14px] text-faint">{t.events.emptyTiers}</p>}
+              <Btn kind="primary" full icon="plus" onClick={openAdd}>
+                {t.events.emptyTiersCta}
+              </Btn>
+            </div>
           ) : (
             <Empty text={t.events.emptyTiers} />
           ))

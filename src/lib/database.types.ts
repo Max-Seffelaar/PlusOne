@@ -2198,6 +2198,7 @@ export type Database = {
           label: string
           link_id: string
           max_headcount: number
+          requested_heads: number
           requests: number
           slug: string
           tier_id: string
@@ -2740,6 +2741,7 @@ export type Database = {
           influencer_id: string
           influencer_name: string
           links_count: number
+          requested_heads: number
           requests: number
           views: number
         }[]
@@ -2754,6 +2756,7 @@ export type Database = {
           is_default: boolean
           label: string
           link_id: string
+          requested_heads: number
           requests: number
           views: number
         }[]

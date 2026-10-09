@@ -887,6 +887,9 @@ const rpcs = {
         created_at: l.created_at,
         views: 38,
         requests: 4,
+        // People asked for (1 + plus_ones) — the unit approved_heads is read
+        // against (20261013120000); 4 requests carrying 8 heads, 7 approved.
+        requested_heads: 8,
         approved: 3,
         approved_heads: 7,
         checked_in_heads: 2,
@@ -907,7 +910,7 @@ const rpcs = {
     name: 'Lotte Jansen',
     handle: '@lottej',
     venue_name: 'Club Nova',
-    totals: { views: 412, requests: 37, approved_heads: 58, checked_in_heads: 21 },
+    totals: { views: 412, requests: 37, requested_heads: 64, approved_heads: 58, checked_in_heads: 21 },
     events: db.events.map((e) => ({
       event_name: e.name,
       starts_at: e.starts_at,
@@ -915,6 +918,7 @@ const rpcs = {
       slug: e.landing_slug ?? null,
       views: 138,
       requests: 12,
+      requested_heads: 21,
       approved_heads: 19,
       checked_in_heads: 7,
     })),

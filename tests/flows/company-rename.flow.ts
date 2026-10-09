@@ -191,7 +191,7 @@ test('company rename: wizard → More → Company settings → events with a loc
       await hour.fill('22:00');
       await hour.press('Enter');
       await page.getByRole('button', { name: 'Create event' }).click();
-      await expect(page.getByText('Next: add your guest tiers')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('button', { name: 'Add your first tier' })).toBeVisible({ timeout: 20_000 });
       await expect
         .poll(async () => {
           const { data } = await db.from('events').select('location_name, location_address').eq('name', EV_OWN).maybeSingle();

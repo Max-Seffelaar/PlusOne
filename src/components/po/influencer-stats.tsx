@@ -26,9 +26,11 @@ const closeHit = "relative before:absolute before:-inset-[7px] before:content-['
 const num = (n: number): string => n.toLocaleString('en-US');
 const PAGE = 4;
 
+/** Every step after views counts people (1 + plus-ones), so approved can never
+ *  outrun requested (src/features/po/funnel.ts). */
 export interface InfluencerStatsFunnel {
   views: number;
-  requests: number;
+  requested: number;
   approved: number;
   checkedIn: number;
 }
@@ -86,7 +88,7 @@ function Totals({ f, zero }: { f: InfluencerStatsFunnel; zero: boolean }): JSX.E
   }
   const cells: [string, number][] = [
     [t.influencerStats.totalViews, f.views],
-    [t.influencerStats.totalRequests, f.requests],
+    [t.influencerStats.totalRequests, f.requested],
     [t.influencerStats.totalApproved, f.approved],
     [t.influencerStats.totalDoor, f.checkedIn],
   ];
@@ -149,11 +151,13 @@ function Search({ q, setQ }: { q: string; setQ: (v: string) => void }): JSX.Elem
 function MiniFunnel({ f, muted }: { f: InfluencerStatsFunnel; muted?: boolean }): JSX.Element {
   const steps: [string, number][] = [
     [t.influencerStats.funnelViews, f.views],
-    [t.influencerStats.funnelRequests, f.requests],
+    [t.influencerStats.funnelRequests, f.requested],
     [t.influencerStats.funnelApproved, f.approved],
     [t.influencerStats.funnelIn, f.checkedIn],
   ];
-  const max = Math.max(1, f.views);
+  // Scale to the largest step, not views: requested/approved count people
+  // (1 + plus-ones), which can outnumber the views on a small link.
+  const max = Math.max(1, ...steps.map(([, v]) => v));
   return (
     <div className={cn('flex flex-col gap-[9px]', muted && 'opacity-85')}>
       {steps.map(([label, v], i) => {
@@ -412,7 +416,7 @@ export function InfluencerStats({ data }: { data: InfluencerStatsData | null }):
   }
 
   const zero =
-    data.totals.views === 0 && data.totals.requests === 0 && data.totals.approved === 0 && data.totals.checkedIn === 0;
+    data.totals.views === 0 && data.totals.requested === 0 && data.totals.approved === 0 && data.totals.checkedIn === 0;
   const norm = q.trim().toLowerCase();
   const match = (e: InfluencerStatsEvent): boolean => !norm || `${e.name} ${e.dateLabel}`.toLowerCase().includes(norm);
   const upcoming = data.events.filter((e) => !e.past).filter(match);

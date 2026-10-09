@@ -40,12 +40,9 @@ export function Templates(): JSX.Element {
   const { data, isLoading, isError } = usePoTemplates();
   const canManage = usePoCanManageTemplates();
 
-  // Skip the empty-list screen: go straight to "New template" the first time.
-  useEffect(() => {
-    if (!isLoading && !isError && canManage && (data ?? []).length === 0) {
-      nav.push('templateedit', { isNew: true });
-    }
-  }, [isLoading, isError, canManage, data, nav]);
+  // No auto-open of the editor on an empty list (z8uq9m2vg7): the effect re-fired
+  // when Back remounted this list and pushed the editor straight back on top.
+  // The empty state carries the button instead — every step stays a real URL (G1).
 
   return (
     <div className={col}>
@@ -61,7 +58,16 @@ export function Templates(): JSX.Element {
         ) : isError ? (
           <Empty text={t.templates.loadError} />
         ) : (data ?? []).length === 0 ? (
-          <Empty text={canManage ? t.templates.empty : t.templates.emptyNoRights} />
+          canManage ? (
+            <div className="flex flex-col items-center gap-4 py-[30px] md:mx-auto md:max-w-[420px]">
+              <p className="text-center text-[14px] text-faint">{t.templates.empty}</p>
+              <Btn kind="primary" full icon="plus" onClick={() => nav.push('templateedit', { isNew: true })}>
+                {t.templates.emptyCta}
+              </Btn>
+            </div>
+          ) : (
+            <Empty text={t.templates.emptyNoRights} />
+          )
         ) : (
           <div className="flex flex-col gap-[11px]">
             {(data ?? []).map((tpl) => {

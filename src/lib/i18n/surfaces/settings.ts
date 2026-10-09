@@ -184,6 +184,10 @@ export const settings = {
     saveAllowance: 'Save quota',
     pickEventTitle: 'Pick an event',
     noUpcomingEvents: 'No upcoming events to set an allowance for.',
+    // Invite from Quota per event (z8uq9m2vg7): the Team invite form, reused.
+    inviteCta: 'Invite team member',
+    invitesPendingOne: '{n} invite pending',
+    invitesPendingMany: '{n} invites pending',
   },
 
   // Switch company (VenueSwitch).

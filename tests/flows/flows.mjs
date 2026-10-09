@@ -14,6 +14,17 @@
 // `select.mjs --self-check` (first step of the CI job) fails on a flow file
 // without an entry and on an entry without a flow file.
 
+/**
+ * CI shards: the `flow-shots` job runs one shard per flow variant (a Playwright
+ * project in tests/flows/harness.ts), each on its own runner and local stack, and
+ * a final job merges their screenshots into one contact sheet + one PR comment.
+ * A variant, not a flow, is the unit because one flow can dominate the run
+ * (crew-existing-account: ~4.4 min per variant on 2026-10-09) while every
+ * variant carries the same mix. `select.mjs --self-check` fails when this list
+ * and the harness variants drift apart.
+ */
+export const FLOW_SHARDS = ['desktop-browser', 'phone-browser', 'phone-native', 'ipad-native'];
+
 /** Paths every flow depends on. */
 export const SHARED_PATHS = [
   // the harness
@@ -152,6 +163,30 @@ export const FLOWS = {
       'src/components/po/screens/door',
       'src/components/po/door-',
       'src/components/po/screens/settings/venue.tsx',
+    ],
+  },
+  'door-tasks-tab': {
+    title: 'Check-in — no Tasks view on either door variant (tab or cockpit card); an old ?seg=taken link lands on the list (z8uq9m2vg7)',
+    paths: [
+      'src/components/po/screens/door',
+      'src/components/po/door-branch.tsx',
+      'src/features/door/components/DoorRoute.tsx',
+      'src/features/po/eventday/EventDayCockpit.tsx',
+    ],
+  },
+  'event-screens': {
+    title: 'Event C + Dashboard B — Add guest, John Doe, guest Edit, deep link to another company, requests empty state, time picker, tier step, invite from Quota per event, templates Back (z8uq9m2vg7 + z8uq9m2vg8)',
+    paths: [
+      'src/components/po/screens/events',
+      'src/components/po/screens/home',
+      'src/components/po/screens/guests/profile',
+      'src/components/po/screens/guests/quick-add',
+      'src/components/po/screens/settings/quota',
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/templates',
+      'src/components/po/datetime-field',
+      // Q11/Q12/Q16: the deep link reads the event's venue_id from fetchEventForEdit.
+      'src/features/po/queries.ts',
     ],
   },
   'native-shell-guard': {
