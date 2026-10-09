@@ -27,7 +27,9 @@ export interface KnownIssue {
 const FIELD =
   'kit Field/Select + inline search boxes: the input is 21–26px inside a padded div that is not a <label> — a tap on the padding does not focus (kit-wide fix)';
 const FIELD_SCREENS = [
-  'aanvragen', 'aanvragen.quota', 'checkin.door', 'contacten', 'eventedit', 'eventedit.new',
+  // tasks.door: since the Tasks tab is gone (z8uq9m2vg7) an old ?seg=taken link
+  // renders the check-in list, i.e. checkin.door's search field — same bug.
+  'aanvragen', 'aanvragen.quota', 'checkin.door', 'tasks.door', 'contacten', 'eventedit', 'eventedit.new',
   'guests.admin', 'guests.door', 'home.admin', 'home.door', 'lijst', 'platform', 'platformaudit',
   'platformaccess', 'platformvenues', 'profile', 'quickadd', 'templateedit', 'templateedit.new', 'venuecreate', 'venuesettings',
 ] as const;
