@@ -263,7 +263,7 @@ stricter via the dashboard.
 | `NEXT_PUBLIC_SUPABASE_URL` | client + server | Project URL. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client + server | Anon key (RLS-scoped). |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server only** | Used solely by `inviteUserAction` (`admin.inviteUserByEmail`). Never expose to the browser — CLAUDE.md. |
-| `NEXT_PUBLIC_APP_URL` | optional (scripts) | App origin used by `scripts/invite-link.mjs` to print a ready `/auth/confirm` login link. |
+| `NEXT_PUBLIC_APP_URL` | server + scripts | App origin of the links in the app's own mail (`src/features/mail/send.ts`: the invite's `/auth/confirm` button) and of the link `scripts/invite-link.mjs` prints. Unset: a production build falls back to `https://app.plus-one.io`, any other build to `http://localhost:$PORT`. `scripts/dev-env.mjs` writes it for the local port. |
 
 Local values live in `.env.local` (gitignored) and come from `supabase status`.
 

@@ -1,4 +1,4 @@
-import { test, expect, expectNoHorizontalOverflow } from './harness';
+import { test, expect, clickUntilVisible, expectNoHorizontalOverflow } from './harness';
 import type { Page } from '@playwright/test';
 import { adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
 
@@ -86,8 +86,7 @@ test('company rename: wizard → More → Company settings → events with a loc
     await page.getByRole('button', { name: /Create account|Agree/i }).first().click();
   }
   await page.waitForURL(/\/onboarding/);
-  await page.getByRole('button', { name: /Set up account/i }).click();
-  await expect(page.getByPlaceholder('e.g. LOFI')).toBeVisible();
+  await clickUntilVisible(page.getByRole('button', { name: /Set up account/i }), page.getByPlaceholder('e.g. LOFI'));
 
   await flow.check(1, 'Wizard company step says "company" (heading, name label, button), never "venue"', async () => {
     await expect(page.getByText('Tell us about your company').first()).toBeVisible();
@@ -165,7 +164,7 @@ test('company rename: wizard → More → Company settings → events with a loc
   // ── New event with a location ─────────────────────────────────────────────
   await goApp(page, '/app/events/new', baseURL);
   const locName = page.getByRole('textbox', { name: 'Location name' });
-  const locAddress = page.getByRole('textbox', { name: 'Location address' });
+  const locAddress = page.getByRole('combobox', { name: 'Location address' });
   await flow.check(7, 'New event: no "Company" field (always the active company), and the location placeholders are the company name + address', async () => {
     await expect(page.getByText('Company', { exact: true })).toHaveCount(0);
     await expect(locName).toHaveAttribute('placeholder', COMPANY);
@@ -191,7 +190,7 @@ test('company rename: wizard → More → Company settings → events with a loc
       await hour.fill('22:00');
       await hour.press('Enter');
       await page.getByRole('button', { name: 'Create event' }).click();
-      await expect(page.getByText('Next: add your guest tiers')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('button', { name: 'Add your first tier' })).toBeVisible({ timeout: 20_000 });
       await expect
         .poll(async () => {
           const { data } = await db.from('events').select('location_name, location_address').eq('name', EV_OWN).maybeSingle();
@@ -216,7 +215,7 @@ test('company rename: wizard → More → Company settings → events with a loc
       await page.getByRole('button', { name: TPL }).click();
       await page.getByPlaceholder('e.g. FRENZY').fill(EV_TPL);
       await page.getByRole('textbox', { name: 'Location name' }).fill(OWN_NAME);
-      await page.getByRole('textbox', { name: 'Location address' }).fill(OWN_ADDRESS);
+      await page.getByRole('combobox', { name: 'Location address' }).fill(OWN_ADDRESS);
       const date = page.getByLabel('Pick a date').first();
       await date.fill(typedDate(5));
       await date.press('Enter');
@@ -284,7 +283,7 @@ test('company rename: wizard → More → Company settings → events with a loc
       await goApp(page, '/app/events/new', baseURL);
       await page.getByRole('button', { name: TPL2 }).click();
       await expect(page.getByRole('textbox', { name: 'Location name' })).toHaveValue(OWN_NAME);
-      await expect(page.getByRole('textbox', { name: 'Location address' })).toHaveValue(OWN_ADDRESS);
+      await expect(page.getByRole('combobox', { name: 'Location address' })).toHaveValue(OWN_ADDRESS);
       await flow.shot('template-prefill');
       await page.getByPlaceholder('e.g. FRENZY').fill(EV_FROM);
       const date = page.getByLabel('Pick a date').first();

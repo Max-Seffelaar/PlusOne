@@ -122,6 +122,8 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
       return '/app/platform';
     case 'platformvenues':
       return '/app/platform/venues';
+    case 'platformoverview':
+      return '/app/platform/overview';
     case 'platformaudit':
       // `id` pre-scopes the venue filter (e.g. arriving from a venue overview
       // row's "View audit"); the filter sheet still lets the user widen back
@@ -268,6 +270,7 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
   // a guessed URL yields no data either way (P-04/P-05).
   if (first === 'platform') {
     if (second === 'venues') return { kind: 'screen', name: 'platformvenues', props: {} };
+    if (second === 'overview') return { kind: 'screen', name: 'platformoverview', props: {} };
     if (second === 'audit') {
       return { kind: 'screen', name: 'platformaudit', props: { id: search.get('venue') ?? undefined } };
     }

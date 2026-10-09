@@ -1215,9 +1215,11 @@ export type Database = {
       }
       platform_invites: {
         Row: {
+          ade_trial_venue_id: string | null
           anonymized_at: string | null
           created_at: string
           email: string | null
+          free_until_ade: boolean
           id: string
           invited_by: string
           last_sent_at: string
@@ -1226,9 +1228,11 @@ export type Database = {
           revoked_by: string | null
         }
         Insert: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by: string
           last_sent_at?: string
@@ -1237,9 +1241,11 @@ export type Database = {
           revoked_by?: string | null
         }
         Update: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by?: string
           last_sent_at?: string
@@ -1248,6 +1254,13 @@ export type Database = {
           revoked_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "platform_invites_ade_trial_venue_id_fkey"
+            columns: ["ade_trial_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "platform_invites_invited_by_fkey"
             columns: ["invited_by"]
@@ -2085,10 +2098,15 @@ export type Database = {
         }[]
       }
       cleanup_landing_request_throttle: { Args: never; Returns: number }
+      cleanup_venueless_mail_log: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
       complete_push_outbox: {
         Args: { p_error?: string; p_id: string; p_outcome: string }
         Returns: string
       }
+      consume_places_throttle: { Args: never; Returns: boolean }
       consume_platform_invite_throttle: { Args: never; Returns: boolean }
       consume_public_throttle: {
         Args: { p_key: string; p_max: number; p_window_min: number }
@@ -2180,6 +2198,7 @@ export type Database = {
           label: string
           link_id: string
           max_headcount: number
+          requested_heads: number
           requests: number
           slug: string
           tier_id: string
@@ -2323,6 +2342,10 @@ export type Database = {
       is_aal2: { Args: never; Returns: boolean }
       is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      is_tied_to_venue: {
+        Args: { p_user_id: string; p_venue_id: string }
+        Returns: boolean
+      }
       is_valid_event_status_transition: {
         Args: {
           p_from: Database["public"]["Enums"]["event_status"]
@@ -2425,6 +2448,22 @@ export type Database = {
         Args: { p_since?: string; p_until?: string; p_venue_id?: string }
         Returns: number
       }
+      platform_company_details: {
+        Args: { p_venue_ids: string[] }
+        Returns: {
+          billing_interval: string
+          event_count: number
+          last_check_in_at: string
+          last_event_name: string
+          last_event_starts_at: string
+          name: string
+          owner_last_sign_in_at: string
+          stripe_linked: boolean
+          subscription_status: string
+          trial_ends_at: string
+          venue_id: string
+        }[]
+      }
       platform_invite_funnel: {
         Args: never
         Returns: {
@@ -2435,6 +2474,7 @@ export type Database = {
       platform_invite_overview: {
         Args: { p_limit?: number; p_offset?: number }
         Returns: {
+          company_ids: string[]
           confirmed_at: string
           created_at: string
           email: string
@@ -2462,6 +2502,41 @@ export type Database = {
           stage: string
           user_id: string
           venue_count: number
+        }[]
+      }
+      platform_subscription_counts: {
+        Args: never
+        Returns: {
+          canceled: number
+          comped: number
+          no_subscription: number
+          paid_monthly: number
+          paid_unknown: number
+          paid_yearly: number
+          past_due: number
+          total_companies: number
+          trial_lapsed: number
+          trialing: number
+        }[]
+      }
+      platform_trial_funnel: {
+        Args: never
+        Returns: {
+          canceled_30d: number
+          converted_30d: number
+          converted_90d: number
+          ended_30d: number
+          ended_90d: number
+          ending_7d: number
+        }[]
+      }
+      platform_usage_30d: {
+        Args: never
+        Returns: {
+          active_companies: number
+          check_ins: number
+          dormant_companies: number
+          events: number
         }[]
       }
       platform_venue_options: {
@@ -2666,6 +2741,7 @@ export type Database = {
           influencer_id: string
           influencer_name: string
           links_count: number
+          requested_heads: number
           requests: number
           views: number
         }[]
@@ -2680,6 +2756,7 @@ export type Database = {
           is_default: boolean
           label: string
           link_id: string
+          requested_heads: number
           requests: number
           views: number
         }[]

@@ -14,6 +14,17 @@
 // `select.mjs --self-check` (first step of the CI job) fails on a flow file
 // without an entry and on an entry without a flow file.
 
+/**
+ * CI shards: the `flow-shots` job runs one shard per flow variant (a Playwright
+ * project in tests/flows/harness.ts), each on its own runner and local stack, and
+ * a final job merges their screenshots into one contact sheet + one PR comment.
+ * A variant, not a flow, is the unit because one flow can dominate the run
+ * (crew-existing-account: ~4.4 min per variant on 2026-10-09) while every
+ * variant carries the same mix. `select.mjs --self-check` fails when this list
+ * and the harness variants drift apart.
+ */
+export const FLOW_SHARDS = ['desktop-browser', 'phone-browser', 'phone-native', 'ipad-native'];
+
 /** Paths every flow depends on. */
 export const SHARED_PATHS = [
   // the harness
@@ -57,7 +68,7 @@ export const SHARED_PATHS = [
 /** @type {Record<string, { title: string; paths: string[] }>} */
 export const FLOWS = {
   onboarding: {
-    title: 'Onboarding — new owner, consent → wizard → app → billing',
+    title: 'Onboarding — new owner, consent → wizard (DPA) → app → billing',
     paths: [
       'src/app/onboarding/',
       'src/app/consent/',
@@ -68,6 +79,26 @@ export const FLOWS = {
       'src/components/po/screens/onboarding',
       'src/components/po/screens/home',
       'src/components/po/screens/settings',
+      // Q14 (z8uq9m2vg5): the company step asks the DPA only.
+      'src/components/po/places-field',
+      'src/lib/places/',
+      'src/lib/legal.ts',
+    ],
+  },
+  'onboarding-ade-trial': {
+    title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
+    paths: [
+      'src/components/po/screens/platform.tsx',
+      'src/features/platform/',
+      'src/features/auth/invite-mail.ts',
+      'src/features/mail/',
+      'src/features/onboarding/',
+      'src/features/venues/',
+      'src/app/auth/confirm/',
+      'src/app/onboarding/',
+      'src/app/consent/',
+      'src/components/po/screens/settings/billing',
+      'supabase/migrations/20261013130000_platform_invite_ade_trial.sql',
     ],
   },
   'crew-existing-account': {
@@ -134,6 +165,30 @@ export const FLOWS = {
       'src/components/po/screens/settings/venue.tsx',
     ],
   },
+  'door-tasks-tab': {
+    title: 'Check-in — no Tasks view on either door variant (tab or cockpit card); an old ?seg=taken link lands on the list (z8uq9m2vg7)',
+    paths: [
+      'src/components/po/screens/door',
+      'src/components/po/door-branch.tsx',
+      'src/features/door/components/DoorRoute.tsx',
+      'src/features/po/eventday/EventDayCockpit.tsx',
+    ],
+  },
+  'event-screens': {
+    title: 'Event C + Dashboard B — Add guest, John Doe, guest Edit, deep link to another company, requests empty state, time picker, tier step, invite from Quota per event, templates Back (z8uq9m2vg7 + z8uq9m2vg8)',
+    paths: [
+      'src/components/po/screens/events',
+      'src/components/po/screens/home',
+      'src/components/po/screens/guests/profile',
+      'src/components/po/screens/guests/quick-add',
+      'src/components/po/screens/settings/quota',
+      'src/components/po/screens/settings/team',
+      'src/components/po/screens/templates',
+      'src/components/po/datetime-field',
+      // Q11/Q12/Q16: the deep link reads the event's venue_id from fetchEventForEdit.
+      'src/features/po/queries.ts',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [
@@ -152,6 +207,15 @@ export const FLOWS = {
       'src/features/po/',
       'src/components/po/screens/settings',
       'src/lib/auth/onboarding.ts',
+    ],
+  },
+  'platform-overview': {
+    title: 'Platform R — Overview numbers, invite company chip → Switch (access log), Companies detail',
+    paths: [
+      'supabase/migrations/20261012130000_platform_overview_rpcs.sql',
+      'src/features/po/',
+      'src/components/po/screens/platform',
+      'src/lib/i18n/surfaces/platform.ts',
     ],
   },
   'platform-billing': {

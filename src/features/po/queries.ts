@@ -6,6 +6,7 @@ import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
 import { formatCompanyAddress } from '@/features/po/adapters';
+import { requestedHeadsOf } from '@/features/po/funnel';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -776,6 +777,8 @@ export async function fetchPastEventStats(
 
 export interface EventEditRow {
   id: string;
+  /** The owning company — tells a deep link into another company apart from a missing event (z8uq9m2vg7). */
+  venueId: string;
   name: string;
   startsAt: string;
   endsAt: string | null;
@@ -814,7 +817,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, venues(name, allow_uncheck, address_line, postal_code, city)'
+        'id, venue_id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, venues(name, allow_uncheck, address_line, postal_code, city)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -841,6 +844,7 @@ export async function fetchEventForEdit(
     landingSlug: e.landing_slug,
     listLocked: e.list_locked,
     autoLockAt: e.auto_lock_at,
+    venueId: e.venue_id,
     venueName: e.venues?.name ?? '',
     isOrganizer: !!org,
     allowUncheck: resolveAllowUncheck(e.allow_uncheck, venueAllowUncheck),
@@ -2129,6 +2133,10 @@ export interface PoRequestLink {
   views: number;
   /** Total requests submitted through the link (any status). */
   requests: number;
+  /** People asked for through the link: Σ(1 + plus_ones) over every request
+   *  (any status) — the same unit as approvedHeads/checkedInHeads. null only
+   *  while the app runs ahead of migration 20261013120000. */
+  requestedHeads: number | null;
   /** Requests that made the list (status approved, manual or auto). */
   approved: number;
   /** Approved HEADCOUNT on the guest list via this link: sum of 1 + plus_ones
@@ -2172,6 +2180,7 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
     createdAt: r.created_at,
     views: r.views,
     requests: r.requests,
+    requestedHeads: requestedHeadsOf(r),
     approved: r.approved,
     approvedHeads: r.approved_heads,
     checkedInHeads: r.checked_in_heads,
@@ -2284,10 +2293,17 @@ export async function fetchVenueInfluencers(client: Client, venueId: string): Pr
 // functions self-guard on role (admin/finance/organizer) and RLS bounds the rest;
 // an out-of-scope caller gets []. Errors throw so React Query surfaces isError.
 
-/** The shared views → requests → approved → checked-in funnel numbers. */
+/** The shared views → requested → approved → checked-in funnel numbers. Every
+ *  step after views is a HEADCOUNT (1 + plus-ones); the math lives in
+ *  `./funnel.ts`. */
 export interface PoFunnel {
   views: number;
+  /** Request ROWS submitted (any status) — a count of submissions, not people.
+   *  Never divide a headcount by this; use `requestedHeads`. */
   requests: number;
+  /** People asked for: Σ(1 + plus_ones) over every request (any status).
+   *  null only while the app runs ahead of migration 20261013120000. */
+  requestedHeads: number | null;
   approvedHeads: number;
   checkedInHeads: number;
 }
@@ -2322,6 +2338,7 @@ export async function fetchEventLinkFunnel(client: Client, eventId: string): Pro
     expiresAt: r.expires_at ?? null,
     views: r.views,
     requests: r.requests,
+    requestedHeads: requestedHeadsOf(r),
     approvedHeads: r.approved_heads,
     checkedInHeads: r.checked_in_heads,
   }));
@@ -2358,6 +2375,7 @@ export async function fetchInfluencerLeaderboard(
       eventsCount: r.events_count,
       views: r.views,
       requests: r.requests,
+      requestedHeads: requestedHeadsOf(r),
       approvedHeads: r.approved_heads,
       checkedInHeads: r.checked_in_heads,
     }));
@@ -2390,6 +2408,7 @@ export async function fetchVenueLabelFunnel(
     eventName: r.event_name,
     views: r.views,
     requests: r.requests,
+    requestedHeads: requestedHeadsOf(r),
     approvedHeads: r.approved_heads,
     checkedInHeads: r.checked_in_heads,
   }));
@@ -2423,6 +2442,9 @@ export interface PlatformInviteRow {
   venue_count: number;
   event_count: number;
   stage: string;
+  /** The invitee's companies (z8uq9m2ybj). Null from a server that predates
+   *  20261012130000 — expand-contract, so treat it as "none". */
+  company_ids?: string[] | null;
 }
 
 /** Server-windowed (the RPC caps `p_limit` itself — default 100, max 500). */
@@ -2513,30 +2535,72 @@ export async function fetchPlatformVenueOverviewCount(
   return data ?? 0;
 }
 
-export type PlatformSubscriptionRow = Pick<
-  Tables['subscriptions']['Row'],
-  'venue_id' | 'status' | 'created_at' | 'trial_ends_at' | 'stripe_subscription_id'
->;
+// ── Platform R (z8uq9m2ybj): per-company detail + Overview aggregates ───────
+// SECURITY DEFINER RPCs that raise 42501 for anyone but a platform admin. The
+// screens only call them behind usePoIsPlatformAdmin(), so a 42501 here means
+// the flag changed under us — surfaced as the screen's error state.
 
-/** Billing state of ONE page of Platform > Companies (Billing G). The id list
- *  is the visible page — the screen pages at 20, the overview RPC caps at 200
- *  — so it is bounded by construction, never "every venue" (CLAUDE.md Scale:
- *  no unbounded .in()). Chunked at 120 anyway, the repo-wide ceiling. RLS:
- *  subscriptions_select_member → is_venue_member() → is_platform_admin(). */
-export async function fetchPlatformSubscriptions(
+/** One row of `platform_company_details()`. Every column but the id, name and
+ *  counts is nullable at runtime (left joins), whatever the generator says. */
+export interface PlatformCompanyRow {
+  venue_id: string;
+  name: string;
+  subscription_status: string | null;
+  billing_interval: string | null;
+  stripe_linked: boolean | null;
+  trial_ends_at: string | null;
+  owner_last_sign_in_at: string | null;
+  last_check_in_at: string | null;
+  event_count: number | null;
+  last_event_name: string | null;
+  last_event_starts_at: string | null;
+}
+
+/** Detail for the companies on one page (Invites or Venues). Bounded by the
+ *  page; chunked at 200, the RPC's own ceiling. Sent as an RPC body, never a
+ *  query string, so no URL-length cliff either. */
+export async function fetchPlatformCompanies(
   client: Client,
   venueIds: readonly string[]
-): Promise<PlatformSubscriptionRow[]> {
-  const out: PlatformSubscriptionRow[] = [];
-  for (let i = 0; i < venueIds.length; i += 120) {
-    const { data, error } = await client
-      .from('subscriptions')
-      .select('venue_id, status, created_at, trial_ends_at, stripe_subscription_id')
-      .in('venue_id', venueIds.slice(i, i + 120));
+): Promise<PlatformCompanyRow[]> {
+  const out: PlatformCompanyRow[] = [];
+  for (let i = 0; i < venueIds.length; i += 200) {
+    const { data, error } = await client.rpc('platform_company_details', {
+      p_venue_ids: venueIds.slice(i, i + 200),
+    });
     if (error) throw error;
-    out.push(...(data ?? []));
+    out.push(...((data ?? []) as unknown as PlatformCompanyRow[]));
   }
   return out;
+}
+
+export type PlatformSubscriptionCountsRow =
+  Database['public']['Functions']['platform_subscription_counts']['Returns'][number];
+export type PlatformTrialFunnelRow =
+  Database['public']['Functions']['platform_trial_funnel']['Returns'][number];
+export type PlatformUsageRow = Database['public']['Functions']['platform_usage_30d']['Returns'][number];
+
+/** Companies per billing bucket — one row, aggregated in SQL. */
+export async function fetchPlatformSubscriptionCounts(
+  client: Client
+): Promise<PlatformSubscriptionCountsRow | null> {
+  const { data, error } = await client.rpc('platform_subscription_counts');
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+/** Trial funnel — one row, aggregated in SQL. */
+export async function fetchPlatformTrialFunnel(client: Client): Promise<PlatformTrialFunnelRow | null> {
+  const { data, error } = await client.rpc('platform_trial_funnel');
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+/** Usage over the last 30 days — one row, aggregated in SQL. */
+export async function fetchPlatformUsage30d(client: Client): Promise<PlatformUsageRow | null> {
+  const { data, error } = await client.rpc('platform_usage_30d');
+  if (error) throw error;
+  return data?.[0] ?? null;
 }
 
 export interface PlatformVenueOption {
