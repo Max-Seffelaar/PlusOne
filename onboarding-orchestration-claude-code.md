@@ -198,9 +198,10 @@ Besluiten Max 2026-10-08 (startcheck):
 | 2b-A tegel "Trial, payment set up" | `session_01UbwAGHr1WcV7rff36rdKdm` | — | in bouw (verse sessie; de 2b-worker weigerde terecht nieuwe scope via de orchestrator) | `20261012150000` |
 | 2b-B dagelijkse digest (HIGH-RISK) | `session_01TSU99HJy5NuhTaEQtQaLEq` | — | in bouw; merget na 2b-A | `20261012160000` |
 | 3 Onboarding A | `session_01FKkrYaJPRkm4YUyBRt7ADW` | [#437](https://github.com/Max-Seffelaar/PlusOne/pull/437) | opgeleverd (`1a40fd6`, CI groen); bouwer: `pnpm db:test` 96 bestanden / 2403, `CI=1 pnpm test` 3177; reviewer-sessie `session_01Bu6w5MQPNse56ZFGfNx7m3` loopt. Buiten scope: DPA-checkbox ook op "New company" (besluit Max) | `20261012140000` + `…140100`, ná `…130000` |
-| 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | [#438](https://github.com/Max-Seffelaar/PlusOne/pull/438) | opgeleverd (`dc4d8a6`), CI rood (e2e core-flow) → terug naar de bouwer. Niet gebouwd: Tasks-tab (zit in door-bestanden, verboden); deep link matcht op naam (op id = één regel in `src/features/po/queries.ts`, verboden) → besluit Max | geen migratie |
+| 5 Event C + Dashboard B | `session_01XzJjtAWUq8af9Njgk9akWZ` | [#438](https://github.com/Max-Seffelaar/PlusOne/pull/438) | **gemerged** (`e9b9c02`, 2026-10-09, op verzoek van Max door de orchestrator). Handoff: 21/22 ✅, deep link test A ✅; test B en 23/24 (toestel, icoon) niet getest, Max akkoord. Mini-PR [#441](https://github.com/Max-Seffelaar/PlusOne/pull/441) Tasks-tab + cockpit-Tasks-kaart weg: CI groen incl. flow-shots (desktop-assert), wacht op main-merge en Max | geen migratie |
+| 5b Share-import S2 ([z8uq9m43m8](https://app.clickup.com/t/z8uq9m43m8)) | `session_015ZzQNhovkZxGoGVKQNyGqZ` | — | in bouw | geen migratie |
+| CI flow-shots shards ([z8uq9m43m9](https://app.clickup.com/t/z8uq9m43m9)) | `session_01F4FBXk5WxRLEsmAtyLnGk5` | — | in bouw (besluit Max: ja) | — |
 | 3b Event-locaties L | nog niet gestart (na 3) | — | wacht | `20261012170000` |
-| 5b Share-import S2 | nog niet gestart (na 5) | — | wacht | geen migratie |
 
 Besluiten Max (avond): Tasks-tab in een aparte mini-PR (door-bestanden); deep link matcht op id (één regel in `src/features/po/queries.ts` toegestaan).
 
