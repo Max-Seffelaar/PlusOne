@@ -102,7 +102,7 @@ function tile(section: Locator, label: string): Locator {
 
 test('platform-overview: Overview numbers, invite chip → Switch, Companies detail', async ({ page, flow }) => {
   const since = new Date().toISOString();
-  // Trial split (20261012150000): same definitions as platform_subscription_counts().
+  // Trial split (20261013140000): same definitions as platform_subscription_counts().
   const [db] = await sql<{ total: number; comped: number; trial_no_payment: number; trial_payment: number }>(
     `select count(*)::int as total,
             count(*) filter (where s.status = 'comped')::int as comped,

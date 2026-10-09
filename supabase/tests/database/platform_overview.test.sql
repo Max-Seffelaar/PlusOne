@@ -6,7 +6,7 @@
 --     seed company (admin, user_manager, finance, staff) and for anon;
 --   * ALLOWED for a platform admin, and the counts follow status changes;
 -- plus the expand-only company_ids column on platform_invite_overview(), and
--- (20261012150000) the trialing_payment_set_up subset of trialing.
+-- (20261013140000) the trialing_payment_set_up subset of trialing.
 -- Everything rolls back.
 --
 -- Seed: venue aa…01 (Club Vesper) is comped with one upcoming event; venue
@@ -279,7 +279,7 @@ select results_eq(
   'T46 a cancelled event counts in neither the event count nor the latest event');
 
 -- ---------------------------------------------------------------------------
--- F. Trial, payment set up (20261012150000): a subset of trialing
+-- F. Trial, payment set up (20261013140000): a subset of trialing
 -- ---------------------------------------------------------------------------
 
 select is(

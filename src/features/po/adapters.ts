@@ -1409,7 +1409,7 @@ export interface PlatformSubscriptionCounts {
 
 export function toPlatformSubscriptionCounts(row: PlatformSubscriptionCountsRow): PlatformSubscriptionCounts {
   const trialing = row.trialing ?? 0;
-  // A subset of trialing (20261012150000); clamped so a mismatch never shows
+  // A subset of trialing (20261013140000); clamped so a mismatch never shows
   // a negative tile.
   const trialingPaymentSetUp = Math.min(row.trialing_payment_set_up ?? 0, trialing);
   return {

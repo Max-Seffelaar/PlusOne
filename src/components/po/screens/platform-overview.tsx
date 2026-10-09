@@ -15,7 +15,7 @@
  *
  * Status buckets: in the browser, "Trial, no payment yet" and "Trial, payment
  * set up" split the
- * SQL trialing bucket (20261012150000) so every company still sits in
+ * SQL trialing bucket (20261013140000) so every company still sits in
  * exactly one tile. The native shell shows no payment copy (store-tax seam, guarded by
  * PURCHASE_COPY in the flows), so there Trial is the whole trialing bucket.
  *

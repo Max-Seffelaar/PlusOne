@@ -172,7 +172,7 @@ describe('platformRevenue (MRR/ARR from our records)', () => {
   });
 });
 
-describe('toPlatformSubscriptionCounts (trial split, 20261012150000)', () => {
+describe('toPlatformSubscriptionCounts (trial split, 20261013140000)', () => {
   const counts = (over: Partial<PlatformSubscriptionCountsRow> = {}): PlatformSubscriptionCountsRow => ({
     total_companies: 6,
     trialing: 3,
