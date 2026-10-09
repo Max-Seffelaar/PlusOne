@@ -67,6 +67,8 @@ export const LAYOUT_SCREENS: readonly LayoutScreen[] = [
   { id: 'links', user: 'admin', path: screenPath('links', { id: EV }) },
   { id: 'quickadd', user: 'admin', path: screenPath('quickadd', { id: EV }) },
   { id: 'bulk', user: 'admin', path: screenPath('bulk', { id: EV }) },
+  // Share-import S2: the Web Share Target landing (Paste a list + event/tier pickers).
+  { id: 'share', user: 'admin', path: `${screenPath('share')}?text=${encodeURIComponent('Milan Hendriks +2\nFleur Janssen fleur@example.com')}` },
   { id: 'pastevent', user: 'admin', path: screenPath('pastevent', { id: EV }) },
 
   // ── Guests & contacts ──
