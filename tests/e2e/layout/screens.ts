@@ -49,6 +49,8 @@ export const LAYOUT_SCREENS: readonly LayoutScreen[] = [
   { id: 'guests.door', user: 'door', path: tabPath('guests') },
   { id: 'more.door', user: 'door', path: tabPath('meer') },
   { id: 'checkin.door', user: 'door', path: doorPath({ eventId: EV }) },
+  // The Tasks tab is gone (z8uq9m2vg7): an old ?seg=taken link must still render
+  // cleanly — it lands on the check-in list.
   { id: 'tasks.door', user: 'door', path: doorPath({ seg: 'taken', eventId: EV }) },
 
   // ── Tab roots, as the admin sees them (more nav, more badges, more cards) ──

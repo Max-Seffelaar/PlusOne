@@ -321,7 +321,8 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
     pinEvent(resolvedDoorId);
   }, [doorState.eventId, resolvedDoorId, rejectedDoorId, doorCandidates, pinEvent]);
 
-  const doorTitle = doorState.seg === 'taken' ? t.door.tasksTitle : t.door.checkinTitle;
+  // One title: the Tasks segment is gone (z8uq9m2vg7), an old `?seg=taken` lands on Check-in.
+  const doorTitle = t.door.checkinTitle;
   const hasMultipleDoorCandidates = doorCandidates.length > 1;
 
   if (resolvedDoorId) {
