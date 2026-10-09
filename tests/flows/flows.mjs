@@ -217,6 +217,11 @@ export const FLOWS = {
       'src/features/guests/share-inbox',
       'src/features/guests/bulk-dedupe',
       'src/features/guests/actions.ts',
+      // Q13/Q14: the service-worker hop, the login's fragment drop, next= hygiene.
+      'public/service-worker.js',
+      'src/features/auth/next-path',
+      'src/features/auth/components/OtpLoginForm',
+      'src/lib/observability/scrub',
     ],
   },
 };

@@ -100,9 +100,13 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
   await flow.check(1, 'Sharing a list opens Paste a list with the shared text already in the box', async () => {
     await expect(box).toHaveValue(SHARED);
   });
-  await flow.check(2, 'Right after landing the address bar is just /app/share: the text is not in the URL', async () => {
+  await flow.check(2, 'Right after landing the address bar is just /app/share, and the text is not in the history entry (Next keeps its router tree there) either', async () => {
     const u = new URL(page.url());
     expect(u.pathname + u.search + u.hash).toBe('/app/share');
+    // Next's segment key for a page with a query is `__PAGE__?{"text":…}`; it
+    // lives in history.state and travels as `Next-Router-State-Tree` (review S1).
+    const state = await page.evaluate(() => JSON.stringify(window.history.state ?? null));
+    expect(state.toLowerCase()).not.toContain(MILAN.toLowerCase());
   });
 
   const [eventSelect, tierSelect] = [page.getByRole('combobox', { name: 'Event' }), page.getByRole('combobox', { name: 'Tier' })];
@@ -168,7 +172,9 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
         return v.toLowerCase();
       }
     };
-    const body = (r: Request): string => `${decode(r.url())}\n${decode(r.postData() ?? '')}`;
+    // URL, body AND the router-tree header a client navigation sends (review S1).
+    const body = (r: Request): string =>
+      `${decode(r.url())}\n${decode(r.postData() ?? '')}\n${decode(r.headers()['next-router-state-tree'] ?? '')}`;
     const has = (r: Request, needle: string): boolean => body(r).includes(needle.toLowerCase());
     // The text itself: the whole blob, any shared line that is more than a bare
     // name (+N, e-mail, Sheets columns), or an e-mail from it. Noor's line IS
@@ -197,8 +203,9 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
   await page.goto('/app/share');
   await expect(page.locator('textarea')).toBeVisible();
   await flow.shot('share-reload-empty');
-  await flow.check(7, 'Opening /app/share again shows an empty box: the shared text was kept in memory only', async () => {
+  await flow.check(7, 'Opening /app/share again shows an empty box (the shared text was kept in memory only) with "Nothing came through? Share the list again…"', async () => {
     await expect(page.locator('textarea')).toHaveValue('');
+    await expect(page.getByTestId('share-empty-hint')).toHaveText('Nothing came through? Share the list again, or paste it below.');
   });
 
   // ── Over quota: the preview blocks the batch and Add imports nothing ────────
@@ -282,6 +289,38 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
     expect(reachedNetwork.map((r) => `${r.method()} ${r.url().slice(0, 80)}`)).toEqual([]);
     const u = new URL(page.url());
     expect(u.pathname + u.search + u.hash).toBe('/app/share');
+  });
+
+  // ── Signed out, worker active: nothing leaks, the login URL stays clean ───
+  await context.clearCookies();
+  const OUT_LIST = `Bram Smit ${tag} +3`;
+  const outSeen: Request[] = [];
+  const onOut = (r: Request): void => {
+    outSeen.push(r);
+  };
+  context.on('request', onOut);
+  await page.goto(`/app/share?${new URLSearchParams({ text: OUT_LIST }).toString()}`);
+  await page.waitForURL(/\/login/);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  context.off('request', onOut);
+  await flow.shot('signed-out-share-login');
+  await flow.check(14, 'Signed out with the worker active: the share lands on /login?next=/app/share with no fragment, and no request carries the text', async () => {
+    const u = new URL(page.url());
+    expect(u.pathname).toBe('/login');
+    expect(u.searchParams.get('next')).toBe('/app/share');
+    expect(u.hash).toBe('');
+    const leaked = outSeen.filter((r) => {
+      let blob = `${r.url()}\n${r.postData() ?? ''}`;
+      try {
+        blob = decodeURIComponent(blob.replace(/\+/g, ' '));
+      } catch {
+        /* keep raw */
+      }
+      return blob.toLowerCase().includes(`bram smit ${tag}`.toLowerCase());
+    });
+    // Only the OS launch itself, answered by the worker on the device.
+    expect(leaked.filter((r) => r.serviceWorker() !== null || !r.isNavigationRequest() || !r.url().includes('text=')).map((r) => r.url().slice(0, 80))).toEqual([]);
+    for (const r of leaked) expect((await r.response())?.fromServiceWorker()).toBe(true);
   });
 
   await flow.check(10, 'No step scrolls sideways and the page threw no uncaught errors', async () => {
