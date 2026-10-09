@@ -32,6 +32,14 @@ describe('scrubText', () => {
     ).toBe('https://x.supabase.co/rest/v1/contacts?[filtered]');
   });
 
+  it('strips a fragment — the share target hands the guest list over as #text= (share-import S2)', () => {
+    expect(scrubText('/app/share#text=Milan+Hendriks+%2B2%0AFleur&title=Friday')).toBe('/app/share#[filtered]');
+    expect(scrubText('https://app.plus-one.io/app/share#text=Milan')).toBe('https://app.plus-one.io/app/share#[filtered]');
+    expect(scrubText('from /app/share#text=Noor to /app/share')).toBe('from /app/share#[filtered] to /app/share');
+    // A query followed by a fragment: the query pattern takes both.
+    expect(scrubText('/app/share?keep=1#text=Noor')).toBe('/app/share?[filtered]');
+  });
+
   it('leaves a URL without a query string untouched', () => {
     expect(scrubText('GET https://x.supabase.co/rest/v1/contacts')).toBe(
       'GET https://x.supabase.co/rest/v1/contacts',
