@@ -1,5 +1,5 @@
 -- pgTAP — "Free until end of ADE" platform invite (Onboarding A, z8uq9m2vg5),
--- 20261012140000_platform_invite_ade_trial.sql.
+-- 20261013130000_platform_invite_ade_trial.sql.
 --
 -- Threat model: the invitee holds an authenticated session and can call
 -- create_venue_with_owner and PostgREST directly. The longer trial must come

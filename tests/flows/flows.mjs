@@ -87,7 +87,7 @@ export const FLOWS = {
       'src/app/onboarding/',
       'src/app/consent/',
       'src/components/po/screens/settings/billing',
-      'supabase/migrations/20261012140000_platform_invite_ade_trial.sql',
+      'supabase/migrations/20261013130000_platform_invite_ade_trial.sql',
     ],
   },
   'crew-existing-account': {

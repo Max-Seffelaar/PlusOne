@@ -2,7 +2,7 @@
 // ADE 2026 runs 21-25 October; free means through Monday 26 October, so the
 // trial ends at 2026-10-27 00:00 Europe/Amsterdam (CET, +01:00, after the
 // 25 October clock change). The database owns the real date
-// (create_venue_with_owner, migration 20261012140000, ADE_TRIAL_END); this
+// (create_venue_with_owner, migration 20261013130000, ADE_TRIAL_END); this
 // copy only decides whether the Platform invite form still offers the
 // toggle. After it, the option goes (expand-contract follow-up).
 

@@ -1,5 +1,5 @@
 -- pgTAP — Places proxy rate limit (Onboarding A, z8uq9m2vg5),
--- 20261012140100_places_throttle.sql.
+-- 20261013130100_places_throttle.sql.
 --
 -- consume_places_throttle() is the only way the proxy route can spend from
 -- the internal consume_public_throttle(). Allowed: every signed-in user (a

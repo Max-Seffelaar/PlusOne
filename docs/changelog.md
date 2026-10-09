@@ -12,7 +12,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
 
-- **"Free until end of ADE" invite** — migration `20261012140000_platform_invite_ade_trial`. It replaces the first build's "Always free via the invite" (scope change by Max, 2026-10-08, during review):
+- **"Free until end of ADE" invite** — migration `20261013130000_platform_invite_ade_trial`. It replaces the first build's "Always free via the invite" (scope change by Max, 2026-10-08, during review):
   - `platform_invites.free_until_ade` (set on insert, frozen after) and `ade_trial_venue_id`. Only `create_venue_with_owner` writes it, once: the guard checks `current_user`, the insert policy pins it null.
   - `create_venue_with_owner` starts the invitee's first company as an ordinary `trialing` Pro when the caller's own auth e-mail has an open, unused ADE invite whose inviter is still a platform admin.
   - Its `trial_ends_at` is `greatest(2026-10-27 00:00 Europe/Amsterdam, now() + 14 days)`. The date is in one place in the migration.
@@ -26,7 +26,7 @@ Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and 
   - Without a Resend key the Supabase path is unchanged.
 - **One consent per moment**: the wizard's company step and the switcher quick-create ask only "I accept the Data Processing Agreement on behalf of {company}" (`DpaCheck` in the kit, `DPA_URL`). Terms + Privacy stay on `/consent`. `venues.terms_accepted_*` now means the DPA acceptance (spec #40).
 - **Places**:
-  - `POST /api/places` runs in the nodejs runtime. Order of checks: Zod union, then `getUser` (401), then no key → `{enabled:false}`, then `consume_places_throttle` (migration `20261012140100`, 120 per 10 min per user; 429 when spent).
+  - `POST /api/places` runs in the nodejs runtime. Order of checks: Zod union, then `getUser` (401), then no key → `{enabled:false}`, then `consume_places_throttle` (migration `20261013130100`, 120 per 10 min per user; 429 when spent).
   - Google calls use Essentials field masks only (no displayName) and a 3 s timeout. The input text is never logged.
   - `PlacesField` (kit) is on the wizard address, Company settings (fills street, postcode, city and country) and the event location.
   - The secret-grep guard covers `GOOGLE_PLACES_API_KEY`.
