@@ -165,6 +165,12 @@ describe('handleResendWebhook', () => {
     const inbound = () => ({
       resolve: vi.fn(async () => null),
       consume: answer,
+      meta: vi.fn(async () => ({
+        spf: 'pass' as const,
+        dkim: 'pass' as const,
+        dmarc: 'pass' as const,
+        headers: { autoSubmitted: null, precedence: null, listId: null },
+      })),
       provider: { send: vi.fn(async () => ({ ok: true as const, providerMessageId: 're_r' })) },
     });
     H.rpc.mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: false, error: null });

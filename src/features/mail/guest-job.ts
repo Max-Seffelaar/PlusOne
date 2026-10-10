@@ -9,8 +9,9 @@ import 'server-only';
 //   2. render: renderGuestMail (pure) per mail.
 //   3. send: the mail provider's batch call, 100 mails per call (Resend's
 //      limit), the batch Idempotency-Key derived from the mail_log ids.
-//   4. settle: guest_mails_settle (sent / failed; transient failures retry,
-//      at most three attempts in total).
+//   4. settle: guest_mails_settle (sent / failed; a 429/5xx the provider
+//      answered retries, at most three attempts in total; a timeout or network
+//      error never retries, since the batch may have gone out).
 // Two entry points, both server-only: runGuestMailsRoute (the cron route, a
 // single-use token from pg_net) and drainGuestMails (called in after() by the
 // actions that queued a mail: outside the request path, the response has

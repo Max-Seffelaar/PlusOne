@@ -17,15 +17,25 @@ import 'server-only';
 // 200 per hour overall (consume_guest_mail_autoreply). Mailer daemons, our
 // own domain and no-reply senders get nothing (no loops). Never logged: the
 // sender, the key, the company.
+//
+// Never backscatter (review S4): From is unauthenticated, so before any
+// budget is spent the mail's verdicts are read back from Resend (set by its
+// receiving server, not forgeable by the sender). Only a mail whose From
+// domain passed DKIM (aligned) or DMARC gets an answer; SPF alone checks the
+// envelope, not From, so it is not enough. Auto-generated mail
+// (Auto-Submitted other than "no", Precedence bulk/list/junk, a List-Id) gets
+// nothing either. Any lookup error: no answer (fail closed).
 
 import { createServiceClient } from '@/lib/supabase/service';
-import { MAIL_DOMAIN } from './config';
 import { escapeHtml, plainLine } from './templates';
+import { mailConfig, MAIL_DOMAIN } from './config';
 import { mailProvider, type MailProvider } from './provider';
+import { fetchReceivedMailMeta, type ReceivedMailMeta } from './resend-adapter';
 import { fmt } from '@/lib/i18n';
 import { inboundCopy } from './templates/inbound-copy';
 
 export interface InboundData {
+  email_id?: unknown;
   from?: unknown;
   to?: unknown;
 }
@@ -33,10 +43,12 @@ export interface InboundData {
 export interface InboundDeps {
   resolve(key: string): Promise<{ found: boolean; company?: string | null; contactEmail?: string | null } | null>;
   consume(sender: string): Promise<boolean>;
+  /** Verdicts + loop headers of the received mail; null = unknown (no answer). */
+  meta(emailId: string): Promise<ReceivedMailMeta | null>;
   provider: Pick<MailProvider, 'send'>;
 }
 
-export type InboundOutcome = 'answered' | 'ignored' | 'throttled' | 'failed';
+export type InboundOutcome = 'answered' | 'ignored' | 'unverified' | 'throttled' | 'failed';
 
 const ADDRESS = /<([^<>\s]+@[^<>\s]+)>|([^<>\s"]+@[^<>\s"]+)/;
 const NO_ANSWER_LOCAL = /^(mailer-daemon|postmaster|no-?reply|bounces?|abuse|root|daemon)([+._-]|$)/i;
@@ -75,6 +87,17 @@ export function shouldAnswer(sender: string | null): sender is string {
   return !NO_ANSWER_LOCAL.test(local);
 }
 
+/** The From domain authenticated (aligned DKIM or DMARC pass) and the mail is not auto-generated. */
+export function trustedHumanMail(meta: ReceivedMailMeta | null): boolean {
+  if (!meta) return false;
+  if (meta.dkim !== 'pass' && meta.dmarc !== 'pass') return false;
+  const auto = meta.headers.autoSubmitted?.trim().toLowerCase();
+  if (auto && auto !== 'no') return false;
+  if (meta.headers.precedence && /^(bulk|list|junk)$/i.test(meta.headers.precedence.trim())) return false;
+  if (meta.headers.listId) return false;
+  return true;
+}
+
 export function renderAutoReply(target: { company: string; contactEmail: string } | null): {
   subject: string;
   html: string;
@@ -106,6 +129,9 @@ export async function answerInbound(eventId: string, data: InboundData, deps: In
     if (key === undefined) return 'ignored';
     const sender = bareAddress(data.from);
     if (!shouldAnswer(sender)) return 'ignored';
+    // Verified before the budget is spent, so spoofed mail can't burn it.
+    const emailId = typeof data.email_id === 'string' ? data.email_id : '';
+    if (!trustedHumanMail(emailId ? await deps.meta(emailId) : null)) return 'unverified';
     if (!(await deps.consume(sender))) return 'throttled';
 
     let target: { company: string; contactEmail: string } | null = null;
@@ -151,6 +177,8 @@ export function defaultInboundDeps(): InboundDeps {
       const { data, error } = await rpc('consume_guest_mail_autoreply', { p_sender: sender });
       return !error && data === true;
     },
+    // No Resend key (local dev, CI): nothing can be verified, so nothing is answered.
+    meta: async (emailId) => (mailConfig.apiKey ? fetchReceivedMailMeta(mailConfig.apiKey, emailId) : null),
     provider: mailProvider,
   };
 }

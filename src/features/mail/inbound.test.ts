@@ -13,15 +13,28 @@ vi.mock('./config', () => ({
   mailConfig: { resendEnabled: false, apiKey: null, webhookSecret: null },
 }));
 
-import { answerInbound, bareAddress, renderAutoReply, replyKeyFrom, shouldAnswer, type InboundDeps } from './inbound';
+import { answerInbound, bareAddress, renderAutoReply, replyKeyFrom, shouldAnswer, trustedHumanMail, type InboundDeps } from './inbound';
+import type { ReceivedMailMeta } from './resend-adapter';
 
 const KEY = 'ab'.repeat(20);
+
+/** A human mail whose From domain passed DKIM: the only kind that gets an answer. */
+function verified(over: Partial<ReceivedMailMeta> = {}, headers: Partial<ReceivedMailMeta['headers']> = {}): ReceivedMailMeta {
+  return {
+    spf: 'pass',
+    dkim: 'pass',
+    dmarc: 'pass',
+    ...over,
+    headers: { autoSubmitted: null, precedence: null, listId: null, ...headers },
+  };
+}
 
 function deps(over: Partial<InboundDeps> = {}) {
   const send = vi.fn(async () => ({ ok: true as const, providerMessageId: 're_1' }));
   const d: InboundDeps = {
     resolve: vi.fn(async () => ({ found: true, company: 'Vesper Group', contactEmail: 'hi@vesper.test' })),
     consume: vi.fn(async () => true),
+    meta: vi.fn(async () => verified()),
     provider: { send },
     ...over,
   };
@@ -57,7 +70,7 @@ describe('address parsing', () => {
 describe('answerInbound', () => {
   it('answers the sender once with the company contact behind a live key', async () => {
     const { d, send } = deps();
-    const out = await answerInbound('msg_1', { from: 'Lotte <lotte@example.test>', to: [`noreply+${KEY}@plus-one.io`] }, d);
+    const out = await answerInbound('msg_1', { email_id: 'in_1', from: 'Lotte <lotte@example.test>', to: [`noreply+${KEY}@plus-one.io`] }, d);
     expect(out).toBe('answered');
     expect(send).toHaveBeenCalledTimes(1);
     const mail = (send.mock.calls[0] as unknown as [Record<string, unknown>])[0];
@@ -69,9 +82,9 @@ describe('answerInbound', () => {
 
   it('a bare noreply@ or an unknown key gets the generic footer answer, no lookup leak', async () => {
     const { d, send } = deps({ resolve: vi.fn(async () => ({ found: false })) });
-    await answerInbound('msg_2', { from: 'lotte@example.test', to: ['noreply@plus-one.io'] }, d);
+    await answerInbound('msg_2', { email_id: 'in_1', from: 'lotte@example.test', to: ['noreply@plus-one.io'] }, d);
     expect(d.resolve).not.toHaveBeenCalled();
-    await answerInbound('msg_3', { from: 'lotte@example.test', to: [`noreply+${KEY}@plus-one.io`] }, d);
+    await answerInbound('msg_3', { email_id: 'in_1', from: 'lotte@example.test', to: [`noreply+${KEY}@plus-one.io`] }, d);
     const texts = (send.mock.calls as unknown as Array<[{ text: string }]>).map((c) => c[0].text);
     for (const text of texts) {
       expect(text).toContain('names who to contact at the bottom');
@@ -83,7 +96,7 @@ describe('answerInbound', () => {
     const { d, send } = deps();
     await answerInbound(
       'msg_4',
-      { from: 'lotte@example.test', to: [`noreply+${KEY}@plus-one.io`, 'victim@example.test'], subject: 'SECRET', html: '<b>x</b>' } as never,
+      { email_id: 'in_4', from: 'lotte@example.test', to: [`noreply+${KEY}@plus-one.io`, 'victim@example.test'], subject: 'SECRET', html: '<b>x</b>' } as never,
       d,
     );
     const mail = (send.mock.calls[0] as unknown as [Record<string, string>])[0];
@@ -94,15 +107,53 @@ describe('answerInbound', () => {
 
   it('ignores mail not addressed to noreply@ and senders it must not answer', async () => {
     const { d, send } = deps();
-    expect(await answerInbound('m', { from: 'a@example.test', to: ['support@plus-one.io'] }, d)).toBe('ignored');
-    expect(await answerInbound('m', { from: 'mailer-daemon@example.test', to: ['noreply@plus-one.io'] }, d)).toBe('ignored');
-    expect(await answerInbound('m', { from: 'garbage', to: ['noreply@plus-one.io'] }, d)).toBe('ignored');
+    expect(await answerInbound('m', { email_id: 'in_1', from: 'a@example.test', to: ['support@plus-one.io'] }, d)).toBe('ignored');
+    expect(await answerInbound('m', { email_id: 'in_1', from: 'mailer-daemon@example.test', to: ['noreply@plus-one.io'] }, d)).toBe('ignored');
+    expect(await answerInbound('m', { email_id: 'in_1', from: 'garbage', to: ['noreply@plus-one.io'] }, d)).toBe('ignored');
     expect(send).not.toHaveBeenCalled();
   });
 
   it('respects the budget (one per sender per day)', async () => {
     const { d, send } = deps({ consume: vi.fn(async () => false) });
-    expect(await answerInbound('m', { from: 'a@example.test', to: ['noreply@plus-one.io'] }, d)).toBe('throttled');
+    expect(await answerInbound('m', { email_id: 'in_1', from: 'a@example.test', to: ['noreply@plus-one.io'] }, d)).toBe('throttled');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('never answers a From that did not authenticate (no backscatter), before spending the budget', async () => {
+    for (const meta of [
+      null,
+      verified({ dkim: 'gray', dmarc: 'gray' }),
+      verified({ dkim: 'fail', dmarc: 'fail', spf: 'pass' }),
+      verified({ dkim: 'processing_failed', dmarc: 'unknown' }),
+    ]) {
+      const { d, send } = deps({ meta: vi.fn(async () => meta) });
+      expect(await answerInbound('m', { email_id: 'in_9', from: 'victim@example.test', to: [`noreply+${KEY}@plus-one.io`] }, d)).toBe('unverified');
+      expect(d.consume).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    }
+  });
+
+  it('never answers auto-generated mail (loops, lists, bulk)', async () => {
+    for (const headers of [
+      { autoSubmitted: 'auto-replied' },
+      { autoSubmitted: 'Auto-Generated' },
+      { precedence: 'bulk' },
+      { precedence: ' List ' },
+      { precedence: 'junk' },
+      { listId: '<news.example.test>' },
+    ]) {
+      const { d, send } = deps({ meta: vi.fn(async () => verified({}, headers)) });
+      expect(await answerInbound('m', { email_id: 'in_9', from: 'a@example.test', to: ['noreply@plus-one.io'] }, d)).toBe('unverified');
+      expect(send).not.toHaveBeenCalled();
+    }
+    expect(trustedHumanMail(verified({}, { autoSubmitted: 'no' }))).toBe(true);
+    expect(trustedHumanMail(verified({ dkim: 'gray', dmarc: 'pass' }))).toBe(true);
+  });
+
+  it('without an email id there is nothing to verify: no answer', async () => {
+    const { d, send } = deps();
+    expect(await answerInbound('m', { from: 'a@example.test', to: ['noreply@plus-one.io'] }, d)).toBe('unverified');
+    expect(d.meta).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
 

@@ -25,6 +25,12 @@ Milestone **Now** (golf E, ADE). Spec #13 revised: no marketing and no invitatio
 - **UI**: Company settings → Guest contact (own file `settings/venue-contact.tsx`), "Send confirmation" on every add path, the removal note, house rules + platform-admin "Send reminder" (`GUEST_REMINDER_ENABLED=true`) in event edit (own file `events/guest-mail.tsx`).
 - **Bug found by the flow**: the enqueue helpers called `service.rpc` detached from its client, so supabase-js lost `this` and every enqueue threw inside `after()` (logged, never surfaced). Bound now, regression test `guest-queue.test.ts`.
 - **Tests**: vitest on the templates (every count, "1 person", price line only with a price, status link only when the page exists, injection), the job, batch adapter, inbound, status adapter, opt-out route, actions; pgTAP `guest_mail.test.sql` (85); flow `tests/flows/guest-mail.flow.ts` (10 checks).
+- **Review round (fresh reviewer, verdict clean, 0 blocking, 4 should-fix, 4 nits):**
+  - **S1:** the merge/push order #440 → #446 → #453 is load-bearing: an older migration pushed after this one would rewrite the type constraint without the guest types. Recorded in the PR; the additive DO block cannot guard against a predecessor that runs later.
+  - **S2:** a batch `timeout`/`network` error is no longer retried. The batch may have been accepted, and a retry claims new mail_log ids, so a new Idempotency-Key Resend can't dedupe. Only refusals Resend answered (429, quota, 5xx) retry.
+  - **S3:** `unsubscribe_guest_mail` spends the `st` throttle only on a miss. One-click POSTs come from Gmail's/Yahoo's IPs; a per-IP budget on hits dropped real opt-outs after 30 in 15 minutes.
+  - **S4:** the auto-reply reads the mail back from Resend (`GET /emails/receiving/{id}`) and answers only when the From domain passed DKIM (aligned) or DMARC, and not auto-generated mail (Auto-Submitted, Precedence bulk/list/junk, List-Id). Checked before the budget is spent; any error means no answer.
+  - **Nits:** N1 commented (concurrent runs can pass a cap by one claim), N3 the status page opens its links in the same tab. N2 (a removal note for a guest whose confirmation is still pending is dropped) and N4 (a cancel mail can reach a guest removed in between) stay as they are.
 - **Not in 6a**: the "no confirmation" marker in the guest list (the RPC `event_guest_mail_status` exists), the auto-approve request-link path (needs the guest id from `submit_guest_request`), the decline mail wiring (task 7 calls `queueRequestDeclinedMail`).
 
 ---

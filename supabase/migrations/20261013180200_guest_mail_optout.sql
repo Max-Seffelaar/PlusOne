@@ -203,6 +203,10 @@ set search_path = ''
 as $$
 declare
   v_limit integer := least(greatest(coalesce(p_limit, 200), 0), 500);
+  -- Budgets are read once per run. Two concurrent runs (an after() drain and
+  -- the cron) can each spend the full remainder, so a cap can be passed by up
+  -- to one run's claim (review N1). Accepted at these caps: they guard against
+  -- runaway volume, not an exact count.
   v_global_left integer := public.guest_mail_daily_cap() - public.guest_mail_sent_today(null);
   v_venue_left jsonb := '{}'::jsonb;
   v_left integer;
@@ -419,10 +423,15 @@ comment on function public.guest_mails_claim(integer) is
 -- 4. guest_mails_settle (service_role)
 -- ---------------------------------------------------------------------------
 -- p_results: [{ queue_id, ok, provider_message_id?, error_code? }]. Only rows
--- in 'sending' move. A transient failure (quota, rate limit, provider down,
--- timeout, network: nothing left the building) goes back to pending with a
--- backoff, at most three attempts; anything else fails for good. The note is
--- dropped once a row is final. Returns the number of rows settled.
+-- in 'sending' move. A failure the provider answered (429 rate limit or
+-- quota, 5xx provider down: it refused, nothing went out) goes back to
+-- pending with a backoff, at most three attempts. A timeout or network error
+-- is NOT retried: the batch may have been accepted before the answer was
+-- lost, and a retry claims a new mail_log id, so a new Idempotency-Key that
+-- Resend can't dedupe (up to 100 guests mailed twice). Same rule as a stale
+-- 'sending' row (unknown_outcome): never mailed twice beats never missed.
+-- Anything else fails for good. The note is dropped once a row is final.
+-- Returns the number of rows settled.
 create or replace function public.guest_mails_settle(p_results jsonb)
 returns integer
 language plpgsql
@@ -471,7 +480,7 @@ begin
          set status = 'sent', reason = null, remark = null, updated_at = now()
        where q.id = v_row.id;
     elsif v_code in ('rate_limited', 'daily_quota_exceeded', 'monthly_quota_exceeded',
-                     'provider_unavailable', 'timeout', 'network')
+                     'provider_unavailable')
           and v_row.attempts < 3 then
       update public.guest_mail_queue q
          set status = 'pending', reason = v_code,
@@ -491,7 +500,8 @@ $$;
 
 comment on function public.guest_mails_settle(jsonb) is
   'Guest-mail job (service_role): settle claimed rows as sent/failed (and '
-  'mail_log with them); transient failures retry up to three attempts.';
+  'mail_log with them); a refusal the provider answered (429/5xx) retries up '
+  'to three attempts; a timeout or network error never retries (unknown outcome).';
 
 -- ---------------------------------------------------------------------------
 -- 5. Cron path: begin (token) + kick + tick
@@ -688,6 +698,12 @@ comment on function public.get_guest_status(text, text) is
 -- Answers {ok:true} for a valid AND for an invalid or expired token, so the
 -- route cannot be used to test tokens or addresses; {ok:false} only when
 -- throttled (which says nothing about the token). Idempotent.
+-- The throttle is spent only on a MISS. RFC 8058 one-click POSTs come from
+-- the mailbox provider's servers (a few Google/Yahoo egress IPs carry every
+-- Gmail user's opt-out), so a per-IP budget on hits would silently drop real
+-- opt-outs after the 30th in 15 minutes, and the provider does not retry. A
+-- live token is 256 random bits: throttling hits buys nothing against
+-- guessing, while throttling misses still caps a scanner.
 create or replace function public.unsubscribe_guest_mail(p_token_hash text, p_ip_hash text)
 returns jsonb
 language plpgsql
@@ -697,23 +713,22 @@ as $$
 declare
   v_link record;
 begin
+  if p_token_hash is not null then
+    select l.venue_id, l.email_hash into v_link
+      from public.guest_mail_links l
+     where l.token_hash = p_token_hash
+       and l.kind = 'unsubscribe'
+       and l.expires_at > now();
+    if found then
+      insert into public.guest_mail_optouts (venue_id, email_hash)
+      values (v_link.venue_id, v_link.email_hash)
+      on conflict (venue_id, email_hash) do nothing;
+      return jsonb_build_object('ok', true);
+    end if;
+  end if;
+
   if not public.consume_public_throttle('st:' || p_ip_hash, 15, 30) then
     return jsonb_build_object('ok', false);
-  end if;
-  if p_token_hash is null then
-    return jsonb_build_object('ok', true);
-  end if;
-
-  select l.venue_id, l.email_hash into v_link
-    from public.guest_mail_links l
-   where l.token_hash = p_token_hash
-     and l.kind = 'unsubscribe'
-     and l.expires_at > now();
-
-  if found then
-    insert into public.guest_mail_optouts (venue_id, email_hash)
-    values (v_link.venue_id, v_link.email_hash)
-    on conflict (venue_id, email_hash) do nothing;
   end if;
   return jsonb_build_object('ok', true);
 end;
@@ -722,7 +737,8 @@ $$;
 comment on function public.unsubscribe_guest_mail(text, text) is
   'Public opt-out (/u/[token]): records the company + address hash of a live '
   'unsubscribe token. {ok:true} whether or not the token was valid; '
-  '{ok:false} only when throttled.';
+  '{ok:false} only when a miss is throttled (hits never spend the budget: '
+  'one-click POSTs share the mailbox provider''s IPs).';
 
 -- ---------------------------------------------------------------------------
 -- 7. Inbound auto-reply (service_role)

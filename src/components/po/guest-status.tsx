@@ -98,7 +98,7 @@ export function GuestStatus({ view, icsHref }: { view: GuestStatusView | null; i
                 <Icon name="cal" size={15} />
                 {guestMailShared.calendarIcs}
               </a>
-              <a href={googleCalendarUrl(view.calendar)} className={linkClass} target="_blank" rel="noopener noreferrer">
+              <a href={googleCalendarUrl(view.calendar)} className={linkClass} rel="noreferrer">
                 <Icon name="cal" size={15} />
                 {guestMailShared.calendarGoogle}
               </a>
@@ -125,7 +125,7 @@ export function GuestStatus({ view, icsHref }: { view: GuestStatusView | null; i
               ))}
               {view.website && (
                 <li className="text-[13.5px] leading-[1.7] text-dim">
-                  <a href={view.website} className={linkClass} target="_blank" rel="noopener noreferrer">
+                  <a href={view.website} className={linkClass} rel="noreferrer">
                     {g.channelWebsite}
                   </a>
                 </li>

@@ -73,7 +73,7 @@ begin
 end;
 $fn$;
 
-select plan(85);
+select plan(90);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner)
@@ -381,7 +381,7 @@ select is(
   'pending:daily_quota_exceeded:Bring ID.', 'E7 a transient failure goes back to pending, note kept for the retry');
 select pg_temp.login_service();
 select pg_temp.as_owner();
-update public.guest_mail_queue set send_after = now() - interval '1 second', attempts = 3
+update public.guest_mail_queue set send_after = now() - interval '1 second'
  where id = (select id from ids where k = 'daan_plus');
 select pg_temp.login_service();
 select is(jsonb_array_length(public.guest_mails_claim(50) -> 'mails'), 1, 'E8 the retry is claimed');
@@ -389,9 +389,26 @@ select public.guest_mails_settle(jsonb_build_array(jsonb_build_object(
   'queue_id', (select id from ids where k = 'daan_plus'), 'ok', false, 'error_code', 'timeout')));
 select pg_temp.as_owner();
 select is(
-  (select status || ':' || coalesce(remark, '-') from public.guest_mail_queue
+  (select status || ':' || reason || ':' || coalesce(remark, '-') from public.guest_mail_queue
     where id = (select id from ids where k = 'daan_plus')),
-  'failed:-', 'E9 past three attempts a failure is final and the note is dropped');
+  'failed:timeout:-',
+  'E9 a timeout is final on an early attempt (the batch may have gone out; a retry would carry a new idempotency key), note dropped');
+select pg_temp.login_service();
+
+-- A refusal the provider answered still retries, but only up to three attempts.
+insert into ids select 'daan_plus2', public.enqueue_guest_mail('f1000000-0000-7000-8000-000000000002', 'guest_plus_ones', 'Bring ID.');
+select pg_temp.as_owner();
+update public.guest_mail_queue set send_after = now() - interval '1 second', attempts = 3
+ where id = (select id from ids where k = 'daan_plus2');
+select pg_temp.login_service();
+select is(jsonb_array_length(public.guest_mails_claim(50) -> 'mails'), 1, 'E10 a third-attempt row is claimed');
+select public.guest_mails_settle(jsonb_build_array(jsonb_build_object(
+  'queue_id', (select id from ids where k = 'daan_plus2'), 'ok', false, 'error_code', 'provider_unavailable')));
+select pg_temp.as_owner();
+select is(
+  (select status || ':' || reason || ':' || coalesce(remark, '-') from public.guest_mail_queue
+    where id = (select id from ids where k = 'daan_plus2')),
+  'failed:provider_unavailable:-', 'E11 past three attempts even a provider refusal is final, note dropped');
 select pg_temp.login_service();
 
 -- ---------------------------------------------------------------------------
@@ -450,6 +467,26 @@ select is(
     where venue_id = 'aa000000-0000-7000-8000-000000000001'
       and email_hash = encode(extensions.digest('daan@example.test', 'sha256'), 'hex')),
   1, 'H5 one opt-out row: this company, this address hash');
+
+-- S3: hits never spend the 'st' budget (one-click POSTs share Gmail's IPs).
+-- Burn the budget with misses, then: a miss is throttled, a hit still lands.
+select pg_temp.login_anon();
+select count(*) from generate_series(1, 40) g, lateral public.unsubscribe_guest_mail(md5(g::text) || md5(g::text), 'u4') r;
+select is(
+  public.unsubscribe_guest_mail(repeat('2', 64), 'u4'), '{"ok": false}'::jsonb,
+  'H5a past the budget a miss is throttled');
+select pg_temp.as_owner();
+-- No hard delete (CLAUDE.md): move the row aside, so a fresh insert shows.
+update public.guest_mail_optouts set email_hash = repeat('0', 64);
+select pg_temp.login_anon();
+select is(
+  public.unsubscribe_guest_mail((select unsub_hash from th), 'u4'), '{"ok": true}'::jsonb,
+  'H5b past the budget a live token still answers ok (hits never throttled)');
+select pg_temp.as_owner();
+select is(
+  (select count(*)::int from public.guest_mail_optouts
+    where email_hash = encode(extensions.digest('daan@example.test', 'sha256'), 'hex')),
+  1, 'H5c and the opt-out is recorded again');
 
 -- The opted-out guest gets nothing more from this company; still on the list.
 select pg_temp.login_service();

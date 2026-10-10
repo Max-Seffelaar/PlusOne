@@ -11,10 +11,75 @@ import type { MailFailureCode, MailProvider, OutgoingMail, SendResult } from './
 
 const RESEND_EMAILS_URL = 'https://api.resend.com/emails';
 const RESEND_BATCH_URL = 'https://api.resend.com/emails/batch';
+const RESEND_RECEIVED_URL = 'https://api.resend.com/emails/receiving';
 /** A send blocks the invite action that triggered it; never longer than this. */
 const SEND_TIMEOUT_MS = 8000;
 /** A batch of up to 100 mails (the guest-mail job, never a user request). */
 const BATCH_TIMEOUT_MS = 20000;
+/** One received-mail lookup in the inbound webhook. */
+const RECEIVED_TIMEOUT_MS = 5000;
+
+/** Authentication verdicts of a received mail, as Resend's receiving MTA saw them. */
+export type AuthVerdict = 'pass' | 'fail' | 'gray' | 'processing_failed' | 'unknown';
+
+export interface ReceivedMailMeta {
+  spf: AuthVerdict;
+  dkim: AuthVerdict;
+  dmarc: AuthVerdict;
+  /** Lower-cased header name -> first value (only the ones the auto-reply reads). */
+  headers: { autoSubmitted: string | null; precedence: string | null; listId: string | null };
+}
+
+function verdict(value: unknown): AuthVerdict {
+  return value === 'pass' || value === 'fail' || value === 'gray' || value === 'processing_failed' ? value : 'unknown';
+}
+
+function headerValue(headers: Record<string, unknown>, name: string): string | null {
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() !== name) continue;
+    const first = Array.isArray(v) ? v[0] : v;
+    return typeof first === 'string' ? first.slice(0, 200) : null;
+  }
+  return null;
+}
+
+/**
+ * The authentication verdicts and loop headers of a received mail
+ * (GET /emails/receiving/{id}). The verdicts come from Resend's receiving
+ * server, not from the message's own headers, so a sender cannot forge them.
+ * Null on any error: the caller then does not answer (fail closed). Nothing
+ * of the mail itself (addresses, subject, body) is returned or logged.
+ */
+export async function fetchReceivedMailMeta(apiKey: string, emailId: string): Promise<ReceivedMailMeta | null> {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(emailId)) return null;
+  try {
+    const res = await fetch(`${RESEND_RECEIVED_URL}/${encodeURIComponent(emailId)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(RECEIVED_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as Record<string, unknown> | null;
+    if (!body || typeof body !== 'object') return null;
+    const auth = (body.authentication && typeof body.authentication === 'object'
+      ? body.authentication
+      : {}) as Record<string, unknown>;
+    const headers = (body.headers && typeof body.headers === 'object' && !Array.isArray(body.headers)
+      ? body.headers
+      : {}) as Record<string, unknown>;
+    return {
+      spf: verdict(auth.spf),
+      dkim: verdict(auth.dkim),
+      dmarc: verdict(auth.dmarc),
+      headers: {
+        autoSubmitted: headerValue(headers, 'auto-submitted'),
+        precedence: headerValue(headers, 'precedence'),
+        listId: headerValue(headers, 'list-id'),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
 
 /** The JSON body Resend takes for one mail (single and batch alike). */
 function payload(mail: OutgoingMail): Record<string, unknown> {

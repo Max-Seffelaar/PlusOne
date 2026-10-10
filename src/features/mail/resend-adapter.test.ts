@@ -4,7 +4,7 @@
  * retry storm. fetch is stubbed; nothing leaves the process.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ResendAdapter } from './resend-adapter';
+import { fetchReceivedMailMeta, ResendAdapter } from './resend-adapter';
 import type { OutgoingMail } from './provider';
 
 const MAIL: OutgoingMail = {
@@ -122,5 +122,40 @@ describe('ResendAdapter.sendBatch', () => {
     expect(await new ResendAdapter('k').sendBatch([MAIL], 'x')).toEqual([{ ok: false, errorCode: 'network' }]);
     expect(await new ResendAdapter('k').sendBatch([], 'x')).toEqual([]);
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fetchReceivedMailMeta (inbound auto-reply gate)', () => {
+  it('reads the verdicts and loop headers of a received mail, nothing else', async () => {
+    const fetchFn = stubFetch(200, {
+      id: 'in_1',
+      from: 'lotte@example.test',
+      subject: 'SECRET',
+      headers: { 'Auto-Submitted': 'auto-replied', precedence: 'bulk', 'List-Id': '<l.example.test>' },
+      authentication: { spf: 'pass', dkim: 'gray', dmarc: 'fail' },
+    });
+    const meta = await fetchReceivedMailMeta('re_test_key', 'in_1');
+    expect(meta).toEqual({
+      spf: 'pass',
+      dkim: 'gray',
+      dmarc: 'fail',
+      headers: { autoSubmitted: 'auto-replied', precedence: 'bulk', listId: '<l.example.test>' },
+    });
+    expect(JSON.stringify(meta)).not.toContain('SECRET');
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.resend.com/emails/receiving/in_1');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer re_test_key');
+  });
+
+  it('an old mail without authentication reads as unknown; errors and odd ids give null (fail closed)', async () => {
+    stubFetch(200, { id: 'in_2', headers: {}, authentication: null });
+    expect(await fetchReceivedMailMeta('k', 'in_2')).toMatchObject({ spf: 'unknown', dkim: 'unknown', dmarc: 'unknown' });
+    stubFetch(404, { name: 'not_found' });
+    expect(await fetchReceivedMailMeta('k', 'in_3')).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
+    expect(await fetchReceivedMailMeta('k', 'in_4')).toBeNull();
+    const fetchFn = stubFetch(200, {});
+    expect(await fetchReceivedMailMeta('k', '../emails')).toBeNull();
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
