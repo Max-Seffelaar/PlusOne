@@ -82,16 +82,19 @@ export const events = {
   namePlaceholder: 'e.g. FRENZY',
   fieldVenue: 'Company',
   venuePlaceholder: 'Unknown company',
-  // Per-event location (z8uq9m2vqc). Empty = the company address. The public
-  // request page shows only what is typed here, never the company address
-  // (spec #48(c)), so the hint promises exactly that and no more.
+  // Per-event location (z8uq9m2vqc; z8uq9m444c). The request link and the
+  // guest's status page show exactly what is here, never the company address
+  // (spec #48(c) revised). A new event starts with the company's first saved
+  // location (or its address); the chips swap in another saved one.
   fieldLocation: 'Location',
-  locationHint: 'Empty means your company address. Filled in, guests see it on the request page.',
+  locationHint: 'Guests see this on the request link and their status page.',
+  savedLocationsAria: 'Saved locations',
   locationNameAria: 'Location name',
   locationAddressAria: 'Location address',
   locationNamePlaceholder: 'e.g. Paradiso',
   locationAddressPlaceholder: 'Street and number, city',
   locationNameTooLong: 'That location name is too long.',
+  houseRulesTooLong: 'Keep the house rules under 500 characters.',
   locationAddressTooLong: 'That address is too long.',
   locationAria: 'Location',
   /** Template create path: the event exists, the follow-up location write failed. */
@@ -362,5 +365,19 @@ export const events = {
     assignError: "Couldn't add this person to the crew.",
     searchPlaceholder: 'Search returning crew…',
     searchEmpty: 'No match. Invite them by email instead.',
+  },
+  // Guest mail F: house rules for "You're on the list" + the platform-admin reminder test.
+  guestMail: {
+    houseRulesLabel: 'House rules (optional)',
+    houseRulesPlaceholder: 'e.g. 21+, no sportswear',
+    houseRulesHint: 'Shown in the "You\'re on the list" email.',
+    houseRulesSave: 'Save house rules',
+    houseRulesSaving: 'Saving…',
+    houseRulesSaved: 'House rules saved.',
+    reminderTitle: 'Send reminder',
+    reminderSub: 'Test, platform admins only. Mails every guest with an email who is on the list.',
+    reminderSend: 'Send reminder',
+    reminderSending: 'Sending…',
+    reminderSent: 'Reminder queued.',
   },
 } as const;

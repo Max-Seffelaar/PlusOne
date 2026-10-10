@@ -35,7 +35,7 @@ vi.mock('@/features/po/hooks', () => ({
     H.countsCalls += 1;
     return {
       data: {
-        total: 2, trialing: 1, trialLapsed: 0, paidMonthly: 0, paidYearly: 0, paidUnknown: H.paidUnknown,
+        total: 4, trialing: 3, trialingNoPayment: 2, trialingPaymentSetUp: 1, trialLapsed: 0, paidMonthly: 0, paidYearly: 0, paidUnknown: H.paidUnknown,
         pastDue: 0, canceled: 0, comped: 1, noSubscription: 0,
       },
       isError: false,
@@ -88,6 +88,28 @@ describe('Platform > Overview visibility (z8uq9m2ybj)', () => {
     const revenue = screen.getByTestId('platform-overview-revenue');
     expect(revenue).toHaveTextContent(`—${t.platform.overviewMrr}`);
     expect(screen.getByText(new RegExp(t.platform.overviewRevenueNoPrices))).toBeDefined();
+  });
+
+  it('shows trials without and with a payment set up as two tiles', () => {
+    H.isPlatformAdmin = true;
+    render(<PlatformOverview />);
+    const status = screen.getByTestId('platform-overview-status');
+    expect(status).toHaveTextContent(`2${t.platform.overviewTrialingNoPayment}`);
+    expect(status).toHaveTextContent(`1${t.platform.overviewTrialingPaymentSetUp}`);
+    // The bare "Trial" label is native-only (every running trial).
+    expect(screen.queryByText(t.platform.overviewTrialing)).toBeNull();
+    expect(screen.getByText(/Converted means it pays now, past due included\./)).toBeDefined();
+  });
+
+  it('inside the native shell: no payment tile, Trial shows every running trial', () => {
+    H.isPlatformAdmin = true;
+    H.native = true;
+    render(<PlatformOverview />);
+    const status = screen.getByTestId('platform-overview-status');
+    expect(status).toHaveTextContent(`3${t.platform.overviewTrialing}`);
+    expect(screen.queryByText(t.platform.overviewTrialingPaymentSetUp)).toBeNull();
+    expect(screen.queryByText(t.platform.overviewTrialingNoPayment)).toBeNull();
+    expect(document.body.textContent ?? '').not.toMatch(/payment/i);
   });
 
   it('computes MRR from our counts × the Stripe prices in the browser', () => {

@@ -70,6 +70,124 @@ export type Database = {
           },
         ]
       }
+      billing_mail_deliveries: {
+        Row: {
+          created_at: string
+          dedupe_key: string
+          mail_log_id: string
+          recipient_id: string
+          type: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          dedupe_key: string
+          mail_log_id: string
+          recipient_id: string
+          type: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          dedupe_key?: string
+          mail_log_id?: string
+          recipient_id?: string
+          type?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_mail_deliveries_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_mail_deliveries_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_mail_events: {
+        Row: {
+          created_at: string
+          event_created: string | null
+          stripe_event_id: string
+          type: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_created?: string | null
+          stripe_event_id: string
+          type: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          event_created?: string | null
+          stripe_event_id?: string
+          type?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_mail_events_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_mail_settings: {
+        Row: {
+          paused: boolean
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          paused?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          paused?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_mail_settings_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: true
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_mail_tokens: {
+        Row: {
+          created_at: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          token_hash?: string
+        }
+        Relationships: []
+      }
       check_ins: {
         Row: {
           checked_at: string
@@ -160,6 +278,56 @@ export type Database = {
             columns: ["voided_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_locations: {
+        Row: {
+          address_line: string | null
+          archived_at: string | null
+          city: string | null
+          country: string | null
+          created_at: string
+          id: string
+          name: string
+          place_id: string | null
+          postal_code: string | null
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          address_line?: string | null
+          archived_at?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          place_id?: string | null
+          postal_code?: string | null
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          address_line?: string | null
+          archived_at?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          place_id?: string | null
+          postal_code?: string | null
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_locations_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -479,6 +647,7 @@ export type Database = {
           created_at: string
           default_member_quota: number
           ends_at: string | null
+          house_rules: string | null
           id: string
           landing_active: boolean
           landing_slug: string
@@ -502,6 +671,7 @@ export type Database = {
           created_at?: string
           default_member_quota: number
           ends_at?: string | null
+          house_rules?: string | null
           id?: string
           landing_active?: boolean
           landing_slug: string
@@ -525,6 +695,7 @@ export type Database = {
           created_at?: string
           default_member_quota?: number
           ends_at?: string | null
+          house_rules?: string | null
           id?: string
           landing_active?: boolean
           landing_slug?: string
@@ -556,6 +727,225 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      guest_mail_links: {
+        Row: {
+          created_at: string
+          email_hash: string
+          event_id: string
+          expires_at: string
+          guest_id: string | null
+          guest_request_id: string | null
+          kind: string
+          mail_log_id: string | null
+          token_hash: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_hash: string
+          event_id: string
+          expires_at: string
+          guest_id?: string | null
+          guest_request_id?: string | null
+          kind: string
+          mail_log_id?: string | null
+          token_hash: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          email_hash?: string
+          event_id?: string
+          expires_at?: string
+          guest_id?: string | null
+          guest_request_id?: string | null
+          kind?: string
+          mail_log_id?: string | null
+          token_hash?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_mail_links_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_links_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_links_guest_request_id_fkey"
+            columns: ["guest_request_id"]
+            isOneToOne: false
+            referencedRelation: "guest_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_links_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_links_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      guest_mail_optouts: {
+        Row: {
+          created_at: string
+          email_hash: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_hash: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          email_hash?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_mail_optouts_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      guest_mail_queue: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          created_by: string | null
+          event_id: string
+          guest_id: string | null
+          guest_request_id: string | null
+          id: string
+          mail_log_id: string | null
+          reason: string | null
+          remark: string | null
+          send_after: string
+          source_request_id: string | null
+          status: string
+          type: string
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          guest_id?: string | null
+          guest_request_id?: string | null
+          id?: string
+          mail_log_id?: string | null
+          reason?: string | null
+          remark?: string | null
+          send_after?: string
+          source_request_id?: string | null
+          status?: string
+          type: string
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          guest_id?: string | null
+          guest_request_id?: string | null
+          id?: string
+          mail_log_id?: string | null
+          reason?: string | null
+          remark?: string | null
+          send_after?: string
+          source_request_id?: string | null
+          status?: string
+          type?: string
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_mail_queue_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_queue_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_queue_guest_request_id_fkey"
+            columns: ["guest_request_id"]
+            isOneToOne: false
+            referencedRelation: "guest_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_queue_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_queue_source_request_id_fkey"
+            columns: ["source_request_id"]
+            isOneToOne: false
+            referencedRelation: "guest_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_mail_queue_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      guest_mail_tokens: {
+        Row: {
+          created_at: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          token_hash?: string
+        }
+        Relationships: []
       }
       guest_request_status_mirrors: {
         Row: {
@@ -1213,6 +1603,50 @@ export type Database = {
           },
         ]
       }
+      platform_digest_deliveries: {
+        Row: {
+          created_at: string
+          digest_date: string
+          mail_log_id: string
+          recipient_id: string
+        }
+        Insert: {
+          created_at?: string
+          digest_date: string
+          mail_log_id: string
+          recipient_id: string
+        }
+        Update: {
+          created_at?: string
+          digest_date?: string
+          mail_log_id?: string
+          recipient_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_digest_deliveries_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_digest_tokens: {
+        Row: {
+          created_at: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          token_hash?: string
+        }
+        Relationships: []
+      }
       platform_invites: {
         Row: {
           ade_trial_venue_id: string | null
@@ -1858,10 +2292,13 @@ export type Database = {
           allow_uncheck: boolean
           city: string | null
           company_name: string | null
+          contact_channels: Json
+          contact_email: string | null
           country: string
           created_at: string
           default_personal_quota: number
           finance_email: string | null
+          guest_confirmation_default: boolean
           id: string
           kvk_number: string | null
           name: string
@@ -1881,10 +2318,13 @@ export type Database = {
           allow_uncheck?: boolean
           city?: string | null
           company_name?: string | null
+          contact_channels?: Json
+          contact_email?: string | null
           country?: string
           created_at?: string
           default_personal_quota?: number
           finance_email?: string | null
+          guest_confirmation_default?: boolean
           id?: string
           kvk_number?: string | null
           name: string
@@ -1904,10 +2344,13 @@ export type Database = {
           allow_uncheck?: boolean
           city?: string | null
           company_name?: string | null
+          contact_channels?: Json
+          contact_email?: string | null
           country?: string
           created_at?: string
           default_personal_quota?: number
           finance_email?: string | null
+          guest_confirmation_default?: boolean
           id?: string
           kvk_number?: string | null
           name?: string
@@ -2048,6 +2491,20 @@ export type Database = {
         Returns: undefined
       }
       audit_changed: { Args: { p_new: Json; p_old: Json }; Returns: Json }
+      backfill_event_locations_from_company: { Args: never; Returns: number }
+      billing_mail_blocked: { Args: { p_venue_id: string }; Returns: boolean }
+      billing_mail_recipient_rows: {
+        Args: { p_venue_id: string }
+        Returns: {
+          email: string
+          full_name: string
+          user_id: string
+        }[]
+      }
+      billing_mail_recipients: { Args: { p_venue_id: string }; Returns: Json }
+      billing_mails_begin: { Args: { p_token: string }; Returns: Json }
+      billing_mails_setting: { Args: { p_name: string }; Returns: string }
+      billing_mails_tick: { Args: never; Returns: boolean }
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_read_event_stats: { Args: { p_event_id: string }; Returns: boolean }
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
@@ -2106,6 +2563,10 @@ export type Database = {
         Args: { p_error?: string; p_id: string; p_outcome: string }
         Returns: string
       }
+      consume_guest_mail_autoreply: {
+        Args: { p_sender: string }
+        Returns: boolean
+      }
       consume_places_throttle: { Args: never; Returns: boolean }
       consume_platform_invite_throttle: { Args: never; Returns: boolean }
       consume_public_throttle: {
@@ -2160,6 +2621,39 @@ export type Database = {
           is_crew: boolean
         }[]
       }
+      enqueue_billing_event_mail: {
+        Args: {
+          p_event_created?: string
+          p_stripe_customer_id: string
+          p_stripe_event_id: string
+        }
+        Returns: boolean
+      }
+      enqueue_event_mail: {
+        Args: {
+          p_actor?: string
+          p_delay_seconds?: number
+          p_event_id: string
+          p_remark?: string
+          p_type: string
+        }
+        Returns: number
+      }
+      enqueue_guest_mail: {
+        Args: {
+          p_actor?: string
+          p_delay_seconds?: number
+          p_guest_id: string
+          p_remark?: string
+          p_request_id?: string
+          p_type: string
+        }
+        Returns: string
+      }
+      enqueue_request_declined_mail: {
+        Args: { p_actor?: string; p_remark: string; p_request_id: string }
+        Returns: string
+      }
       ensure_my_profile: { Args: never; Returns: undefined }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_capacity_consumption: {
@@ -2180,6 +2674,14 @@ export type Database = {
           bucket: string
           checkins: number
           headcount: number
+        }[]
+      }
+      event_guest_mail_status: {
+        Args: { p_event_id: string }
+        Returns: {
+          guest_id: string
+          status: string
+          type: string
         }[]
       }
       event_link_funnel: {
@@ -2293,6 +2795,10 @@ export type Database = {
         }[]
       }
       forget_contact: { Args: { p_contact_id: string }; Returns: Json }
+      get_guest_status: {
+        Args: { p_ip_hash: string; p_token_hash: string }
+        Returns: Json
+      }
       get_influencer_stats: {
         Args: { p_ip_hash: string; p_token_hash: string }
         Returns: Json
@@ -2321,6 +2827,29 @@ export type Database = {
         Returns: number
       }
       guest_event: { Args: { p_guest_id: string }; Returns: string }
+      guest_mail_daily_cap: { Args: never; Returns: number }
+      guest_mail_email_hash: { Args: { p_email: string }; Returns: string }
+      guest_mail_event_end: {
+        Args: { p_ends: string; p_starts: string }
+        Returns: string
+      }
+      guest_mail_has_spot: {
+        Args: { p_status: Database["public"]["Enums"]["guest_status"] }
+        Returns: boolean
+      }
+      guest_mail_new_reply_key: { Args: never; Returns: string }
+      guest_mail_new_token: { Args: never; Returns: string }
+      guest_mail_sent_today: { Args: { p_venue_id: string }; Returns: number }
+      guest_mail_token_hash: { Args: { p_token: string }; Returns: string }
+      guest_mail_venue_daily_cap: { Args: never; Returns: number }
+      guest_mails_begin: {
+        Args: { p_limit?: number; p_token: string }
+        Returns: Json
+      }
+      guest_mails_claim: { Args: { p_limit?: number }; Returns: Json }
+      guest_mails_setting: { Args: { p_name: string }; Returns: string }
+      guest_mails_settle: { Args: { p_results: Json }; Returns: number }
+      guest_mails_tick: { Args: never; Returns: boolean }
       guest_personal_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
@@ -2355,6 +2884,9 @@ export type Database = {
       }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
       is_venue_organizer: { Args: { p_venue_id: string }; Returns: boolean }
+      kick_billing_mails: { Args: never; Returns: boolean }
+      kick_guest_mails: { Args: never; Returns: boolean }
+      kick_platform_digest: { Args: never; Returns: boolean }
       kick_push_dispatch: { Args: never; Returns: boolean }
       link_headcount_contribution: {
         Args: {
@@ -2376,8 +2908,21 @@ export type Database = {
           user_agent: string
         }[]
       }
+      log_billing_mail: {
+        Args: {
+          p_dedupe_key: string
+          p_recipient_id: string
+          p_type: string
+          p_venue_id: string
+        }
+        Returns: string
+      }
       log_mail_attempt: {
         Args: { p_recipient_hash: string; p_type: string; p_venue_id: string }
+        Returns: string
+      }
+      log_platform_digest_mail: {
+        Args: { p_recipient_id: string }
         Returns: string
       }
       log_venue_export: {
@@ -2448,6 +2993,10 @@ export type Database = {
         Args: { p_since?: string; p_until?: string; p_venue_id?: string }
         Returns: number
       }
+      platform_billing_mail_timeline: {
+        Args: { p_venue_id: string }
+        Returns: Json
+      }
       platform_company_details: {
         Args: { p_venue_ids: string[] }
         Returns: {
@@ -2462,6 +3011,46 @@ export type Database = {
           subscription_status: string
           trial_ends_at: string
           venue_id: string
+        }[]
+      }
+      platform_digest_begin: { Args: { p_token: string }; Returns: Json }
+      platform_digest_setting: { Args: { p_name: string }; Returns: string }
+      platform_digest_subscription_counts: {
+        Args: never
+        Returns: {
+          canceled: number
+          comped: number
+          no_subscription: number
+          paid_monthly: number
+          paid_unknown: number
+          paid_yearly: number
+          past_due: number
+          total_companies: number
+          trial_lapsed: number
+          trialing: number
+          trialing_payment_set_up: number
+        }[]
+      }
+      platform_digest_tick: { Args: never; Returns: boolean }
+      platform_digest_today: { Args: never; Returns: string }
+      platform_digest_trial_funnel: {
+        Args: never
+        Returns: {
+          canceled_30d: number
+          converted_30d: number
+          converted_90d: number
+          ended_30d: number
+          ended_90d: number
+          ending_7d: number
+        }[]
+      }
+      platform_digest_usage_30d: {
+        Args: never
+        Returns: {
+          active_companies: number
+          check_ins: number
+          dormant_companies: number
+          events: number
         }[]
       }
       platform_invite_funnel: {
@@ -2517,6 +3106,7 @@ export type Database = {
           total_companies: number
           trial_lapsed: number
           trialing: number
+          trialing_payment_set_up: number
         }[]
       }
       platform_trial_funnel: {
@@ -2618,6 +3208,7 @@ export type Database = {
         Args: { l: Database["public"]["Tables"]["request_links"]["Row"] }
         Returns: boolean
       }
+      resolve_guest_mail_reply: { Args: { p_reply_key: string }; Returns: Json }
       resolve_tier_for_contact: {
         Args: {
           p_event_id: string
@@ -2648,6 +3239,10 @@ export type Database = {
       seed_platform_admin_by_email_hash: {
         Args: { p_hash: string }
         Returns: string
+      }
+      set_billing_mails_paused: {
+        Args: { p_paused: boolean; p_venue_id: string }
+        Returns: undefined
       }
       set_platform_admin: {
         Args: { p_user_id: string; p_value: boolean }
@@ -2691,6 +3286,10 @@ export type Database = {
       }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
       unique_venue_slug: { Args: { p_name: string }; Returns: string }
+      unsubscribe_guest_mail: {
+        Args: { p_ip_hash: string; p_token_hash: string }
+        Returns: Json
+      }
       upsert_contacts: {
         Args: { p_rows: Json; p_venue_id: string }
         Returns: Json

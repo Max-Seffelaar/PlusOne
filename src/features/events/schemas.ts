@@ -47,6 +47,10 @@ const locationField = (max: number, tooLong: string) =>
     .optional();
 const locationName = locationField(LOCATION_NAME_MAX, t.events.locationNameTooLong);
 const locationAddress = locationField(LOCATION_ADDRESS_MAX, t.events.locationAddressTooLong);
+// House rules for "You're on the list" (guest mail F); the cap matches
+// events_house_rules_len in 20261013180100.
+export const HOUSE_RULES_MAX = 500;
+const houseRules = locationField(HOUSE_RULES_MAX, t.events.houseRulesTooLong);
 
 export const createEventSchema = z
   .object({
@@ -56,6 +60,7 @@ export const createEventSchema = z
     endsAt: isoDateTime.nullable().optional(),
     locationName,
     locationAddress,
+    houseRules,
     // New events open their sign-up link by default (z8uq9m0hw3, item 6). The
     // column default stays false; createEvent always writes this value.
     landingActive: z.boolean().default(true),
@@ -74,6 +79,7 @@ export const updateEventSchema = z
     endsAt: isoDateTime.nullable().optional(),
     locationName,
     locationAddress,
+    houseRules,
   })
   .refine((v) => v.endsAt == null || v.startsAt == null || v.endsAt > v.startsAt, {
     message: 'The end must be after the start',
@@ -87,7 +93,18 @@ export type UpdateEventInput = z.input<typeof updateEventSchema>;
 export const setCancelledSchema = z.object({
   eventId: uuid,
   cancelled: z.boolean(),
+  // Optional "Note from the team" in the cancel mail to guests (guest mail F).
+  note: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .transform((v) => (v ? v : undefined)),
 });
+
+/** "Send reminder" (platform admins, behind GUEST_REMINDER_ENABLED; guest mail F). */
+export const sendGuestReminderSchema = z.object({ eventId: uuid });
+export type SendGuestReminderInput = z.input<typeof sendGuestReminderSchema>;
 export type SetCancelledInput = z.input<typeof setCancelledSchema>;
 
 // ── Landing page (#28) ────────────────────────────────────────────────────────

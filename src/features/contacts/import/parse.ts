@@ -88,6 +88,9 @@ export function normalizeImportPhone(raw: string | null | undefined): string | u
   if (digits.startsWith('00')) candidate = `+${digits.slice(2)}`;
   else if (digits.startsWith('31')) candidate = `+${digits}`;
   else if (digits.startsWith('0')) candidate = `+31${digits.slice(1)}`;
+  // Excel drops the leading 0 of a number-typed cell: 06 12345678 arrives as
+  // 612345678. Nine digits without a 0 is that NL number (decision Max 2026-10-10).
+  else if (digits.length === 9) candidate = `+31${digits}`;
   else candidate = `+${digits}`;
   return e164.test(candidate) ? candidate : undefined;
 }

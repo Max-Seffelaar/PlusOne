@@ -29,6 +29,9 @@ import {
   type EventCounts,
   resolveEventLocation,
   formatCompanyAddress,
+  toPoCompanyLocation,
+  toEventLocationCopy,
+  defaultEventLocation,
 } from './adapters';
 import type {
   PoEventRow,
@@ -1217,5 +1220,58 @@ describe('formatCompanyAddress', () => {
     expect(formatCompanyAddress({ address_line: null, postal_code: '', city: 'Maastricht' })).toBe('Maastricht');
     expect(formatCompanyAddress({ address_line: ' ', postal_code: null, city: null })).toBeNull();
     expect(formatCompanyAddress(null)).toBeNull();
+  });
+});
+
+// ── Saved company locations (z8uq9m444c) ─────────────────────────────────────
+describe('company locations', () => {
+  const row = {
+    id: 'loc-1',
+    name: 'Paradiso',
+    address_line: 'Weteringschans 6',
+    postal_code: '1017 SG',
+    city: 'Amsterdam',
+    country: 'NL',
+    place_id: null,
+    created_at: '2026-10-09T10:00:00Z',
+  };
+
+  it('maps a row and formats one address line', () => {
+    expect(toPoCompanyLocation(row)).toEqual({
+      id: 'loc-1',
+      name: 'Paradiso',
+      addressLine: 'Weteringschans 6',
+      postalCode: '1017 SG',
+      city: 'Amsterdam',
+      country: 'NL',
+      placeId: null,
+      address: 'Weteringschans 6, 1017 SG Amsterdam',
+    });
+    expect(toPoCompanyLocation({ ...row, address_line: null, postal_code: null, city: null }).address).toBeNull();
+  });
+
+  it('copies name + address within the event column caps', () => {
+    expect(toEventLocationCopy({ name: ' Paradiso ', address: 'Weteringschans 6' })).toEqual({
+      locationName: 'Paradiso',
+      locationAddress: 'Weteringschans 6',
+    });
+    const long = toEventLocationCopy({ name: 'n'.repeat(130), address: 'a'.repeat(210) });
+    expect(long.locationName).toHaveLength(120);
+    expect(long.locationAddress).toHaveLength(200);
+  });
+
+  it('a new event defaults to the first saved location, else the company, else nothing', () => {
+    const company = { address_line: 'Wibautstraat 150', postal_code: '1091 GR', city: 'Amsterdam' };
+    const saved = [toPoCompanyLocation(row), toPoCompanyLocation({ ...row, id: 'loc-2', name: 'Melkweg' })];
+    expect(defaultEventLocation(saved, 'Club Vesper', company)).toEqual({
+      locationName: 'Paradiso',
+      locationAddress: 'Weteringschans 6, 1017 SG Amsterdam',
+    });
+    expect(defaultEventLocation([], 'Club Vesper', company)).toEqual({
+      locationName: 'Club Vesper',
+      locationAddress: 'Wibautstraat 150, 1091 GR Amsterdam',
+    });
+    expect(defaultEventLocation([], 'Club Vesper', null)).toEqual({ locationName: 'Club Vesper', locationAddress: '' });
+    expect(defaultEventLocation([], '', null)).toBeNull();
   });
 });

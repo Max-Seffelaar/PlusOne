@@ -9,12 +9,14 @@ import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
 import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
+import { queueEventMail } from '@/features/mail/guest-queue';
 import { buildEventSlug } from './slug';
 import type { Database } from '@/lib/database.types';
 import {
   createEventSchema,
   updateEventSchema,
   setCancelledSchema,
+  sendGuestReminderSchema,
   setLandingActiveSchema,
   setLockSchema,
   setAutoLockSchema,
@@ -40,6 +42,7 @@ import {
   type CreateEventInput,
   type UpdateEventInput,
   type SetCancelledInput,
+  type SendGuestReminderInput,
   type SetLandingActiveInput,
   type SetLockInput,
   type SetAutoLockInput,
@@ -81,7 +84,7 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress } = parsed.data;
+  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -107,6 +110,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         landing_active: landingActive,
         location_name: locationName ?? null,
         location_address: locationAddress ?? null,
+        house_rules: houseRules ?? null,
         landing_slug: buildEventSlug(name, startsAt),
       } as Database['public']['Tables']['events']['Insert'])
       .select('id')
@@ -121,11 +125,16 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   return { ok: false, code: 'slug', message: "Couldn't generate a unique landing link. Try again." };
 }
 
-/** Edit name / start / end / location (admin or organizer — RLS). */
+/**
+ * Edit name / start / end / location / house rules (admin or organizer — RLS).
+ * A changed start time or location mails every guest with a spot and an
+ * address ("New details for …", guest mail F), debounced so a burst of edits
+ * sends one mail. A name or end-time change alone mails nobody.
+ */
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, name, startsAt, endsAt, locationName, locationAddress } = parsed.data;
+  const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -137,11 +146,32 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     ...(endsAt !== undefined ? { ends_at: endsAt } : {}),
     ...(locationName !== undefined ? { location_name: locationName } : {}),
     ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
+    ...(houseRules !== undefined ? { house_rules: houseRules } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
+  const touchesDetails = startsAt !== undefined || locationName !== undefined || locationAddress !== undefined;
+  const { data: before } = touchesDetails
+    ? await supabase
+        .from('events')
+        .select('starts_at, location_name, location_address')
+        .eq('id', eventId)
+        .maybeSingle()
+    : { data: null };
+
   const { error } = await supabase.from('events').update(patch).eq('id', eventId);
   if (error) return mapMutationError(error);
+
+  if (before) {
+    const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').trim() === (b ?? '').trim();
+    const startChanged = startsAt !== undefined && new Date(startsAt).getTime() !== new Date(before.starts_at).getTime();
+    const placeChanged =
+      (locationName !== undefined && !same(locationName, before.location_name)) ||
+      (locationAddress !== undefined && !same(locationAddress, before.location_address));
+    if (startChanged || placeChanged) {
+      queueEventMail({ type: 'guest_event_changed', eventId }, ctx.user.id);
+    }
+  }
   return { ok: true };
 }
 
@@ -155,7 +185,7 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
 export async function setEventCancelled(input: SetCancelledInput): Promise<ActionResult> {
   const parsed = setCancelledSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, cancelled } = parsed.data;
+  const { eventId, cancelled, note } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -167,6 +197,64 @@ export async function setEventCancelled(input: SetCancelledInput): Promise<Actio
     .eq('id', eventId);
   if (error) return mapMutationError(error);
   if (!count) return notFound();
+
+  // "{event} is canceled" to every guest with a spot and an address (guest
+  // mail F); pending mails for the event are dropped first. Un-cancel sends
+  // nothing.
+  if (cancelled) queueEventMail({ type: 'guest_event_canceled', eventId, remark: note ?? null }, ctx.user.id);
+  return { ok: true };
+}
+
+/** Whether the "Send reminder" test feature is switched on (env flag, off by default). */
+function guestReminderEnabled(): boolean {
+  return process.env.GUEST_REMINDER_ENABLED === 'true';
+}
+
+/**
+ * Whether this caller may see the "Send reminder" button: the env flag is on
+ * and they are a platform admin (read through RLS, their own row). The action
+ * below re-checks both; this only decides what the screen shows.
+ */
+export async function guestReminderAvailable(): Promise<boolean> {
+  if (!guestReminderEnabled()) return false;
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return false;
+  const { data } = await supabase.from('user_profiles').select('is_platform_admin').eq('id', ctx.user.id).maybeSingle();
+  return data?.is_platform_admin === true;
+}
+
+/**
+ * "Send reminder" (guest mail F, test): mails every guest with a spot and an
+ * address "Reminder: you're on the list". Platform admins only, and only with
+ * GUEST_REMINDER_ENABLED=true; a later decision makes it a company feature or
+ * not. The platform-admin check reads the caller's own flag through RLS; the
+ * event must be visible to them (RLS) and still ahead.
+ */
+export async function sendGuestReminder(input: SendGuestReminderInput): Promise<ActionResult> {
+  const parsed = sendGuestReminderSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!guestReminderEnabled()) return notFound();
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('is_platform_admin')
+    .eq('id', ctx.user.id)
+    .maybeSingle();
+  if (profile?.is_platform_admin !== true) return unauthorized();
+
+  const { data: event } = await supabase
+    .from('events')
+    .select('id, starts_at, cancelled_at')
+    .eq('id', parsed.data.eventId)
+    .maybeSingle();
+  if (!event || event.cancelled_at) return notFound();
+
+  queueEventMail({ type: 'guest_reminder', eventId: event.id }, ctx.user.id);
   return { ok: true };
 }
 

@@ -1,3 +1,5 @@
+import { normalizeImportPhone } from '@/features/contacts/import/parse';
+
 /**
  * Quick-add parser (decision #33) — pure, deterministic, offline-proof.
  *
@@ -55,6 +57,8 @@ export interface ParseResult {
   email?: string | null;
   /** A phone number found anywhere in the line, stripped from the name (#9). */
   phone?: string | null;
+  /** Paste only: the line's count column (total people) is not a number ≥ 1. */
+  countError?: 'invalid';
 }
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -482,20 +486,264 @@ export function resolveAmbiguity(
   return { name: result.name, plusOnes: result.plusOnes, tierId };
 }
 
-/** Parse a pasted block (WhatsApp list) into one result per non-empty line. */
+// ── Pasted / shared blocks (share-import S2) ────────────────────────────────
+// A list that arrives from Notes or a WhatsApp message is often bulleted or
+// numbered ("- Milan +2", "• Fleur", "3. Sem"), and a range copied out of Excel
+// or Sheets usually brings its column header ("Name<TAB>Email"). Both are list
+// furniture, not guests: strip the marker, skip the header.
+
+// One leading bullet (-, •, *, ·, –, —) or a 1–3 digit "1." / "1)" number, then
+// whitespace. A "+2" or a phone ("06 12…") never matches: neither is followed by
+// "." / ")" and they carry no bullet glyph.
+const LIST_MARKER = /^(?:[-•*·–—]|\d{1,3}[.)])\s+/;
+
+// ── Columns (share-import S2 follow-up, decisions Max 2026-10-10) ─────────────
+// A range copied out of Excel or Sheets is tab-separated and usually brings its
+// header ("Voornaam<TAB>Achternaam<TAB>Aantal tickets<TAB>Tier<TAB>Email<TAB>
+// Telefoonnummer"). With a header the columns are read BY ROLE: first + last
+// name together are the name, a count column is the TOTAL number of people
+// (tickets: 2 = the guest +1), and a phone column is always a phone. Without a
+// header each row keeps the #33 token grammar, plus: a bare small number in its
+// own column is the total number of people too.
+
+/** What a header cell names. */
+type ColumnRole = 'first' | 'last' | 'name' | 'count' | 'plus' | 'tier' | 'email' | 'phone' | 'note';
+
+// Exact (normalized) header titles. Name roles only ever match exactly, so a
+// guest called "Name Hendriks" on the first line is never taken for a header.
+const COLUMN_TITLES: Record<string, ColumnRole> = {
+  'first name': 'first', firstname: 'first', voornaam: 'first', 'given name': 'first', roepnaam: 'first',
+  tussenvoegsel: 'last', 'last name': 'last', lastname: 'last', achternaam: 'last', surname: 'last', 'family name': 'last',
+  name: 'name', names: 'name', naam: 'name', namen: 'name', 'full name': 'name', 'volledige naam': 'name',
+  guest: 'name', gast: 'name', 'guest name': 'name', gastnaam: 'name',
+  '+1': 'plus', '+n': 'plus', 'plus ones': 'plus', 'plus-ones': 'plus', plusones: 'plus', 'plus one': 'plus', extra: 'plus',
+  tier: 'tier', ticket: 'tier', 'ticket type': 'tier', type: 'tier', soort: 'tier', categorie: 'tier', category: 'tier', rol: 'tier', role: 'tier',
+  notes: 'note', note: 'note', notitie: 'note', opmerking: 'note', opmerkingen: 'note',
+};
+// Word-level titles for the roles Max named (2026-10-10): any of these words in
+// a cell makes it that column ("Aantal tickets", "Telefoonnummer", "E-mailadres").
+const COUNT_WORDS = new Set(['tickets', 'aantal', 'personen', 'persons', 'people', 'qty', 'quantity', 'guests', 'gasten', 'pax']);
+const PHONE_PREFIX = /^(?:tel|phone|telefoon|mobiel|mobile|gsm)/;
+
+function cellTitle(cell: string): string {
+  return normalize(cell).replace(/^[^a-z0-9+]+|[^a-z0-9]+$/g, '');
+}
+
+function columnRole(cell: string): ColumnRole | null {
+  const title = cellTitle(cell);
+  if (title === '') return null;
+  const exact = COLUMN_TITLES[title];
+  if (exact) return exact;
+  const words = title.split(/[\s_-]+/);
+  if (/mail/.test(title)) return 'email';
+  if (words.some((w) => PHONE_PREFIX.test(w))) return 'phone';
+  if (words.some((w) => COUNT_WORDS.has(w))) return 'count';
+  return null;
+}
+
+/** A recognised header row: the delimiter it uses and each column's role. */
+export interface PasteHeader {
+  delimiter: '\t' | ';' | ',';
+  roles: Array<ColumnRole | null>;
+}
+
+function delimiterOf(line: string): PasteHeader['delimiter'] {
+  return line.includes('\t') ? '\t' : line.includes(';') ? ';' : ',';
+}
+
+/** The header on the FIRST line, or null. A header names the guest (a name
+ *  role), at least half its cells are known column titles, and none of its
+ *  cells looks like data (an e-mail, a phone, a number). Unknown extra columns
+ *  ("Bedrijf") are allowed and ignored. */
+export function readPasteHeader(line: string): PasteHeader | null {
+  const delimiter = delimiterOf(line);
+  const cells = line.split(delimiter).map((c) => c.trim());
+  const filled = cells.filter((c) => c !== '');
+  if (filled.length === 0) return null;
+  const looksLikeData = (c: string): boolean => EMAIL_TOKEN.test(c) || (c !== '+1' && /^[+\d\s().-]*\d[\d\s().-]*$/.test(c));
+  if (filled.some(looksLikeData)) return null;
+  const roles = cells.map(columnRole);
+  const known = roles.filter((r) => r !== null).length;
+  const named = roles.some((r) => r === 'first' || r === 'last' || r === 'name');
+  return named && known * 2 >= filled.length ? { delimiter, roles } : null;
+}
+
+/** True when a line is a column header ("Name, Email" / "Voornaam<TAB>Telefoon").
+ *  Only ever asked of the FIRST line — a guest called "Name" further down stays. */
+export function isHeaderLine(line: string): boolean {
+  return readPasteHeader(line) !== null;
+}
+
+/** Most extra guests one line may bring — the same bound as the guest schemas
+ *  (`plusOnes` in ./schemas.ts). A larger count is flagged on its row. */
+export const PLUS_ONES_MAX = 50;
+
+/** A count cell: the TOTAL number of people (2 = the guest +1). */
+function readTicketCount(raw: string): { plusOnes: number } | { countError: 'invalid' } {
+  const v = raw.trim();
+  if (!/^-?\d+$/.test(v)) return { countError: 'invalid' };
+  const n = parseInt(v, 10);
+  return n >= 1 ? { plusOnes: n - 1 } : { countError: 'invalid' };
+}
+
+/** A bare number with no header: the total number of people when it is small
+ *  (≤ 20), 0 or negative is an error; anything bigger is left alone (a 9-digit
+ *  number is a phone, never a count — decision Max 2026-10-10). */
+function looseCountCell(cell: string): boolean {
+  return /^-?\d{1,3}$/.test(cell.trim()) && parseInt(cell, 10) <= 20;
+}
+
+/**
+ * Undo what Excel does to a phone number it reads as a number: the leading 0
+ * and the `+` are dropped, so NL mobile 06 46003664 arrives as `646003664`
+ * (decision Max 2026-10-10). Only these shapes are rewritten — through the one
+ * E.164 normaliser (`normalizeImportPhone`) — and every other phone stays as
+ * typed: rewriting a plain `0612345678` would change the digits contacts are
+ * matched on (`phone_norm`).
+ *   9 digits, no leading 0 → +31…   ·   31 + 9 digits → +31…   ·   0031… → +31…
+ */
+export function repairPastedPhone(raw: string | null | undefined): string | null {
+  const v = (raw ?? '').trim();
+  if (v === '') return null;
+  if (v.startsWith('+')) return v;
+  const digits = v.replace(/\D/g, '');
+  if (!/^[\d\s().-]+$/.test(v)) return v;
+  const mangled =
+    (digits.length === 9 && !digits.startsWith('0')) ||
+    (digits.length === 11 && digits.startsWith('31')) ||
+    digits.startsWith('0031');
+  return mangled ? normalizeImportPhone(digits) ?? v : v;
+}
+
+/** One data row under a header, read column by column. */
+function parseColumnRow(raw: string, header: PasteHeader, tiers: QuickAddTier[], defaultTierId: string): ParseResult {
+  const cells = raw.split(header.delimiter).map((c) => c.trim());
+  const pick = (role: ColumnRole): string[] =>
+    header.roles.flatMap((r, i) => (r === role && cells[i] ? [cells[i]] : []));
+  const name = [...pick('first'), ...pick('name'), ...pick('last')]
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Name + tier through the #33 grammar: tier words and aliases resolve the same
+  // way as everywhere else (an unknown tier word asks, never defaults silently).
+  const base = parseQuickAdd([name, ...pick('tier')].join(' '), tiers, defaultTierId);
+  const out: ParseResult = { ...base, raw: raw.trim() };
+  const email = pick('email')[0];
+  if (email) out.email = email;
+  const phone = pick('phone')[0];
+  if (phone) out.phone = repairPastedPhone(phone);
+  else if (out.phone) out.phone = repairPastedPhone(out.phone);
+  const count = pick('count')[0];
+  const plus = pick('plus')[0];
+  // No count column named: a bare small number in a column the header doesn't
+  // name is the total number of people, as on a row without a header.
+  const loose = header.roles.some((r) => r === 'count' || r === 'plus')
+    ? undefined
+    : cells.find((c, i) => (header.roles[i] ?? null) === null && c !== '' && looseCountCell(c));
+  if (count) applyCount(out, readTicketCount(count));
+  else if (plus) applyCount(out, /^\d+$/.test(plus) ? { plusOnes: parseInt(plus, 10) } : { countError: 'invalid' });
+  else if (loose) applyCount(out, readTicketCount(loose));
+  return out;
+}
+
+/** One row without a header: the #33 grammar, plus a bare small number in its
+ *  own column or as the last word as the TOTAL number of people (`Henk Jansen 2`
+ *  = Henk +1, decision Max 2026-10-10), and the Excel phone repair. `+2` keeps
+ *  meaning plus-ones. Quick add and the door are deliberately different: there a
+ *  bare trailing number stays +N (`parseQuickAdd`, untouched). */
+function parseLooseRow(line: string, tiers: QuickAddTier[], defaultTierId: string): ParseResult {
+  if (!/[,;\t]/.test(line)) {
+    const words = line.split(/\s+/);
+    const last = words[words.length - 1];
+    if (words.length > 1 && looseCountCell(last)) {
+      const rest = parseQuickAdd(words.slice(0, -1).join(' '), tiers, defaultTierId);
+      // An explicit +N elsewhere on the line wins; the number then stays as the
+      // #33 grammar reads it.
+      if (rest.plusOnes === 0) {
+        const out: ParseResult = { ...rest, raw: line, phone: rest.phone ? repairPastedPhone(rest.phone) : rest.phone };
+        applyCount(out, readTicketCount(last));
+        return out;
+      }
+    }
+    const r = parseQuickAdd(line, tiers, defaultTierId);
+    return r.phone ? { ...r, phone: repairPastedPhone(r.phone) } : r;
+  }
+  const delimiter = delimiterOf(line);
+  const cells = line.split(delimiter);
+  // Never the first column: that is the name ("3 Doors Down" stays a name).
+  const countAt = cells.findIndex((c, i) => i > 0 && looseCountCell(c));
+  const rest = countAt < 0 ? cells : cells.filter((_, i) => i !== countAt);
+  const r = parseQuickAdd(rest.join(delimiter), tiers, defaultTierId);
+  const out: ParseResult = { ...r, raw: line, phone: r.phone ? repairPastedPhone(r.phone) : r.phone };
+  if (countAt >= 0) applyCount(out, readTicketCount(cells[countAt]));
+  return out;
+}
+
+function applyCount(out: ParseResult, count: { plusOnes: number } | { countError: 'invalid' }): void {
+  if ('countError' in count) {
+    out.countError = count.countError;
+    return;
+  }
+  out.plusOnes = count.plusOnes;
+  out.slots = 1 + count.plusOnes;
+}
+
+interface PasteLine {
+  /** The line as pasted (only a trailing CR dropped): columns keep their places. */
+  raw: string;
+  /** Trimmed, list marker stripped — what the token grammar reads. */
+  clean: string;
+}
+
+function pasteLines(text: string): PasteLine[] {
+  return text
+    .split(/\r?\n/)
+    .map((raw) => ({ raw, clean: raw.trim().replace(LIST_MARKER, '').trim() }))
+    .filter((l) => l.clean.length > 0);
+}
+
+/** Split a pasted block into its guest lines: trimmed, list markers stripped,
+ *  blanks dropped, a leading column header skipped. */
+export function bulkLines(text: string): string[] {
+  const lines = pasteLines(text);
+  const header = lines.length > 0 ? readPasteHeader(lines[0].clean) : null;
+  return (header ? lines.slice(1) : lines).map((l) => l.clean);
+}
+
+/** Parse a pasted block (WhatsApp list, Notes, an Excel range) into one result
+ *  per guest line. With a header row the columns are read by role; without
+ *  one, each line by the #33 grammar (see `parseLooseRow`). */
 export function parseBulk(
   text: string,
   tiers: QuickAddTier[],
   defaultTierId: string
 ): ParseResult[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => parseQuickAdd(line, tiers, defaultTierId));
+  const lines = pasteLines(text);
+  const header = lines.length > 0 ? readPasteHeader(lines[0].clean) : null;
+  if (!header) return lines.map((l) => parseLooseRow(l.clean, tiers, defaultTierId));
+  return lines.slice(1).map((l) =>
+    l.raw.includes(header.delimiter)
+      ? parseColumnRow(l.raw, header, tiers, defaultTierId)
+      : parseLooseRow(l.clean, tiers, defaultTierId),
+  );
 }
 
 /** Total quota impact of a set of parsed/resolved lines (1 + plusOnes each). */
 export function totalSlots(results: Array<{ slots?: number; plusOnes: number }>): number {
   return results.reduce((sum, r) => sum + (r.slots ?? 1 + r.plusOnes), 0);
+}
+
+/** The preview's count line (share-import S2): "6 entries = 9 total guests
+ *  (2 with email)". `guests` is the head count, 1 + plusOnes per entry — the
+ *  same number the quota math uses (decision #22). */
+export function pasteSummary(rows: Array<{ plusOnes: number; email?: string | null }>): {
+  entries: number;
+  guests: number;
+  withEmail: number;
+} {
+  return {
+    entries: rows.length,
+    guests: totalSlots(rows),
+    withEmail: rows.filter((r) => !!r.email && r.email.trim() !== '').length,
+  };
 }

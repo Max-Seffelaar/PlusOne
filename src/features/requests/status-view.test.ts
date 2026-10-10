@@ -1,7 +1,7 @@
 // z8uq9m0hw6 — the /r/[token] adapter. The RPC decides what a token may see;
 // these pin that the page never shows MORE than the state allows even if a
 // payload did, that anything unrecognised is the neutral not-found (#28), and
-// the time/address formatting.
+// the time/location formatting.
 import { describe, expect, it } from 'vitest';
 import { formatWeekdayDate } from '@/features/po/format';
 import { formatEventTimes, formatVenueAddress, toRequestStatusView } from './status-view';
@@ -19,9 +19,11 @@ const approved = {
   ends_at: END,
   approved_plus_ones: 2,
   decision_message: '  Happy birthday! Doors close at 01:00.  ',
-  venue_address_line: 'Warmoesstraat 12',
-  venue_postal_code: '1012 JD',
-  venue_city: 'Amsterdam',
+  location_name: 'Paradiso',
+  location_address: 'Weteringschans 6, 1017 SG Amsterdam',
+  venue_address_line: null,
+  venue_postal_code: null,
+  venue_city: null,
 } as const;
 
 describe('toRequestStatusView — not found stays neutral', () => {
@@ -38,7 +40,7 @@ describe('toRequestStatusView — not found stays neutral', () => {
 });
 
 describe('toRequestStatusView — approved', () => {
-  it('shows the reduced count, the trimmed message, the address and the window', () => {
+  it('shows the reduced count, the trimmed message, the event location and the window', () => {
     const v = toRequestStatusView(approved);
     expect(v).toMatchObject({
       status: 'approved',
@@ -47,7 +49,7 @@ describe('toRequestStatusView — approved', () => {
       approvedPlusOnes: 2,
       eventName: 'Saturday Sessions',
       time: '23:00 to 05:00',
-      address: 'Warmoesstraat 12, 1012 JD Amsterdam',
+      location: 'Paradiso, Weteringschans 6, 1017 SG Amsterdam',
       message: 'Happy birthday! Doors close at 01:00.',
     });
     expect(v?.date).toBe(formatWeekdayDate(START));
@@ -77,10 +79,40 @@ describe('toRequestStatusView — approved', () => {
 });
 
 describe('toRequestStatusView — pending and denied never show approval-only fields', () => {
-  it.each(['pending', 'denied'] as const)('%s drops the address, count and message even if sent', (status) => {
+  it.each(['pending', 'denied'] as const)('%s drops the count and message even if sent, keeps the event location', (status) => {
     const v = toRequestStatusView({ ...approved, status });
-    expect(v).toMatchObject({ status, address: null, approvedPlusOnes: null, message: null });
+    expect(v).toMatchObject({
+      status,
+      location: 'Paradiso, Weteringschans 6, 1017 SG Amsterdam',
+      approvedPlusOnes: null,
+      message: null,
+    });
     expect(v?.time).toBe('23:00 to 05:00');
+  });
+});
+
+describe('toRequestStatusView — the event location, never the company address (z8uq9m444c)', () => {
+  it('name only, address only, or neither', () => {
+    expect(toRequestStatusView({ ...approved, location_address: null })?.location).toBe('Paradiso');
+    expect(toRequestStatusView({ ...approved, location_name: '  ' })?.location).toBe('Weteringschans 6, 1017 SG Amsterdam');
+    expect(toRequestStatusView({ ...approved, location_name: null, location_address: null })?.location).toBeNull();
+  });
+
+  it('ignores the legacy venue_* keys even when a pre-migration function fills them with the company address', () => {
+    // The deploy window: new app, old get_request_status (no location keys,
+    // the company address on approval). The page renders, without an address.
+    const oldShape: Record<string, unknown> = { ...approved };
+    delete oldShape.location_name;
+    delete oldShape.location_address;
+    const v = toRequestStatusView({
+      ...oldShape,
+      venue_address_line: 'Warmoesstraat 12',
+      venue_postal_code: '1012 JD',
+      venue_city: 'Amsterdam',
+    });
+    expect(v).not.toBeNull();
+    expect(v?.location).toBeNull();
+    expect(JSON.stringify(v)).not.toContain('Warmoesstraat');
   });
 });
 
@@ -96,7 +128,7 @@ describe('toRequestStatusView — a payload from before the migration still rend
     });
     // No `approved_plus_ones` key at all: that function never reduced, so the
     // whole party was approved (the page keeps saying "Party of 3").
-    expect(v).toMatchObject({ time: 'From 23:00', address: null, approvedPlusOnes: 2, message: null, plusOnes: 2 });
+    expect(v).toMatchObject({ time: 'From 23:00', location: null, approvedPlusOnes: 2, message: null, plusOnes: 2 });
   });
 });
 

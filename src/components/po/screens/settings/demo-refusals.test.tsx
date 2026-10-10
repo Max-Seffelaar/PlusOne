@@ -42,6 +42,8 @@ vi.mock('../../context', () => ({
   useNav: () => ({ push: H.push, back: vi.fn() }),
   usePo: () => ({ myVenues: [{ venueId: A, venueName: 'Venue A', roles: ['admin'] }], activeVenueId: A, switchToVenue: vi.fn() }),
 }));
+// The guest-contact card (guest mail F) has its own query; not under test here.
+vi.mock('../settings/venue-contact', () => ({ GuestContactCard: () => null }));
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: ['admin'], venueName: 'Venue A' }) }));
 vi.mock('@/features/po/hooks', () => ({
   usePoIsPlatformAdmin: () => false,
@@ -59,6 +61,7 @@ vi.mock('@/features/po/hooks', () => ({
   }),
   usePoSessions: () => ({ data: [] }),
   usePoCanManageTemplates: () => false,
+  usePoCompanyLocations: () => ({ data: [], isLoading: false, isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => {
   const names = [
@@ -73,6 +76,9 @@ vi.mock('@/features/po/mutations', () => {
     'usePoUpdateProfile',
     'usePoUpdateEmail',
     'usePoRevokeOwnSession',
+    'usePoCreateCompanyLocation',
+    'usePoUpdateCompanyLocation',
+    'usePoArchiveCompanyLocation',
   ];
   return Object.fromEntries(names.map((n) => [n, () => (H.mutations[n] ??= stub())]));
 });

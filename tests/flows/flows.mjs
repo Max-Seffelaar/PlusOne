@@ -85,6 +85,27 @@ export const FLOWS = {
       'src/lib/legal.ts',
     ],
   },
+  'guest-mail': {
+    title: 'Gastcommunicatie F (6a) — Guest contact → add with "Send confirmation" → "You\'re on the list" mail → /s status page + .ics → /u opt-out',
+    paths: [
+      'src/features/mail/',
+      'src/features/guests/',
+      'src/features/contacts/actions.ts',
+      'src/features/events/actions.ts',
+      'src/features/requests/actions.ts',
+      'src/features/venues/contact-',
+      'src/features/po/company-contact.ts',
+      'src/features/po/guest-mail.ts',
+      'src/app/s/',
+      'src/app/u/',
+      'src/app/api/webhooks/guest-mails/',
+      'src/components/po/guest-status.tsx',
+      'src/components/po/landing-frame.tsx',
+      'src/components/po/screens/guests/',
+      'src/components/po/screens/settings/venue',
+      'src/components/po/screens/events/guest-mail.tsx',
+    ],
+  },
   'onboarding-ade-trial': {
     title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
     paths: [
@@ -154,6 +175,22 @@ export const FLOWS = {
       'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
+  'event-locations': {
+    title: 'Event locations L — Company settings: two saved locations → event at the second → /e/[slug] → approve → /r/[token]',
+    paths: [
+      'src/features/venues/location-',
+      'src/features/po/',
+      'src/features/requests/',
+      'src/components/po/screens/settings/venue',
+      'src/components/po/screens/events/edit',
+      'src/components/po/screens/events/location-picker.tsx',
+      'src/components/po/places-field.tsx',
+      'src/components/po/request-status.tsx',
+      'src/components/po/landing',
+      'src/app/e/',
+      'src/app/r/',
+    ],
+  },
   'door-checkin': {
     title: 'Door check-in D — Check in all / Check in 1 (3/4), one row, undo refused with the setting off',
     paths: [
@@ -218,12 +255,44 @@ export const FLOWS = {
       'src/lib/i18n/surfaces/platform.ts',
     ],
   },
+  'billing-mails': {
+    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause',
+    paths: [
+      'supabase/migrations/20261013170000_billing_mail_types.sql',
+      'src/features/billing/mail-',
+      'src/features/mail/',
+      'src/app/api/webhooks/billing-mails/',
+      'src/components/po/screens/platform-billing-mails',
+      'src/components/po/screens/platform-venues',
+      'src/lib/i18n/surfaces/platform.ts',
+    ],
+  },
   'platform-billing': {
     title: 'Billing G — Platform → Companies: always free / trial until, audited on the admin',
     paths: [
       'src/features/billing/',
       'src/features/po/',
       'src/components/po/screens/platform',
+    ],
+  },
+  share: {
+    title: 'Share-import S2 — text shared from WhatsApp/Mail/Notes/Excel lands on Paste a list with event + tier, imports once, never leaks (z8uq9m43m8)',
+    paths: [
+      'public/manifest.json',
+      'src/components/po/screens/share',
+      'src/components/po/screens/guests/bulk-paste',
+      'src/components/po/screens/guests/bulk-row',
+      'src/features/guests/quick-add-parser',
+      'src/features/guests/share-inbox',
+      'src/features/guests/bulk-dedupe',
+      'src/features/guests/actions.ts',
+      // Q13/Q14: the service-worker hop, the login's fragment drop, next= hygiene.
+      'public/service-worker.js',
+      'src/features/auth/next-path',
+      'src/features/auth/components/OtpLoginForm',
+      'src/lib/observability/scrub',
+      // Q15/Q16: pasted spreadsheet columns + the Excel phone repair.
+      'src/features/contacts/import/parse',
     ],
   },
 };

@@ -191,6 +191,30 @@ export const settings = {
   },
 
   // Switch company (VenueSwitch).
+  // Saved locations (z8uq9m444c), a section of Company settings. An event
+  // keeps a copy of the one it uses, so edits and archiving never move a
+  // published event. Field labels reuse settings.venue (street/postal/city).
+  locations: {
+    label: 'Locations',
+    note: 'Where your events happen. Pick one per event. Guests see it on the request link.',
+    empty: 'No saved locations yet. Add the places where you run events.',
+    add: 'Add location',
+    nameLabel: 'Name',
+    namePlaceholder: 'e.g. Paradiso',
+    save: 'Save location',
+    saving: 'Saving…',
+    edit: 'Edit',
+    editAria: 'Edit {name}',
+    archive: 'Archive',
+    archiveAria: 'Archive {name}',
+    archiveConfirm: 'Archive {name}? Events that use it keep their address.',
+    archiveYes: 'Archive location',
+    newTitle: 'New location',
+    editTitle: 'Edit location',
+    nameRequired: 'Give the location a name.',
+    tooLong: "That's too long.",
+  },
+
   venueSwitch: {
     title: 'Companies',
     sub: 'Switch between your companies',
@@ -207,6 +231,33 @@ export const settings = {
     // Shown instead of role chips for a company the caller only has external-crew
     // (event-scoped) access to — they're not a company member there (86ey21vre).
     crewAccess: 'External crew',
+  },
+
+  // Guest contact (Company settings, guest mail F): reply-to + footer of every
+  // guest mail, and the channels on the guest status page.
+  contact: {
+    title: 'Guest contact',
+    intro: 'Guests see this address in every email about their spot. Their replies go there too.',
+    emailLabel: 'Contact email',
+    emailPlaceholder: 'e.g. info@yourclub.com',
+    emailInvalid: "That email doesn't look right.",
+    emailMissing: 'Add a contact email. Guest emails wait until you do.',
+    channelsLabel: 'Other channels (optional)',
+    channelsHint: 'Shown on the guest status page.',
+    phone: 'Phone',
+    instagram: 'Instagram',
+    facebook: 'Facebook',
+    snapchat: 'Snapchat',
+    tiktok: 'TikTok',
+    channelTooLong: 'Keep it under 100 characters.',
+    channelInvalid: "Leave out < > and quotes.",
+    confirmationDefault: 'Send confirmation by default',
+    confirmationDefaultHint: 'Ticks "Send confirmation" when someone adds a guest with an email.',
+    save: 'Save contact',
+    saving: 'Saving…',
+    saved: 'Contact saved.',
+    saveFailed: "Couldn't save the contact.",
+    adminOnly: 'Only an admin can change the guest contact.',
   },
 
   // Company settings (VenueSettings).

@@ -67,7 +67,11 @@ export const poKeys = {
   userSessions: (targetUserId: string) => [...poKeys.all, 'user-sessions', targetUserId] as const,
   profile: (userId: string) => [...poKeys.all, 'profile', userId] as const,
   venueSettings: (venueId: string) => [...poKeys.all, 'venue-settings', venueId] as const,
+  /** Guest contact (contact email, channels, confirmation default; guest mail F). */
+  companyContact: (venueId: string) => [...poKeys.all, 'company-contact', venueId] as const,
   subscription: (venueId: string) => [...poKeys.all, 'subscription', venueId] as const,
+  /** Saved company locations (z8uq9m444c), active only. */
+  companyLocations: (venueId: string) => [...poKeys.all, 'company-locations', venueId] as const,
   // Event templates (86exyp8gn) — reusable per-event-type setups scope to a venue;
   // a single template + its tier list key on the template id.
   templates: (venueId: string) => [...poKeys.all, 'templates', venueId] as const,
@@ -119,6 +123,8 @@ export const poKeys = {
   // (Invites or Venues, keyed by the ids shown) + the three Overview aggregates.
   platformCompanies: (venueIds: readonly string[]) =>
     [...poKeys.all, 'platform-companies', venueIds] as const,
+  // Billing-mails B1 (z8uq9m2z19): one company's billing-mail timeline.
+  platformBillingMails: (venueId: string) => [...poKeys.all, 'platform-billing-mails', venueId] as const,
   platformSubscriptionCounts: () => [...poKeys.all, 'platform-overview', 'subscriptions'] as const,
   platformTrialFunnel: () => [...poKeys.all, 'platform-overview', 'trial-funnel'] as const,
   platformUsage: () => [...poKeys.all, 'platform-overview', 'usage-30d'] as const,

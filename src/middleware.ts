@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
-import { REQUEST_PATH_HEADER, requestPathForHeader, safeNextPath } from '@/features/auth/next-path';
+import { REQUEST_PATH_HEADER, loginNextPath, requestPathForHeader, safeNextPath } from '@/features/auth/next-path';
 
 // Middleware protects EVERY route by default; public exceptions are listed
 // explicitly here (bouwplan Fase 4 §6). Anything not public requires a verified
@@ -12,7 +12,9 @@ const PUBLIC_PATHS = new Set<string>(['/', '/login', '/api/health']);
 // the auth there, a login redirect would break them for guests/influencers —
 // and inbound webhooks (#32 — Stripe authenticates via signature, not a session;
 // a login redirect here would make Stripe mark every delivery as failed).
-const PUBLIC_PREFIXES = ['/auth/', '/e/', '/r/', '/i/', '/api/webhooks/'];
+// Guest mail F adds the guest's own bearer pages: /s (status + .ics) and /u
+// (opt-out, incl. RFC 8058 one-click POST from the mail provider).
+const PUBLIC_PREFIXES = ['/auth/', '/e/', '/r/', '/i/', '/s/', '/u/', '/api/webhooks/'];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
@@ -80,7 +82,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.search = '';
-    url.searchParams.set('next', pathname + request.nextUrl.search);
+    // Never a shared guest list (/app/share?text=…) in the login URL — share-import S2.
+    url.searchParams.set('next', loginNextPath(request.nextUrl));
     return redirectWithCookies(url, response);
   }
 

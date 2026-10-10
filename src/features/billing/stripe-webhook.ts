@@ -336,5 +336,26 @@ export async function handleStripeWebhook(
     return { status: 500, body: 'processing failed' };
   }
 
+  // Billing mail (z8uq9m2z19): queue "payment failed" / "subscription ended"
+  // for the billing-mail job. Also on a replay, on purpose: the queue is keyed
+  // by the Stripe event id (a second call is a no-op, so a replay never mails
+  // twice), and the RPC only queues events the ledger above already holds. A
+  // failed queue call answers 500 so Stripe redelivers; that redelivery is a
+  // ledger replay that lands right back here and queues it then.
+  if (BILLING_MAIL_EVENTS.has(update.eventType) && update.stripeCustomerId) {
+    const { error: mailError } = await supabase.rpc('enqueue_billing_event_mail', {
+      p_stripe_event_id: update.eventId,
+      p_stripe_customer_id: update.stripeCustomerId,
+      p_event_created: update.eventCreated ?? undefined,
+    });
+    if (mailError) {
+      console.error('stripe webhook billing mail queue failed', { eventId: update.eventId, code: mailError.code });
+      return { status: 500, body: 'processing failed' };
+    }
+  }
+
   return { status: 200, body: applied ? 'ok' : 'replay' };
 }
+
+/** Stripe events that queue a billing mail (enqueue_billing_event_mail). */
+const BILLING_MAIL_EVENTS = new Set(['invoice.payment_failed', 'customer.subscription.deleted']);

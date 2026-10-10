@@ -40,3 +40,10 @@ export const platformCompedSchema = z.object({
   comped: z.boolean(),
 });
 export type PlatformCompedInput = z.input<typeof platformCompedSchema>;
+
+// Billing-mails B1 (z8uq9m2z19): "Pause billing mails" per company (platform admin).
+export const platformBillingMailsPausedSchema = z.object({
+  venueId: uuid,
+  paused: z.boolean(),
+});
+export type PlatformBillingMailsPausedInput = z.input<typeof platformBillingMailsPausedSchema>;

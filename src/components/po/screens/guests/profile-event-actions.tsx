@@ -10,7 +10,7 @@ import { profileRowActions } from '@/features/guests/permissions';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { ActionItem, Btn, Note } from '../../kit';
+import { ActionItem, Btn, Label, Note, TextArea } from '../../kit';
 import { ConfirmSheet, Sheet } from '../../shell';
 import { press } from './_shared';
 import { PlusOnesSheet } from './profile-sheets';
@@ -226,13 +226,17 @@ export function RemoveGuestSheet({
 }): JSX.Element {
   const remove = usePoRemoveGuest(event.eventId);
   const [err, setErr] = useState<string | null>(null);
+  // The note for the guest (guest mail F): they get it by email. The server
+  // requires it when the guest has an address and asks for it with the same
+  // message, so a guest without one can still be removed without a note.
+  const [note, setNote] = useState('');
   const cp = t.guests.contactProfile;
   const slots = event.registeredHeads;
   const inside = event.presentHeads !== null;
 
   const run = (): void => {
     setErr(null);
-    remove.mutate(event.guestId, {
+    remove.mutate({ guestId: event.guestId, note: note.trim() || undefined }, {
       onSuccess: onRemoved,
       onError: (e) => setErr(e instanceof Error ? e.message : cp.removeFailed),
     });
@@ -257,6 +261,16 @@ export function RemoveGuestSheet({
         })}
       </p>
       <p className="mt-3 font-display text-[13px] font-bold text-red-300">{cp.removeIrreversible}</p>
+      <Label className="mb-2 mt-4">{t.guests.mail.removeNoteLabel}</Label>
+      <TextArea
+        value={note}
+        onChange={setNote}
+        placeholder={t.guests.mail.removeNotePlaceholder}
+        ariaLabel={t.guests.mail.removeNoteLabel}
+        maxLength={500}
+        rows={2}
+      />
+      <p className="mt-1 text-[12px] leading-[1.4] text-faint">{t.guests.mail.removeNoteHint}</p>
       {err && (
         <p className="mt-3 text-[12.5px] text-red-300" role="alert">
           {err}

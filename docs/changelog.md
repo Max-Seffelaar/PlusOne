@@ -8,6 +8,186 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — Gastcommunicatie F, PR 6a: guest mail (z8uq9m2vpy)
+
+Milestone **Now** (golf E, ADE). Spec #13 revised: no marketing and no invitations, but transactional guest mail about a guest's own spot. Copy v3 (`docs/copy-review/guest-mails.html`, Max 2026-10-09) word for word in `src/features/mail/templates/guest-copy.ts`. PR 6b (team mail + notification prefs, migration `20261013180300`) follows.
+
+- **Migrations** `20261013180000_guest_mail_types`, `…180100_company_contact_channels`, `…180200_guest_mail_optout`:
+  - `mail_log.type` gains nine `guest_*` types; added additively (union of the live constraint, every type on main and in #440/#446, plus the guest types), so merge order cannot drop a type. Guest mail stays out of the 25-a-day invitation cap and the 60-second recipient window, and `log_mail_attempt` refuses the guest types.
+  - `guest_mail_queue`: one row per guest per mail, no address, no name. The facts are read again at send time; the team's note is dropped once the row settles. Enqueue RPCs are service_role only, called after the user-scoped mutation succeeded, with ordering rules (removed before the confirmation went: no mail at all; +N while the confirmation is pending: no second mail; debounce 60 s for +N, 120 s for event edits).
+  - `venues.contact_email` (reply-to + footer; without it guest mail waits), `contact_channels` (phone/Instagram/Facebook/Snapchat/TikTok, on the status page), `guest_confirmation_default`; `events.house_rules`.
+  - `guest_mail_links` (sha256 of per-mail tokens: status page, opt-out, reply key), `guest_mail_optouts` (company + address hash), the claim/settle job with per-company (1000/day) and global (5000/day) budgets, pg_cron every minute behind the Vault secret `plusone_guest_mails_url` (unset = sleeps).
+  - Public `get_guest_status` and `unsubscribe_guest_mail` on the bound `st` throttle (shared with `/r/[token]`), one neutral answer for anything not live.
+- **Sending**: queued in `after()` by the actions (QuickAdd, paste a list, contacts single/bulk/import, +N edit, removal with a required note when the guest has an address, event time/location change, cancel, request approval) and drained right there; the cron route `/api/webhooks/guest-mails` (single-use token) is the safety net. Resend batch API, 100 per call, idempotency key per batch from the `mail_log` ids. Sender `"{event_name} via PlusOne" <noreply+<key>@plus-one.io>`, reply-to the company contact, `List-Unsubscribe` + one-click POST. The door never queues mail.
+- **Calendar**: `.ics` served at `/s/[token]/calendar.ics` (UID = event id, so a later download updates the entry) plus a Google Calendar template link. Not an attachment: Resend's batch endpoint takes none.
+- **Public pages**: `/s/[token]` guest status page and `/u/[token]` opt-out (GET only asks, POST opts out; same answer for any token). Middleware lists `/s/` and `/u/` as public.
+- **Inbound**: `email.received` on the existing Resend webhook answers a mail to `noreply@` once (ledger first, so a replay never answers twice), with the company contact behind a live reply key or a generic footer pointer; one per sender per 24 h, 200 per hour overall.
+- **UI**: Company settings → Guest contact (own file `settings/venue-contact.tsx`), "Send confirmation" on every add path, the removal note, house rules + platform-admin "Send reminder" (`GUEST_REMINDER_ENABLED=true`) in event edit (own file `events/guest-mail.tsx`).
+- **Bug found by the flow**: the enqueue helpers called `service.rpc` detached from its client, so supabase-js lost `this` and every enqueue threw inside `after()` (logged, never surfaced). Bound now, regression test `guest-queue.test.ts`.
+- **Tests**: vitest on the templates (every count, "1 person", price line only with a price, status link only when the page exists, injection), the job, batch adapter, inbound, status adapter, opt-out route, actions; pgTAP `guest_mail.test.sql` (85); flow `tests/flows/guest-mail.flow.ts` (10 checks).
+- **Review round (fresh reviewer, verdict clean, 0 blocking, 4 should-fix, 4 nits):**
+  - **S1:** the merge/push order #440 → #446 → #453 is load-bearing: an older migration pushed after this one would rewrite the type constraint without the guest types. Recorded in the PR; the additive DO block cannot guard against a predecessor that runs later.
+  - **S2:** a batch `timeout`/`network` error is no longer retried. The batch may have been accepted, and a retry claims new mail_log ids, so a new Idempotency-Key Resend can't dedupe. Only refusals Resend answered (429, quota, 5xx) retry.
+  - **S3:** `unsubscribe_guest_mail` spends the `st` throttle only on a miss. One-click POSTs come from Gmail's/Yahoo's IPs; a per-IP budget on hits dropped real opt-outs after 30 in 15 minutes.
+  - **S4:** the auto-reply reads the mail back from Resend (`GET /emails/receiving/{id}`) and answers only when the From domain passed DKIM (aligned) or DMARC, and not auto-generated mail (Auto-Submitted, Precedence bulk/list/junk, List-Id). Checked before the budget is spent; any error means no answer.
+  - **Nits:** N1 commented (concurrent runs can pass a cap by one claim), N3 the status page opens its links in the same tab. N2 (a removal note for a guest whose confirmation is still pending is dropped) and N4 (a cancel mail can reach a guest removed in between) stay as they are.
+- **Not in 6a**: the "no confirmation" marker in the guest list (the RPC `event_guest_mail_status` exists), the auto-approve request-link path (needs the guest id from `submit_guest_request`), the decline mail wiring (task 7 calls `queueRequestDeclinedMail`).
+
+---
+
+## 2026-10-10 — Paste a list reads Excel/Sheets columns: ticket count, Excel phone numbers (z8uq9m43m8 follow-up)
+
+Milestone **Now**. Max tested #443 on Android (sharing from Gmail works; WhatsApp and Sheets offer no text share for this, so they go copy → paste). His Excel paste showed two parser bugs: `Henk Achternaam 1 1` as the name, no count, `646003664` as the phone. Decisions Max 2026-10-10; spec #33 refined. Parser only (`quick-add-parser.ts`, plus the row errors in `bulk-row.ts`); `bulk-paste.tsx` untouched (PR #453 works there).
+
+- **By column when there is a header.** `readPasteHeader` gives every column a role: first/last name (also `tussenvoegsel`), name, count, +1, tier, e-mail, phone, notes. A header needs a name column, at least half its cells known, and no cell that looks like data. Unknown columns are ignored.
+  - Max's header (`Aantal tickets`) used to be missed because "aantal tickets" wasn't in the old fixed header list, so the header became a guest.
+  - Name + tier still go through the #33 grammar, so tier aliases resolve and an unknown tier word asks.
+- **A bare number column is the total number of people:** `2` = the guest +1. A header with tickets/aantal/personen/people/qty/guests confirms it; `+2` keeps meaning plus-ones.
+  - Without a header, a bare number 1–20 in its own column (never the first) is the total too, as is one in a column the header doesn't name.
+  - A space-only line too: a bare last number 1–20 is the total, so `Henk Jansen 2` = Henk +1 (Max 2026-10-10). Quick add and the door deliberately keep `Naam 2` = +2.
+  - 0, negative or not a number → "Check the number of people" on that row. More than 51 people (the plus_ones bound of 50, now `PLUS_ONES_MAX`, used by the schema too) → "Too many people on one line (max 51)". Before, such a line only failed the whole batch at the server.
+- **Excel phone numbers.** `repairPastedPhone` rewrites only what Excel mangles, through the one E.164 normaliser `normalizeImportPhone`: 9 digits without a 0 → +31…, `31` + 9 → +31…, `0031…` → +31….
+  - `normalizeImportPhone` gained the 9-digit rule, so the contacts import gets the same fix.
+  - A plain `0612345678` stays as typed, because contacts match on `phone_norm` digits. Quick add and the door repair nothing.
+- **E-mail in the tab layout** was already read; with the header fixed, Max's paste counts "6 with e-mail".
+- **Tests:** vitest on Max's paste (rows 3, 5 and 6 reconstructed: his message showed three of the six) → 6 guests, +N 0/1/1/5/3/1, tier, e-mail, +31 phone, "6 entries · 17 guests total · 6 with e-mail". Also the same rows without a header, count/phone header words, count errors, the header guard and the phone repair (and that quick add doesn't). `bulk-row.test.ts` covers the row errors.
+  - Existing expectations changed by decision: a pasted `31646003600` is now `+31646003600`; `Name⇥email⇥2` is now +1; a pasted `… 1` / `… 5` at the end of a line is now +0 / +4.
+  - Flow `share` Q15/Q16 (4 variants): the paste through Paste a list, the count line, then the database (+N, tier, e-mail, `+31…`). Stand-ins: example.com addresses instead of Max's real ones, `Regular` for `GUEST` (no Guest tier on the seed event).
+
+---
+
+## 2026-10-09 — Billing-mails B1: seven trial/payment mails + Platform timeline (z8uq9m2z19)
+
+**What.** Seven billing mails to the admins + finance of a company, copy v3 verbatim
+(`src/features/mail/templates/billing-copy.ts`): trial-0 (start), trial-7 (end − 7 d),
+trial-12 (end − 2 d), trial-ended (end), trial-21 (end + 7 d), payment-failed (every
+Stripe `invoice.payment_failed`), canceled (every `customer.subscription.deleted`).
+Sender `PlusOne <support@plus-one.io>`, reply-to support@. No amounts.
+
+**How.** Migration `20261013170000_billing_mail_types.sql`:
+- mail_log gains the seven types; billing mails are excluded from the company invite
+  cap and the 60-s recipient window (log_mail_attempt refuses them: one path).
+- `billing_mail_deliveries` ledger, key = type (trial: once per company per type) or
+  `stripe:<event id>` (every event mails once); a failed attempt may be retried.
+- `billing_mail_events`: the Stripe webhook calls `enqueue_billing_event_mail` after
+  `apply_stripe_subscription_update` (also on a ledger replay: idempotent per event,
+  and it lets Stripe's redelivery recover a failed queue call). Type comes from the
+  `stripe_webhook_events` row; stale (a newer event already applied), >3 days old,
+  comped and paused queue nothing.
+- `log_billing_mail` re-checks in the DB: admin/finance of THAT company, not comped,
+  not paused, trialing for trial mails, queued event for Stripe mails.
+- Job = the platform-digest pattern (PR #440): pg_cron hourly → `billing_mails_tick`
+  (kicks only 08:00–20:59 Amsterdam) → pg_net POST with a single-use token →
+  `POST /api/webhooks/billing-mails` (Next route, not an Edge Function: it shares the
+  templates and the mail provider with the webhook path, so the Resend confinement
+  guard needs no new exception) → `billing_mails_begin` consumes the token first.
+  Sleeps without the Vault secret `plusone_billing_mails_url`.
+- When a trial mail is due: the pure `dueBillingMails` (`src/features/billing/mail-schedule.ts`),
+  a 24-hour window from each moment counted from `effectiveTrialEndsAt`. No catch-up:
+  a short override skips days already gone; a failed run is retried the same day.
+- Platform → Companies card: "Billing mails" (collapsed; reads only when opened) with
+  per-mail recipient/status counts, the next trial mail (same pure schedule) and
+  "Pause billing mails" (`set_billing_mails_paused`, platform admin, stamped uid).
+
+**Tests.** vitest: schedule on every day / override / ADE / missed day / comped /
+paused / Stripe-linked; templates (subjects, injection, no amounts); job core
+(token, transport, idempotent second run, Stripe keys, no PII in logs); webhook
+queue calls; timeline component. pgTAP `billing_mails.test.sql` (68). Flow
+`billing-mails.flow.ts` (job → Mailpit → timeline → pause, 4 variants). Local:
+`pnpm billing-mails:local --demo` puts all seven mails in Mailpit.
+
+**Not live** until the orchestrator's go: Vault secret + `RESEND_API_KEY` on prod
+(without a key the job answers 503 and writes nothing).
+
+---
+
+## 2026-10-09 — Event locations L: saved locations per company, public pages show the event location (z8uq9m444c)
+
+Milestone **Now** (golf D, taak 3b, ADE). Decision Max 2026-10-07; spec #58 (amends #48(c), #53).
+
+- **Migration `20261013160000_event_locations`** (expand-only):
+  - `company_locations` (name, address_line, postal_code, city, country, place_id, archived_at). Members read, admins write (RLS); INSERT on the content columns only, UPDATE on the editable ones (venue_id immutable), no DELETE: archive. Caps 120/16/60 so a copy always fits `events.location_address` (200).
+  - Seed: one saved location per existing company with an address. Backfill, narrowed after review (decision Max 2026-10-10, "no address goes public without someone choosing it"): only a not-over event with no active share link, no guest request (a paused link's earlier status tokens) and no location, at a company with an address, gets the company's name + address, once (owner-only `backfill_event_locations_from_company()`). Past events and events with a live share link stay NULL.
+  - `get_request_status` returns the event's `location_name`/`location_address` for every found token (every state, mirrors too) and no longer reads `venues`. The `venue_*` keys stay, always null, until a contract migration.
+- **App**:
+  - Company settings → Locations (`settings/venue-locations.tsx`, one render line in `venue.tsx`): list, add (Places fills street/postcode/city and the name when empty), edit, archive with a confirm. Server actions in `src/features/venues/location-actions.ts` through the user-scoped client.
+  - Event form: a new event starts at the first saved location, else the company; saved locations are chips (`events/location-picker.tsx`); the event stores a copy. Templates with a location still win. Hint now "Guests see this on the request link and their status page."
+  - `/r/[token]` shows the event location in every state; the adapter ignores the `venue_*` keys, so the deploy window before the prod push renders no company address.
+- **Tests**: pgTAP `event_locations.test.sql` (60; allowed/denied per role, grants, exact payload keys, no company address, mirror, the backfill predicate); `partial_approval` F2/F3 now assert no company address; full suite after merging main (incl. #440) 99 files / 2575. Vitest: adapters, schemas, status view, request status, Locations section, event form. Flow `event-locations` (11 checks, four variants); `company-rename` Q7 follows the new default.
+- **Prod push**: Max, right after the merge (CLAUDE.md "Prod-push flow"; supersedes the §4 "push before merge" text).
+- **Follow-up (parked)**: audit location changes (`company_locations`, `events.location_*`) now that the field is a public address.
+
+---
+
+## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
+
+Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.
+
+- **Manifest:** `share_target` (GET, `title`/`text`/`url`) → `/app/share`. On Android Chrome the installed PWA shows up in the share sheet.
+- **`/app/share` (screen `share`, G1 route, nav highlight Guests):** `screens/share.tsx` mounts Paste a list with `share`. The text pre-fills the box. Event picker defaults to the next upcoming event, tier picker sets the tier for lines that name none. After Add the screen replaces itself with that event's guest list.
+- **Share inbox** (`src/features/guests/share-inbox.ts`): in-memory only. `captureShareFromLocation` moves `text` (else `title`; `url` is never a list) from the query or a `#text=` fragment into memory and rewrites the URL with `history.replaceState(null, …)`. Gotchas:
+  - Passing Next's own `history.state` (`__NA`) cleans the address bar but not the router, so the import's server-action POST still went to `/app/share?text=…`. The flow caught this in the dev-server log.
+  - Reads are non-destructive. The shell keys its screen on the full URL (entrance animation), so the URL rewrite remounts the screen and a read-once inbox left the remounted screen empty. The text is cleared after a successful import. S6's native plugin calls `putSharedText`.
+- **Parser** (`quick-add-parser.ts`): `bulkLines` strips list markers (`-`, `•`, `*`, `1.`, `2)`) and skips a first-line column header ("Name<TAB>Email", "Naam, E-mail, Telefoon"). Tab/comma columns, e-mail and phone per line already worked. `pasteSummary` feeds the new preview count line "4 entries · 7 guests total · 2 with e-mail" (also on the normal Paste a list).
+- **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
+- **Service-worker share hop (Max 2026-10-09, option a; high-risk → fresh reviewer before merge):** with GET alone, the launch `/app/share?text=…` reached the server once (the dev server printed it; Vercel logs URLs). The SW's network-first path also stored it in the session cache under that URL, and a signed-out share carried it into `/login?next=…`.
+  - `public/service-worker.js` now answers that navigation itself with a 303 to `/app/share#text=…`: no fetch, no cache write. Every other navigation is unchanged.
+  - The Sentry scrubber now also strips URL fragments.
+- **Review round (fresh reviewer: verdict clean, 0 blocking, 3 should-fix, 6 nits), all fixed:**
+  - **S1:** without a SW, `replaceState` cleaned the address bar but not Next's router tree. The tree kept `__PAGE__?{"text":…}` in `history.state` and sent it back as `Next-Router-State-Tree` on the next navigation. The query path now does `location.replace('/app/share#…')`, a fresh document without the query. The flow proves it (Q2 checks `history.state`, Q6 the header); Q2 failed before the fix.
+  - **S2:** the window without a SW is wider than "first launch". It is: (a) installed from `/` and shared before the first signed-in `/app`; (b) after clear site data or eviction; (c) the pre-PR worker during an update, which caches the query URL in session-v1. This is now documented in the SW header, spec #33 and here. **Middleware** (`loginNextPath`, and `requestPathForHeader` for the /app gates) drops `text`/`title`/`url` from `next=` on `/app/share` only.
+  - **S3:** a signed-out share with the SW lands on `/login?next=/app/share#text=…`, because the fragment rides the 307. The login form drops it unread (`dropShareFragment`). The scrubber also catches a keyed fragment on a single-segment path. The empty share box says "Nothing came through? Share the list again, or paste it below." New flow check Q14.
+  - **Nits:** N1 the SW hops `/app/share/` too. N3 the cors test also checks fetch and cache. N4 a spec line: the native shell gets OS shares only with S6. N5 the `Select` restyle is named in the PR. N6 leaving the share screen clears the inbox.
+- **Found, not fixed (in the PR):**
+  - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
+- **Tests:** flow `share` (Q1–Q14 × 4 variants, all green locally; Q14: signed out with the SW, `/login?next=/app/share` without a fragment; Q13: with an active SW no request with the text reaches the network, cross-checked in the dev-server log; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), SW share-hop tests (+6 in `service-worker-cache-scope.test.ts`), scrub fragment test, routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+
+---
+
+## 2026-10-08 — Platform R vervolg: daily platform digest (z8uq9m2ybj, golf D, §9 item 19)
+
+Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (new service-role path + scheduler): fresh reviewer session before merge. Merges after vervolg A (`20261013140000`). No prod push, nothing deployed, nothing live.
+
+- **Migration `20261013150000_platform_digest`:**
+  - `mail_log.type` + `platform_digest`.
+  - `platform_digest_tokens`: single-use invocation tokens (sha256, 10 minutes), the push-dispatch pattern.
+  - `platform_digest_deliveries`: a ledger per Amsterdam day per recipient. Both tables have RLS on, no policies and no grants.
+  - Service-role-only wrappers `platform_digest_subscription_counts/_trial_funnel/_usage_30d`: copies of the Overview bodies, which stay unchanged. pgTAP asserts parity.
+  - `platform_digest_begin(token)`: consumes the token or raises 42501, then returns the aggregates plus the current platform admins.
+  - `log_platform_digest_mail(recipient)`: venue-less, no company cap. Returns NULL when today's digest is already queued or sent; a failed attempt may retry. 42501 for anyone who is not a platform admin.
+  - Owner-only `kick_platform_digest()` / `platform_digest_tick()`.
+  - pg_cron `plusone-platform-digest` runs at 05:45 and 06:45 UTC; the tick only kicks at 07:xx Amsterdam.
+  - Vault secret `plusone_platform_digest_url`; unset means asleep.
+- **Edge Function `supabase/functions/platform-digest/`:**
+  - `digest.ts` (runtime-agnostic core) and `template.ts` (aggregates only, footer support@plus-one.io).
+  - Resend over fetch with Idempotency-Key `mail_log/<id>`. Without a key it uses Mailpit, and only on a local stack; otherwise it returns 503 after auth and writes no row.
+  - `verify_jwt = false` in `config.toml`.
+  - **No MRR/ARR:** no server path to the Stripe prices exists outside a user session, so the mail links to the Overview.
+- **Guard tightened:** `mail-confinement.test.ts` now also scans `supabase/functions/`. Only `platform-digest` may name the Resend host.
+- **Tests:** pgTAP `platform_digest.test.sql` (55) plus `tables.test.sql`; vitest `tests/unit/platform-digest.test.ts`. Ran locally end to end: kick → pg_net → served function → Mailpit. A second kick gave `skipped: 1`.
+- **Docs:** `docs/mail-deliverability.md` "Platform digest" (go-live steps and local test), `.env.example`, spec decision #57. `database.types.ts` regenerated; it also picks up two older missing entries, `cleanup_venueless_mail_log` and `is_tied_to_venue`.
+- **Review round (fresh reviewer: security clean, 2 blockers + 1 should-fix + 3 nits), 2026-10-09:**
+  - The subscription wrapper now carries `trialing_payment_set_up` from #439 (`20261013140000`), so parity test D1 holds on main + #439. I kept the copy rather than a shared internal body, because sharing would mean a third drop and re-create of the Overview RPC. D1 stays the drift alarm. The mail shows the new count as "Trial, payment set up".
+  - `log_mail_attempt` is re-created so a `platform_digest` row no longer starts the 60-second recipient window (pgTAP E17/E18).
+  - The function answers `{ ok: true }` only, with totals in the log (`net._http_response` is readable by app roles).
+  - Runbook triage row: a failed digest is retried only by a manual `kick_platform_digest()`.
+  - Spec decision renumbered to #57 (#56 went to #438).
+  - Migration moved to `20261013150000` (prod already had `20261013120000`); #439 landed as `20261013140000`. The `mail_log` type constraint keeps `platform_invite` from `20261013130000`.
+  - Full run on main + this branch: pgTAP 98 files / 2515 assertions, `CI=1 pnpm test` 284 files green.
+  - Delta review clean (no blockers). Its two doc nits are now in the runbook and `docs/mail-deliverability.md`: a consumed token without a send (`mail_not_configured`, RPC error) needs a manual kick, and `bounced`/`complained` count as sent.
+
+---
+
+## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
+
+Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
+
+- **Migration `20261013140000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). In the browser, Overview shows "Trial, no payment yet" next to the new "Trial, payment set up" tile (review: one label never means two numbers), so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: both tiles match the database exactly; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+
+---
+
 ## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
 
 Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).

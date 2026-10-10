@@ -4,7 +4,7 @@
  * retry storm. fetch is stubbed; nothing leaves the process.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ResendAdapter } from './resend-adapter';
+import { fetchReceivedMailMeta, ResendAdapter } from './resend-adapter';
 import type { OutgoingMail } from './provider';
 
 const MAIL: OutgoingMail = {
@@ -76,5 +76,86 @@ describe('ResendAdapter.send', () => {
     expect(await new ResendAdapter('k').send(MAIL)).toEqual({ ok: false, errorCode: 'timeout' });
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
     expect(await new ResendAdapter('k').send(MAIL)).toEqual({ ok: false, errorCode: 'network' });
+  });
+});
+
+describe('ResendAdapter.sendBatch', () => {
+  const second: OutgoingMail = { ...MAIL, to: 'b@example.test', idempotencyKey: 'mail_log/2' };
+
+  it('posts all mails to the batch endpoint with one key, sender/reply-to/headers per mail', async () => {
+    const fetchFn = stubFetch(200, { data: [{ id: 're_a' }, { id: 're_b' }] });
+    const res = await new ResendAdapter('re_test_key').sendBatch(
+      [{ ...MAIL, from: '"Neon via PlusOne" <noreply+k@plus-one.io>', replyTo: 'hi@club.test', headers: { 'List-Unsubscribe': '<https://x/u/t>' } }, second],
+      'guest_batch/abc',
+    );
+    expect(res).toEqual([
+      { ok: true, providerMessageId: 're_a' },
+      { ok: true, providerMessageId: 're_b' },
+    ]);
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.resend.com/emails/batch');
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('guest_batch/abc');
+    const body = JSON.parse(String(init.body)) as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(2);
+    expect(body[0].from).toBe('"Neon via PlusOne" <noreply+k@plus-one.io>');
+    expect(body[0].reply_to).toEqual(['hi@club.test']);
+    expect(body[0].headers).toEqual({ 'List-Unsubscribe': '<https://x/u/t>' });
+    expect(body[1].from).toBe('PlusOne <noreply@plus-one.io>');
+    expect(body[1].reply_to).toBeUndefined();
+  });
+
+  it('a refused batch fails every mail with the mapped code (daily quota: no retry storm)', async () => {
+    stubFetch(429, { name: 'daily_quota_exceeded', message: 'quota for b@example.test' });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await new ResendAdapter('k').sendBatch([MAIL, second], 'guest_batch/x');
+    expect(res).toEqual([
+      { ok: false, errorCode: 'daily_quota_exceeded' },
+      { ok: false, errorCode: 'daily_quota_exceeded' },
+    ]);
+  });
+
+  it('a network error fails the batch without throwing; an empty batch makes no call', async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    vi.stubGlobal('fetch', fetchFn);
+    expect(await new ResendAdapter('k').sendBatch([MAIL], 'x')).toEqual([{ ok: false, errorCode: 'network' }]);
+    expect(await new ResendAdapter('k').sendBatch([], 'x')).toEqual([]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fetchReceivedMailMeta (inbound auto-reply gate)', () => {
+  it('reads the verdicts and loop headers of a received mail, nothing else', async () => {
+    const fetchFn = stubFetch(200, {
+      id: 'in_1',
+      from: 'lotte@example.test',
+      subject: 'SECRET',
+      headers: { 'Auto-Submitted': 'auto-replied', precedence: 'bulk', 'List-Id': '<l.example.test>' },
+      authentication: { spf: 'pass', dkim: 'gray', dmarc: 'fail' },
+    });
+    const meta = await fetchReceivedMailMeta('re_test_key', 'in_1');
+    expect(meta).toEqual({
+      spf: 'pass',
+      dkim: 'gray',
+      dmarc: 'fail',
+      headers: { autoSubmitted: 'auto-replied', precedence: 'bulk', listId: '<l.example.test>' },
+    });
+    expect(JSON.stringify(meta)).not.toContain('SECRET');
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.resend.com/emails/receiving/in_1');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer re_test_key');
+  });
+
+  it('an old mail without authentication reads as unknown; errors and odd ids give null (fail closed)', async () => {
+    stubFetch(200, { id: 'in_2', headers: {}, authentication: null });
+    expect(await fetchReceivedMailMeta('k', 'in_2')).toMatchObject({ spf: 'unknown', dkim: 'unknown', dmarc: 'unknown' });
+    stubFetch(404, { name: 'not_found' });
+    expect(await fetchReceivedMailMeta('k', 'in_3')).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
+    expect(await fetchReceivedMailMeta('k', 'in_4')).toBeNull();
+    const fetchFn = stubFetch(200, {});
+    expect(await fetchReceivedMailMeta('k', '../emails')).toBeNull();
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });

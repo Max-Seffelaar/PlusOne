@@ -236,6 +236,9 @@ export const guests = {
     errNameLong: 'Name is too long ({n}/500): shorten it',
     errEmail: 'Check the e-mail address',
     errPhone: 'Check the phone number',
+    // A pasted count column ("Aantal tickets"): total people on this line.
+    errCount: 'Check the number of people',
+    errCountTooMany: 'Too many people on one line (max {max})',
     fieldName: 'Name',
     fieldEmail: 'E-mail (optional)',
     fieldPhone: 'Phone (optional)',
@@ -255,6 +258,15 @@ export const guests = {
     guestMany: 'guests',
     slotOne: 'slot',
     slotMany: 'slots',
+    // Preview count (share-import S2): entries, head count incl. +N, e-mails.
+    countLine: '{entries} {entryWord} · {guests} {guestWord} total · {email} with e-mail',
+    entryOne: 'entry',
+    entryMany: 'entries',
+    // Share landing (/app/share): under the tier picker.
+    shareTierHint: 'Names without a tier get this one.',
+    // Share landing with an empty box: nothing arrived (a share made while signed
+    // out is dropped at the login, review S3), or the screen was opened directly.
+    shareEmptyHint: 'Nothing came through? Share the list again, or paste it below.',
   },
   // ── Contacts (address book) ───────────────────────────────────────────────
   contacts: {
@@ -494,5 +506,14 @@ export const guests = {
     outcomeLocked: 'List locked',
     outcomeError: "Couldn't add",
     close: 'Close',
+  },
+  // ── Guest mail (Gastcommunicatie F): the confirmation box and the removal note ──
+  mail: {
+    sendConfirmation: 'Send confirmation',
+    sendConfirmationHint: "Guests with an email get a mail that they're on the list.",
+    removeNoteLabel: 'Note for the guest',
+    removeNotePlaceholder: "Why they're off the list",
+    removeNoteHint: 'They get this by email.',
+    removeNoteRequired: 'Add a note for the guest. They get it by email.',
   },
 } as const;
