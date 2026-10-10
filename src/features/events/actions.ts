@@ -11,6 +11,7 @@ import { mapMutationError, unauthorized, invalidInput, notFound, type MutationEr
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { queueEventMail } from '@/features/mail/guest-queue';
 import { buildEventSlug } from './slug';
+import { checkMailDomain } from './mail-domain';
 import type { Database } from '@/lib/database.types';
 import {
   createEventSchema,
@@ -75,7 +76,15 @@ import {
 // as 45004 → src/lib/db-errors.ts.
 
 export type ActionResult = { ok: true } | MutationError;
-export type CreateEventResult = { ok: true; eventId: string } | MutationError;
+/** contactSaved false: a template event exists, but its contact address didn't stick (the form says so). */
+export type CreateEventResult = { ok: true; eventId: string; contactSaved?: boolean } | MutationError;
+
+/** The organiser's contact address must sit on a domain that takes mail (6c; DNS, fail-open). */
+async function contactDomainRefused(contactEmail: string): Promise<MutationError | null> {
+  return (await checkMailDomain(contactEmail)) === 'no_mail_domain'
+    ? invalidInput(t.events.contactEmail.noDomain)
+    : null;
+}
 export type CreateTemplateResult = { ok: true; templateId: string } | MutationError;
 
 // ── Event CRUD ──────────────────────────────────────────────────────────────
@@ -84,11 +93,15 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules } = parsed.data;
+  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules, contactEmail } =
+    parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+
+  const refused = await contactDomainRefused(contactEmail);
+  if (refused) return refused;
 
   // Soft-block (#32 refinement): a canceled venue / lapsed unpaid trial adds no
   // NEW events; existing events keep running (door included).
@@ -111,6 +124,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         location_name: locationName ?? null,
         location_address: locationAddress ?? null,
         house_rules: houseRules ?? null,
+        contact_email: contactEmail,
         landing_slug: buildEventSlug(name, startsAt),
       } as Database['public']['Tables']['events']['Insert'])
       .select('id')
@@ -134,11 +148,24 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules } = parsed.data;
+  const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules, contactEmail } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+
+  // 6c: no save leaves an event without a contact address (older events get
+  // one at their first edit), and a new or changed one must sit on a domain
+  // that takes mail. Read through RLS: an event the caller can't see is left
+  // to the update below, which RLS refuses as before.
+  const { data: current } = await supabase.from('events').select('contact_email').eq('id', eventId).maybeSingle();
+  if (current) {
+    if (contactEmail === undefined && !current.contact_email) return invalidInput(t.events.contactEmail.required);
+    if (contactEmail !== undefined && contactEmail !== current.contact_email) {
+      const refused = await contactDomainRefused(contactEmail);
+      if (refused) return refused;
+    }
+  }
 
   const patch = {
     ...(name !== undefined ? { name } : {}),
@@ -147,6 +174,7 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     ...(locationName !== undefined ? { location_name: locationName } : {}),
     ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
     ...(houseRules !== undefined ? { house_rules: houseRules } : {}),
+    ...(contactEmail !== undefined ? { contact_email: contactEmail } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
@@ -1027,11 +1055,14 @@ export async function createEventFromTemplate(
 ): Promise<CreateEventResult> {
   const parsed = createEventFromTemplateSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { templateId, name, startsAt, endsAt } = parsed.data;
+  const { templateId, name, startsAt, endsAt, contactEmail } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+
+  const refused = await contactDomainRefused(contactEmail);
+  if (refused) return refused;
 
   // Same soft-block as createEvent: resolve the template's venue (RLS-scoped
   // read; a non-member simply sees nothing and fails on the RPC as before).
@@ -1052,7 +1083,13 @@ export async function createEventFromTemplate(
     p_ends_at: endsAt ?? undefined,
   });
   if (error) return mapMutationError(error);
-  return { ok: true, eventId: data as string };
+  const eventId = data as string;
+  // Templates never carry a contact address (6c): the organiser typed one for
+  // this event. The event exists by now, so a failed write must not read as a
+  // failed create (a second Save would make a second event): report it and
+  // let the form say so.
+  const { error: contactError } = await supabase.from('events').update({ contact_email: contactEmail }).eq('id', eventId);
+  return { ok: true, eventId, contactSaved: !contactError };
 }
 
 /**

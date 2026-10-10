@@ -52,6 +52,21 @@ const locationAddress = locationField(LOCATION_ADDRESS_MAX, t.events.locationAdd
 export const HOUSE_RULES_MAX = 500;
 const houseRules = locationField(HOUSE_RULES_MAX, t.events.houseRulesTooLong);
 
+// The event's contact address (guest mail 6c): where guests reply. Required on
+// create and when saving an event that has none; the same strict syntax as
+// events_contact_email_check / venues_contact_email_check (no header syntax),
+// lower-cased like the company address. The domain is checked server-side
+// (mail-domain.ts), never here: this schema also runs in the browser.
+export const CONTACT_EMAIL_MAX = 254;
+export const CONTACT_EMAIL_RE = /^[^@\s<>",;:]+@[^@\s<>",;:]+\.[^@\s<>",;:]+$/;
+export const contactEmailField = z
+  .string()
+  .trim()
+  .min(1, t.events.contactEmail.required)
+  .max(CONTACT_EMAIL_MAX, t.events.contactEmail.invalid)
+  .transform((v) => v.toLowerCase())
+  .refine((v) => CONTACT_EMAIL_RE.test(v), t.events.contactEmail.invalid);
+
 export const createEventSchema = z
   .object({
     venueId: uuid,
@@ -61,6 +76,7 @@ export const createEventSchema = z
     locationName,
     locationAddress,
     houseRules,
+    contactEmail: contactEmailField,
     // New events open their sign-up link by default (z8uq9m0hw3, item 6). The
     // column default stays false; createEvent always writes this value.
     landingActive: z.boolean().default(true),
@@ -80,6 +96,9 @@ export const updateEventSchema = z
     locationName,
     locationAddress,
     houseRules,
+    // Optional in the input, but an event can't be saved without one: the
+    // action refuses a save that leaves the event with no address.
+    contactEmail: contactEmailField.optional(),
   })
   .refine((v) => v.endsAt == null || v.startsAt == null || v.endsAt > v.startsAt, {
     message: 'The end must be after the start',
@@ -371,6 +390,8 @@ export const createEventFromTemplateSchema = z
     name: eventName,
     startsAt: isoDateTime,
     endsAt: isoDateTime.nullable().optional(),
+    // Templates never carry a contact address: it is typed per event (6c).
+    contactEmail: contactEmailField,
   })
   .refine((v) => !v.endsAt || v.endsAt > v.startsAt, {
     message: 'The end must be after the start',
