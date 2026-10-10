@@ -68,6 +68,8 @@ export const poKeys = {
   profile: (userId: string) => [...poKeys.all, 'profile', userId] as const,
   venueSettings: (venueId: string) => [...poKeys.all, 'venue-settings', venueId] as const,
   subscription: (venueId: string) => [...poKeys.all, 'subscription', venueId] as const,
+  /** Saved company locations (z8uq9m444c), active only. */
+  companyLocations: (venueId: string) => [...poKeys.all, 'company-locations', venueId] as const,
   // Event templates (86exyp8gn) — reusable per-event-type setups scope to a venue;
   // a single template + its tier list key on the template id.
   templates: (venueId: string) => [...poKeys.all, 'templates', venueId] as const,

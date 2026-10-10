@@ -154,6 +154,22 @@ export const FLOWS = {
       'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
+  'event-locations': {
+    title: 'Event locations L — Company settings: two saved locations → event at the second → /e/[slug] → approve → /r/[token]',
+    paths: [
+      'src/features/venues/location-',
+      'src/features/po/',
+      'src/features/requests/',
+      'src/components/po/screens/settings/venue',
+      'src/components/po/screens/events/edit',
+      'src/components/po/screens/events/location-picker.tsx',
+      'src/components/po/places-field.tsx',
+      'src/components/po/request-status.tsx',
+      'src/components/po/landing',
+      'src/app/e/',
+      'src/app/r/',
+    ],
+  },
   'door-checkin': {
     title: 'Door check-in D — Check in all / Check in 1 (3/4), one row, undo refused with the setting off',
     paths: [

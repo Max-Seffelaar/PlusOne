@@ -121,6 +121,12 @@ import { inviteUserAction, revokeInviteAction, resendInviteAction } from '@/feat
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
+import {
+  archiveCompanyLocationAction,
+  createCompanyLocationAction,
+  updateCompanyLocationAction,
+} from '@/features/venues/location-actions';
+import type { CreateCompanyLocationInput, UpdateCompanyLocationInput } from '@/features/venues/location-schemas';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
 import { setBillingMailsPausedAction, setVenueCompedAction, setVenueTrialEndAction } from '@/features/billing/platform-actions';
@@ -1637,6 +1643,48 @@ export function usePoUpdateVenueSettings() {
       void qc.invalidateQueries({ queryKey: poKeys.venueSettings(venueId ?? '') });
       // The venue default feeds each member's effective quota in the team view.
       void qc.invalidateQueries({ queryKey: poKeys.team(venueId ?? '') });
+    },
+  });
+}
+
+// ── Saved company locations (z8uq9m444c) ─────────────────────────────────────
+// Admin-only writes (RLS). Each invalidates the location list; events keep
+// their own copy, so no event query needs a refresh.
+
+export function usePoCreateCompanyLocation() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: Omit<CreateCompanyLocationInput, 'venueId'>): Promise<string> => {
+      if (!venueId) throw new Error('No active venue selected.');
+      const res = await createCompanyLocationAction({ ...input, venueId });
+      if (!res.ok) throw new Error(res.message);
+      return res.locationId;
+    },
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
+    },
+  });
+}
+
+export function usePoUpdateCompanyLocation() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: UpdateCompanyLocationInput) => throwOnError(await updateCompanyLocationAction(input)),
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
+    },
+  });
+}
+
+export function usePoArchiveCompanyLocation() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (locationId: string) => throwOnError(await archiveCompanyLocationAction({ locationId })),
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
     },
   });
 }

@@ -150,6 +150,13 @@ export const requestStatusPayloadSchema = z.object({
   ends_at: z.string().nullish(),
   approved_plus_ones: z.number().int().min(0).nullish(),
   decision_message: z.string().nullish(),
+  // z8uq9m444c: the event's own location (every state). nullish() so the
+  // payload of the function deployed before 20261013160000 still parses.
+  location_name: z.string().nullish(),
+  location_address: z.string().nullish(),
+  // Legacy, always null since 20261013160000 and never rendered (the company
+  // address); still accepted so either function version parses. Contract:
+  // drop together with the keys in the RPC.
   venue_address_line: z.string().nullish(),
   venue_postal_code: z.string().nullish(),
   venue_city: z.string().nullish(),

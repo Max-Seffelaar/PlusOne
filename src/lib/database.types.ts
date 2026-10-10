@@ -282,6 +282,56 @@ export type Database = {
           },
         ]
       }
+      company_locations: {
+        Row: {
+          address_line: string | null
+          archived_at: string | null
+          city: string | null
+          country: string | null
+          created_at: string
+          id: string
+          name: string
+          place_id: string | null
+          postal_code: string | null
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          address_line?: string | null
+          archived_at?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          place_id?: string | null
+          postal_code?: string | null
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          address_line?: string | null
+          archived_at?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          place_id?: string | null
+          postal_code?: string | null
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_locations_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_event_exclusions: {
         Row: {
           contact_id: string
@@ -2210,6 +2260,7 @@ export type Database = {
         Returns: undefined
       }
       audit_changed: { Args: { p_new: Json; p_old: Json }; Returns: Json }
+      backfill_event_locations_from_company: { Args: never; Returns: number }
       billing_mail_blocked: { Args: { p_venue_id: string }; Returns: boolean }
       billing_mail_recipient_rows: {
         Args: { p_venue_id: string }

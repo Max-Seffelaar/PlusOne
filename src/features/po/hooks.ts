@@ -36,6 +36,7 @@ import {
   fetchVenueMembers,
   fetchMemberQuotas,
   fetchVenueSettings,
+  fetchCompanyLocations,
   fetchEventQuotaOverrides,
   fetchVenueInvites,
   fetchVenueCrew,
@@ -116,6 +117,8 @@ import {
   toPoSession,
   toPoProfile,
   toPoVenueSettings,
+  toPoCompanyLocation,
+  type PoCompanyLocation,
   toPoSubscription,
   toPlatformInvite,
   toPlatformFunnel,
@@ -1375,6 +1378,16 @@ export function usePoVenueSettings({ enabled = true }: { enabled?: boolean } = {
       const row = await fetchVenueSettings(createClient(), venueId);
       return row ? toPoVenueSettings(row) : null;
     },
+  });
+}
+
+/** The active company's saved locations (z8uq9m444c), oldest first. */
+export function usePoCompanyLocations({ enabled = true }: { enabled?: boolean } = {}) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoCompanyLocation[]>({
+    queryKey: poKeys.companyLocations(venueId ?? ''),
+    enabled: enabled && !!venueId,
+    queryFn: async () => (venueId ? (await fetchCompanyLocations(createClient(), venueId)).map(toPoCompanyLocation) : []),
   });
 }
 
