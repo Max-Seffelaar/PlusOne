@@ -1480,6 +1480,7 @@ export type Database = {
       notification_outbox: {
         Row: {
           attempts: number
+          channel: string
           collapse_key: string | null
           created_at: string
           dedupe_key: string
@@ -1498,6 +1499,7 @@ export type Database = {
         }
         Insert: {
           attempts?: number
+          channel?: string
           collapse_key?: string | null
           created_at?: string
           dedupe_key: string
@@ -1516,6 +1518,7 @@ export type Database = {
         }
         Update: {
           attempts?: number
+          channel?: string
           collapse_key?: string | null
           created_at?: string
           dedupe_key?: string
@@ -2195,6 +2198,125 @@ export type Database = {
             columns: ["venue_id"]
             isOneToOne: true
             referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      team_digest_deliveries: {
+        Row: {
+          created_at: string
+          local_date: string
+          mail_log_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          local_date: string
+          mail_log_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          local_date?: string
+          mail_log_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_digest_deliveries_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_digest_deliveries_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      team_mail_links: {
+        Row: {
+          created_at: string
+          expires_at: string
+          mail_log_id: string | null
+          pref: string
+          token_hash: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          mail_log_id?: string | null
+          pref: string
+          token_hash: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          mail_log_id?: string | null
+          pref?: string
+          token_hash?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_mail_links_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_mail_links_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      team_mail_tokens: {
+        Row: {
+          created_at: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          token_hash?: string
+        }
+        Relationships: []
+      }
+      user_notification_prefs: {
+        Row: {
+          notification_prefs: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          notification_prefs?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          notification_prefs?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_notification_prefs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -2891,6 +3013,7 @@ export type Database = {
       kick_guest_mails: { Args: never; Returns: boolean }
       kick_platform_digest: { Args: never; Returns: boolean }
       kick_push_dispatch: { Args: never; Returns: boolean }
+      kick_team_mails: { Args: never; Returns: boolean }
       link_headcount_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
@@ -2947,6 +3070,7 @@ export type Database = {
         Args: { p_venue_id: string }
         Returns: undefined
       }
+      my_notification_prefs: { Args: never; Returns: Json }
       my_pending_invites: {
         Args: never
         Returns: {
@@ -2964,6 +3088,7 @@ export type Database = {
           deliver_after: string
         }[]
       }
+      notification_prefs_effective: { Args: { p_prefs: Json }; Returns: Json }
       organizes_event_at_venue: {
         Args: { p_venue_id: string }
         Returns: boolean
@@ -3247,6 +3372,7 @@ export type Database = {
         Args: { p_paused: boolean; p_venue_id: string }
         Returns: undefined
       }
+      set_my_notification_prefs: { Args: { p_prefs: Json }; Returns: Json }
       set_platform_admin: {
         Args: { p_user_id: string; p_value: boolean }
         Returns: undefined
@@ -3287,9 +3413,32 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: number
       }
+      team_digest_due: {
+        Args: { p_limit: number; p_today: string }
+        Returns: {
+          user_id: string
+        }[]
+      }
+      team_digest_items: { Args: { p_user: string }; Returns: Json }
+      team_mail_daily_cap: { Args: never; Returns: number }
+      team_mail_full_venues: { Args: never; Returns: string[] }
+      team_mail_sent_today: { Args: { p_venue_id: string }; Returns: number }
+      team_mail_venue_daily_cap: { Args: never; Returns: number }
+      team_mails_begin: {
+        Args: { p_limit?: number; p_token: string }
+        Returns: Json
+      }
+      team_mails_claim: { Args: { p_limit?: number }; Returns: Json }
+      team_mails_setting: { Args: { p_name: string }; Returns: string }
+      team_mails_settle: { Args: { p_results: Json }; Returns: number }
+      team_mails_tick: { Args: never; Returns: boolean }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
       unique_venue_slug: { Args: { p_name: string }; Returns: string }
       unsubscribe_guest_mail: {
+        Args: { p_ip_hash: string; p_token_hash: string }
+        Returns: Json
+      }
+      unsubscribe_team_mail: {
         Args: { p_ip_hash: string; p_token_hash: string }
         Returns: Json
       }

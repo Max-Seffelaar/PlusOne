@@ -5,6 +5,7 @@ import type { Database } from '@/lib/database.types';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { t } from '@/lib/i18n';
 import { quotaRequestSchema, decideQuotaRequestSchema, type QuotaRequestInput, type DecideQuotaRequestInput } from './schemas';
+import { drainTeamMailsSoon } from '@/features/mail/team-queue';
 
 /** SQLSTATE the quota engine raises for a request that is no longer pending. */
 const REQUEST_DECIDED = '45003';
@@ -58,6 +59,7 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
   } as Database['public']['Tables']['quota_requests']['Insert']);
   if (error) return mapMutationError(error);
 
+  drainTeamMailsSoon(); // 6b: the admins' / requester's mail, after the response
   return { ok: true };
 }
 
@@ -98,5 +100,6 @@ export async function decideQuotaRequest(input: DecideQuotaRequestInput): Promis
     if (!data || data.length === 0) return NOT_DECIDABLE;
   }
 
+  drainTeamMailsSoon(); // 6b: the admins' / requester's mail, after the response
   return { ok: true };
 }
