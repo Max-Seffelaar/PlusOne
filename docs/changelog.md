@@ -8,6 +8,30 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-10 — Gastcommunicatie F, PR 6c: a contact email per event (z8uq9m2vpy)
+
+Milestone **Now** (golf E, ADE). Decision Max 2026-10-10: every event carries the address guests see in their mails and reply to. Spec #13 revised.
+
+- **Migration `20261013180500_event_contact_email`:**
+  - `events.contact_email`: nullable (expand–contract), the same strict check as `venues.contact_email`, explicit column grants. RLS on events decides who may set it (admin, the event's organizer).
+  - `guest_mails_claim`, `get_guest_status` and `resolve_guest_mail_reply` read `coalesce(events.contact_email, venues.contact_email)`: reply-to, footer, status page and auto-reply use the event address, else the company one. A mail waits only when both are empty. The bodies are the live 180200 ones with only those reads changed (diffed).
+- **Required on every create and save, never pre-filled:**
+  - `createEvent` and `createEventFromTemplate` require it. Templates never carry one; the template action writes the typed address onto the new event right after the RPC.
+  - `updateEvent` refuses a save that leaves the event without one, so older events get one at their first edit. A save can't clear it.
+  - There is no publish action (events go live by time), so the gate sits on save.
+- **Domain check** (`src/features/events/mail-domain.ts`, server-only):
+  - MX, else A/AAAA (RFC 5321). A null MX, NXDOMAIN, or no records at all → "That email domain doesn't take mail".
+  - Every DNS failure (timeout, SERVFAIL, refused) fails open, logged without the address. 1.5 s per query, 3 s in all, and only when the address is new or changed.
+  - Reserved names answer without a lookup: `.invalid`/`.localhost`/`.example` are refused. `.test` is accepted outside production only, so seed and flow addresses stay deterministic.
+  - No confirmation mail.
+- **UI:** a "Contact email" field under Location with the explanation (`events/contact-email-field.tsx`). `edit.tsx` only gets the state, mount and save wiring.
+- **Tests:**
+  - pgTAP `event_contact_email.test.sql` (24): grants; the check; allowed for admin/organizer, denied for staff/doorhost/outsider/anon; the claim/status/reply fallback; a mail waits without either address.
+  - vitest: the DNS check (9), the actions (11), the schemas, and the form (required, not pre-filled, header syntax).
+  - Flow `event-contact` (Q1–Q7). The existing flows that create events (`company-rename`, `event-locations`, e2e `core-flow`) now type an address.
+
+---
+
 ## 2026-10-09 — Gastcommunicatie F, PR 6a: guest mail (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #13 revised: no marketing and no invitations, but transactional guest mail about a guest's own spot. Copy v3 (`docs/copy-review/guest-mails.html`, Max 2026-10-09) word for word in `src/features/mail/templates/guest-copy.ts`. PR 6b (team mail + notification prefs, migration `20261013180300`) follows.

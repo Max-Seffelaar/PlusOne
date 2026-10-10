@@ -96,6 +96,10 @@ function fillAndCreate(): void {
   const [doors] = screen.getAllByRole('combobox', { name: t.shared.datetime.hourAria });
   fireEvent.change(doors, { target: { value: '23:00' } });
   fireEvent.keyDown(doors, { key: 'Enter' });
+  // Guest mail 6c: the contact address is required and never pre-filled.
+  fireEvent.change(screen.getByRole('textbox', { name: t.events.contactEmail.label }), {
+    target: { value: 'Night@Club.test' },
+  });
   fireEvent.click(screen.getByRole('button', { name: t.events.createEvent }));
 }
 
@@ -242,6 +246,7 @@ describe('EventEdit location fields', () => {
       eventId: NEW_ID,
       locationName: 'Paradiso',
       locationAddress: 'Wibautstraat 150, 1091 GR Amsterdam',
+      contactEmail: 'night@club.test',
     });
   });
 });
@@ -290,7 +295,7 @@ describe('EventEdit template location prefill', () => {
     fillAndCreate();
     await waitFor(() => expect(createFromTemplate).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
-    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: 'Weteringschans 6' });
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: 'Weteringschans 6', contactEmail: 'night@club.test' });
   });
 
   // Review #419: a chip tap never overwrites a location the user typed.
@@ -354,7 +359,7 @@ describe('EventEdit template location prefill', () => {
     fireEvent.change(screen.getByRole('combobox', { name: t.events.locationAddressAria }), { target: { value: '' } });
     fillAndCreate();
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
-    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null });
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null, contactEmail: 'night@club.test' });
   });
 });
 
@@ -365,5 +370,54 @@ describe('EventEdit create form', () => {
     render(<EventEdit isNew />);
     expect(screen.queryByText(t.events.fieldVenue)).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Club Nova');
+  });
+});
+
+// Guest mail 6c: the event's contact address. Required, never pre-filled (not
+// from the company, not from a template), explained under the field.
+describe('EventEdit contact email', () => {
+  const contactBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.contactEmail.label });
+
+  it('starts empty, also after picking a template, and explains what guests see', () => {
+    templates = [{ id: 'tpl-1', name: 'Lofi', tierCount: 2, landing_active: false }];
+    render(<EventEdit isNew />);
+    expect(contactBox()).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Lofi' }));
+    expect(contactBox()).toHaveValue('');
+    expect(screen.getByText(t.events.contactEmail.hint)).toBeInTheDocument();
+  });
+
+  it('refuses to create without one, and creates nothing', async () => {
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    fireEvent.change(contactBox(), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: t.events.createEvent }));
+    expect(await screen.findByText(t.events.contactEmail.required)).toBeInTheDocument();
+    expect(createEvent).toHaveBeenCalledTimes(1); // only the first, filled-in create
+  });
+
+  it('refuses header syntax before any call', async () => {
+    createEvent.mockClear();
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    createEvent.mockClear();
+    fireEvent.change(contactBox(), { target: { value: 'a@b.c>, x@y.z' } });
+    fireEvent.click(screen.getByRole('button', { name: t.events.createEvent }));
+    expect(await screen.findByText(t.events.contactEmail.invalid)).toBeInTheDocument();
+    expect(createEvent).not.toHaveBeenCalled();
+  });
+
+  it('sends the typed address, trimmed and lower-cased, with a blank or template create', async () => {
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    await waitFor(() => expect(createEvent).toHaveBeenCalled());
+    expect(createEvent.mock.calls.at(-1)?.[0]).toMatchObject({ contactEmail: 'night@club.test' });
+    cleanup();
+    templates = [{ id: 'tpl-1', name: 'Lofi', tierCount: 2, landing_active: false }];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Lofi' }));
+    fillAndCreate();
+    await waitFor(() => expect(createFromTemplate).toHaveBeenCalled());
+    expect(createFromTemplate.mock.calls.at(-1)?.[0]).toMatchObject({ contactEmail: 'night@club.test' });
   });
 });

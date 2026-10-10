@@ -32,6 +32,7 @@ import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
 import { Btn, Field, InfoTip, Label, Note, PlacesField, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
 import { EventGuestMailSection } from './guest-mail';
+import { EventContactEmailField, contactEmailProblem, contactEmailValue } from './contact-email-field';
 import { BottomBar, Sheet } from '../../shell';
 import { ExportEventRow } from '../settings/export';
 import { SaveAsTemplate } from './save-as-template';
@@ -84,6 +85,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [locName, setLocName] = useState('');
   const [locAddress, setLocAddress] = useState('');
   const [locPrefilled, setLocPrefilled] = useState(false);
+  // The event's contact address (6c): typed per event, never pre-filled.
+  const [contactEmail, setContactEmail] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState('');
@@ -124,6 +127,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     setName(ev.name);
     setLocName(ev.locationName ?? '');
     setLocAddress(ev.locationAddress ?? '');
+    setContactEmail(ev.contactEmail ?? '');
     const [d, t] = splitLocal(ev.startsAt);
     setDateStr(d);
     setTimeStr(t);
@@ -202,7 +206,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     // A prefilled location (template or default) is not an edit; a change is.
     const base = locBaseline(templateId);
     const locEdited = locName.trim() !== base.name || locAddress.trim() !== base.address;
-    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited);
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited || contactEmail.trim());
     if (!ev) return false;
     const [d0, t0] = splitLocal(ev.startsAt);
     const [ed0, et0] = splitLocal(ev.endsAt);
@@ -211,6 +215,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       name !== ev.name ||
       locName.trim() !== (ev.locationName ?? '') ||
       locAddress.trim() !== (ev.locationAddress ?? '') ||
+      contactEmailValue(contactEmail) !== (ev.contactEmail ?? '') ||
       dateStr !== d0 ||
       timeStr !== t0 ||
       endDateStr !== ed0 ||
@@ -262,6 +267,12 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       setErr(t.events.errCloseDateTime);
       return;
     }
+    const contactProblem = contactEmailProblem(contactEmail);
+    if (contactProblem) {
+      setErr(contactProblem);
+      return;
+    }
+    const contact = contactEmailValue(contactEmail);
     try {
       if (isNew) {
         if (!venueId) {
@@ -271,8 +282,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         const locationName = locName.trim() || null;
         const locationAddress = locAddress.trim() || null;
         const newId = templateId
-          ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
-          : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress });
+          ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt, contactEmail: contact })
+          : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, contactEmail: contact });
         // The template RPC copies the template's CURRENT DB location
         // (20261007135000), which can differ from the cached one the form
         // showed (no realtime on templates). So after a template create we
@@ -282,7 +293,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         // regardless and say what didn't stick.
         if (templateId) {
           try {
-            await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress });
+            await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress, contactEmail: contact });
           } catch {
             toast?.(t.events.locationNotSaved);
           }
@@ -304,6 +315,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           endsAt,
           locationName: locName.trim() || null,
           locationAddress: locAddress.trim() || null,
+          contactEmail: contact,
         });
         if (ev && landingOn !== ev.landingActive) {
           await setLandingActive.mutateAsync({ eventId: editId, active: landingOn });
@@ -468,6 +480,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           className="mb-2"
         />
         <div className="mb-[18px] text-[12.5px] leading-[1.45] text-faint">{t.events.locationHint}</div>
+        <EventContactEmailField value={contactEmail} onChange={writable ? setContactEmail : undefined} />
         {!isNew && editId && <EventGuestMailSection eventId={editId} writable={writable} />}
 
         {!isNew && (
