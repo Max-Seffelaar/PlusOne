@@ -57,11 +57,11 @@ export default async function LandingPage({
   if (!event) return <LandingClosed />;
 
   const starts = new Date(event.starts_at);
-  // The event's own location, always (spec #48(c) revised, z8uq9m444c): every
-  // event carries one since migration 20261013160000 and a new event starts
-  // with the company's default. The company address is never public here:
-  // get_landing_event does not return it, so an event whose location was
-  // cleared shows the company name, as before.
+  // The event's own location, always (spec #48(c) revised, #58, z8uq9m444c):
+  // a new event starts with the company's default. The company address is
+  // never public here: get_landing_event does not return it, so an event
+  // without a location (older events with a live link, or a cleared one)
+  // shows the company name, as before.
   const location = resolveEventLocation({
     location_name: event.location_name,
     location_address: event.location_address,

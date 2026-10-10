@@ -23,11 +23,21 @@
 --    the company address (name = the company name). New companies start empty;
 --    the event form then prefills from the company address (app side).
 --
--- 3. Backfill: every existing event without its own location gets the company's
---    name + address, once (decision Max 2026-10-07: not live yet, the testing
---    organizers don't use it). From here on every event carries its own
---    location. No location column is audited (audit_events fires on lock /
---    allow_uncheck / default_member_quota only), and no status changes.
+-- 3. Backfill, narrowed (decision Max 2026-10-10, review #452 blocker 3: "no
+--    address goes public without someone choosing it"): only an event that is
+--    not over yet (coalesce(ends_at, starts_at) > now(), the #26 anchor) AND
+--    has NO active share link (landing_active = false) AND has no location at
+--    all, at a company that has an address, gets the company's name + address,
+--    once. Its share link is off, so nothing becomes public by this; the admin
+--    sees the prefilled location before switching the link on. Past events
+--    and events with a live share link stay NULL: their share link keeps
+--    showing only the company name, and the app keeps its in-app company
+--    fallback. Prod at review time: 3 future events with a live link and no
+--    location, at 3 companies, all left alone by this predicate. The logic is
+--    one owner-only function (backfill_event_locations_from_company) so pgTAP
+--    can prove the predicate on fixtures; it is idempotent. No location
+--    column is audited (audit_events fires on lock / allow_uncheck /
+--    default_member_quota only), and no status changes.
 --
 -- 4. get_request_status (SECURITY DEFINER, anon) returns the event's own
 --    location_name / location_address for every FOUND token, every state,
@@ -116,22 +126,53 @@ where btrim(coalesce(v.name, '')) <> ''
   and (btrim(coalesce(v.address_line, '')) <> '' or btrim(coalesce(v.city, '')) <> '');
 
 -- ---------------------------------------------------------------------------
--- 3. Backfill: events without their own location get the company's, once
+-- 3. Backfill (narrowed): not-over events without a share link, once
 -- ---------------------------------------------------------------------------
 -- Same format as the app helper formatVenueAddress: "line, postcode city".
+-- Owner-only: no app role (and not service_role) may execute it; only the
+-- migration and the table owner (pgTAP fixtures) call it.
 
-update public.events e
-set location_name = left(btrim(v.name), 120),
-    location_address = nullif(left(concat_ws(', ',
-        nullif(btrim(coalesce(v.address_line, '')), ''),
-        nullif(btrim(concat_ws(' ',
-          nullif(btrim(coalesce(v.postal_code, '')), ''),
-          nullif(btrim(coalesce(v.city, '')), ''))), '')
-      ), 200), '')
-from public.venues v
-where v.id = e.venue_id
-  and btrim(coalesce(e.location_name, '')) = ''
-  and btrim(coalesce(e.location_address, '')) = '';
+create function public.backfill_event_locations_from_company()
+returns integer
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_count integer;
+begin
+  update public.events e
+  set location_name = left(btrim(v.name), 120),
+      location_address = nullif(left(concat_ws(', ',
+          nullif(btrim(coalesce(v.address_line, '')), ''),
+          nullif(btrim(concat_ws(' ',
+            nullif(btrim(coalesce(v.postal_code, '')), ''),
+            nullif(btrim(coalesce(v.city, '')), ''))), '')
+        ), 200), '')
+  from public.venues v
+  where v.id = e.venue_id
+    -- no location at all
+    and btrim(coalesce(e.location_name, '')) = ''
+    and btrim(coalesce(e.location_address, '')) = ''
+    -- the company has an address to copy
+    and (btrim(coalesce(v.address_line, '')) <> '' or btrim(coalesce(v.city, '')) <> '')
+    -- not over yet (#26: anchored on the event, end or else start)
+    and coalesce(e.ends_at, e.starts_at) > now()
+    -- no live share link: nothing becomes public without someone choosing it
+    and not e.landing_active;
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+comment on function public.backfill_event_locations_from_company() is
+  'One-shot backfill (z8uq9m444c, narrowed per review #452): copies the company '
+  'name + address onto not-over events with no location and no active share '
+  'link. Idempotent. Owner-only; called once by migration 20261013160000.';
+
+revoke all on function public.backfill_event_locations_from_company()
+from public, anon, authenticated, service_role;
+
+select public.backfill_event_locations_from_company();
 
 -- ---------------------------------------------------------------------------
 -- 4. get_request_status: the event's location, never the company address

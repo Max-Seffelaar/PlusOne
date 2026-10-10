@@ -9,6 +9,9 @@
 --      user_manager, finance, staff, doorhost), a non-member reads nothing
 --      (event organizer without membership, member of the other venue); only
 --      an admin inserts / updates / archives; nobody deletes;
+--   D. the narrowed backfill: only not-over events without a live share link
+--      and without any location, at a company with an address, get filled;
+--      owner-only function, idempotent (review #452, decision Max 2026-10-10);
 --   C. get_request_status: still SECURITY DEFINER with an empty search_path,
 --      same grants; every found payload has exactly the documented key set;
 --      it carries the EVENT's own location in every state (mirror included)
@@ -24,7 +27,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(49);
+select plan(58);
 
 create function pg_temp.login(p_user uuid)
 returns void language plpgsql as $fn$
@@ -351,6 +354,59 @@ select is(
   pg_temp.keys(public.get_request_status('tok-el-pam', 'ip-el-m3')),
   'C15 mirror and fresh payloads carry the same key set');
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- D. The narrowed backfill (review #452 blocker 3, decision Max 2026-10-10):
+--    no address goes public without someone choosing it. As owner, on fresh
+--    fixtures, through the same function the migration ran once.
+-- ---------------------------------------------------------------------------
+
+select ok(
+  not has_function_privilege('anon', 'public.backfill_event_locations_from_company()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.backfill_event_locations_from_company()', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.backfill_event_locations_from_company()', 'EXECUTE'),
+  'D1 the backfill function is owner-only: no app role and not service_role can run it');
+
+-- Venue 2 loses its address for this test, so "company without an address" is covered.
+update public.venues set address_line = null, postal_code = null, city = null
+ where id = 'aa000000-0000-7000-8000-000000000002';
+
+insert into public.events (id, venue_id, name, starts_at, ends_at, landing_slug, landing_active, location_name) values
+  ('9e200000-0000-7000-8000-000000000001', 'aa000000-0000-7000-8000-000000000001',
+   'BF live link', now() + interval '3 days', now() + interval '3 days 6 hours', 'bf-live-link', true, null),
+  ('9e200000-0000-7000-8000-000000000002', 'aa000000-0000-7000-8000-000000000001',
+   'BF past', now() - interval '10 days', now() - interval '9 days 18 hours', 'bf-past', false, null),
+  ('9e200000-0000-7000-8000-000000000003', 'aa000000-0000-7000-8000-000000000001',
+   'BF future no link', now() + interval '4 days', now() + interval '4 days 6 hours', 'bf-future', false, null),
+  ('9e200000-0000-7000-8000-000000000004', 'aa000000-0000-7000-8000-000000000001',
+   'BF future no end', now() + interval '5 days', null, 'bf-no-end', false, null),
+  ('9e200000-0000-7000-8000-000000000005', 'aa000000-0000-7000-8000-000000000001',
+   'BF own name', now() + interval '6 days', now() + interval '6 days 6 hours', 'bf-own', false, 'Garden'),
+  ('9e200000-0000-7000-8000-000000000006', 'aa000000-0000-7000-8000-000000000002',
+   'BF no company address', now() + interval '7 days', now() + interval '7 days 6 hours', 'bf-no-addr', false, null);
+
+select is(public.backfill_event_locations_from_company(), 2,
+  'D2 the backfill fills exactly the two not-over, link-off, location-less events at a company with an address');
+select is(
+  (select location_name || ' | ' || location_address from public.events where id = '9e200000-0000-7000-8000-000000000003'),
+  'Club Vesper | Wibautstraat 150, 1091 GR Amsterdam',
+  'D3 a future event without a share link gets the company name + address');
+select is(
+  (select location_name from public.events where id = '9e200000-0000-7000-8000-000000000004'),
+  'Club Vesper', 'D4 ...also when it has no end time (anchored on the start, #26)');
+select ok(
+  (select location_name is null and location_address is null from public.events where id = '9e200000-0000-7000-8000-000000000001'),
+  'D5 an event with a LIVE share link is not filled: its link keeps showing only the company name');
+select ok(
+  (select location_name is null and location_address is null from public.events where id = '9e200000-0000-7000-8000-000000000002'),
+  'D6 a past event is not filled');
+select ok(
+  (select location_name = 'Garden' and location_address is null from public.events where id = '9e200000-0000-7000-8000-000000000005'),
+  'D7 an event with its own location name is left exactly as it was');
+select ok(
+  (select location_name is null and location_address is null from public.events where id = '9e200000-0000-7000-8000-000000000006'),
+  'D8 an event at a company without an address is not filled');
+select is(public.backfill_event_locations_from_company(), 0, 'D9 a second run changes nothing (idempotent)');
 
 select * from finish();
 rollback;
