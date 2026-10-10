@@ -8,6 +8,22 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-10 — Onboarding programme, golf D closed; golf E half-way (orchestrator)
+
+Milestone **Now** (ADE). Orchestrator status for golf D plus the early-started golf E. Per-task detail is in each PR's own entry below; this is the wave-level record. State table: §2b of `onboarding-orchestration-claude-code.md`.
+
+- **Golf D, all merged and on prod:** Platform R #436 (`20261012130000`), Onboarding A #437 (`20261013130000`/`…130100`), Event C + Dashboard B #438 + Tasks tab out #441, tile "Trial, payment set up" #439 (`…140000`), daily platform digest #440 (`…150000`, live: own Resend key, Vault secret, kick test delivered twice), share-import S2 #443, event locations L #452 (`…160000`), paste-parser follow-up #454, CI flow-shots shards/concurrency #442/#449/#450.
+- **Golf E so far:** billing mails B1 #446 (`…170000`, **live** since 2026-10-10, handoff 9–12 ✅); guest mail 6a #453 (`…180000`–`…180200` on prod, go-live pending Resend Pro + contact addresses + Vault secret). Still to build: 6c contact e-mail per event (`…180500`), 6b team mails + prefs (`…180600`).
+- **Every prod push verified afterwards** through Supabase MCP (schema, grants and aggregates only, never guest rows): RLS on, no app-role grants on the new tables, job RPCs service_role only, SECURITY DEFINER + `search_path`, cron jobs present, `mail_log_type_check` grows 8 → 15 → 24 types without losing one.
+- **Lessons for the next waves:**
+  - **Slot check against prod before every migration merge.** A promo fix (#445) landed `20261013120000` on prod mid-wave, older than every reserved golf-D slot; all slots were moved once more. Lay `list_migrations` on prod next to §3 before merging.
+  - **Constraint rewrites need a fixed merge and push order.** #440, #446 and #453 each rewrote `mail_log_type_check` / `log_mail_attempt`; only #453 was additive. A fixed order (#440 → #446 → #453) plus a pgTAP check that every earlier type stays accepted caught a dropped `platform_invite` before it shipped. New shared-constraint migrations should be additive (read the live constraint, union, write back).
+  - **Changelog conflicts on every parallel merge** cost three re-merges on #437 alone. Per-PR changelog fragments (one file per PR, concatenated at release) would remove them.
+  - **Local tests must prove the checkout first.** Max's first #437 test served `main`; a stray `package.json` in the home folder broke Turbopack; a missing `NEXT_PUBLIC_APP_URL` sent local invite links to prod (fixed in #448). The test script now kills dev servers, checks branch + head SHA and starts on webpack.
+  - **Vault vs Edge Function secrets** are easy to confuse in the dashboard; the go-live check reads `vault.secrets` by name after every switch.
+
+---
+
 ## 2026-10-09 — Gastcommunicatie F, PR 6a: guest mail (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #13 revised: no marketing and no invitations, but transactional guest mail about a guest's own spot. Copy v3 (`docs/copy-review/guest-mails.html`, Max 2026-10-09) word for word in `src/features/mail/templates/guest-copy.ts`. PR 6b (team mail + notification prefs, migration `20261013180300`) follows.
