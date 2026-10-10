@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
+
+Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.
+
+- **What ships:** guest-list requests mail the approvers, quota requests the admins, the decision the requester; a 09:00 Amsterdam daily summary of what is still open (counts only, no mail when nothing is open). Mail follows the push bundle rule (#52). Profile → Notifications: per kind push on/off and email right away / daily / off, plus the summary; only the kinds a user can receive are shown. Every team mail carries a `/n/[token]` stop link plus RFC 8058 one-click `List-Unsubscribe`.
+- **Deviation from the brief:** the preferences live in their own table `user_notification_prefs` (RPC-only, own row), not in a `user_profiles` column. `authenticated` holds a table-level SELECT on `user_profiles`, and a column revoke cannot narrow a table grant, so a new column there is readable by every colleague. This also means the CLAUDE.md line "New columns on `user_profiles` start with no grant for `authenticated`" does not hold today (`is_platform_admin` is readable too); flagged to the orchestrator, not changed here.
+- **Outbox:** `notification_outbox.channel` (`push`/`email`, default `push`, expand-only); the unique key gains `channel`; push claim and sweep read only push rows, their RPC shape unchanged for the deployed Edge Function. Push pgTAP files pin a push-only prefs fixture so their counts stay what they test.
+- **Delivery:** pg_cron every minute → single-use-token kick → `POST /api/webhooks/team-mails` → Resend batch → settle; the three request/decision server actions also drain in `after()`. The claim re-checks address, preference, access and whether the request is still open just before sending. Team types stay out of the guest-mail cap; `log_mail_attempt` refuses them.
+- **Gotchas:** a fixture request decided before the drain makes the claim skip the mail as `already_decided` (correct), so the flow files the quota request through the real staff UI. Seed email rows were already due and inflated claim counts in pgTAP; the test parks them as `skipped` first (no deletes).
+- **Review #458 (blocking B1, fixed):** a decision mail went to a requester whose membership had been removed. The claim now re-checks access per bundle member (requests: admin or organizer of that member's event; quota: admin; decision: still a member or crew on the event), and the decided trigger queues nothing for someone who left. Team mail got its own daily budget (300 per company, 3000 overall per UTC day, the guest-mail pattern). A bundle over more than one event names the company instead of one event. The job route answers `{"ok":true}` only. The prefs check refuses `"email": null`, and two quick taps in Profile no longer overwrite each other.
+- **Tests:** pgTAP `team_mail.test.sql` (53), vitest for the template, job, routes, prefs section and hook; flow `team-mail` (Q1–Q8).
+
+---
+
 ## 2026-10-10 — Gastcommunicatie F, PR 6c: a contact email per event (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Decision Max 2026-10-10: every event carries the address guests see in their mails and reply to. Spec #13 revised.
@@ -46,20 +60,6 @@ Milestone **Now** (ADE). Orchestrator status for golf D plus the early-started g
   - **Changelog conflicts on every parallel merge** cost three re-merges on #437 alone. Per-PR changelog fragments (one file per PR, concatenated at release) would remove them.
   - **Local tests must prove the checkout first.** Max's first #437 test served `main`; a stray `package.json` in the home folder broke Turbopack; a missing `NEXT_PUBLIC_APP_URL` sent local invite links to prod (fixed in #448). The test script now kills dev servers, checks branch + head SHA and starts on webpack.
   - **Vault vs Edge Function secrets** are easy to confuse in the dashboard; the go-live check reads `vault.secrets` by name after every switch.
-
----
-
-## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
-
-Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.
-
-- **What ships:** guest-list requests mail the approvers, quota requests the admins, the decision the requester; a 09:00 Amsterdam daily summary of what is still open (counts only, no mail when nothing is open). Mail follows the push bundle rule (#52). Profile → Notifications: per kind push on/off and email right away / daily / off, plus the summary; only the kinds a user can receive are shown. Every team mail carries a `/n/[token]` stop link plus RFC 8058 one-click `List-Unsubscribe`.
-- **Deviation from the brief:** the preferences live in their own table `user_notification_prefs` (RPC-only, own row), not in a `user_profiles` column. `authenticated` holds a table-level SELECT on `user_profiles`, and a column revoke cannot narrow a table grant, so a new column there is readable by every colleague. This also means the CLAUDE.md line "New columns on `user_profiles` start with no grant for `authenticated`" does not hold today (`is_platform_admin` is readable too); flagged to the orchestrator, not changed here.
-- **Outbox:** `notification_outbox.channel` (`push`/`email`, default `push`, expand-only); the unique key gains `channel`; push claim and sweep read only push rows, their RPC shape unchanged for the deployed Edge Function. Push pgTAP files pin a push-only prefs fixture so their counts stay what they test.
-- **Delivery:** pg_cron every minute → single-use-token kick → `POST /api/webhooks/team-mails` → Resend batch → settle; the three request/decision server actions also drain in `after()`. The claim re-checks address, preference, access and whether the request is still open just before sending. Team types stay out of the guest-mail cap; `log_mail_attempt` refuses them.
-- **Gotchas:** a fixture request decided before the drain makes the claim skip the mail as `already_decided` (correct), so the flow files the quota request through the real staff UI. Seed email rows were already due and inflated claim counts in pgTAP; the test parks them as `skipped` first (no deletes).
-- **Review #458 (blocking B1, fixed):** a decision mail went to a requester whose membership had been removed. The claim now re-checks access per bundle member (requests: admin or organizer of that member's event; quota: admin; decision: still a member or crew on the event), and the decided trigger queues nothing for someone who left. Team mail got its own daily budget (300 per company, 3000 overall per UTC day, the guest-mail pattern). A bundle over more than one event names the company instead of one event. The job route answers `{"ok":true}` only. The prefs check refuses `"email": null`, and two quick taps in Profile no longer overwrite each other.
-- **Tests:** pgTAP `team_mail.test.sql` (53), vitest for the template, job, routes, prefs section and hook; flow `team-mail` (Q1–Q8).
 
 ---
 
