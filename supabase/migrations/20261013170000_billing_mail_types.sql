@@ -37,8 +37,9 @@
 --      trial mails (once per company per type, decision Max) and
 --      'stripe:<event id>' for the two Stripe mails (once per EVENT, so every
 --      failed payment gets its mail). A transiently failed attempt (quota,
---      rate limit, provider down, timeout, network: nothing left the building)
---      may be retried; a rejected one and queued/sent/delivered never again.
+--      rate limit, provider down, timeout, network) or one left queued by a
+--      run that died is retried on the SAME mail_log row, so the same Resend
+--      Idempotency-Key; a rejected one and sent/delivered never again.
 --   6. log_billing_mail(): the only write path to mail_log for these types.
 --      Re-checks inside the database, whatever the caller says: the recipient
 --      is an admin or finance member of THAT company with a usable login
@@ -219,7 +220,7 @@ create table public.billing_mail_deliveries (
     constraint billing_mail_deliveries_key_check check (char_length(dedupe_key) between 1 and 210),
   recipient_id uuid not null references auth.users (id) on delete cascade,
   type text not null,
-  -- The attempt that counts. A failed attempt is replaced by the retry.
+  -- The attempt that counts. A retry reuses this row (same Idempotency-Key).
   mail_log_id uuid not null references public.mail_log (id) on delete cascade,
   created_at timestamptz not null default now(),
   primary key (venue_id, dedupe_key, recipient_id)
@@ -302,8 +303,10 @@ $$;
 -- carries p_stripe_customer_id. Returns true when queued; false (nothing
 -- queued) for an unknown or other-type event, an unknown customer, a comped
 -- or paused company, an event older than the newest one applied to that
--- subscription (a late payment_failed after a newer invoice.paid must not
--- tell a paying company their payment failed), an event more than 3 days old
+-- subscription while the company is no longer past_due/canceled (a late
+-- payment_failed after a newer invoice.paid must not tell a paying company
+-- their payment failed; a newer subscription.updated(past_due) does not
+-- suppress it), an event more than 3 days old
 -- (a manual resend from the Stripe dashboard), or a second call. The webhook
 -- also calls it on a ledger replay: the primary key makes that a no-op once
 -- queued, and it lets Stripe's redelivery recover a queue call that failed.
@@ -323,6 +326,7 @@ declare
   v_type text;
   v_venue uuid;
   v_last_event_at timestamptz;
+  v_status text;
   v_inserted integer;
 begin
   if p_stripe_event_id is null or p_stripe_customer_id is null then
@@ -341,14 +345,21 @@ begin
     return false;
   end if;
 
-  select s.venue_id, s.last_stripe_event_at into v_venue, v_last_event_at
+  select s.venue_id, s.last_stripe_event_at, s.status::text
+    into v_venue, v_last_event_at, v_status
     from public.subscriptions s
    where s.stripe_customer_id = p_stripe_customer_id;
   if v_venue is null or public.billing_mail_blocked(v_venue) then
     return false;
   end if;
+  -- A newer applied event only makes this one stale when the company is no
+  -- longer in trouble (a late payment_failed after invoice.paid). Stripe
+  -- sends invoice.payment_failed and customer.subscription.updated(past_due)
+  -- together, in no guaranteed order: the newer update leaves the status
+  -- past_due, and the mail must still go (review #446, B1).
   if p_event_created is not null and v_last_event_at is not null
-     and p_event_created < v_last_event_at then
+     and p_event_created < v_last_event_at
+     and v_status not in ('past_due', 'canceled') then
     return false;
   end if;
   -- An old event resent from the Stripe dashboard is not news to anyone.
@@ -473,8 +484,9 @@ comment on function public.billing_mail_recipients(uuid) is
 -- ---------------------------------------------------------------------------
 -- 8. log_billing_mail — the one mail_log write path for billing mails
 -- ---------------------------------------------------------------------------
--- Returns the new mail_log id (= the Resend Idempotency-Key), or NULL when
--- this recipient already has a queued/sent/delivered mail under this key:
+-- Returns the mail_log id to send under (= the Resend Idempotency-Key): a new
+-- row for a first attempt, the SAME row for a retry. NULL when this recipient
+-- already has the mail (sent/delivered), a rejected one, or one in flight:
 -- the caller then sends nothing. Raises:
 --   42501  the recipient is not an admin/finance member of the company with
 --          a usable address (the service role cannot be talked into mailing
@@ -499,6 +511,7 @@ declare
   v_email text;
   v_status text;
   v_error text;
+  v_touched timestamptz;
   v_id uuid;
   v_event_id text;
 begin
@@ -544,20 +557,35 @@ begin
     raise exception 'no queued stripe event for this mail' using errcode = '55000';
   end if;
 
-  -- Only a TRANSIENT failure is retried (quota, rate limit, provider down,
-  -- timeout, network). Resend refusing the mail (provider_rejected: a bad
-  -- address, say) stays failed, so an hourly job never hammers the shared
-  -- Resend account, which also carries the login OTPs.
-  select m.status, m.error_code into v_status, v_error
+  -- What happened to the attempt that counts so far:
+  --   sent / delivered / delayed / bounced / complained  -> done, NULL
+  --   failed, not transient (provider_rejected: a bad address, say) -> NULL,
+  --     so an hourly job never hammers the shared Resend account (login OTPs)
+  --   queued, touched in the last 10 minutes -> a run is sending it, NULL
+  --   failed transiently (quota, rate limit, provider down, timeout, network),
+  --   or queued for over 10 minutes (the run died: the route has 60 s)
+  --     -> retried on the SAME mail_log row, so the retry carries the same
+  --        Resend Idempotency-Key: if the first POST did reach Resend (a
+  --        client-side timeout), Resend returns that send instead of mailing
+  --        twice (review #446, S1 + S2). Resend keeps keys for 24 hours.
+  select m.id, m.status, m.error_code, m.updated_at
+    into v_id, v_status, v_error, v_touched
     from public.billing_mail_deliveries d
     join public.mail_log m on m.id = d.mail_log_id
    where d.venue_id = p_venue_id
      and d.dedupe_key = p_dedupe_key
      and d.recipient_id = p_recipient_id;
-  if v_status is not null
-     and (v_status <> 'failed' or v_error is null or v_error not in (
-       'rate_limited', 'daily_quota_exceeded', 'monthly_quota_exceeded',
-       'provider_unavailable', 'timeout', 'network')) then
+
+  if v_id is not null then
+    if (v_status = 'failed' and v_error in (
+          'rate_limited', 'daily_quota_exceeded', 'monthly_quota_exceeded',
+          'provider_unavailable', 'timeout', 'network'))
+       or (v_status = 'queued' and v_touched < now() - interval '10 minutes') then
+      update public.mail_log
+         set status = 'queued', error_code = null, updated_at = now()
+       where id = v_id;
+      return v_id;
+    end if;
     return null;
   end if;
 
@@ -566,9 +594,7 @@ begin
   returning id into v_id;
 
   insert into public.billing_mail_deliveries (venue_id, dedupe_key, recipient_id, type, mail_log_id)
-  values (p_venue_id, p_dedupe_key, p_recipient_id, p_type, v_id)
-  on conflict (venue_id, dedupe_key, recipient_id)
-  do update set mail_log_id = excluded.mail_log_id, created_at = now();
+  values (p_venue_id, p_dedupe_key, p_recipient_id, p_type, v_id);
 
   return v_id;
 end;

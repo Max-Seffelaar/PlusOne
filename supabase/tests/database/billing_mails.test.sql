@@ -57,7 +57,7 @@ begin
 end;
 $fn$;
 
-select plan(71);
+select plan(75);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner)
@@ -242,18 +242,31 @@ select is(public.log_billing_mail('bb000000-0000-7000-8000-0000000000d1',
   'billing_trial_day21', 'billing_trial_day21', '11111111-1111-4111-8111-111111111111'), null,
   'D3 …for every type');
 
--- A failed attempt (nothing left the building) may be retried; a sent one not.
+-- A transiently failed attempt is retried on the SAME row (same Resend
+-- Idempotency-Key, review #446 S1); a sent one never again.
 select ok(public.record_mail_send_result(current_setting('test.m12')::uuid, 'failed', null, 'timeout'),
   'D4 settle the day-12 mail as failed');
 select set_config('test.m12b', public.log_billing_mail('bb000000-0000-7000-8000-0000000000d2',
   'billing_trial_day12', 'billing_trial_day12', '11111111-1111-4111-8111-111111111111')::text, true);
-select ok(current_setting('test.m12b') <> '' and current_setting('test.m12b') <> current_setting('test.m12'),
-  'D5 a failed attempt is retried with a new mail_log row');
+select is(current_setting('test.m12b'), current_setting('test.m12'),
+  'D5 a transient failure (timeout) is retried on the same mail_log row: same Idempotency-Key');
 select ok(public.record_mail_send_result(current_setting('test.m12b')::uuid, 'sent', 're_m12b', null),
   'D6 the retry is settled as sent');
 select is(public.log_billing_mail('bb000000-0000-7000-8000-0000000000d2',
   'billing_trial_day12', 'billing_trial_day12', '11111111-1111-4111-8111-111111111111'), null,
   'D7 …and after that it is never sent again');
+
+-- A row left queued by a run that died (route killed at 60 s) is retried
+-- after 10 minutes, on the same row (review #446 S2); D3 showed a fresh
+-- queued row is left alone.
+reset role;
+update public.mail_log set updated_at = now() - interval '11 minutes'
+ where id = current_setting('test.m21')::uuid;
+select pg_temp.login_service();
+select is(public.log_billing_mail('bb000000-0000-7000-8000-0000000000d1',
+  'billing_trial_day21', 'billing_trial_day21', '11111111-1111-4111-8111-111111111111')::text,
+  current_setting('test.m21'),
+  'D7b a queued row older than 10 minutes is retried on the same mail_log row');
 
 -- Recipients: admin and finance of that company, nobody else.
 select ok(public.log_billing_mail('bb000000-0000-7000-8000-0000000000b3',
@@ -298,7 +311,7 @@ select is(
 select is(
   (select count(*)::int from public.billing_mail_deliveries
     where venue_id = 'bb000000-0000-7000-8000-0000000000d2' and dedupe_key = 'billing_trial_day12'),
-  1, 'D17 the ledger keeps one row per company/key/recipient (the retry replaced the failed one)');
+  1, 'D17 the ledger keeps one row per company/key/recipient (the retry reused it)');
 
 -- ---------------------------------------------------------------------------
 -- E. Stripe: webhook replay is idempotent; every new event mails
@@ -361,14 +374,26 @@ select ok(not public.enqueue_billing_event_mail('evt_del_old', 'cus_bm3', now() 
 select ok(not public.enqueue_billing_event_mail('evt_pf_1', 'cus_unknown', now()),
   'E20 an unknown customer queues nothing');
 
+-- Review #446 B1: Stripe sends invoice.payment_failed and
+-- customer.subscription.updated(past_due) together, in no guaranteed order.
+-- The newer update arriving first must not swallow the payment-failed mail.
+select ok(public.apply_stripe_subscription_update('evt_sub_upd_b1', 'customer.subscription.updated', null, 'cus_bm3',
+  'sub_bm3', 'past_due', null, null, now() + interval '2 minutes'),
+  'E20b a newer subscription.updated(past_due) is applied first');
+select ok(public.apply_stripe_subscription_update('evt_pf_b1', 'invoice.payment_failed', null, 'cus_bm3',
+  null, 'past_due', null, null, now() + interval '1 minute'),
+  'E20c the (older) payment_failed arrives after it');
+select ok(public.enqueue_billing_event_mail('evt_pf_b1', 'cus_bm3', now() + interval '1 minute'),
+  'E20d …and still queues its mail: the company is past_due, so the event is not stale news');
+
 select throws_ok($$ select public.log_billing_mail('bb000000-0000-7000-8000-0000000000b3',
   'billing_trial_day7', 'billing_trial_day7', '11111111-1111-4111-8111-111111111111') $$,
   '55000', null, 'E21 trial mails stop once the company is no longer trialing');
 reset role;
 
 select is((select count(*)::int from public.billing_mail_events
-            where venue_id = 'bb000000-0000-7000-8000-0000000000b3'), 2,
-  'E22 exactly two queued events for B3 (evt_pf_1, evt_pf_2)');
+            where venue_id = 'bb000000-0000-7000-8000-0000000000b3'), 3,
+  'E22 exactly three queued events for B3 (evt_pf_1, evt_pf_2, evt_pf_b1)');
 
 -- ---------------------------------------------------------------------------
 -- F. Invitation limits are untouched by billing mail
@@ -415,7 +440,7 @@ select is(
   'G4 the platform admin sees one line per mail, with recipient counts');
 select ok(
   (current_setting('test.tl')::jsonb ->> 'paused')::boolean = false
-  and current_setting('test.tl')::jsonb -> 'subscription' ->> 'status' = 'active'
+  and current_setting('test.tl')::jsonb -> 'subscription' ->> 'status' = 'past_due'
   and position('@' in current_setting('test.tl')) = 0,
   'G5 not paused, subscription facts included, no address anywhere');
 
