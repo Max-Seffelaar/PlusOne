@@ -129,7 +129,7 @@ import {
 import type { CreateCompanyLocationInput, UpdateCompanyLocationInput } from '@/features/venues/location-schemas';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
-import { setVenueCompedAction, setVenueTrialEndAction } from '@/features/billing/platform-actions';
+import { setBillingMailsPausedAction, setVenueCompedAction, setVenueTrialEndAction } from '@/features/billing/platform-actions';
 import type { BillingInterval } from '@/features/billing/plans';
 import {
   inviteBetaCustomerAction,
@@ -1752,6 +1752,20 @@ export function usePoSetVenueComped() {
       if (!res.ok) throw new Error(res.message);
     },
     onSuccess: (_d, { venueId }) => invalidatePlatformBilling(qc, venueId),
+  });
+}
+
+/** Billing-mails B1 (z8uq9m2z19): pause/resume billing mail for one company. */
+export function usePoSetBillingMailsPaused() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { venueId: string; paused: boolean }>({
+    mutationFn: async (input) => {
+      const res = await setBillingMailsPausedAction(input);
+      if (!res.ok) throw new Error(res.message);
+    },
+    onSuccess: (_d, { venueId }) => {
+      void qc.invalidateQueries({ queryKey: poKeys.platformBillingMails(venueId) });
+    },
   });
 }
 

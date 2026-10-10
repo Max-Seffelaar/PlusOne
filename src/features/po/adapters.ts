@@ -39,6 +39,7 @@ import { tierRole } from '@/lib/po/tier';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { effectiveTrialEndsAt, isBillingInterval, PLAN_NAME, type BillingInterval } from '@/features/billing/plans';
+import { isBillingMailType, type BillingMailSubscription, type BillingMailType } from '@/features/billing/mail-schedule';
 import { deviceLabel } from '@/lib/ua';
 import { t, fmt as fmtCopy } from '@/lib/i18n';
 import { formatVenueAddress } from '@/features/requests/status-view';
@@ -1386,6 +1387,69 @@ export function toPlatformCompany(row: PlatformCompanyRow): PlatformCompany {
         ? { name: row.last_event_name, startsAt: row.last_event_starts_at }
         : null,
   };
+}
+
+// ── Billing-mails B1 (z8uq9m2z19): the timeline in a Companies card ──────────
+
+/** One billing mail as the Platform timeline shows it: per mail (a trial type,
+ *  or one Stripe event), counts per delivery status. Never an address. */
+export interface PlatformBillingMail {
+  type: BillingMailType;
+  /** The type for a trial mail, `stripe:<event id>` for a Stripe mail. */
+  key: string;
+  firstAt: string;
+  recipients: number;
+  sending: number;
+  delivered: number;
+  failed: number;
+  bounced: number;
+}
+
+export interface PlatformBillingMails {
+  paused: boolean;
+  /** Input for nextBillingMail (mail-schedule.ts); null without a subscription. */
+  subscription: BillingMailSubscription | null;
+  mails: PlatformBillingMail[];
+}
+
+const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+export function toPlatformBillingMails(raw: unknown): PlatformBillingMails {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const paused = r.paused === true;
+  const s = (r.subscription && typeof r.subscription === 'object' ? r.subscription : null) as Record<
+    string,
+    unknown
+  > | null;
+  const status = (SUBSCRIPTION_STATUSES as readonly string[]).includes(String(s?.status ?? ''))
+    ? (s?.status as BillingMailSubscription['status'])
+    : null;
+  const subscription: BillingMailSubscription | null =
+    s && status && typeof s.created_at === 'string'
+      ? {
+          status,
+          createdAt: s.created_at,
+          trialEndsAt: typeof s.trial_ends_at === 'string' ? s.trial_ends_at : null,
+          stripeLinked: s.stripe_linked === true,
+          paused,
+        }
+      : null;
+  const mails: PlatformBillingMail[] = [];
+  for (const item of Array.isArray(r.mails) ? r.mails : []) {
+    const m = (item ?? {}) as Record<string, unknown>;
+    if (!isBillingMailType(m.type) || typeof m.dedupe_key !== 'string' || typeof m.first_at !== 'string') continue;
+    mails.push({
+      type: m.type,
+      key: m.dedupe_key,
+      firstAt: m.first_at,
+      recipients: n(m.recipients),
+      sending: n(m.sending),
+      delivered: n(m.delivered),
+      failed: n(m.failed),
+      bounced: n(m.bounced),
+    });
+  }
+  return { paused, subscription, mails };
 }
 
 /** What the status chip says. `daysLeft` only for a running trial. */

@@ -29,6 +29,51 @@ Milestone **Now**. Max tested #443 on Android (sharing from Gmail works; WhatsAp
 
 ---
 
+## 2026-10-09 — Billing-mails B1: seven trial/payment mails + Platform timeline (z8uq9m2z19)
+
+**What.** Seven billing mails to the admins + finance of a company, copy v3 verbatim
+(`src/features/mail/templates/billing-copy.ts`): trial-0 (start), trial-7 (end − 7 d),
+trial-12 (end − 2 d), trial-ended (end), trial-21 (end + 7 d), payment-failed (every
+Stripe `invoice.payment_failed`), canceled (every `customer.subscription.deleted`).
+Sender `PlusOne <support@plus-one.io>`, reply-to support@. No amounts.
+
+**How.** Migration `20261013170000_billing_mail_types.sql`:
+- mail_log gains the seven types; billing mails are excluded from the company invite
+  cap and the 60-s recipient window (log_mail_attempt refuses them: one path).
+- `billing_mail_deliveries` ledger, key = type (trial: once per company per type) or
+  `stripe:<event id>` (every event mails once); a failed attempt may be retried.
+- `billing_mail_events`: the Stripe webhook calls `enqueue_billing_event_mail` after
+  `apply_stripe_subscription_update` (also on a ledger replay: idempotent per event,
+  and it lets Stripe's redelivery recover a failed queue call). Type comes from the
+  `stripe_webhook_events` row; stale (a newer event already applied), >3 days old,
+  comped and paused queue nothing.
+- `log_billing_mail` re-checks in the DB: admin/finance of THAT company, not comped,
+  not paused, trialing for trial mails, queued event for Stripe mails.
+- Job = the platform-digest pattern (PR #440): pg_cron hourly → `billing_mails_tick`
+  (kicks only 08:00–20:59 Amsterdam) → pg_net POST with a single-use token →
+  `POST /api/webhooks/billing-mails` (Next route, not an Edge Function: it shares the
+  templates and the mail provider with the webhook path, so the Resend confinement
+  guard needs no new exception) → `billing_mails_begin` consumes the token first.
+  Sleeps without the Vault secret `plusone_billing_mails_url`.
+- When a trial mail is due: the pure `dueBillingMails` (`src/features/billing/mail-schedule.ts`),
+  a 24-hour window from each moment counted from `effectiveTrialEndsAt`. No catch-up:
+  a short override skips days already gone; a failed run is retried the same day.
+- Platform → Companies card: "Billing mails" (collapsed; reads only when opened) with
+  per-mail recipient/status counts, the next trial mail (same pure schedule) and
+  "Pause billing mails" (`set_billing_mails_paused`, platform admin, stamped uid).
+
+**Tests.** vitest: schedule on every day / override / ADE / missed day / comped /
+paused / Stripe-linked; templates (subjects, injection, no amounts); job core
+(token, transport, idempotent second run, Stripe keys, no PII in logs); webhook
+queue calls; timeline component. pgTAP `billing_mails.test.sql` (68). Flow
+`billing-mails.flow.ts` (job → Mailpit → timeline → pause, 4 variants). Local:
+`pnpm billing-mails:local --demo` puts all seven mails in Mailpit.
+
+**Not live** until the orchestrator's go: Vault secret + `RESEND_API_KEY` on prod
+(without a key the job answers 503 and writes nothing).
+
+---
+
 ## 2026-10-09 — Event locations L: saved locations per company, public pages show the event location (z8uq9m444c)
 
 Milestone **Now** (golf D, taak 3b, ADE). Decision Max 2026-10-07; spec #58 (amends #48(c), #53).

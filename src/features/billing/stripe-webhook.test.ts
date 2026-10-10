@@ -280,6 +280,59 @@ describe('handleStripeWebhook', () => {
     consoleSpy.mockRestore();
   });
 
+  // --- Billing mail queue (z8uq9m2z19) --------------------------------------
+  // The ledger replay (stripe_webhook_events) and the per-event queue key are
+  // proven in pgTAP (billing_mails.test.sql); here only the handler's calls.
+
+  it.each([
+    ['invoice.payment_failed', invoiceFailed],
+    ['customer.subscription.deleted', subscriptionUpdated('canceled', undefined, 'customer.subscription.deleted')],
+  ])('%s queues its billing mail after the ledger accepted it', async (_type, evt) => {
+    const { handleStripeWebhook } = await loadModule();
+    rpc.mockResolvedValue({ data: true, error: null });
+    const payload = JSON.stringify(evt);
+    const res = await handleStripeWebhook(payload, sign(payload));
+    expect(res).toEqual({ status: 200, body: 'ok' });
+    expect(rpc.mock.calls.map((c) => c[0])).toEqual(['apply_stripe_subscription_update', 'enqueue_billing_event_mail']);
+    expect(rpc).toHaveBeenLastCalledWith('enqueue_billing_event_mail', {
+      p_stripe_event_id: evt.id,
+      p_stripe_customer_id: 'cus_123',
+      p_event_created: new Date(1_700_000_000 * 1000).toISOString(),
+    });
+  });
+
+  it('a replay asks the queue again (idempotent per event id there), still 200', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    rpc.mockResolvedValueOnce({ data: false, error: null }).mockResolvedValueOnce({ data: false, error: null });
+    const payload = JSON.stringify(invoiceFailed);
+    const res = await handleStripeWebhook(payload, sign(payload));
+    expect(res).toEqual({ status: 200, body: 'replay' });
+    expect(rpc).toHaveBeenLastCalledWith('enqueue_billing_event_mail', expect.objectContaining({ p_stripe_event_id: invoiceFailed.id }));
+  });
+
+  it('a failed queue call answers 500 so Stripe redelivers', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    rpc
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: null, error: { code: '08006', message: 'connection lost' } });
+    const payload = JSON.stringify(invoiceFailed);
+    const res = await handleStripeWebhook(payload, sign(payload));
+    expect(res).toEqual({ status: 500, body: 'processing failed' });
+    consoleSpy.mockRestore();
+  });
+
+  it('other events never touch the billing-mail queue', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    rpc.mockResolvedValue({ data: true, error: null });
+    for (const evt of [invoicePaid, subscriptionUpdated('active'), checkoutCompleted]) {
+      rpc.mockClear();
+      const payload = JSON.stringify(evt);
+      await handleStripeWebhook(payload, sign(payload));
+      expect(rpc.mock.calls.map((c) => c[0])).toEqual(['apply_stripe_subscription_update']);
+    }
+  });
+
   // --- client_reference_id UUID guard (ClickUp 86ey9e9re) -------------------
   // The RPC signature is `p_venue_id uuid`. A non-UUID fails Postgres' cast, so
   // WITHOUT the guard the handler answered 500 and Stripe redelivered the same

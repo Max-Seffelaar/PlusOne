@@ -86,6 +86,8 @@ const HARDCODED_COPY_FILES = [
   'src/features/auth/components/MfaEnrollCard.tsx',
   'src/app/not-found.tsx',
   'src/features/po/eventday/EventDayCockpit.tsx',
+  // Billing-mails B1 (z8uq9m2z19): the seven billing mails, copy v3.
+  'src/features/mail/templates/billing-copy.ts',
 ];
 
 /** Strips `/* … *\/` (incl. JSX `{/* … *\/}`) and trailing `//` comments. */

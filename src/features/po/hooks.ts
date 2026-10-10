@@ -73,6 +73,7 @@ import {
   fetchPlatformAuditOverviewCount,
   fetchPlatformAccessLog,
   fetchPlatformCompanies,
+  fetchPlatformBillingMails,
   fetchPlatformSubscriptionCounts,
   fetchPlatformTrialFunnel,
   fetchPlatformUsage30d,
@@ -126,10 +127,12 @@ import {
   toPlatformAuditEntry,
   toPlatformAccessLogEntry,
   toPlatformCompany,
+  toPlatformBillingMails,
   toPlatformSubscriptionCounts,
   toPlatformTrialFunnel,
   toPlatformUsage,
   type PlatformCompany,
+  type PlatformBillingMails,
   type PlatformSubscriptionCounts,
   type PlatformTrialFunnel,
   type PlatformUsage,
@@ -1459,6 +1462,16 @@ export function usePoPlatformCompanies(venueIds: readonly string[], options?: { 
           return [c.venueId, c] as const;
         })
       ),
+  });
+}
+
+/** Billing-mails B1 (z8uq9m2z19): one company's billing-mail timeline. Read
+ *  only when a platform admin opens it in the Companies card. */
+export function usePoPlatformBillingMails(venueId: string, options?: { enabled?: boolean }) {
+  return useQuery<PlatformBillingMails>({
+    queryKey: poKeys.platformBillingMails(venueId),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => toPlatformBillingMails(await fetchPlatformBillingMails(createClient(), venueId)),
   });
 }
 

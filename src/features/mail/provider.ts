@@ -22,6 +22,10 @@ export interface OutgoingMail {
   idempotencyKey: string;
   /** Mail type, sent as a provider tag (ASCII, no PII). */
   type: string;
+  /** Sender override (billing mail: support@); default MAIL_FROM. */
+  from?: string;
+  /** Reply-To address (billing mail: support@, answered by the team). */
+  replyTo?: string;
 }
 
 /**
@@ -56,6 +60,11 @@ export function localMailCatcher(): string | null {
   return process.env.INBUCKET_URL || 'http://127.0.0.1:55324';
 }
 
+/** `PlusOne <support@plus-one.io>` -> `support@plus-one.io`. */
+function senderAddress(from: string): string {
+  return /<([^>]+)>/.exec(from)?.[1] ?? from;
+}
+
 // Keyless fallback: local dev and CI. Logs type + idempotency key only. On the
 // local stack the mail also lands in Mailpit: fire and forget, so a missing
 // catcher never fails or slows the send, and its error is never logged.
@@ -71,8 +80,9 @@ export class StubMailProvider implements MailProvider {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          From: { Email: 'noreply@plus-one.io', Name: 'PlusOne' },
+          From: { Email: mail.from ? senderAddress(mail.from) : 'noreply@plus-one.io', Name: 'PlusOne' },
           To: [{ Email: mail.to }],
+          ...(mail.replyTo ? { ReplyTo: [{ Email: mail.replyTo }] } : {}),
           Subject: mail.subject,
           Text: mail.text,
           HTML: mail.html,

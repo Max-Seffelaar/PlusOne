@@ -34,8 +34,9 @@ export class ResendAdapter implements MailProvider {
           'Idempotency-Key': mail.idempotencyKey,
         },
         body: JSON.stringify({
-          from: MAIL_FROM,
+          from: mail.from ?? MAIL_FROM,
           to: [mail.to],
+          ...(mail.replyTo ? { reply_to: [mail.replyTo] } : {}),
           subject: mail.subject,
           html: mail.html,
           text: mail.text,

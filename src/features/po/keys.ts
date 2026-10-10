@@ -121,6 +121,8 @@ export const poKeys = {
   // (Invites or Venues, keyed by the ids shown) + the three Overview aggregates.
   platformCompanies: (venueIds: readonly string[]) =>
     [...poKeys.all, 'platform-companies', venueIds] as const,
+  // Billing-mails B1 (z8uq9m2z19): one company's billing-mail timeline.
+  platformBillingMails: (venueId: string) => [...poKeys.all, 'platform-billing-mails', venueId] as const,
   platformSubscriptionCounts: () => [...poKeys.all, 'platform-overview', 'subscriptions'] as const,
   platformTrialFunnel: () => [...poKeys.all, 'platform-overview', 'trial-funnel'] as const,
   platformUsage: () => [...poKeys.all, 'platform-overview', 'usage-30d'] as const,

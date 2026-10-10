@@ -70,6 +70,124 @@ export type Database = {
           },
         ]
       }
+      billing_mail_deliveries: {
+        Row: {
+          created_at: string
+          dedupe_key: string
+          mail_log_id: string
+          recipient_id: string
+          type: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          dedupe_key: string
+          mail_log_id: string
+          recipient_id: string
+          type: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          dedupe_key?: string
+          mail_log_id?: string
+          recipient_id?: string
+          type?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_mail_deliveries_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_mail_deliveries_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_mail_events: {
+        Row: {
+          created_at: string
+          event_created: string | null
+          stripe_event_id: string
+          type: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_created?: string | null
+          stripe_event_id: string
+          type: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          event_created?: string | null
+          stripe_event_id?: string
+          type?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_mail_events_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_mail_settings: {
+        Row: {
+          paused: boolean
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          paused?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          paused?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_mail_settings_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: true
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_mail_tokens: {
+        Row: {
+          created_at: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          token_hash?: string
+        }
+        Relationships: []
+      }
       check_ins: {
         Row: {
           checked_at: string
@@ -2142,6 +2260,20 @@ export type Database = {
         Returns: undefined
       }
       audit_changed: { Args: { p_new: Json; p_old: Json }; Returns: Json }
+      backfill_event_locations_from_company: { Args: never; Returns: number }
+      billing_mail_blocked: { Args: { p_venue_id: string }; Returns: boolean }
+      billing_mail_recipient_rows: {
+        Args: { p_venue_id: string }
+        Returns: {
+          email: string
+          full_name: string
+          user_id: string
+        }[]
+      }
+      billing_mail_recipients: { Args: { p_venue_id: string }; Returns: Json }
+      billing_mails_begin: { Args: { p_token: string }; Returns: Json }
+      billing_mails_setting: { Args: { p_name: string }; Returns: string }
+      billing_mails_tick: { Args: never; Returns: boolean }
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_read_event_stats: { Args: { p_event_id: string }; Returns: boolean }
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
@@ -2253,6 +2385,14 @@ export type Database = {
           inviter_email: string
           is_crew: boolean
         }[]
+      }
+      enqueue_billing_event_mail: {
+        Args: {
+          p_event_created?: string
+          p_stripe_customer_id: string
+          p_stripe_event_id: string
+        }
+        Returns: boolean
       }
       ensure_my_profile: { Args: never; Returns: undefined }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
@@ -2449,6 +2589,7 @@ export type Database = {
       }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
       is_venue_organizer: { Args: { p_venue_id: string }; Returns: boolean }
+      kick_billing_mails: { Args: never; Returns: boolean }
       kick_platform_digest: { Args: never; Returns: boolean }
       kick_push_dispatch: { Args: never; Returns: boolean }
       link_headcount_contribution: {
@@ -2470,6 +2611,15 @@ export type Database = {
           updated_at: string
           user_agent: string
         }[]
+      }
+      log_billing_mail: {
+        Args: {
+          p_dedupe_key: string
+          p_recipient_id: string
+          p_type: string
+          p_venue_id: string
+        }
+        Returns: string
       }
       log_mail_attempt: {
         Args: { p_recipient_hash: string; p_type: string; p_venue_id: string }
@@ -2546,6 +2696,10 @@ export type Database = {
       platform_audit_overview_count: {
         Args: { p_since?: string; p_until?: string; p_venue_id?: string }
         Returns: number
+      }
+      platform_billing_mail_timeline: {
+        Args: { p_venue_id: string }
+        Returns: Json
       }
       platform_company_details: {
         Args: { p_venue_ids: string[] }
@@ -2788,6 +2942,10 @@ export type Database = {
       seed_platform_admin_by_email_hash: {
         Args: { p_hash: string }
         Returns: string
+      }
+      set_billing_mails_paused: {
+        Args: { p_paused: boolean; p_venue_id: string }
+        Returns: undefined
       }
       set_platform_admin: {
         Args: { p_user_id: string; p_value: boolean }
