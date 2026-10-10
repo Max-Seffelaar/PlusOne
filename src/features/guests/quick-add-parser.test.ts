@@ -304,10 +304,12 @@ describe('e-mail + phone capture (#9)', () => {
       TIERS,
       DEFAULT,
     );
-    // In a PASTED block, `31` + 9 digits is an NL number Excel stripped the `+`
-    // from → +31… (decision Max 2026-10-10). Quick add keeps the raw value.
-    expect(a).toMatchObject({ name: 'jan dsadsa', tierId: 'regular', plusOnes: 1, phone: '+31646003600', email: 'Henk@henk.nl' });
-    expect(b).toMatchObject({ name: 'freek', tierId: 'vip', plusOnes: 5, phone: '+31646003699', email: 'peit@piet.nl' });
+    // In a PASTED block (decisions Max 2026-10-10): `31` + 9 digits is an NL
+    // number Excel stripped the `+` from → +31…, and a bare last number is the
+    // TOTAL number of people (1 = just the guest, 5 = guest +4). Quick add keeps
+    // the raw phone and reads a bare number as +N.
+    expect(a).toMatchObject({ name: 'jan dsadsa', tierId: 'regular', plusOnes: 0, phone: '+31646003600', email: 'Henk@henk.nl' });
+    expect(b).toMatchObject({ name: 'freek', tierId: 'vip', plusOnes: 4, phone: '+31646003699', email: 'peit@piet.nl' });
   });
 
   it('never reads a phone number as +N plus-ones', () => {
@@ -512,8 +514,14 @@ describe('pasted spreadsheet columns (share-import follow-up)', () => {
     expect(parseBulk('Name\t+1\nMilan\t2', TIERS, DEFAULT)[0]).toMatchObject({ name: 'Milan', plusOnes: 2 });
   });
 
-  it('a whitespace-only line keeps the #33 grammar (Name 2 = +2, as in quick add)', () => {
-    expect(parseBulk('Juri 2', TIERS, DEFAULT)[0]).toMatchObject({ name: 'Juri', plusOnes: 2 });
+  it('a space-only line in a paste: a bare last number is the total too, +2 stays plus-ones (Max 2026-10-10)', () => {
+    expect(parseBulk('Henk Jansen 2', TIERS, DEFAULT)[0]).toMatchObject({ name: 'Henk Jansen', plusOnes: 1, slots: 2 });
+    expect(parseBulk('Henk Jansen +2', TIERS, DEFAULT)[0]).toMatchObject({ name: 'Henk Jansen', plusOnes: 2, slots: 3 });
+    expect(parseBulk('Henk Jansen 1', TIERS, DEFAULT)[0]).toMatchObject({ name: 'Henk Jansen', plusOnes: 0 });
+    expect(parseBulk('Henk Jansen 0', TIERS, DEFAULT)[0].countError).toBe('invalid');
+    // A phone at the end is never a count; quick add / the door keep `Name 2` = +2.
+    expect(parseBulk('Henk 646003664', TIERS, DEFAULT)[0]).toMatchObject({ name: 'Henk', plusOnes: 0, phone: '+31646003664' });
+    expect(parse('Henk Jansen 2')).toMatchObject({ name: 'Henk Jansen', plusOnes: 2 });
   });
 
   it('under a header without a count column, a bare small number in an unnamed column is the total', () => {

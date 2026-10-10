@@ -647,10 +647,24 @@ function parseColumnRow(raw: string, header: PasteHeader, tiers: QuickAddTier[],
 }
 
 /** One row without a header: the #33 grammar, plus a bare small number in its
- *  own column (tab/comma/semicolon) as the total number of people, and the
- *  Excel phone repair. A whitespace-only line keeps `Name 2` = +2 (quick add). */
+ *  own column or as the last word as the TOTAL number of people (`Henk Jansen 2`
+ *  = Henk +1, decision Max 2026-10-10), and the Excel phone repair. `+2` keeps
+ *  meaning plus-ones. Quick add and the door are deliberately different: there a
+ *  bare trailing number stays +N (`parseQuickAdd`, untouched). */
 function parseLooseRow(line: string, tiers: QuickAddTier[], defaultTierId: string): ParseResult {
   if (!/[,;\t]/.test(line)) {
+    const words = line.split(/\s+/);
+    const last = words[words.length - 1];
+    if (words.length > 1 && looseCountCell(last)) {
+      const rest = parseQuickAdd(words.slice(0, -1).join(' '), tiers, defaultTierId);
+      // An explicit +N elsewhere on the line wins; the number then stays as the
+      // #33 grammar reads it.
+      if (rest.plusOnes === 0) {
+        const out: ParseResult = { ...rest, raw: line, phone: rest.phone ? repairPastedPhone(rest.phone) : rest.phone };
+        applyCount(out, readTicketCount(last));
+        return out;
+      }
+    }
     const r = parseQuickAdd(line, tiers, defaultTierId);
     return r.phone ? { ...r, phone: repairPastedPhone(r.phone) } : r;
   }
