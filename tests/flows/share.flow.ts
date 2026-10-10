@@ -30,6 +30,7 @@ import { acceptConsent, adminClient } from '../e2e/helpers/supabase-admin';
 const VESPER = 'aa000000-0000-7000-8000-000000000001';
 const SEED_EVENT = 'ee000000-0000-7000-8000-000000000001';
 const VIP_TIER = 'dd000000-0000-7000-8000-000000000002';
+const REGULAR_TIER = 'dd000000-0000-7000-8000-000000000001';
 const STAFF = 'staff@plusone.test';
 const STAFF_ID = '55555555-5555-4555-8555-555555555555';
 // user_manager only: manages the team, has no guest rights (can_write_guests).
@@ -80,7 +81,9 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
   const SEM = `Sem de Vries ${tag}`;
   const NOOR = `Noor Bakker ${tag}`;
   const NAMES = [MILAN, FLEUR, SEM, NOOR];
-  const LINES = [`${MILAN} +2`, `${FLEUR} fleur.${tag}@example.com`, `${SEM}\tsem.${tag}@example.com\t1`, NOOR];
+  // Sem's `2` sits in a column the header doesn't name: total people = Sem +1
+  // (a bare number column is the total, decision Max 2026-10-10).
+  const LINES = [`${MILAN} +2`, `${FLEUR} fleur.${tag}@example.com`, `${SEM}\tsem.${tag}@example.com\t2`, NOOR];
   const SHARED = ['Name\tEmail', `- ${LINES[0]}`, `• ${LINES[1]}`, LINES[2], LINES[3]].join('\n');
 
   await page.goto(`/auth/dev-login?email=${encodeURIComponent(STAFF)}&next=/app`);
@@ -206,6 +209,55 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
   await flow.check(7, 'Opening /app/share again shows an empty box (the shared text was kept in memory only) with "Nothing came through? Share the list again…"', async () => {
     await expect(page.locator('textarea')).toHaveValue('');
     await expect(page.getByTestId('share-empty-hint')).toHaveText('Nothing came through? Share the list again, or paste it below.');
+  });
+
+  // ── A range copied out of Excel/Sheets (follow-up, decisions Max 2026-10-10) ─
+  // Max's paste: tab-separated, a header, a ticket column (total people), Excel's
+  // mangled phone (646003664 = 06 46003664). Two stand-ins: example.com addresses
+  // instead of his real ones, and `Regular` for `GUEST` (no Guest tier on the
+  // seed event). Plain Paste a list, the same parser the share screen uses.
+  const SHEET_ROWS: Array<[string, number, string, string]> = [
+    ['Henk', 1, 'vip', '646003664'],
+    ['Freek', 2, 'vip', '600000000'],
+    ['Anna', 2, 'Regular', '600000001'],
+    ['Bas', 6, 'Regular', '600000002'],
+    ['Lisa', 4, 'vip', '600000003'],
+    ['Tom', 2, 'Regular', '600000004'],
+  ];
+  const LAST = `Ach${tag}`;
+  const SHEET = [
+    'Voornaam\tAchternaam\tAantal tickets\tTier\tEmail\tTelefoonnummer',
+    ...SHEET_ROWS.map(([first, n, tier, phone]) => [first, LAST, String(n), tier, `${first.toLowerCase()}.${tag}@example.com`, phone].join('\t')),
+  ].join('\n');
+  await page.goto(`/app/events/${SEED_EVENT}/bulk`);
+  await page.locator('textarea').fill(SHEET);
+  await expect(page.getByTestId('paste-summary')).toBeVisible();
+  await flow.shot('sheet-paste-preview');
+  await flow.check(15, 'Pasting an Excel/Sheets range (header, ticket column, Excel phone) reads it by column: "6 entries · 17 guests total · 6 with e-mail"', async () => {
+    await expect(page.getByTestId('paste-summary')).toHaveText('6 entries · 17 guests total · 6 with e-mail');
+    await expect(page.getByText('Preview · 6 lines')).toBeVisible();
+    // The header is skipped: no preview row is called "Voornaam …".
+    await expect(page.getByRole('button', { name: /Voornaam/ })).toHaveCount(0);
+  });
+  await page.getByRole('button', { name: 'Add 6 guests' }).click();
+  await flow.check(16, 'Add stores them as Max decided: tickets − 1 as +N, the tier, the e-mail and the phone as +31… (database)', async () => {
+    await expect
+      .poll(async () => (await a.from('guests').select('id', { count: 'exact', head: true }).eq('event_id', SEED_EVENT).like('full_name', `% ${LAST}`)).count, { timeout: 20_000 })
+      .toBe(6);
+    const { data } = await a
+      .from('guests')
+      .select('full_name, plus_ones, email, phone, tier_id')
+      .eq('event_id', SEED_EVENT)
+      .like('full_name', `% ${LAST}`);
+    const byName = new Map((data ?? []).map((g) => [g.full_name, g]));
+    for (const [first, n, tier, phone] of SHEET_ROWS) {
+      expect(byName.get(`${first} ${LAST}`), first).toMatchObject({
+        plus_ones: n - 1,
+        email: `${first.toLowerCase()}.${tag}@example.com`,
+        phone: `+31${phone}`,
+        tier_id: tier === 'vip' ? VIP_TIER : REGULAR_TIER,
+      });
+    }
   });
 
   // ── Over quota: the preview blocks the batch and Add imports nothing ────────
