@@ -1388,7 +1388,15 @@ export function platformBillingOf(company: PlatformCompany): PlatformBilling | n
 
 export interface PlatformSubscriptionCounts {
   total: number;
+  /** Every running trial, with or without a payment set up (the SQL bucket). */
   trialing: number;
+  /** Running trials without a payment set up: trialing − trialingPaymentSetUp. */
+  trialingNoPayment: number;
+  /** Running trials with a Stripe subscription (payment set up in Checkout).
+   *  Known limit: a trial cancelled in the portal during the trial
+   *  (cancel_at_period_end, status stays trialing) still counts here — we
+   *  don't store cancel_at_period_end. */
+  trialingPaymentSetUp: number;
   trialLapsed: number;
   paidMonthly: number;
   paidYearly: number;
@@ -1400,9 +1408,15 @@ export interface PlatformSubscriptionCounts {
 }
 
 export function toPlatformSubscriptionCounts(row: PlatformSubscriptionCountsRow): PlatformSubscriptionCounts {
+  const trialing = row.trialing ?? 0;
+  // A subset of trialing (20261013140000); clamped so a mismatch never shows
+  // a negative tile.
+  const trialingPaymentSetUp = Math.min(row.trialing_payment_set_up ?? 0, trialing);
   return {
     total: row.total_companies ?? 0,
-    trialing: row.trialing ?? 0,
+    trialing,
+    trialingNoPayment: trialing - trialingPaymentSetUp,
+    trialingPaymentSetUp,
     trialLapsed: row.trial_lapsed ?? 0,
     paidMonthly: row.paid_monthly ?? 0,
     paidYearly: row.paid_yearly ?? 0,
