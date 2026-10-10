@@ -19,6 +19,7 @@ import { summarizeBulkAdd, type BulkAddOutcome, type BulkAddRowResult } from '@/
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
 import { Btn, Empty, Label } from '../../kit';
+import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { Sheet } from '../../shell';
 import { NoTiersBlock, press } from './_shared';
 
@@ -114,6 +115,7 @@ export function BulkAddToEventSheet({
 }): JSX.Element {
   const ba = t.guests.bulkAdd;
   const bulkAdd = usePoBulkAddToEvent();
+  const [sendConfirmation, setSendConfirmation] = useSendConfirmation();
   const [evId, setEvId] = useState<string>(
     defaultEventId && upcoming.some((e) => e.id === defaultEventId) ? defaultEventId : upcoming[0]?.id ?? '',
   );
@@ -179,7 +181,7 @@ export function BulkAddToEventSheet({
       }
     }
     bulkAdd.mutate(
-      { targetEventId: evId, tierId, targetLocked: evEdit.data?.listLocked ?? false, people: finalPeople },
+      { targetEventId: evId, tierId, targetLocked: evEdit.data?.listLocked ?? false, people: finalPeople, sendConfirmation },
       {
         onSuccess: (res) => setResults(res),
         onError: (e) => setErr(e instanceof Error ? e.message : ba.error),
@@ -251,6 +253,9 @@ export function BulkAddToEventSheet({
                 );
               })}
             </div>
+          )}
+          {people.some((p) => p.contactId) && (
+            <SendConfirmationRow className="mb-3" on={sendConfirmation} set={setSendConfirmation} />
           )}
           {err && <p className="mt-1 text-[12.5px] text-red-300" role="alert">{err}</p>}
           <Btn

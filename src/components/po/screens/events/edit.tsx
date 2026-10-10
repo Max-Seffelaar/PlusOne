@@ -31,6 +31,7 @@ import { useNav, usePo } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
 import { Btn, Field, InfoTip, Label, Note, PlacesField, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
+import { EventGuestMailSection } from './guest-mail';
 import { BottomBar, Sheet } from '../../shell';
 import { ExportEventRow } from '../settings/export';
 import { SaveAsTemplate } from './save-as-template';
@@ -467,6 +468,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           className="mb-2"
         />
         <div className="mb-[18px] text-[12.5px] leading-[1.45] text-faint">{t.events.locationHint}</div>
+        {!isNew && editId && <EventGuestMailSection eventId={editId} writable={writable} />}
 
         {!isNew && (
           <button

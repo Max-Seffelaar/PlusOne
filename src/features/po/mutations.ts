@@ -351,6 +351,8 @@ export interface BulkAddToEventInput {
   /** The target event's list is locked — lets a 42501 be reported as "locked". */
   targetLocked: boolean;
   people: BulkAddPerson[];
+  /** "Send confirmation" (guest mail F): contacts with an email get "You're on the list". */
+  sendConfirmation?: boolean;
 }
 
 /**
@@ -361,7 +363,7 @@ export interface BulkAddToEventInput {
 export function usePoBulkAddToEvent() {
   const qc = useQueryClient();
   return useMutation<BulkAddRowResult[], Error, BulkAddToEventInput>({
-    mutationFn: async ({ targetEventId, tierId, targetLocked, people }) => {
+    mutationFn: async ({ targetEventId, tierId, targetLocked, people, sendConfirmation }) => {
       const results: BulkAddRowResult[] = [];
       for (const p of people) {
         if (p.alreadyOn) {
@@ -374,6 +376,7 @@ export function usePoBulkAddToEvent() {
               eventId: targetEventId,
               tierId,
               plusOnes: p.plusOnes || undefined,
+              sendConfirmation,
             })
           : await addGuest({
               id: uuidv7(),
@@ -413,7 +416,8 @@ export function usePoPromoteGuestToContact(eventId: string) {
 export function usePoRemoveGuest(eventId: string) {
   const qc = useQueryClient();
   return useMutation(guestMutation(qc, eventId,
-    async (guestId: string) => throwOnError(await removeGuest(guestId)),
+    // The note (guest mail F) goes to the guest in the removal mail.
+    async (input: string | { guestId: string; note?: string }) => throwOnError(await removeGuest(input)),
     [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY, CONTACTS_KEY],
   ));
 }

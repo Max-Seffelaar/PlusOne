@@ -117,6 +117,8 @@ export const addContactToEventSchema = z.object({
   eventId: uuid,
   tierId: uuid.optional(),
   plusOnes: z.number().int().min(0).max(50).optional(),
+  /** "Send confirmation" (guest mail F): queue "You're on the list". */
+  sendConfirmation: z.boolean().optional(),
 });
 export type AddContactToEventInput = z.input<typeof addContactToEventSchema>;
 
@@ -126,6 +128,7 @@ export const addContactsToEventSchema = z.object({
   eventId: uuid,
   contactIds: z.array(uuid).min(1, 'No contacts to add').max(2000, 'Too many contacts'),
   tierId: uuid.optional(),
+  sendConfirmation: z.boolean().optional(),
 });
 export type AddContactsToEventInput = z.input<typeof addContactsToEventSchema>;
 

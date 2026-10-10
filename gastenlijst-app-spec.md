@@ -29,7 +29,7 @@ Multi-tenant SaaS voor gastenlijstbeheer bij venues (clubs, zalen, horeca). Hond
 | 10 | Doorhost kan weigeren mét reden, en ter plekke toevoegen — maar alleen binnen eigen quotum. |
 | 11 | Dubbel inchecken wordt voorkomen zolang er sync is. Bij offline devices is dubbele entry geaccepteerd risico; verantwoordelijkheid venue. Sync moet zo snel mogelijk zijn. |
 | 12 | Landingpage = unieke link per event. Goedkeuring aanvragen door event-organisator én venue-admins. |
-| 13 | Uitnodigingen worden niet vanuit de app verstuurd; alles leeft in de app. Deelbare link volstaat. |
+| 13 | Uitnodigingen worden niet vanuit de app verstuurd; alles leeft in de app. Deelbare link volstaat. *(Herzien 2026-10-09, Gastcommunicatie F, ClickUp z8uq9m2vpy; CLAUDE.md-regel 10: **geen marketing en geen uitnodigingen vóórdat iemand op de lijst staat; wél transactionele gastmail over de eigen lijstplek.** Wie een plek heeft (of een aanvraag deed) en een e-mailadres heeft, krijgt: "You're on the list" (alleen met het vinkje *Send confirmation* bij toevoegen, default per company, nooit vanaf de deur), +N gewijzigd, nieuwe tijd/locatie, geannuleerd, verwijderd (met verplichte opmerking), de besluiten op een aanvraag (goedgekeurd, deels, afgewezen; op het aanvraagpad vervangt het besluit "You're on the list"), en een reminder die alleen een platform-admin achter `GUEST_REMINDER_ENABLED` kan sturen. Copy v3 (`docs/copy-review/guest-mails.html`). Afzender "{event_name} via PlusOne" vanaf een per mail uniek `noreply+<sleutel>@plus-one.io`, reply-to = het contactadres van de company (`venues.contact_email`, zichtbaar in de footer; zonder adres wacht gastmail in de wachtrij); een mail aan noreply@ krijgt één auto-reply met dat adres. Elke mail met een plek linkt naar een eigen publieke statuspagina `/s/[token]` (per mail gemint, alleen de hash opgeslagen, verloopt een dag na het event) met .ics en Google Calendar-link; afmelden per company via `/u/[token]` (de gast blijft op de lijst). Verzending server-side via een wachtrij (`guest_mail_queue`, batch per 100, budget per company en per dag), nooit in het deurpad; `mail_log` zonder inhoud of adres.)* |
 | 14 | Offline: "trage 4G overleven" is de lat. Eventix-model: volledige lijst lokaal bij openen event, sync bij elke schermactivatie, zichtbare sync-status, force-sync mogelijk, waarschuwing bij >10 min geen sync. |
 | 15 | Audit log = simpel en leesbaar: wie deed wat met welke gast, wanneer. Geen actieve alerting in v1. |
 | 16 | AVG: best practices (bewaartermijnen, verwerkersovereenkomst, dataminimalisatie). |
@@ -317,7 +317,7 @@ Niet in applicatiecode, maar via **Postgres-triggers** op `guests`, `quotas`, `e
 
 ### Bewust niet
 - Ticketing-integraties in de kernwerking (connectors zijn fase 3, zie #36)
-- Uitnodigingen versturen (mail/WhatsApp) vanuit de app
+- Uitnodigingen versturen (mail/WhatsApp) vanuit de app *(transactionele gastmail over de eigen lijstplek is wél toegestaan sinds 2026-10-09, zie #13)*
 - No-show → quota-feedback
 
 ---

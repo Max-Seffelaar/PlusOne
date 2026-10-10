@@ -22,6 +22,7 @@ import { venueCapabilities } from '@/features/venues/access';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, Label, Note, Stepper } from '../../kit';
+import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { ConfirmSheet, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, useStoredPhoneCountry } from '../../phone-lazy';
 import { NoTiersBlock, press } from './_shared';
@@ -416,6 +417,7 @@ export function AddToEventSheet({
   onAdded: (id: string) => void;
 }): JSX.Element {
   const add = usePoAddContactToEvent();
+  const [sendConfirmation, setSendConfirmation] = useSendConfirmation();
   const [evId, setEvId] = useState<string>(eventId && upcoming.some((e) => e.id === eventId) ? eventId : upcoming[0]?.id ?? '');
   const { data: tiers = [], isLoading: tiersLoading } = usePoTiers(evId);
   // Only an admin/organizer may create a tier (guest_tiers_insert RLS, surfaced via
@@ -464,7 +466,7 @@ export function AddToEventSheet({
     setErr(null);
     if (!evId) return setErr(t.guests.contacts.pickEvent);
     add.mutate(
-      { contactId: contact.id, eventId: evId, tierId: tierId || undefined, plusOnes: plus || undefined },
+      { contactId: contact.id, eventId: evId, tierId: tierId || undefined, plusOnes: plus || undefined, sendConfirmation },
       { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.addFailed) },
     );
   };
@@ -634,6 +636,9 @@ export function AddToEventSheet({
                   {err}
                 </p>
               )}
+              {contact.email ? (
+                <SendConfirmationRow className="mb-2" on={sendConfirmation} set={setSendConfirmation} />
+              ) : null}
               <Btn kind="primary" full icon="plus" className="mt-2" disabled={busy || !evId || tiers.length === 0} onClick={submitNew}>
                 {add.isPending ? t.guests.contacts.addBusy : plus > 0 ? fmt(t.guests.contacts.addPeople, { n: 1 + plus }) : t.guests.contacts.addToGuestList}
               </Btn>

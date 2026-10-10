@@ -85,6 +85,27 @@ export const FLOWS = {
       'src/lib/legal.ts',
     ],
   },
+  'guest-mail': {
+    title: 'Gastcommunicatie F (6a) — Guest contact → add with "Send confirmation" → "You\'re on the list" mail → /s status page + .ics → /u opt-out',
+    paths: [
+      'src/features/mail/',
+      'src/features/guests/',
+      'src/features/contacts/actions.ts',
+      'src/features/events/actions.ts',
+      'src/features/requests/actions.ts',
+      'src/features/venues/contact-',
+      'src/features/po/company-contact.ts',
+      'src/features/po/guest-mail.ts',
+      'src/app/s/',
+      'src/app/u/',
+      'src/app/api/webhooks/guest-mails/',
+      'src/components/po/guest-status.tsx',
+      'src/components/po/landing-frame.tsx',
+      'src/components/po/screens/guests/',
+      'src/components/po/screens/settings/venue',
+      'src/components/po/screens/events/guest-mail.tsx',
+    ],
+  },
   'onboarding-ade-trial': {
     title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
     paths: [

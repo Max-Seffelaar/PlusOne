@@ -507,4 +507,13 @@ export const guests = {
     outcomeError: "Couldn't add",
     close: 'Close',
   },
+  // ── Guest mail (Gastcommunicatie F): the confirmation box and the removal note ──
+  mail: {
+    sendConfirmation: 'Send confirmation',
+    sendConfirmationHint: "Guests with an email get a mail that they're on the list.",
+    removeNoteLabel: 'Note for the guest',
+    removeNotePlaceholder: "Why they're off the list",
+    removeNoteHint: 'They get this by email.',
+    removeNoteRequired: 'Add a note for the guest. They get it by email.',
+  },
 } as const;

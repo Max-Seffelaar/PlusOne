@@ -171,7 +171,7 @@ describe('middleware — x-po-request-path stamp for the /app layout gates', () 
   it('is not stamped on routes outside /app, and a client value is dropped there', async () => {
     mockForwardingSession();
     const { middleware } = await loadMiddleware();
-    for (const path of ['/r/tok-123', '/i/tok-456', '/api/webhooks/stripe', '/appx', '/door/e1']) {
+    for (const path of ['/r/tok-123', '/i/tok-456', '/s/tok-789', '/u/tok-012', '/api/webhooks/stripe', '/appx', '/door/e1']) {
       const req = new NextRequest(`http://localhost:3000${path}`, {
         headers: { 'x-po-request-path': '/app/profile' },
       });
@@ -196,6 +196,23 @@ describe('middleware — unauthenticated access (unchanged behaviour)', () => {
     const location = new URL(res.headers.get('location')!);
     expect(location.pathname).toBe('/login');
     expect(location.searchParams.get('next')).toBe('/app?new=event');
+  });
+
+  it('lets an anonymous guest open the guest-mail bearer pages (/s status + .ics, /u opt-out incl. one-click POST)', async () => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    for (const [path, method] of [
+      ['/s/tok-123', 'GET'],
+      ['/s/tok-123/calendar.ics', 'GET'],
+      ['/u/tok-456', 'GET'],
+      ['/u/tok-456', 'POST'],
+    ] as const) {
+      const res = await middleware(new NextRequest(`http://localhost:3000${path}`, { method }));
+      expect(res.headers.get('location'), `${method} ${path}`).toBeNull();
+    }
+    // The prefix is the segment, not a substring: /settings stays protected.
+    const res = await middleware(new NextRequest('http://localhost:3000/settings'));
+    expect(res.headers.get('location')).not.toBeNull();
   });
 
   it('lets an anonymous visitor stay on the public /login route', async () => {

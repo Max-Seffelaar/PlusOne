@@ -20,6 +20,7 @@ import { usePoImportContacts, usePoAddContactsToEvent } from '@/features/po/muta
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
 import { Avatar, Btn, Field, Label, MiniChip, Note, Scroll, Top, hitRingY4, hitRingY5, press } from '../../kit';
+import { SendConfirmationRow, useSendConfirmation } from '../guests/send-confirmation';
 import { BottomBar } from '../../shell';
 import { col, FormError } from './_shared';
 
@@ -324,6 +325,7 @@ function AddImportedToEvent({ contactIds }: { contactIds: string[] }): JSX.Eleme
   // '' = Auto (omit tierId → per-contact role resolution); else an override tier.
   const [tierId, setTierId] = useState<string>('');
   const add = usePoAddContactsToEvent();
+  const [sendConfirmation, setSendConfirmation] = useSendConfirmation();
   const done = add.data && add.data.ok ? add.data : null;
 
   if (upcoming.length === 0) return null; // nothing to add to
@@ -344,7 +346,7 @@ function AddImportedToEvent({ contactIds }: { contactIds: string[] }): JSX.Eleme
 
   const commit = (): void => {
     if (!effEvId || add.isPending) return;
-    add.mutate({ eventId: effEvId, contactIds, tierId: tierId || undefined });
+    add.mutate({ eventId: effEvId, contactIds, tierId: tierId || undefined, sendConfirmation });
   };
 
   return (
@@ -402,6 +404,7 @@ function AddImportedToEvent({ contactIds }: { contactIds: string[] }): JSX.Eleme
         })}
       </div>
 
+      <SendConfirmationRow className="mb-3" on={sendConfirmation} set={setSendConfirmation} />
       {add.isError && <FormError error={add.error} />}
       <Btn kind="primary" full icon="check" disabled={!effEvId || add.isPending} className={!effEvId || add.isPending ? 'opacity-[0.45]' : ''} onClick={commit}>
         {add.isPending ? t.settings.import.toEventAdding : fmt(t.settings.import.toEventAdd, { event: curEv?.name ?? '' })}

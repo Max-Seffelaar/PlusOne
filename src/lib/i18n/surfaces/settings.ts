@@ -233,6 +233,33 @@ export const settings = {
     crewAccess: 'External crew',
   },
 
+  // Guest contact (Company settings, guest mail F): reply-to + footer of every
+  // guest mail, and the channels on the guest status page.
+  contact: {
+    title: 'Guest contact',
+    intro: 'Guests see this address in every email about their spot. Their replies go there too.',
+    emailLabel: 'Contact email',
+    emailPlaceholder: 'e.g. info@yourclub.com',
+    emailInvalid: "That email doesn't look right.",
+    emailMissing: 'Add a contact email. Guest emails wait until you do.',
+    channelsLabel: 'Other channels (optional)',
+    channelsHint: 'Shown on the guest status page.',
+    phone: 'Phone',
+    instagram: 'Instagram',
+    facebook: 'Facebook',
+    snapchat: 'Snapchat',
+    tiktok: 'TikTok',
+    channelTooLong: 'Keep it under 100 characters.',
+    channelInvalid: "Leave out < > and quotes.",
+    confirmationDefault: 'Send confirmation by default',
+    confirmationDefaultHint: 'Ticks "Send confirmation" when someone adds a guest with an email.',
+    save: 'Save contact',
+    saving: 'Saving…',
+    saved: 'Contact saved.',
+    saveFailed: "Couldn't save the contact.",
+    adminOnly: 'Only an admin can change the guest contact.',
+  },
+
   // Company settings (VenueSettings).
   venue: {
     title: 'Company settings',

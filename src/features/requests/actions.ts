@@ -16,6 +16,7 @@ import {
   type ApproveGuestRequestInput,
   type DenyGuestRequestInput,
 } from './schemas';
+import { queueGuestMails } from '@/features/mail/guest-queue';
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -166,13 +167,32 @@ export async function approveGuestRequest(input: ApproveGuestRequestInput): Prom
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { error } = await supabase.rpc('approve_guest_request', {
+  const { data: guestId, error } = await supabase.rpc('approve_guest_request', {
     p_request_id: requestId,
     p_tier_id: tierId,
     ...(plusOnes !== undefined ? { p_plus_ones: plusOnes } : {}),
     ...(message !== undefined ? { p_message: message } : {}),
   });
   if (error) return mapMutationError(error);
+
+  // The decision mail (guest mail F) replaces "You're on the list" on this
+  // path. A trimmed approval is the partly mail; the renderer reads the
+  // asked-for count from the request and falls back to the plain approval
+  // when nothing was actually trimmed. The enqueue RPC skips a request
+  // without an address.
+  if (typeof guestId === 'string') {
+    queueGuestMails(
+      [
+        {
+          type: plusOnes !== undefined ? 'guest_request_partly' : 'guest_request_approved',
+          guestId,
+          requestId,
+          remark: message ?? null,
+        },
+      ],
+      user.id,
+    );
+  }
 
   return { ok: true };
 }

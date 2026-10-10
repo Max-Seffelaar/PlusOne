@@ -49,6 +49,9 @@ export const addGuestSchema = z.object({
   phone: optionalText(40),
   source: guestSource.default('app'),
   contactId,
+  // "Send confirmation" (guest mail F): only a ticked box queues "You're on
+  // the list"; the door never sends one, whatever it passes.
+  sendConfirmation: z.boolean().optional(),
 });
 export type AddGuestInput = z.input<typeof addGuestSchema>;
 
@@ -80,6 +83,7 @@ export const bulkAddSchema = z.object({
     )
     .min(1, 'No guests to add')
     .max(500, 'Too many lines at once'),
+  sendConfirmation: z.boolean().optional(),
 });
 export type BulkAddInput = z.input<typeof bulkAddSchema>;
 
@@ -94,6 +98,22 @@ export const updateGuestSchema = z.object({
   notePriority: notePriority.optional(),
 });
 export type UpdateGuestInput = z.input<typeof updateGuestSchema>;
+
+/**
+ * Remove a guest (soft delete). The note goes to the guest in the removal
+ * mail and is required when the guest has an address (guest mail F, copy v3:
+ * the note is always shown). Never stored on the guest row.
+ */
+export const removeGuestSchema = z.object({
+  guestId: uuid,
+  note: z
+    .string()
+    .trim()
+    .max(500, 'Keep the note under 500 characters')
+    .optional()
+    .transform((v) => (v ? v : undefined)),
+});
+export type RemoveGuestInput = z.input<typeof removeGuestSchema>;
 
 /** Move an existing guest to another tier (logged as tier_change, #5/role matrix). */
 export const changeTierSchema = z.object({

@@ -67,6 +67,8 @@ export const poKeys = {
   userSessions: (targetUserId: string) => [...poKeys.all, 'user-sessions', targetUserId] as const,
   profile: (userId: string) => [...poKeys.all, 'profile', userId] as const,
   venueSettings: (venueId: string) => [...poKeys.all, 'venue-settings', venueId] as const,
+  /** Guest contact (contact email, channels, confirmation default; guest mail F). */
+  companyContact: (venueId: string) => [...poKeys.all, 'company-contact', venueId] as const,
   subscription: (venueId: string) => [...poKeys.all, 'subscription', venueId] as const,
   /** Saved company locations (z8uq9m444c), active only. */
   companyLocations: (venueId: string) => [...poKeys.all, 'company-locations', venueId] as const,

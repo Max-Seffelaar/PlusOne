@@ -45,6 +45,21 @@ export function teamMailActive(): boolean {
   return mailConfig.resendEnabled || process.env.NODE_ENV !== 'production';
 }
 
+/** The verified sending domain (Resend). Guest mail goes out as noreply+<key>@ it. */
+export const MAIL_DOMAIN = 'plus-one.io';
+
+/**
+ * Whether guest mail (src/features/mail/guest-job.ts) is queued and sent.
+ * True with a Resend key; without one only on the local stack, where the stub
+ * hands every mail to Mailpit. Like billing mail there is no "stub in
+ * CI/preview/prod" case: the job writes mail_log rows that say "sent", and a
+ * prod build without the key must not pile up a queue that a later key would
+ * flush as stale mail.
+ */
+export function guestMailActive(): boolean {
+  return mailConfig.resendEnabled || onLocalDevStack();
+}
+
 /**
  * Whether billing mail (src/features/billing/mail-job.ts) may run. True with a
  * Resend key; without one only on the local stack, where the stub hands the

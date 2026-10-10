@@ -26,7 +26,7 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 7. **Users exist independently of venues.** Access flows through `venue_memberships` (roles array) and `event_organizers` (event scope). Removing a membership never deletes the user or touches their other venues/events. Only the user can change their own email. (#24)
 8. **Multiple roles per user per venue.** Never model role as a single column.
 9. **Stats and quotas hang on the event, never the calendar day.** Events cross midnight. (#26)
-10. **No ticketing integrations in the core. No outbound invitations (mail/WhatsApp).** Read-only ticketing connectors are a phase-3 layer (#36).
+10. **No ticketing integrations in the core. No outbound invitations or marketing (mail/WhatsApp).** Transactional guest mail about a guest's own spot is allowed (decision #13 as revised 2026-10-09, Gastcommunicatie F): it goes through the guest-mail queue, server-side, never from the door path. Read-only ticketing connectors are a phase-3 layer (#36).
 11. **Native apps are planned, not optional (#37).** MVP is a browser PWA; the same codebase gets wrapped with Capacitor (remote-URL model) for both stores. Never introduce a feature that would force a rewrite at wrap time — see the Capacitor checklist below.
 
 ## Platform admins (decision #49)

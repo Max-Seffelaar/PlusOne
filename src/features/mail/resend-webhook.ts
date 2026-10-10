@@ -16,6 +16,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service';
 import { mailConfig } from './config';
+import { answerInbound, defaultInboundDeps, type InboundDeps } from './inbound';
 
 /** Svix's own default: a delivery older or newer than 5 minutes is refused. */
 export const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
@@ -27,6 +28,8 @@ export const HANDLED_EVENT_TYPES = [
   'email.bounced',
   'email.complained',
   'email.delivery_delayed',
+  // Inbound (Resend receiving) on noreply@: the guest-mail auto-reply.
+  'email.received',
 ] as const;
 
 export interface SvixHeaders {
@@ -91,7 +94,11 @@ export interface WebhookResult {
  * 503 = webhook secret not configured (nothing is processed),
  * 500 = transient DB failure (Svix retries with backoff).
  */
-export async function handleResendWebhook(rawBody: string, headers: SvixHeaders): Promise<WebhookResult> {
+export async function handleResendWebhook(
+  rawBody: string,
+  headers: SvixHeaders,
+  inboundDeps: () => InboundDeps = defaultInboundDeps,
+): Promise<WebhookResult> {
   if (!mailConfig.webhookSecret) return { status: 503, body: 'not configured' };
   if (Buffer.byteLength(rawBody, 'utf8') > MAX_BODY_BYTES) return { status: 413, body: 'too large' };
   if (!verifySvixSignature(rawBody, headers, mailConfig.webhookSecret)) {
@@ -123,5 +130,13 @@ export async function handleResendWebhook(rawBody: string, headers: SvixHeaders)
     console.error('resend webhook apply failed', { eventId, type: parsed.type, code: error.code });
     return { status: 500, body: 'processing failed' };
   }
-  return { status: 200, body: applied ? 'ok' : 'replay' };
+  if (!applied) return { status: 200, body: 'replay' };
+
+  // The ledger row exists now, so a redelivery of this inbound mail is a
+  // replay above and never answers twice. A failed answer is not retried.
+  if (parsed.type === 'email.received') {
+    const outcome = await answerInbound(eventId, (parsed.data ?? {}) as Record<string, unknown>, inboundDeps());
+    if (outcome === 'failed') console.error('resend inbound auto-reply failed', { eventId });
+  }
+  return { status: 200, body: 'ok' };
 }
