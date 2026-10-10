@@ -78,9 +78,11 @@ begin
     order by t);
 
   alter table public.mail_log drop constraint if exists mail_log_type_check;
+  -- Written as an IN list, so pg_get_constraintdef prints ARRAY['x'::text,
+  -- ...] and the next additive migration can read it back the same way.
   execute format(
-    'alter table public.mail_log add constraint mail_log_type_check check (type = any (%L::text[]))',
-    v_types);
+    'alter table public.mail_log add constraint mail_log_type_check check (type in (%s))',
+    (select string_agg(quote_literal(t), ', ' order by t) from unnest(v_types) as t));
 end;
 $$;
 

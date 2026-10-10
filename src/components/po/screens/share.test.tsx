@@ -38,6 +38,8 @@ vi.mock('@/features/po/mutations', () => ({
   usePoAddGuestsBulk: () => addBulk,
   usePoUpdateGuest: () => ({ mutateAsync: vi.fn() }),
 }));
+// "Send confirmation" reads the company default (needs PoLiveProvider); off here.
+vi.mock('@/features/po/company-contact', () => ({ useSendConfirmationDefault: () => false }));
 vi.mock('@/features/po/queries', () => ({ findEventGuestsByNames: vi.fn(async () => []) }));
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
 vi.mock('@/components/po/context', () => ({ useNav: () => nav }));
