@@ -236,6 +236,9 @@ export const guests = {
     errNameLong: 'Name is too long ({n}/500): shorten it',
     errEmail: 'Check the e-mail address',
     errPhone: 'Check the phone number',
+    // A pasted count column ("Aantal tickets"): total people on this line.
+    errCount: 'Check the number of people',
+    errCountTooMany: 'Too many people on one line (max {max})',
     fieldName: 'Name',
     fieldEmail: 'E-mail (optional)',
     fieldPhone: 'Phone (optional)',

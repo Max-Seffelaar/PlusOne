@@ -66,10 +66,17 @@ select tables_are(
     -- job's single-use tokens. RLS on, no policies, no app-role grants; the
     -- service_role / anon RPCs are the only paths.
     'guest_mail_queue', 'guest_mail_optouts', 'guest_mail_links', 'guest_mail_tokens',
+    -- Event locations L (z8uq9m444c): saved locations per company. Members
+    -- read, admins write, archive instead of delete; events keep a copy.
+    'company_locations',
     -- Platform digest (z8uq9m2ybj, 20261013150000): single-use invocation
     -- tokens for the platform-digest Edge Function + the per-day delivery
     -- ledger. RLS on, no policies, no grants; definer RPCs only.
-    'platform_digest_tokens', 'platform_digest_deliveries'
+    'platform_digest_tokens', 'platform_digest_deliveries',
+    -- Billing-mails B1 (z8uq9m2z19, 20261013170000): pause switch per company,
+    -- the Stripe-event mail queue, the per-recipient idempotency ledger and the
+    -- job's single-use tokens. RLS on, no policies, no grants; definer RPCs only.
+    'billing_mail_settings', 'billing_mail_events', 'billing_mail_deliveries', 'billing_mail_tokens'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );

@@ -175,6 +175,22 @@ export const FLOWS = {
       'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
+  'event-locations': {
+    title: 'Event locations L — Company settings: two saved locations → event at the second → /e/[slug] → approve → /r/[token]',
+    paths: [
+      'src/features/venues/location-',
+      'src/features/po/',
+      'src/features/requests/',
+      'src/components/po/screens/settings/venue',
+      'src/components/po/screens/events/edit',
+      'src/components/po/screens/events/location-picker.tsx',
+      'src/components/po/places-field.tsx',
+      'src/components/po/request-status.tsx',
+      'src/components/po/landing',
+      'src/app/e/',
+      'src/app/r/',
+    ],
+  },
   'door-checkin': {
     title: 'Door check-in D — Check in all / Check in 1 (3/4), one row, undo refused with the setting off',
     paths: [
@@ -239,6 +255,18 @@ export const FLOWS = {
       'src/lib/i18n/surfaces/platform.ts',
     ],
   },
+  'billing-mails': {
+    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause',
+    paths: [
+      'supabase/migrations/20261013170000_billing_mail_types.sql',
+      'src/features/billing/mail-',
+      'src/features/mail/',
+      'src/app/api/webhooks/billing-mails/',
+      'src/components/po/screens/platform-billing-mails',
+      'src/components/po/screens/platform-venues',
+      'src/lib/i18n/surfaces/platform.ts',
+    ],
+  },
   'platform-billing': {
     title: 'Billing G — Platform → Companies: always free / trial until, audited on the admin',
     paths: [
@@ -263,6 +291,8 @@ export const FLOWS = {
       'src/features/auth/next-path',
       'src/features/auth/components/OtpLoginForm',
       'src/lib/observability/scrub',
+      // Q15/Q16: pasted spreadsheet columns + the Excel phone repair.
+      'src/features/contacts/import/parse',
     ],
   },
 };

@@ -191,6 +191,30 @@ export const settings = {
   },
 
   // Switch company (VenueSwitch).
+  // Saved locations (z8uq9m444c), a section of Company settings. An event
+  // keeps a copy of the one it uses, so edits and archiving never move a
+  // published event. Field labels reuse settings.venue (street/postal/city).
+  locations: {
+    label: 'Locations',
+    note: 'Where your events happen. Pick one per event. Guests see it on the request link.',
+    empty: 'No saved locations yet. Add the places where you run events.',
+    add: 'Add location',
+    nameLabel: 'Name',
+    namePlaceholder: 'e.g. Paradiso',
+    save: 'Save location',
+    saving: 'Saving…',
+    edit: 'Edit',
+    editAria: 'Edit {name}',
+    archive: 'Archive',
+    archiveAria: 'Archive {name}',
+    archiveConfirm: 'Archive {name}? Events that use it keep their address.',
+    archiveYes: 'Archive location',
+    newTitle: 'New location',
+    editTitle: 'Edit location',
+    nameRequired: 'Give the location a name.',
+    tooLong: "That's too long.",
+  },
+
   venueSwitch: {
     title: 'Companies',
     sub: 'Switch between your companies',

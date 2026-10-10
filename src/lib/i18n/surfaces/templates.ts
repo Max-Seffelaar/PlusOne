@@ -27,7 +27,7 @@ export const templates = {
   capacityLabel: 'Capacity (optional)',
   capacityHint: 'Max people through the door, plus-ones included. Leave empty for no limit.',
   /** Under the location fields (z8uq9m2vqc): the template hands it to new events. */
-  locationHint: 'New events from this template start here. Empty means your company address.',
+  locationHint: 'New events from this template start here. Left empty, they start at your default location.',
   capacityPlaceholder: 'e.g. 1800',
   settingsLabel: 'Default event settings',
   landingTitle: 'Request link on by default',

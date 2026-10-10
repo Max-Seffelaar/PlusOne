@@ -36,6 +36,7 @@ import {
   fetchVenueMembers,
   fetchMemberQuotas,
   fetchVenueSettings,
+  fetchCompanyLocations,
   fetchEventQuotaOverrides,
   fetchVenueInvites,
   fetchVenueCrew,
@@ -72,6 +73,7 @@ import {
   fetchPlatformAuditOverviewCount,
   fetchPlatformAccessLog,
   fetchPlatformCompanies,
+  fetchPlatformBillingMails,
   fetchPlatformSubscriptionCounts,
   fetchPlatformTrialFunnel,
   fetchPlatformUsage30d,
@@ -115,6 +117,8 @@ import {
   toPoSession,
   toPoProfile,
   toPoVenueSettings,
+  toPoCompanyLocation,
+  type PoCompanyLocation,
   toPoSubscription,
   toPlatformInvite,
   toPlatformFunnel,
@@ -123,10 +127,12 @@ import {
   toPlatformAuditEntry,
   toPlatformAccessLogEntry,
   toPlatformCompany,
+  toPlatformBillingMails,
   toPlatformSubscriptionCounts,
   toPlatformTrialFunnel,
   toPlatformUsage,
   type PlatformCompany,
+  type PlatformBillingMails,
   type PlatformSubscriptionCounts,
   type PlatformTrialFunnel,
   type PlatformUsage,
@@ -1375,6 +1381,16 @@ export function usePoVenueSettings({ enabled = true }: { enabled?: boolean } = {
   });
 }
 
+/** The active company's saved locations (z8uq9m444c), oldest first. */
+export function usePoCompanyLocations({ enabled = true }: { enabled?: boolean } = {}) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoCompanyLocation[]>({
+    queryKey: poKeys.companyLocations(venueId ?? ''),
+    enabled: enabled && !!venueId,
+    queryFn: async () => (venueId ? (await fetchCompanyLocations(createClient(), venueId)).map(toPoCompanyLocation) : []),
+  });
+}
+
 /** The active venue's subscription entitlement (read-only, #32). */
 export function usePoSubscription() {
   const { venueId, venueName } = usePoIdentity();
@@ -1446,6 +1462,16 @@ export function usePoPlatformCompanies(venueIds: readonly string[], options?: { 
           return [c.venueId, c] as const;
         })
       ),
+  });
+}
+
+/** Billing-mails B1 (z8uq9m2z19): one company's billing-mail timeline. Read
+ *  only when a platform admin opens it in the Companies card. */
+export function usePoPlatformBillingMails(venueId: string, options?: { enabled?: boolean }) {
+  return useQuery<PlatformBillingMails>({
+    queryKey: poKeys.platformBillingMails(venueId),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => toPlatformBillingMails(await fetchPlatformBillingMails(createClient(), venueId)),
   });
 }
 

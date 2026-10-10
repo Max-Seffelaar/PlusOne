@@ -9,8 +9,9 @@ import {
   usePoTemplates,
   usePoRequestLinks,
   usePoVenueSettings,
+  usePoCompanyLocations,
 } from '@/features/po/hooks';
-import { formatCompanyAddress } from '@/features/po/adapters';
+import { defaultEventLocation } from '@/features/po/adapters';
 import { LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
 import {
   usePoSetCancelled,
@@ -36,6 +37,7 @@ import { ExportEventRow } from '../settings/export';
 import { SaveAsTemplate } from './save-as-template';
 import { ScheduleFields } from './schedule-fields';
 import { TemplatePicker } from './template-picker';
+import { LocationPicker } from './location-picker';
 import { col, ScreenState } from './shared';
 
 // 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
@@ -70,14 +72,18 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Request links (F1): the row under the block shows the live active count.
   // editId is '' on create, which keeps the hook disabled (no fetch).
   const linksQ = usePoRequestLinks(editId);
-  // Create mode has no event row to embed the company address from; the
-  // company settings read (shared cache with Company settings) supplies it.
+  // Create mode starts at the company's default location (z8uq9m444c): the
+  // first saved one, else the company address from the settings read (shared
+  // cache with Company settings). Saved locations are chips in both modes.
   const venueSettings = usePoVenueSettings({ enabled: !!isNew });
+  const locationsQ = usePoCompanyLocations();
 
   const [name, setName] = useState('');
-  // Per-event location (z8uq9m2vqc). '' = follow the company address.
+  // Per-event location (z8uq9m2vqc; z8uq9m444c). What is here is what guests
+  // see on the request link and status page; the event keeps it as a copy.
   const [locName, setLocName] = useState('');
   const [locAddress, setLocAddress] = useState('');
+  const [locPrefilled, setLocPrefilled] = useState(false);
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState('');
@@ -136,6 +142,23 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ev?.id]);
 
+  const savedLocations = locationsQ.data ?? [];
+  const companyAddressRow = venueSettings.data
+    ? { address_line: venueSettings.data.addressLine, postal_code: venueSettings.data.postalCode, city: venueSettings.data.city }
+    : null;
+  const defaultLoc = isNew ? defaultEventLocation(savedLocations, venueName, companyAddressRow) : null;
+  const defaultsReady = !!isNew && !locationsQ.isLoading && !venueSettings.isLoading;
+  // A new event starts at the default location, once both reads settle. Only
+  // into empty fields and never over a picked template's own location.
+  useEffect(() => {
+    if (!defaultsReady || locPrefilled) return;
+    setLocPrefilled(true);
+    if (!defaultLoc || templateId || locName !== '' || locAddress !== '') return;
+    setLocName(defaultLoc.locationName);
+    setLocAddress(defaultLoc.locationAddress);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultsReady, locPrefilled]);
+
   if (!isNew && isLoading) return <ScreenState onBack={nav.back} title={t.events.editTitle} text={t.events.loading} />;
   if (!isNew && (isError || !ev)) {
     return <ScreenState onBack={nav.back} title={t.events.editTitle} text={t.events.eventUnavailable} />;
@@ -145,41 +168,40 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Create-from-template: the template's own settings apply (the RPC copies
   // them), so the form shows the template's values read-only.
   const fromTemplate = isNew && !!templateId;
+  // The location a template (or no template) starts the form at: the
+  // template's own, else the company default (z8uq9m444c).
+  const locBaseline = (tplId: string | null): { name: string; address: string } => {
+    const tpl = tplId ? templates.data?.find((x) => x.id === tplId) : undefined;
+    if (tpl && (tpl.location_name || tpl.location_address)) {
+      return { name: tpl.location_name ?? '', address: tpl.location_address ?? '' };
+    }
+    return { name: defaultLoc?.locationName ?? '', address: defaultLoc?.locationAddress ?? '' };
+  };
   // Picking a template prefills its location (still editable); un-picking
-  // clears it back to the company fallback (z8uq9m2vqc).
+  // goes back to the default location (z8uq9m2vqc; z8uq9m444c).
   const pickTemplate = (next: string | null): void => {
     // The picker fires on every chip tap, including the active one.
     if (next === templateId) return;
-    // Prefill only over what a template put there: empty fields, or the
-    // previous template's values left untouched. Never over typed input.
-    const prev = templateId ? templates.data?.find((x) => x.id === templateId) : undefined;
-    const untouched = locName === (prev?.location_name ?? '') && locAddress === (prev?.location_address ?? '');
+    // Prefill only over what a template or the default put there: empty
+    // fields, or the previous baseline left untouched. Never over typed input.
+    const prev = locBaseline(templateId);
+    const untouched = (locName === prev.name && locAddress === prev.address) || (locName === '' && locAddress === '');
     setTemplateId(next);
     if (!untouched) return;
-    const tpl = next ? templates.data?.find((x) => x.id === next) : undefined;
-    setLocName(tpl?.location_name ?? '');
-    setLocAddress(tpl?.location_address ?? '');
+    const base = locBaseline(next);
+    setLocName(base.name);
+    setLocAddress(base.address);
   };
   const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
-  // Placeholders show what an empty location falls back to: the company.
-  const companyAddress = isNew
-    ? formatCompanyAddress(
-        venueSettings.data
-          ? { address_line: venueSettings.data.addressLine, postal_code: venueSettings.data.postalCode, city: venueSettings.data.city }
-          : null
-      )
-    : ev?.venueAddress ?? null;
-  const locNamePlaceholder = venueLabel || t.events.locationNamePlaceholder;
-  const locAddressPlaceholder = companyAddress ?? t.events.locationAddressPlaceholder;
   const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
 
   // Anything the Save button would commit that differs from the loaded state.
   const fieldsDirty = ((): boolean => {
     if (!writable || saving) return false;
-    // A template's prefilled location is not an edit (only a change to it is).
-    const locEdited =
-      locName.trim() !== (pickedTemplate?.location_name ?? '') || locAddress.trim() !== (pickedTemplate?.location_address ?? '');
+    // A prefilled location (template or default) is not an edit; a change is.
+    const base = locBaseline(templateId);
+    const locEdited = locName.trim() !== base.name || locAddress.trim() !== base.address;
     if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited);
     if (!ev) return false;
     const [d0, t0] = splitLocal(ev.startsAt);
@@ -412,10 +434,21 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             address: one pick fills the name (if empty) and the address. Saves
             with the form. */}
         <Label className="mb-2">{t.events.fieldLocation}</Label>
+        {writable && (
+          <LocationPicker
+            locations={savedLocations}
+            name={locName}
+            address={locAddress}
+            onPick={(copy) => {
+              setLocName(copy.locationName);
+              setLocAddress(copy.locationAddress);
+            }}
+          />
+        )}
         <Field
           icon="building"
           ariaLabel={t.events.locationNameAria}
-          placeholder={locNamePlaceholder}
+          placeholder={t.events.locationNamePlaceholder}
           value={locName}
           onChange={writable ? setLocName : undefined}
           maxLength={LOCATION_NAME_MAX}
@@ -424,7 +457,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         <PlacesField
           icon="pin"
           ariaLabel={t.events.locationAddressAria}
-          placeholder={locAddressPlaceholder}
+          placeholder={t.events.locationAddressPlaceholder}
           value={locAddress}
           onChange={writable ? setLocAddress : undefined}
           onPick={(p) => {

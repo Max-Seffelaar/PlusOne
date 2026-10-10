@@ -35,7 +35,8 @@
     "supabase:gen:offline": "node scripts/gen-types.mjs",
     "dev:mfa": "node scripts/dev-mfa.mjs",
     "stack": "node scripts/session-setup.mjs stack",
-    "capacitor:copy:after": "node scripts/native/offline-origin.mjs"
+    "capacitor:copy:after": "node scripts/native/offline-origin.mjs",
+    "billing-mails:local": "node scripts/billing-mails-local.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.2",

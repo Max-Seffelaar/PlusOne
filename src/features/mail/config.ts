@@ -59,3 +59,14 @@ export const MAIL_DOMAIN = 'plus-one.io';
 export function guestMailActive(): boolean {
   return mailConfig.resendEnabled || onLocalDevStack();
 }
+
+/**
+ * Whether billing mail (src/features/billing/mail-job.ts) may run. True with a
+ * Resend key; without one only on the local stack, where the stub hands the
+ * mail to Mailpit. Unlike teamMailActive there is no "stub in CI/preview"
+ * case: the job writes mail_log rows and a ledger that says "sent", so it runs
+ * only where a mail really lands somewhere.
+ */
+export function billingMailActive(): boolean {
+  return mailConfig.resendEnabled || onLocalDevStack();
+}

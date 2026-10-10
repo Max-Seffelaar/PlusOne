@@ -121,9 +121,15 @@ import { inviteUserAction, revokeInviteAction, resendInviteAction } from '@/feat
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
+import {
+  archiveCompanyLocationAction,
+  createCompanyLocationAction,
+  updateCompanyLocationAction,
+} from '@/features/venues/location-actions';
+import type { CreateCompanyLocationInput, UpdateCompanyLocationInput } from '@/features/venues/location-schemas';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
-import { setVenueCompedAction, setVenueTrialEndAction } from '@/features/billing/platform-actions';
+import { setBillingMailsPausedAction, setVenueCompedAction, setVenueTrialEndAction } from '@/features/billing/platform-actions';
 import type { BillingInterval } from '@/features/billing/plans';
 import {
   inviteBetaCustomerAction,
@@ -1645,6 +1651,48 @@ export function usePoUpdateVenueSettings() {
   });
 }
 
+// ── Saved company locations (z8uq9m444c) ─────────────────────────────────────
+// Admin-only writes (RLS). Each invalidates the location list; events keep
+// their own copy, so no event query needs a refresh.
+
+export function usePoCreateCompanyLocation() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: Omit<CreateCompanyLocationInput, 'venueId'>): Promise<string> => {
+      if (!venueId) throw new Error('No active venue selected.');
+      const res = await createCompanyLocationAction({ ...input, venueId });
+      if (!res.ok) throw new Error(res.message);
+      return res.locationId;
+    },
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
+    },
+  });
+}
+
+export function usePoUpdateCompanyLocation() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: UpdateCompanyLocationInput) => throwOnError(await updateCompanyLocationAction(input)),
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
+    },
+  });
+}
+
+export function usePoArchiveCompanyLocation() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (locationId: string) => throwOnError(await archiveCompanyLocationAction({ locationId })),
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
+    },
+  });
+}
+
 // ── Billing (fase 13 PR 2, #32) ──────────────────────────────────────────────
 // Checkout + portal are Stripe-hosted redirects: the action returns a URL and
 // the screen navigates. Browser-only — the Billing screen hides these behind
@@ -1708,6 +1756,20 @@ export function usePoSetVenueComped() {
       if (!res.ok) throw new Error(res.message);
     },
     onSuccess: (_d, { venueId }) => invalidatePlatformBilling(qc, venueId),
+  });
+}
+
+/** Billing-mails B1 (z8uq9m2z19): pause/resume billing mail for one company. */
+export function usePoSetBillingMailsPaused() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { venueId: string; paused: boolean }>({
+    mutationFn: async (input) => {
+      const res = await setBillingMailsPausedAction(input);
+      if (!res.ok) throw new Error(res.message);
+    },
+    onSuccess: (_d, { venueId }) => {
+      void qc.invalidateQueries({ queryKey: poKeys.platformBillingMails(venueId) });
+    },
   });
 }
 

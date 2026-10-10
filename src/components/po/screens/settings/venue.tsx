@@ -19,6 +19,7 @@ import { useIsDemoAccount } from '../../app-shell-data';
 import { col, FormError } from './_shared';
 import { ExportDataCard } from './export';
 import { GuestContactCard } from './venue-contact';
+import { VenueLocations } from './venue-locations';
 
 // 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
 // plus sit 38px apart (the count between them), so the rings never meet.
@@ -404,6 +405,7 @@ export function VenueSettings(): JSX.Element {
           <GuestContactCard canEdit={canEdit} />
         </div>
 
+        <VenueLocations canEdit={canEdit} />
         <ExportDataCard />
 
         {/* With one venue the venue card lands here instead of the switcher

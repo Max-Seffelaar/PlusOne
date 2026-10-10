@@ -17,6 +17,7 @@ import type {
   PoSessionRow,
   PoSubscriptionRow,
   PoVenueSettingsRow,
+  PoCompanyLocationRow,
   PoQuotaStatus,
   ContactProfileHeader,
   ContactAppearance,
@@ -38,6 +39,7 @@ import { tierRole } from '@/lib/po/tier';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { effectiveTrialEndsAt, isBillingInterval, PLAN_NAME, type BillingInterval } from '@/features/billing/plans';
+import { isBillingMailType, type BillingMailSubscription, type BillingMailType } from '@/features/billing/mail-schedule';
 import { deviceLabel } from '@/lib/ua';
 import { t, fmt as fmtCopy } from '@/lib/i18n';
 import { formatVenueAddress } from '@/features/requests/status-view';
@@ -1126,6 +1128,64 @@ export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
   };
 }
 
+// ── Saved company locations (z8uq9m444c) ─────────────────────────────────────
+// One adapter for the entity. An event never references a saved location: it
+// stores a COPY (`toEventLocationCopy`), so editing or archiving one here never
+// changes an existing event (spec #53(c)).
+
+export interface PoCompanyLocation {
+  id: string;
+  name: string;
+  addressLine: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  placeId: string | null;
+  /** "Weteringschans 6, 1017 SG Amsterdam"; null when no address is set. */
+  address: string | null;
+}
+
+export function toPoCompanyLocation(row: PoCompanyLocationRow): PoCompanyLocation {
+  return {
+    id: row.id,
+    name: row.name,
+    addressLine: row.address_line ?? '',
+    postalCode: row.postal_code ?? '',
+    city: row.city ?? '',
+    country: row.country ?? '',
+    placeId: row.place_id ?? null,
+    address: formatVenueAddress(row.address_line, row.postal_code, row.city),
+  };
+}
+
+/** What an event stores when a saved location (or the company address) is
+ *  picked: name + one formatted address line, within the event column caps. */
+export function toEventLocationCopy(loc: { name: string | null; address: string | null }): {
+  locationName: string;
+  locationAddress: string;
+} {
+  return {
+    locationName: (loc.name ?? '').trim().slice(0, 120),
+    locationAddress: (loc.address ?? '').trim().slice(0, 200),
+  };
+}
+
+/**
+ * Where a NEW event starts (z8uq9m444c): the company's first saved location;
+ * without one, the company itself (its name + address). Null when the company
+ * has neither, which leaves the form empty. Always a copy, never a reference.
+ */
+export function defaultEventLocation(
+  saved: readonly PoCompanyLocation[],
+  companyName: string | null | undefined,
+  companyAddress: { address_line: string | null; postal_code: string | null; city: string | null } | null | undefined,
+): { locationName: string; locationAddress: string } | null {
+  const first = saved[0];
+  if (first) return toEventLocationCopy(first);
+  const copy = toEventLocationCopy({ name: companyName ?? null, address: formatCompanyAddress(companyAddress) });
+  return copy.locationName || copy.locationAddress ? copy : null;
+}
+
 // Billing in the po surface (#32, Billing G): one plan, Pro. The row carries
 // status, the Stripe interval and the trial dates; prices are NOT here — they
 // come live from Stripe through usePoBillingPrices (browser only, never in the
@@ -1327,6 +1387,69 @@ export function toPlatformCompany(row: PlatformCompanyRow): PlatformCompany {
         ? { name: row.last_event_name, startsAt: row.last_event_starts_at }
         : null,
   };
+}
+
+// ── Billing-mails B1 (z8uq9m2z19): the timeline in a Companies card ──────────
+
+/** One billing mail as the Platform timeline shows it: per mail (a trial type,
+ *  or one Stripe event), counts per delivery status. Never an address. */
+export interface PlatformBillingMail {
+  type: BillingMailType;
+  /** The type for a trial mail, `stripe:<event id>` for a Stripe mail. */
+  key: string;
+  firstAt: string;
+  recipients: number;
+  sending: number;
+  delivered: number;
+  failed: number;
+  bounced: number;
+}
+
+export interface PlatformBillingMails {
+  paused: boolean;
+  /** Input for nextBillingMail (mail-schedule.ts); null without a subscription. */
+  subscription: BillingMailSubscription | null;
+  mails: PlatformBillingMail[];
+}
+
+const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+export function toPlatformBillingMails(raw: unknown): PlatformBillingMails {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const paused = r.paused === true;
+  const s = (r.subscription && typeof r.subscription === 'object' ? r.subscription : null) as Record<
+    string,
+    unknown
+  > | null;
+  const status = (SUBSCRIPTION_STATUSES as readonly string[]).includes(String(s?.status ?? ''))
+    ? (s?.status as BillingMailSubscription['status'])
+    : null;
+  const subscription: BillingMailSubscription | null =
+    s && status && typeof s.created_at === 'string'
+      ? {
+          status,
+          createdAt: s.created_at,
+          trialEndsAt: typeof s.trial_ends_at === 'string' ? s.trial_ends_at : null,
+          stripeLinked: s.stripe_linked === true,
+          paused,
+        }
+      : null;
+  const mails: PlatformBillingMail[] = [];
+  for (const item of Array.isArray(r.mails) ? r.mails : []) {
+    const m = (item ?? {}) as Record<string, unknown>;
+    if (!isBillingMailType(m.type) || typeof m.dedupe_key !== 'string' || typeof m.first_at !== 'string') continue;
+    mails.push({
+      type: m.type,
+      key: m.dedupe_key,
+      firstAt: m.first_at,
+      recipients: n(m.recipients),
+      sending: n(m.sending),
+      delivered: n(m.delivered),
+      failed: n(m.failed),
+      bounced: n(m.bounced),
+    });
+  }
+  return { paused, subscription, mails };
 }
 
 /** What the status chip says. `daysLeft` only for a running trial. */
