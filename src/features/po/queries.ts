@@ -1882,10 +1882,13 @@ export type PoProfileRow = Pick<
   'id' | 'full_name' | 'first_name' | 'last_name' | 'email' | 'phone'
 >;
 
-/** The caller's own profile (RLS: a user always reads their own row, #24). */
+/** The caller's own profile (#24), through `my_profile()`: phone and first/last
+ *  name are not in `authenticated`'s column grant on user_profiles, which would
+ *  expose them on every colleague's row too (20261014120100). The RPC returns
+ *  only the `auth.uid()` row; the `id` filter keeps a mismatched `userId` null. */
 export async function fetchMyProfile(client: Client, userId: string): Promise<PoProfileRow | null> {
   const { data, error } = await client
-    .from('user_profiles')
+    .rpc('my_profile')
     .select('id, full_name, first_name, last_name, email, phone')
     .eq('id', userId)
     .maybeSingle();
@@ -2496,18 +2499,15 @@ export async function fetchPlatformFunnel(client: Client): Promise<PlatformFunne
   return (data ?? []) as PlatformFunnelRow[];
 }
 
-/** Whether the signed-in user is a PlusOne platform admin. Reads the caller's
- *  OWN `user_profiles` row (readable under RLS) rather than the SECURITY
- *  DEFINER RPC, so it stays one cheap, cacheable select. It gates UI only —
- *  RLS decides what the Platform screen can actually read. */
-export async function fetchIsPlatformAdmin(client: Client, userId: string): Promise<boolean> {
-  const { data, error } = await client
-    .from('user_profiles')
-    .select('is_platform_admin')
-    .eq('id', userId)
-    .maybeSingle();
+/** Whether the signed-in user is a PlusOne platform admin, via the
+ *  `is_platform_admin()` RPC — `authenticated` holds no SELECT on the column
+ *  itself (20261014120100). `_userId` only keys the cache in the hook; the RPC
+ *  reads `auth.uid()`. It gates UI only — RLS decides what the Platform screen
+ *  can actually read. */
+export async function fetchIsPlatformAdmin(client: Client, _userId: string): Promise<boolean> {
+  const { data, error } = await client.rpc('is_platform_admin');
   if (error) throw error;
-  return data?.is_platform_admin === true;
+  return data === true;
 }
 
 // ── Platform (system) admin surface — venue overview + audit viewer (P-05,

@@ -20,7 +20,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(15);
+select plan(17);
 
 -- ---------------------------------------------------------------------------
 -- 1. anon holds no table privilege in public, bar one documented exception
@@ -134,6 +134,33 @@ select is_empty($$
     and x.privilege_type = 'INSERT'
     and x.grantee in ('anon'::regrole, 'authenticated'::regrole)
 $$, '...nor a column-level INSERT on guest_requests');
+
+-- ---------------------------------------------------------------------------
+-- 4c. user_profiles is readable by column, never by table
+-- ---------------------------------------------------------------------------
+-- user_profiles_select admits every colleague's row, so whatever authenticated
+-- may SELECT there, it may SELECT on every colleague. A table-level SELECT also
+-- covers every column added later, and a column-level REVOKE does not narrow it
+-- — which is how is_platform_admin and mfa_snooze_until sat readable venue-wide
+-- until 20261014120100. Own-row private data goes through my_profile() and
+-- is_platform_admin(). Widening the list below is a privacy decision: name the
+-- cross-user read that needs it in the migration that grants it.
+select ok(not has_table_privilege('authenticated', 'public.user_profiles', 'SELECT'),
+  'authenticated holds no table-level SELECT on user_profiles (column list only)');
+
+select is_empty($$
+  select a.attname::text as offender
+  from pg_attribute a
+  where a.attrelid = 'public.user_profiles'::regclass
+    and a.attnum > 0 and not a.attisdropped
+    and has_column_privilege('authenticated', a.attrelid, a.attnum, 'SELECT')
+    and a.attname <> all (array[
+      'id',                -- embed join key + WHERE of the self-UPDATEs
+      'full_name',         -- team/crew/organizer lists, "added by", audit_feed
+      'email',             -- team/crew/organizer lists, crew invite lookup
+      'terms_accepted_at'  -- crew list "joined" state
+    ])
+$$, 'authenticated SELECTs no user_profiles column beyond the cross-user allowlist');
 
 -- ---------------------------------------------------------------------------
 -- 5. The default ACLs that caused this cannot cause it again
