@@ -306,3 +306,32 @@ describe('injection', () => {
     expect(JSON.stringify(guestMailCopy)).not.toMatch(/[—–]/);
   });
 });
+
+// Requests E (z8uq9m2vga): one decision split over tiers = one mail that names
+// every part, with the whole group's count (Max 2026-10-10: "de mails tonen
+// alle tiers die de persoon krijgt").
+describe('a request decision split over tiers', () => {
+  const tiers = [
+    { name: 'Backstage', people: 1, priceCents: null },
+    { name: 'Guest', people: 2, priceCents: 1500 },
+  ];
+
+  it('approved split: the total and one line per tier, never the first part\'s +N', () => {
+    const r = renderGuestMail(content({ type: 'guest_request_approved', plusOnes: 0, tiers, askedPeople: null }));
+    expect(r.text).toContain("You're on the guest list for Neon Friday, 3 people in total.");
+    expect(r.text).toContain('Your spot: 3 people');
+    expect(r.text).toContain('Backstage: 1 person');
+    expect(r.text).toContain('Guest: 2 people');
+    expect(r.text).toContain('Entry per person for Guest: €15, pay at the door');
+    expect(r.text).not.toContain('You +0');
+    expect(r.text).not.toContain('+0');
+  });
+
+  it('partly split: "all 4 people you asked for … covers 3 people", each tier', () => {
+    const r = renderGuestMail(content({ type: 'guest_request_partly', plusOnes: 0, tiers, askedPeople: 4, remark: 'Sorry.' }));
+    expect(r.subject).toBe('On the list for Neon Friday: 3 people');
+    expect(r.text).toContain("We couldn't fit all 4 people you asked for, so your spot covers 3 people.");
+    expect(r.text).toContain('Backstage: 1 person');
+    expect(r.text).toContain('Guest: 2 people');
+  });
+});

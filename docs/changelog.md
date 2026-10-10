@@ -8,6 +8,24 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-10 — Requests E: split over tiers, trim, decline with a note, one status mail (z8uq9m2vga)
+
+Milestone **Now** (golf F, task 7). Spec #59 (amends #43(f), #48, #12). Design: onboarding orchestration §9.3 (spike 3). Decisions: Max 2026-10-06 (approver picks from every tier of the event; the note is mandatory on any decline and always goes in the mail), orchestrator 2026-10-10 (option a: this migration redefines `guest_mails_claim` with a `tiers` array; renderer rule for an approved split). Draft PR; merges after 6b.
+
+- **Migration** `20261015120000_request_decision_split`:
+  - `decide_guest_request(p_request_id, p_decision jsonb)` → `{outcome, guest_ids, replay}`. `{approved: [{tier_id, plus_ones}], declined, note}`; parts + declined must equal the request; one part per tier, tiers of this event only; a note (≤ 280) whenever anyone is declined. One guest per part through every cap trigger (45005/45006/45002), so one failing part rolls the whole decision back. Admin or event organizer. Same decision again = replay (no change, no second mail); another decision on a decided request = 45003, except approving a declined one (#12).
+  - `guests.guest_request_id` (guarded: client roles can neither set nor change it). The part with the requester's address comes first and carries the mail.
+  - `decision_message` CHECK allows `denied`; `get_request_status` returns the note on a declined request (own token only).
+  - `request_decision_counts(venue, event?)`: people asked / on the list / declined / waiting, the declined part of a partly approved request counted as declined (SECURITY INVOKER, GROUP BY).
+  - `submit_guest_request`: the auto-approve branch links the guest to its request and queues the approval mail itself (no guest id back to the anon caller: that would split fresh and repeat submitters again, #28).
+  - `guest_mails_claim`: the 6a body word for word plus a `tiers` array (every live part of a split request decision; otherwise the one spot). Deterministic order (address part first, then tier name): every part shares `now()` and `uuid_generate_v7` is not monotonic within a millisecond.
+- **App**: `decideGuestRequest` action (Zod mirror of the RPC rules) queues exactly one mail for a first decision: approved/partly on the first part, declined on the request; never `guest_on_list`. The Requests sheet is the whole decision: people per tier with a compact `CountStepper` (new kit primitive), whoever is left over is declined, the note required from the first declined person; the landing Decline sheet's note goes to the guest. Totals line in Requests. `guest-job.ts` passes `tiers`; the renderer lists every tier with the group total for an approved split too (existing strings only).
+- **Tests**: pgTAP `guest_requests_decide_split.test.sql` (71: grants, guard, split/trim, validation, rollback on 45005 and 45002, roles allowed/denied, audit, idempotency, whole decline + status page, counts, one queue row per decision, auto-approve mail, claim payload). Vitest: action (`decide.test.ts`), builder, schema, status view, adapters, claim parsing, split rendering. Flow `tests/flows/requests-split.flow.ts` (10 checks × 4 variants, green locally).
+- **Outside the fence, agreed**: one fixture line in `src/features/door/queries.test.ts` (the test lists every guests column; it now also proves the door projection drops `guest_request_id`).
+- **Not in this PR**: the desktop cockpit's one-tap decline still uses the internal deny path (no note, so no mail); the door does not group split parts (two rows with the same name); `approve_guest_request` stays for the cockpit and is not yet a wrapper.
+
+---
+
 ## 2026-10-09 — Gastcommunicatie F, PR 6a: guest mail (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #13 revised: no marketing and no invitations, but transactional guest mail about a guest's own spot. Copy v3 (`docs/copy-review/guest-mails.html`, Max 2026-10-09) word for word in `src/features/mail/templates/guest-copy.ts`. PR 6b (team mail + notification prefs, migration `20261013180300`) follows.

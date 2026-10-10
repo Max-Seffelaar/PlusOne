@@ -115,9 +115,12 @@ export function senderName(eventName: string): string {
 export function renderGuestMail(content: GuestMailContent): RenderedGuestMail {
   const copy = guestMailCopy[content.type];
   const s = guestMailShared;
-  const plusOnes = Math.max(0, Math.trunc(content.plusOnes || 0));
   const tiers = content.tiers ?? [];
-  const spotPeople = tiers.length > 0 ? tiers.reduce((sum, t) => sum + t.people, 0) : plusOnes + 1;
+  // A request decision split over tiers (z8uq9m2vga) lists every part; its
+  // counts are the whole group, never the first part's +N.
+  const split = tiers.length > 1;
+  const spotPeople = tiers.length > 0 ? tiers.reduce((sum, t) => sum + t.people, 0) : Math.max(0, Math.trunc(content.plusOnes || 0)) + 1;
+  const plusOnes = split ? spotPeople - 1 : Math.max(0, Math.trunc(content.plusOnes || 0));
   const location = content.event.location;
 
   // request_partly needs the asked-for count above what was approved;
@@ -160,7 +163,7 @@ export function renderGuestMail(content: GuestMailContent): RenderedGuestMail {
   if (location) detailLines.push(String(vars.location));
   const spotLines: string[] = [];
   const priceLines: string[] = [];
-  if (type === 'guest_request_partly') {
+  if (type === 'guest_request_partly' || split) {
     spotLines.push(fill(s.spotTotal));
     for (const tier of tiers) {
       spotLines.push(fmt(s.tierCount, { tier_name: cleanName(tier.name), people: peopleLabel(tier.people) }));
