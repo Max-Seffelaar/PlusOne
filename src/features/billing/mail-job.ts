@@ -47,7 +47,18 @@ export interface BillingMailDeps {
   active: boolean;
   appUrl: string;
   log?: (event: string, fields?: Record<string, unknown>) => void;
+  /** Clock in ms (tests); default Date.now. */
+  now?: () => number;
 }
+
+/**
+ * A run stops starting new sends after this long (review #446, S2). The route
+ * has maxDuration 60 s and one send can take up to 8 s, so a run is never
+ * killed between log_billing_mail and the send; what is left waits for the
+ * next hourly run (every mail stays due for 24 hours). A row that does get
+ * stranded as 'queued' is retried after 10 minutes on the same row.
+ */
+export const RUN_BUDGET_MS = 45_000;
 
 export interface BillingMailTotals {
   mails: number;
@@ -142,18 +153,26 @@ interface Delivery {
   trialEndsAt: string | null;
 }
 
-/** Send one mail to every current recipient of one company. */
-async function deliver(deps: BillingMailDeps, d: Delivery, totals: BillingMailTotals, log: NonNullable<BillingMailDeps['log']>) {
+/** Send one mail to every current recipient of one company. Returns false
+ *  when the run's time budget ran out before every recipient was done. */
+async function deliver(
+  deps: BillingMailDeps,
+  d: Delivery,
+  totals: BillingMailTotals,
+  log: NonNullable<BillingMailDeps['log']>,
+  outOfTime: () => boolean
+): Promise<boolean> {
   totals.mails += 1;
   const rec = await deps.rpc('billing_mail_recipients', { p_venue_id: d.venueId });
   const parsed = rec.error ? null : parseRecipients(rec.data);
   if (!parsed) {
     totals.failed += 1;
     log('recipients_failed', { type: d.type, code: rec.error?.code ?? null });
-    return;
+    return true;
   }
 
   for (const recipient of parsed.recipients) {
+    if (outOfTime()) return false;
     const logged = await deps.rpc('log_billing_mail', {
       p_venue_id: d.venueId,
       p_type: d.type,
@@ -204,6 +223,7 @@ async function deliver(deps: BillingMailDeps, d: Delivery, totals: BillingMailTo
     // sent for the ledger, so no second mail goes out.
     if (settled.error) log('settle_failed', { code: settled.error.code ?? null });
   }
+  return true;
 }
 
 export async function runBillingMails(token: string | null, deps: BillingMailDeps): Promise<BillingMailRunResult> {
@@ -237,7 +257,11 @@ export async function runBillingMails(token: string | null, deps: BillingMailDep
   }
 
   const totals: BillingMailTotals = { mails: 0, sent: 0, skipped: 0, failed: 0 };
+  const clock = deps.now ?? Date.now;
+  const started = clock();
+  const outOfTime = () => clock() - started > RUN_BUDGET_MS;
 
+  const deliveries: Delivery[] = [];
   for (const trial of begin.trials) {
     const due = dueBillingMails(
       {
@@ -250,17 +274,23 @@ export async function runBillingMails(token: string | null, deps: BillingMailDep
       begin.now
     );
     for (const type of due) {
-      await deliver(deps, { venueId: trial.venueId, type, dedupeKey: type, trialEndsAt: trial.trialEndsAt }, totals, log);
+      deliveries.push({ venueId: trial.venueId, type, dedupeKey: type, trialEndsAt: trial.trialEndsAt });
     }
   }
-
   for (const event of begin.events) {
-    await deliver(
-      deps,
-      { venueId: event.venueId, type: event.type, dedupeKey: `stripe:${event.stripeEventId}`, trialEndsAt: null },
-      totals,
-      log
-    );
+    deliveries.push({
+      venueId: event.venueId,
+      type: event.type,
+      dedupeKey: `stripe:${event.stripeEventId}`,
+      trialEndsAt: null,
+    });
+  }
+
+  for (const [i, d] of deliveries.entries()) {
+    if (outOfTime() || !(await deliver(deps, d, totals, log, outOfTime))) {
+      log('time_budget_reached', { left: deliveries.length - i });
+      break;
+    }
   }
 
   log('done', totals as unknown as Record<string, unknown>);

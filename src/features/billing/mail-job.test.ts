@@ -235,6 +235,32 @@ describe('runBillingMails: send failures', () => {
   });
 });
 
+describe('runBillingMails: time budget (review #446, S2)', () => {
+  it('stops starting new sends after RUN_BUDGET_MS; the rest waits for the next run', async () => {
+    let t = 0;
+    const events: string[] = [];
+    const { deps, sent, calls } = makeDeps(
+      { billing_mails_begin: begin([trialEndingIn(V1, 7), trialEndingIn(V2, 2), trialEndingIn(V1, 0)]) },
+      {
+        now: () => t,
+        log: (e) => events.push(e),
+        send: vi.fn(async (mail) => {
+          sent.push(mail);
+          t += 20_000; // a slow provider: 20 s per send
+          return { ok: true as const, providerMessageId: null };
+        }),
+      }
+    );
+    const res = await runBillingMails(TOKEN, deps);
+    // sends at t=0, 20 s, 40 s; at 60 s the budget (45 s) is spent.
+    expect(sent).toHaveLength(3);
+    expect(res).toEqual({ status: 200, totals: { mails: 2, sent: 3, skipped: 0, failed: 0 } });
+    expect(events).toContain('time_budget_reached');
+    // Nothing is logged without being sent: every log_billing_mail row got a send.
+    expect(calls.filter((c) => c[0] === 'log_billing_mail')).toHaveLength(3);
+  });
+});
+
 describe('parseBegin', () => {
   it('rejects an unknown event type', () => {
     expect(
