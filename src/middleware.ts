@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
-import { REQUEST_PATH_HEADER, requestPathForHeader, safeNextPath } from '@/features/auth/next-path';
+import { REQUEST_PATH_HEADER, loginNextPath, requestPathForHeader, safeNextPath } from '@/features/auth/next-path';
 
 // Middleware protects EVERY route by default; public exceptions are listed
 // explicitly here (bouwplan Fase 4 §6). Anything not public requires a verified
@@ -82,7 +82,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.search = '';
-    url.searchParams.set('next', pathname + request.nextUrl.search);
+    // Never a shared guest list (/app/share?text=…) in the login URL — share-import S2.
+    url.searchParams.set('next', loginNextPath(request.nextUrl));
     return redirectWithCookies(url, response);
   }
 

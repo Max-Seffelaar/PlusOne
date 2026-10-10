@@ -27,6 +27,43 @@ Milestone **Now** (golf E, ADE). Spec #13 revised: no marketing and no invitatio
 - **Tests**: vitest on the templates (every count, "1 person", price line only with a price, status link only when the page exists, injection), the job, batch adapter, inbound, status adapter, opt-out route, actions; pgTAP `guest_mail.test.sql` (85); flow `tests/flows/guest-mail.flow.ts` (10 checks).
 - **Not in 6a**: the "no confirmation" marker in the guest list (the RPC `event_guest_mail_status` exists), the auto-approve request-link path (needs the guest id from `submit_guest_request`), the decline mail wiring (task 7 calls `queueRequestDeclinedMail`).
 
+---
+
+## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
+
+Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.
+
+- **Manifest:** `share_target` (GET, `title`/`text`/`url`) → `/app/share`. On Android Chrome the installed PWA shows up in the share sheet.
+- **`/app/share` (screen `share`, G1 route, nav highlight Guests):** `screens/share.tsx` mounts Paste a list with `share`. The text pre-fills the box. Event picker defaults to the next upcoming event, tier picker sets the tier for lines that name none. After Add the screen replaces itself with that event's guest list.
+- **Share inbox** (`src/features/guests/share-inbox.ts`): in-memory only. `captureShareFromLocation` moves `text` (else `title`; `url` is never a list) from the query or a `#text=` fragment into memory and rewrites the URL with `history.replaceState(null, …)`. Gotchas:
+  - Passing Next's own `history.state` (`__NA`) cleans the address bar but not the router, so the import's server-action POST still went to `/app/share?text=…`. The flow caught this in the dev-server log.
+  - Reads are non-destructive. The shell keys its screen on the full URL (entrance animation), so the URL rewrite remounts the screen and a read-once inbox left the remounted screen empty. The text is cleared after a successful import. S6's native plugin calls `putSharedText`.
+- **Parser** (`quick-add-parser.ts`): `bulkLines` strips list markers (`-`, `•`, `*`, `1.`, `2)`) and skips a first-line column header ("Name<TAB>Email", "Naam, E-mail, Telefoon"). Tab/comma columns, e-mail and phone per line already worked. `pasteSummary` feeds the new preview count line "4 entries · 7 guests total · 2 with e-mail" (also on the normal Paste a list).
+- **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
+- **Service-worker share hop (Max 2026-10-09, option a; high-risk → fresh reviewer before merge):** with GET alone, the launch `/app/share?text=…` reached the server once (the dev server printed it; Vercel logs URLs). The SW's network-first path also stored it in the session cache under that URL, and a signed-out share carried it into `/login?next=…`.
+  - `public/service-worker.js` now answers that navigation itself with a 303 to `/app/share#text=…`: no fetch, no cache write. Every other navigation is unchanged.
+  - The Sentry scrubber now also strips URL fragments.
+- **Review round (fresh reviewer: verdict clean, 0 blocking, 3 should-fix, 6 nits), all fixed:**
+  - **S1:** without a SW, `replaceState` cleaned the address bar but not Next's router tree. The tree kept `__PAGE__?{"text":…}` in `history.state` and sent it back as `Next-Router-State-Tree` on the next navigation. The query path now does `location.replace('/app/share#…')`, a fresh document without the query. The flow proves it (Q2 checks `history.state`, Q6 the header); Q2 failed before the fix.
+  - **S2:** the window without a SW is wider than "first launch". It is: (a) installed from `/` and shared before the first signed-in `/app`; (b) after clear site data or eviction; (c) the pre-PR worker during an update, which caches the query URL in session-v1. This is now documented in the SW header, spec #33 and here. **Middleware** (`loginNextPath`, and `requestPathForHeader` for the /app gates) drops `text`/`title`/`url` from `next=` on `/app/share` only.
+  - **S3:** a signed-out share with the SW lands on `/login?next=/app/share#text=…`, because the fragment rides the 307. The login form drops it unread (`dropShareFragment`). The scrubber also catches a keyed fragment on a single-segment path. The empty share box says "Nothing came through? Share the list again, or paste it below." New flow check Q14.
+  - **Nits:** N1 the SW hops `/app/share/` too. N3 the cors test also checks fetch and cache. N4 a spec line: the native shell gets OS shares only with S6. N5 the `Select` restyle is named in the PR. N6 leaving the share screen clears the inbox.
+- **Found, not fixed (in the PR):**
+  - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
+- **Tests:** flow `share` (Q1–Q14 × 4 variants, all green locally; Q14: signed out with the SW, `/login?next=/app/share` without a fragment; Q13: with an active SW no request with the text reaches the network, cross-checked in the dev-server log; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), SW share-hop tests (+6 in `service-worker-cache-scope.test.ts`), scrub fragment test, routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+
+---
+
+## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
+
+Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
+
+- **Migration `20261013140000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). In the browser, Overview shows "Trial, no payment yet" next to the new "Trial, payment set up" tile (review: one label never means two numbers), so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: both tiles match the database exactly; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+
+---
+
 ## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
 
 Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).

@@ -257,3 +257,42 @@ describe('middleware — review demo session ended by updateSession (86ey6bfug)'
     }
   });
 });
+
+// Share-import S2 (z8uq9m43m8): when no service worker answers the PWA share
+// target on the device, `/app/share?text=…` (a guest list) reaches middleware.
+// It may not be copied into a second URL: not into the login `next=`, not into
+// the header the /app gates turn into their `next=`.
+describe('middleware — a shared guest list never rides along in next=', () => {
+  beforeEach(() => updateSessionMock.mockReset());
+
+  const SHARE = 'http://localhost:3000/app/share?title=Friday&text=Milan+Hendriks+%2B2%0AFleur&url=https%3A%2F%2Fx.test';
+
+  it('signed out: /login?next=/app/share, no text/title/url and no name anywhere in the redirect', async () => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    const res = await middleware(new NextRequest(SHARE));
+    const raw = res.headers.get('location')!;
+    const location = new URL(raw);
+    expect(location.pathname).toBe('/login');
+    expect(location.searchParams.get('next')).toBe('/app/share');
+    expect(decodeURIComponent(raw)).not.toMatch(/Milan|Friday|x\.test/);
+  });
+
+  it('signed in: the gate header carries /app/share without the payload', async () => {
+    updateSessionMock.mockImplementation(async (request: NextRequest) => ({
+      response: NextResponse.next({ request }),
+      user: { id: 'user-1' },
+      gate: { isAal2: true, hasFactor: false, requiresMfa: false },
+    }));
+    const { middleware } = await loadMiddleware();
+    const res = await middleware(new NextRequest(SHARE));
+    expect(res.headers.get('x-middleware-request-x-po-request-path')).toBe('/app/share');
+  });
+
+  it('any other deep link keeps its query in next= (unchanged behaviour)', async () => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    const res = await middleware(new NextRequest('http://localhost:3000/app/contacts?text=a%20b'));
+    expect(new URL(res.headers.get('location')!).searchParams.get('next')).toBe('/app/contacts?text=a%20b');
+  });
+});

@@ -247,4 +247,22 @@ export const FLOWS = {
       'src/components/po/screens/platform',
     ],
   },
+  share: {
+    title: 'Share-import S2 — text shared from WhatsApp/Mail/Notes/Excel lands on Paste a list with event + tier, imports once, never leaks (z8uq9m43m8)',
+    paths: [
+      'public/manifest.json',
+      'src/components/po/screens/share',
+      'src/components/po/screens/guests/bulk-paste',
+      'src/components/po/screens/guests/bulk-row',
+      'src/features/guests/quick-add-parser',
+      'src/features/guests/share-inbox',
+      'src/features/guests/bulk-dedupe',
+      'src/features/guests/actions.ts',
+      // Q13/Q14: the service-worker hop, the login's fragment drop, next= hygiene.
+      'public/service-worker.js',
+      'src/features/auth/next-path',
+      'src/features/auth/components/OtpLoginForm',
+      'src/lib/observability/scrub',
+    ],
+  },
 };
