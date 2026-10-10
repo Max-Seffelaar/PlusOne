@@ -137,7 +137,7 @@ describe('createEventFromTemplateSchema', () => {
   const startsAt = '2026-07-01T21:00:00.000Z';
 
   it('accepts a template id + name + start', () => {
-    expect(createEventFromTemplateSchema.safeParse({ templateId: TEMPLATE, name: 'Night', startsAt }).success).toBe(
+    expect(createEventFromTemplateSchema.safeParse({ templateId: TEMPLATE, name: 'Night', startsAt, contactEmail: 'night@club.test' }).success).toBe(
       true,
     );
   });
@@ -191,7 +191,7 @@ describe('setEventDefaultMemberQuotaSchema', () => {
 // Sign-up link ON by default for new events (z8uq9m0hw3, item 6). The column
 // default is still false, so this schema default is what createEvent writes.
 describe('createEventSchema', () => {
-  const base = { venueId: VENUE, name: 'FRENZY', startsAt: '2026-10-16T21:00:00.000Z' };
+  const base = { venueId: VENUE, name: 'FRENZY', startsAt: '2026-10-16T21:00:00.000Z', contactEmail: 'guests@club.test' };
 
   it('defaults landingActive to true when the client omits it', () => {
     const r = createEventSchema.safeParse(base);
@@ -226,7 +226,7 @@ describe('updateTierSchema', () => {
 
 // Per-event location (z8uq9m2vqc): optional, trimmed, '' → null, capped like the DB CHECKs.
 describe('event location fields', () => {
-  const base = { venueId: VENUE, name: 'X', startsAt: '2026-10-16T21:00:00.000Z' };
+  const base = { venueId: VENUE, name: 'X', startsAt: '2026-10-16T21:00:00.000Z', contactEmail: 'guests@club.test' };
 
   it('trims and keeps a typed location', () => {
     const r = createEventSchema.parse({ ...base, locationName: '  Paradiso ', locationAddress: 'Weteringschans 6' });
@@ -255,5 +255,37 @@ describe('template location fields', () => {
     expect(r.locationAddress).toBeNull();
     expect(updateTemplateSchema.safeParse({ templateId: TEMPLATE, locationName: 'x'.repeat(LOCATION_NAME_MAX + 1) }).success).toBe(false);
     expect(updateTemplateSchema.parse({ templateId: TEMPLATE }).locationName).toBeUndefined();
+  });
+});
+
+// Guest mail 6c: the event's contact address. Required on create (blank and
+// from a template), optional in an update (the action refuses a save that
+// leaves an event without one), the same strict syntax as the DB check.
+describe('event contact email', () => {
+  const create = { venueId: VENUE, name: 'FRENZY', startsAt: '2026-10-16T21:00:00.000Z' };
+
+  it('is required on create, blank and from a template', () => {
+    expect(createEventSchema.safeParse(create).success).toBe(false);
+    expect(createEventSchema.safeParse({ ...create, contactEmail: '   ' }).success).toBe(false);
+    expect(
+      createEventFromTemplateSchema.safeParse({ templateId: TEMPLATE, name: 'Night', startsAt: create.startsAt }).success,
+    ).toBe(false);
+  });
+
+  it('trims and lower-cases a valid address', () => {
+    const r = createEventSchema.parse({ ...create, contactEmail: '  Guests@Club.Test ' });
+    expect(r.contactEmail).toBe('guests@club.test');
+  });
+
+  it('refuses header syntax and junk, like events_contact_email_check', () => {
+    for (const bad of ['a@b.c>, x@y.z', 'a@b', 'no-at.test', 'a b@c.test', '"a"@c.test', 'a@c.test;b@d.test']) {
+      expect(createEventSchema.safeParse({ ...create, contactEmail: bad }).success, bad).toBe(false);
+    }
+    expect(createEventSchema.safeParse({ ...create, contactEmail: `${'a'.repeat(250)}@c.test` }).success).toBe(false);
+  });
+
+  it('may be omitted from an update, but never cleared', () => {
+    expect(updateEventSchema.safeParse({ eventId: EVENT_ID, name: 'X' }).success).toBe(true);
+    expect(updateEventSchema.safeParse({ eventId: EVENT_ID, contactEmail: '' }).success).toBe(false);
   });
 });

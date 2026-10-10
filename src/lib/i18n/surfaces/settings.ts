@@ -237,11 +237,11 @@ export const settings = {
   // guest mail, and the channels on the guest status page.
   contact: {
     title: 'Guest contact',
-    intro: 'Guests see this address in every email about their spot. Their replies go there too.',
+    intro: "Used for events that don't have their own contact email: guests see it in their emails and their replies go there.",
     emailLabel: 'Contact email',
     emailPlaceholder: 'e.g. info@yourclub.com',
     emailInvalid: "That email doesn't look right.",
-    emailMissing: 'Add a contact email. Guest emails wait until you do.',
+    emailMissing: "No company contact email yet. Events without their own contact email hold their guest emails until you add one.",
     channelsLabel: 'Other channels (optional)',
     channelsHint: 'Shown on the guest status page.',
     phone: 'Phone',

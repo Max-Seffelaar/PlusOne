@@ -24,6 +24,7 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase/service';
+import { EMAIL_ADDRESS_RE } from '@/lib/email-address';
 import { guestMailActive, MAIL_DOMAIN } from './config';
 import { locationLine, renderGuestMail } from './templates/guest-mails';
 import { GUEST_MAIL_TYPES, type GuestMailType } from './templates/guest-copy';
@@ -60,7 +61,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN = /^[0-9a-f]{64}$/;
 const LINK_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const REPLY_KEY = /^[0-9a-f]{40}$/;
-const EMAIL = /^[^@\s<>",;:]+@[^@\s<>",;:]+\.[^@\s<>",;:]+$/;
 
 export interface ClaimedMail {
   queueId: string;
@@ -105,13 +105,13 @@ export function parseClaimedMail(raw: unknown): ClaimedMail | null {
   const to = str(r.to);
   if (!queueId || !UUID.test(queueId) || !mailLogId || !UUID.test(mailLogId)) return null;
   if (!type || !(GUEST_MAIL_TYPES as readonly string[]).includes(type)) return null;
-  if (!to || !EMAIL.test(to)) return null;
+  if (!to || !EMAIL_ADDRESS_RE.test(to)) return null;
   const eventId = str(ev.id);
   const eventName = str(ev.name);
   if (!eventId || !UUID.test(eventId) || !eventName || !isDate(ev.starts_at)) return null;
   const contactEmail = str(co.contact_email);
   const companyName = str(co.name);
-  if (!companyName || !contactEmail || !EMAIL.test(contactEmail)) return null;
+  if (!companyName || !contactEmail || !EMAIL_ADDRESS_RE.test(contactEmail)) return null;
   const unsubscribe = str(ln.unsubscribe);
   const reply = str(ln.reply);
   const status = str(ln.status);

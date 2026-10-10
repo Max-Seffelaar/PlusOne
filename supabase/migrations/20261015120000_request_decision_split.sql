@@ -933,8 +933,9 @@ to anon, authenticated, service_role;
 -- 7. guest_mails_claim — one decision mail names every part of a split
 -- ---------------------------------------------------------------------------
 -- Orchestrator decision 2026-10-10 (option a): this migration redefines
--- guest_mails_claim, and only that 6a function. Body = the latest one on
--- main, taken over word for word, plus ONE addition: a `tiers` array in each
+-- guest_mails_claim, and only that function. Body = the latest one on main
+-- (6c, 20261013180500: the event's contact address before the company's),
+-- taken over word for word, plus ONE addition: a `tiers` array in each
 -- payload with a spot, [{tier_name, people, price_cents}]. For
 -- guest_request_approved/_partly it lists every live guest the decision
 -- created (guests.guest_request_id = the queue row's source request), and for
@@ -1005,9 +1006,10 @@ begin
              row_number() over (partition by q.venue_id order by q.send_after, q.id) as rn
         from public.guest_mail_queue q
         join public.venues v on v.id = q.venue_id
+        join public.events e on e.id = q.event_id
        where q.status = 'pending'
          and q.send_after <= now()
-         and v.contact_email is not null
+         and coalesce(e.contact_email, v.contact_email) is not null
     )
     select q.*
       from public.guest_mail_queue q
@@ -1033,7 +1035,7 @@ begin
     select e.id as event_id, e.name as event_name, e.starts_at, e.ends_at,
            e.location_name, e.location_address, e.house_rules, e.updated_at as event_updated_at,
            e.cancelled_at,
-           v.name as company_name, v.contact_email,
+           v.name as company_name, coalesce(e.contact_email, v.contact_email) as contact_email,
            g.status as guest_status, g.email as guest_email, g.full_name as guest_name,
            g.plus_ones, g.tier_id, g.anonymized_at as guest_anonymized,
            g.guest_request_id as guest_request_id,
@@ -1211,9 +1213,11 @@ comment on function public.guest_mails_claim(integer) is
   'Guest-mail job (service_role): claim due queue rows (skip locked), re-check '
   'each against the database, write mail_log, mint the per-mail links and '
   'return what the renderer needs, raw tokens included. Budgets per company '
-  'and per day; rows of a company without a contact address wait. Since '
-  'z8uq9m2vga each payload with a spot carries `tiers`: every part of a split '
-  'request decision, else the one guest''s spot.';
+  'and per day; rows whose event has no contact address (and no company '
+  'fallback) wait. Contact = coalesce(events.contact_email, '
+  'venues.contact_email) (20261013180500). Since z8uq9m2vga each payload with '
+  'a spot carries `tiers`: every part of a split request (decision, reminder, '
+  'event-changed mails), else the one guest''s spot.';
 
 revoke execute on function public.guest_mails_claim(integer) from public, anon, authenticated;
 grant execute on function public.guest_mails_claim(integer) to service_role;

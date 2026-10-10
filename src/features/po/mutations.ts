@@ -1192,10 +1192,12 @@ export function usePoCreateEventFromTemplate() {
   const qc = useQueryClient();
   const { venueId } = usePoIdentity();
   return useMutation({
-    mutationFn: async (input: CreateEventFromTemplateInput): Promise<string> => {
+    // contactSaved false: the event exists but its contact address didn't
+    // stick (6c); the form retries it and says so if that fails too.
+    mutationFn: async (input: CreateEventFromTemplateInput): Promise<{ eventId: string; contactSaved: boolean }> => {
       const res = await createEventFromTemplate(input);
       if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
-      return res.eventId;
+      return { eventId: res.eventId, contactSaved: res.contactSaved !== false };
     },
     onSuccess: () => {
       if (venueId) {

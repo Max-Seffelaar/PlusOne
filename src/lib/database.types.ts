@@ -644,6 +644,7 @@ export type Database = {
           auto_lock_at: string | null
           cancelled_at: string | null
           capacity: number | null
+          contact_email: string | null
           created_at: string
           default_member_quota: number
           ends_at: string | null
@@ -668,6 +669,7 @@ export type Database = {
           auto_lock_at?: string | null
           cancelled_at?: string | null
           capacity?: number | null
+          contact_email?: string | null
           created_at?: string
           default_member_quota: number
           ends_at?: string | null
@@ -692,6 +694,7 @@ export type Database = {
           auto_lock_at?: string | null
           cancelled_at?: string | null
           capacity?: number | null
+          contact_email?: string | null
           created_at?: string
           default_member_quota?: number
           ends_at?: string | null
@@ -3231,6 +3234,7 @@ export type Database = {
         Args: { l: Database["public"]["Tables"]["request_links"]["Row"] }
         Returns: boolean
       }
+      request_note_is_blank: { Args: { p_note: string }; Returns: boolean }
       resolve_guest_mail_reply: { Args: { p_reply_key: string }; Returns: Json }
       resolve_tier_for_contact: {
         Args: {
