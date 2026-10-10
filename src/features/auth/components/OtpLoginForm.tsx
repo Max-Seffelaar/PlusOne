@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { describeAuthError, isUnknownAccountOtpError } from '@/features/auth/errors';
 import { requestOtpSchema, verifyOtpSchema } from '@/features/auth/schemas';
 import { OTP_CODE_VERIFY_TYPES, verifyWithFallback } from '@/features/auth/verify-fallback';
+import { dropShareFragment } from '@/features/guests/share-inbox';
 
 type Step = 'email' | 'code';
 
@@ -39,6 +40,12 @@ export function OtpLoginForm({
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const codeRef = useRef<HTMLInputElement>(null);
+
+  // A share made while signed out arrives here as /login?next=/app/share#text=…
+  // (the fragment rides the redirect). Drop it from the URL and history, unread.
+  useEffect(() => {
+    dropShareFragment();
+  }, []);
 
   // Rate-limit countdown for the resend button.
   useEffect(() => {

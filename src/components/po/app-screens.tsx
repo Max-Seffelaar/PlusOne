@@ -31,6 +31,7 @@ import { BulkPaste, Contacten, ContactProfile, GuestsTab } from './screens/guest
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
+import { ShareScreen } from './screens/share';
 
 /**
  * Code-split (#2a): the heavy/rare screens below each live in their own module
@@ -150,6 +151,8 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav): ReactNode {
       return <QuickAdd eventId={p.id} />;
     case 'bulk':
       return <BulkPaste eventId={p.id} />;
+    case 'share':
+      return <ShareScreen />;
     case 'aanvragen':
       // ScreenProps.tab is shared with the Promotion hub — narrow to aanvragen's own queues.
       return <Aanvragen eventId={p.id} initialTab={p.tab === 'landing' || p.tab === 'quota' ? p.tab : undefined} />;

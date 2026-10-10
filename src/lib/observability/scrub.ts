@@ -7,7 +7,7 @@ import type { Breadcrumb, ErrorEvent, Event, EventHint } from '@sentry/nextjs';
 // fetch breadcrumb `data.url` and (when sampled) an http.client span. So we:
 //   1. delete `event.request` outright (cookies/headers/query/body),
 //   2. reduce `event.user` to the UUID,
-//   3. strip query strings from any URL, everywhere (messages, exception values,
+//   3. strip query strings and fragments from any URL, everywhere (messages, exception values,
 //      breadcrumb messages + `data`, and span descriptions + `data`),
 //   4. redact email / phone / `Key(col)=(value)` patterns in every free-text field.
 // `event.extra` / `event.contexts` are only shallow-scrubbed as a backstop — do
@@ -28,11 +28,25 @@ const URL_QUERY_RE = /(https?:\/\/[^\s"'?]+)\?[^\s"']*/g;
 // single-segment path (`/app?billing=success`) never carries PII (only a
 // success/canceled flag), so it's deliberately left alone.
 const RELATIVE_URL_QUERY_RE = /(\/[\w.-]+(?:\/[\w.-]+)+)\?[^\s"']*/g;
+// A fragment carries data too: the share target (share-import S2) hands a guest
+// list to the page as `/app/share#text=…` (the service worker moves it out of the
+// query so it never reaches a server), and a navigation breadcrumb or a pageload
+// URL recorded before the page strips it would ship it. Same shapes as above;
+// the query patterns already swallow a fragment that follows a query.
+const URL_FRAGMENT_RE = /(https?:\/\/[^\s"'#?]+)#[^\s"']*/g;
+const RELATIVE_URL_FRAGMENT_RE = /(\/[\w.-]+(?:\/[\w.-]+)+)#[^\s"']*/g;
+// A single-segment path too, once its fragment carries a key=value pair: a share
+// made while signed out lands on `/login?next=%2Fapp%2Fshare#text=…` (review S3).
+// The `key=` requirement keeps a plain anchor (`/login#top`) and free text alone.
+const KEYED_FRAGMENT_RE = /(\/[^\s"'#]*)#[\w-]+=[^\s"']*/g;
 
 export function scrubText(input: string): string {
   return input
     .replace(URL_QUERY_RE, '$1?[filtered]')
     .replace(RELATIVE_URL_QUERY_RE, '$1?[filtered]')
+    .replace(URL_FRAGMENT_RE, '$1#[filtered]')
+    .replace(RELATIVE_URL_FRAGMENT_RE, '$1#[filtered]')
+    .replace(KEYED_FRAGMENT_RE, '$1#[filtered]')
     .replace(PG_KEY_DETAIL_RE, 'Key ([redacted])=([redacted])')
     .replace(EMAIL_RE, '[email]')
     .replace(PHONE_RE, '[phone]');
