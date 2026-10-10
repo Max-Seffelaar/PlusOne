@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PLUS_ONES_MAX } from './quick-add-parser';
 
 // All guest input is validated here before any DB call (CLAUDE.md security
 // checklist). Names are the only required field (#9: more data is better, but
@@ -10,7 +11,7 @@ const uuid = z.string().uuid();
 // well under 500; the old 200 let one long pasted line hard-fail the whole
 // quick-add / bulk / door batch with "String must contain at most 200".
 const fullName = z.string().trim().min(1, 'Name is required').max(500);
-const plusOnes = z.number().int().min(0).max(50);
+const plusOnes = z.number().int().min(0).max(PLUS_ONES_MAX);
 
 /** Empty string from a form field -> null (optional, dataminimalisatie #9). */
 const optionalText = (max: number) =>
