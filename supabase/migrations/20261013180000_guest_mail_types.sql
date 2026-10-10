@@ -6,11 +6,11 @@
 -- the three request decisions. Copy v3 (docs/copy-review/guest-mails.html).
 --
 -- What this migration adds:
---   1. mail_log.type gains nine guest_* types. The list is the SUPERSET of
---      every type defined anywhere before it: main (platform_invite,
---      20261013130000), the platform digest ('platform_digest', PR #440,
---      20261012160000) and the billing mails (seven billing_*, PR #446,
---      20261013170000). Whichever of those lands first, this one keeps them.
+--   1. mail_log.type gains nine guest_* types, ADDITIVELY: the constraint
+--      becomes the union of what it allows when this runs, every type known
+--      on main and in the open PRs (platform_invite 20261013130000,
+--      platform_digest #440 20261013150000, seven billing_* #446
+--      20261013170000) and the guest types. Merge order cannot drop a type.
 --   2. Guest mail stays OUT of the invitation limits, exactly like billing
 --      mail: mail_venue_cap_reached no longer counts guest_* rows (an event
 --      change to 150 guests must never eat a company's 25 invites a day), and
@@ -40,30 +40,56 @@
 -- never in a request path.
 
 -- ---------------------------------------------------------------------------
--- 1. mail_log type — superset
+-- 1. mail_log type — additive
 -- ---------------------------------------------------------------------------
+-- Additive, not a hard-coded list (orchestrator, 2026-10-10): the new
+-- constraint is the union of (a) whatever the constraint allows when this
+-- migration runs (so a type a later-merged predecessor added survives), (b)
+-- every type known on main and in the open golf-E PRs (so a type a
+-- predecessor dropped by accident comes back: #440 once lost
+-- 'platform_invite') and (c) the nine guest types.
 
-alter table public.mail_log drop constraint mail_log_type_check;
-alter table public.mail_log
-  add constraint mail_log_type_check
-  check (type in (
-    'team_join', 'team_added_to_event', 'team_resend', 'auth_invite',
-    'team_invite_declined', 'team_invite_declined_confirm',
-    'platform_invite',
-    'platform_digest',
-    'billing_trial_day0', 'billing_trial_day7', 'billing_trial_day12',
-    'billing_trial_ended', 'billing_trial_day21',
-    'billing_payment_failed', 'billing_canceled',
-    'guest_on_list', 'guest_plus_ones', 'guest_event_changed',
-    'guest_event_canceled', 'guest_removed', 'guest_reminder',
-    'guest_request_approved', 'guest_request_partly', 'guest_request_declined'
-  ));
+do $$
+declare
+  v_def text;
+  v_types text[];
+begin
+  select pg_get_constraintdef(c.oid) into v_def
+    from pg_constraint c
+   where c.conname = 'mail_log_type_check'
+     and c.conrelid = 'public.mail_log'::regclass;
+
+  select array_agg(m[1]) into v_types
+    from regexp_matches(coalesce(v_def, ''), '''([a-z0-9_]+)''', 'g') as m;
+
+  v_types := array(
+    select distinct t from unnest(coalesce(v_types, '{}'::text[]) || array[
+      'team_join', 'team_added_to_event', 'team_resend', 'auth_invite',
+      'team_invite_declined', 'team_invite_declined_confirm',
+      'platform_invite',
+      'platform_digest',
+      'billing_trial_day0', 'billing_trial_day7', 'billing_trial_day12',
+      'billing_trial_ended', 'billing_trial_day21',
+      'billing_payment_failed', 'billing_canceled',
+      'guest_on_list', 'guest_plus_ones', 'guest_event_changed',
+      'guest_event_canceled', 'guest_removed', 'guest_reminder',
+      'guest_request_approved', 'guest_request_partly', 'guest_request_declined'
+    ]) as t
+    order by t);
+
+  alter table public.mail_log drop constraint if exists mail_log_type_check;
+  execute format(
+    'alter table public.mail_log add constraint mail_log_type_check check (type = any (%L::text[]))',
+    v_types);
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 2. Billing and guest mail outside the invitation limits
 -- ---------------------------------------------------------------------------
--- Bodies are the live ones (20261011120000, with 20261013170000's billing
--- exclusion when that lands first) plus the guest_ predicate; signatures,
+-- Bodies are the union of every live rule: 20261011120000 (failed rows free),
+-- 20261013150000 (platform_digest rows never start a recipient window, #440),
+-- 20261013170000 (billing mails out, #446) plus the guest_ predicate; signatures,
 -- security, search_path and grants unchanged (create or replace keeps the ACL).
 
 create or replace function public.mail_venue_cap_reached(p_venue_id uuid)
@@ -118,12 +144,12 @@ begin
 
   -- The decline mails are exempt from the window and do not start one. A
   -- failed attempt (nothing went out) does not start one either, and neither
-  -- does a billing or a guest mail.
+  -- does the platform digest (20261013150000), a billing or a guest mail.
   if p_type not in ('team_invite_declined', 'team_invite_declined_confirm')
      and exists (
        select 1 from public.mail_log m
         where m.recipient_hash = p_recipient_hash
-          and m.type not in ('team_invite_declined', 'team_invite_declined_confirm')
+          and m.type not in ('team_invite_declined', 'team_invite_declined_confirm', 'platform_digest')
           and m.type not like 'billing\_%'
           and m.type not like 'guest\_%'
           and m.status <> 'failed'
@@ -147,7 +173,8 @@ comment on function public.log_mail_attempt(text, uuid, text) is
   'Mail sender (service_role): record a queued send and return its id '
   '(= the Resend Idempotency-Key). Refuses (PM429) a second mail to the same '
   'recipient within mail_recipient_window() (the two decline mail types are '
-  'exempt, 20261007150100; failed attempts do not count, 20261011120000; '
+  'exempt, 20261007150100; failed attempts do not count, 20261011120000; a '
+  'platform_digest row does not count, 20261013150000; '
   'billing mails neither count nor pass here, 20261013170000; guest mails '
   'neither, 20261013180000) and a venue past mail_venue_daily_cap() for the '
   'UTC day.';
