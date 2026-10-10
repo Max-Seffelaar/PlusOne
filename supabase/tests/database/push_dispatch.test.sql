@@ -21,6 +21,13 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
+-- Push only (20261013180600): this file tests the push path, so every user in
+-- it wants no team mail, the email rows the outbox triggers would add for
+-- default preferences stay out of its counts. Rolled back with the rest.
+insert into public.user_notification_prefs (user_id, notification_prefs)
+select p.id, '{"requests": {"email": "off"}, "quota": {"email": "off"}, "decisions": {"email": false}}'::jsonb
+  from public.user_profiles p;
+
 create function pg_temp.as_service()
 returns void language plpgsql as $fn$
 begin
@@ -140,7 +147,7 @@ select is(pg_temp.queued(), 2, 'C4 an outbox insert wakes the function once per 
 insert into public.notification_outbox (kind, source_id, venue_id, recipient_user_id, dedupe_key, payload)
 values ('guest_request_created', gen_random_uuid(), 'aa000000-0000-7000-8000-000000000001',
         '55555555-5555-4555-8555-555555555555', 'pgtap:1', '{}')
-on conflict (dedupe_key, recipient_user_id) do nothing;
+on conflict (dedupe_key, recipient_user_id, channel) do nothing;
 select is(pg_temp.queued(), 2, 'C5 a dedupe hit inserts nothing and wakes nothing');
 
 -- The token the latest kick actually sent, as an attacker reading the queue
