@@ -1213,6 +1213,50 @@ export type Database = {
           },
         ]
       }
+      platform_digest_deliveries: {
+        Row: {
+          created_at: string
+          digest_date: string
+          mail_log_id: string
+          recipient_id: string
+        }
+        Insert: {
+          created_at?: string
+          digest_date: string
+          mail_log_id: string
+          recipient_id: string
+        }
+        Update: {
+          created_at?: string
+          digest_date?: string
+          mail_log_id?: string
+          recipient_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_digest_deliveries_mail_log_id_fkey"
+            columns: ["mail_log_id"]
+            isOneToOne: false
+            referencedRelation: "mail_log"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_digest_tokens: {
+        Row: {
+          created_at: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          token_hash?: string
+        }
+        Relationships: []
+      }
       platform_invites: {
         Row: {
           ade_trial_venue_id: string | null
@@ -2355,6 +2399,7 @@ export type Database = {
       }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
       is_venue_organizer: { Args: { p_venue_id: string }; Returns: boolean }
+      kick_platform_digest: { Args: never; Returns: boolean }
       kick_push_dispatch: { Args: never; Returns: boolean }
       link_headcount_contribution: {
         Args: {
@@ -2378,6 +2423,10 @@ export type Database = {
       }
       log_mail_attempt: {
         Args: { p_recipient_hash: string; p_type: string; p_venue_id: string }
+        Returns: string
+      }
+      log_platform_digest_mail: {
+        Args: { p_recipient_id: string }
         Returns: string
       }
       log_venue_export: {
@@ -2462,6 +2511,46 @@ export type Database = {
           subscription_status: string
           trial_ends_at: string
           venue_id: string
+        }[]
+      }
+      platform_digest_begin: { Args: { p_token: string }; Returns: Json }
+      platform_digest_setting: { Args: { p_name: string }; Returns: string }
+      platform_digest_subscription_counts: {
+        Args: never
+        Returns: {
+          canceled: number
+          comped: number
+          no_subscription: number
+          paid_monthly: number
+          paid_unknown: number
+          paid_yearly: number
+          past_due: number
+          total_companies: number
+          trial_lapsed: number
+          trialing: number
+          trialing_payment_set_up: number
+        }[]
+      }
+      platform_digest_tick: { Args: never; Returns: boolean }
+      platform_digest_today: { Args: never; Returns: string }
+      platform_digest_trial_funnel: {
+        Args: never
+        Returns: {
+          canceled_30d: number
+          converted_30d: number
+          converted_90d: number
+          ended_30d: number
+          ended_90d: number
+          ending_7d: number
+        }[]
+      }
+      platform_digest_usage_30d: {
+        Args: never
+        Returns: {
+          active_companies: number
+          check_ins: number
+          dormant_companies: number
+          events: number
         }[]
       }
       platform_invite_funnel: {

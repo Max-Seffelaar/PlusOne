@@ -59,7 +59,11 @@ select tables_are(
     -- Mail-infra F0 (z8uq9m2yvt): one row per app-sent mail (no content,
     -- hashed recipient; platform admins read) + the Resend webhook ledger
     -- (RLS on, no policies, no grants). Writes only via service_role RPCs.
-    'mail_log', 'resend_webhook_events'
+    'mail_log', 'resend_webhook_events',
+    -- Platform digest (z8uq9m2ybj, 20261013150000): single-use invocation
+    -- tokens for the platform-digest Edge Function + the per-day delivery
+    -- ledger. RLS on, no policies, no grants; definer RPCs only.
+    'platform_digest_tokens', 'platform_digest_deliveries'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );
