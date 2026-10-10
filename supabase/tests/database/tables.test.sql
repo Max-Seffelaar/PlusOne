@@ -62,7 +62,11 @@ select tables_are(
     'mail_log', 'resend_webhook_events',
     -- Event locations L (z8uq9m444c): saved locations per company. Members
     -- read, admins write, archive instead of delete; events keep a copy.
-    'company_locations'
+    'company_locations',
+    -- Platform digest (z8uq9m2ybj, 20261013150000): single-use invocation
+    -- tokens for the platform-digest Edge Function + the per-day delivery
+    -- ledger. RLS on, no policies, no grants; definer RPCs only.
+    'platform_digest_tokens', 'platform_digest_deliveries'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );

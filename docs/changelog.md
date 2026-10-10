@@ -20,9 +20,77 @@ Milestone **Now** (golf D, taak 3b, ADE). Decision Max 2026-10-07; spec #58 (ame
   - Company settings → Locations (`settings/venue-locations.tsx`, one render line in `venue.tsx`): list, add (Places fills street/postcode/city and the name when empty), edit, archive with a confirm. Server actions in `src/features/venues/location-actions.ts` through the user-scoped client.
   - Event form: a new event starts at the first saved location, else the company; saved locations are chips (`events/location-picker.tsx`); the event stores a copy. Templates with a location still win. Hint now "Guests see this on the request link and their status page."
   - `/r/[token]` shows the event location in every state; the adapter ignores the `venue_*` keys, so the deploy window before the prod push renders no company address.
-- **Tests**: pgTAP `event_locations.test.sql` (58; allowed/denied per role, grants, exact payload keys, no company address, mirror, the backfill predicate); `partial_approval` F2/F3 now assert no company address; full suite 98 files / 2514. Vitest: adapters, schemas, status view, request status, Locations section, event form. Flow `event-locations` (11 checks, four variants); `company-rename` Q7 follows the new default.
+- **Tests**: pgTAP `event_locations.test.sql` (58; allowed/denied per role, grants, exact payload keys, no company address, mirror, the backfill predicate); `partial_approval` F2/F3 now assert no company address; full suite after merging main (incl. #440) 99 files / 2573. Vitest: adapters, schemas, status view, request status, Locations section, event form. Flow `event-locations` (11 checks, four variants); `company-rename` Q7 follows the new default.
 - **Prod push**: Max, right after the merge (CLAUDE.md "Prod-push flow"; supersedes the §4 "push before merge" text).
 - **Follow-up (parked)**: audit location changes (`company_locations`, `events.location_*`) now that the field is a public address.
+## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
+
+Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.
+
+- **Manifest:** `share_target` (GET, `title`/`text`/`url`) → `/app/share`. On Android Chrome the installed PWA shows up in the share sheet.
+- **`/app/share` (screen `share`, G1 route, nav highlight Guests):** `screens/share.tsx` mounts Paste a list with `share`. The text pre-fills the box. Event picker defaults to the next upcoming event, tier picker sets the tier for lines that name none. After Add the screen replaces itself with that event's guest list.
+- **Share inbox** (`src/features/guests/share-inbox.ts`): in-memory only. `captureShareFromLocation` moves `text` (else `title`; `url` is never a list) from the query or a `#text=` fragment into memory and rewrites the URL with `history.replaceState(null, …)`. Gotchas:
+  - Passing Next's own `history.state` (`__NA`) cleans the address bar but not the router, so the import's server-action POST still went to `/app/share?text=…`. The flow caught this in the dev-server log.
+  - Reads are non-destructive. The shell keys its screen on the full URL (entrance animation), so the URL rewrite remounts the screen and a read-once inbox left the remounted screen empty. The text is cleared after a successful import. S6's native plugin calls `putSharedText`.
+- **Parser** (`quick-add-parser.ts`): `bulkLines` strips list markers (`-`, `•`, `*`, `1.`, `2)`) and skips a first-line column header ("Name<TAB>Email", "Naam, E-mail, Telefoon"). Tab/comma columns, e-mail and phone per line already worked. `pasteSummary` feeds the new preview count line "4 entries · 7 guests total · 2 with e-mail" (also on the normal Paste a list).
+- **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
+- **Service-worker share hop (Max 2026-10-09, option a; high-risk → fresh reviewer before merge):** with GET alone, the launch `/app/share?text=…` reached the server once (the dev server printed it; Vercel logs URLs). The SW's network-first path also stored it in the session cache under that URL, and a signed-out share carried it into `/login?next=…`.
+  - `public/service-worker.js` now answers that navigation itself with a 303 to `/app/share#text=…`: no fetch, no cache write. Every other navigation is unchanged.
+  - The Sentry scrubber now also strips URL fragments.
+- **Review round (fresh reviewer: verdict clean, 0 blocking, 3 should-fix, 6 nits), all fixed:**
+  - **S1:** without a SW, `replaceState` cleaned the address bar but not Next's router tree. The tree kept `__PAGE__?{"text":…}` in `history.state` and sent it back as `Next-Router-State-Tree` on the next navigation. The query path now does `location.replace('/app/share#…')`, a fresh document without the query. The flow proves it (Q2 checks `history.state`, Q6 the header); Q2 failed before the fix.
+  - **S2:** the window without a SW is wider than "first launch". It is: (a) installed from `/` and shared before the first signed-in `/app`; (b) after clear site data or eviction; (c) the pre-PR worker during an update, which caches the query URL in session-v1. This is now documented in the SW header, spec #33 and here. **Middleware** (`loginNextPath`, and `requestPathForHeader` for the /app gates) drops `text`/`title`/`url` from `next=` on `/app/share` only.
+  - **S3:** a signed-out share with the SW lands on `/login?next=/app/share#text=…`, because the fragment rides the 307. The login form drops it unread (`dropShareFragment`). The scrubber also catches a keyed fragment on a single-segment path. The empty share box says "Nothing came through? Share the list again, or paste it below." New flow check Q14.
+  - **Nits:** N1 the SW hops `/app/share/` too. N3 the cors test also checks fetch and cache. N4 a spec line: the native shell gets OS shares only with S6. N5 the `Select` restyle is named in the PR. N6 leaving the share screen clears the inbox.
+- **Found, not fixed (in the PR):**
+  - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
+- **Tests:** flow `share` (Q1–Q14 × 4 variants, all green locally; Q14: signed out with the SW, `/login?next=/app/share` without a fragment; Q13: with an active SW no request with the text reaches the network, cross-checked in the dev-server log; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), SW share-hop tests (+6 in `service-worker-cache-scope.test.ts`), scrub fragment test, routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+
+---
+
+## 2026-10-08 — Platform R vervolg: daily platform digest (z8uq9m2ybj, golf D, §9 item 19)
+
+Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (new service-role path + scheduler): fresh reviewer session before merge. Merges after vervolg A (`20261013140000`). No prod push, nothing deployed, nothing live.
+
+- **Migration `20261013150000_platform_digest`:**
+  - `mail_log.type` + `platform_digest`.
+  - `platform_digest_tokens`: single-use invocation tokens (sha256, 10 minutes), the push-dispatch pattern.
+  - `platform_digest_deliveries`: a ledger per Amsterdam day per recipient. Both tables have RLS on, no policies and no grants.
+  - Service-role-only wrappers `platform_digest_subscription_counts/_trial_funnel/_usage_30d`: copies of the Overview bodies, which stay unchanged. pgTAP asserts parity.
+  - `platform_digest_begin(token)`: consumes the token or raises 42501, then returns the aggregates plus the current platform admins.
+  - `log_platform_digest_mail(recipient)`: venue-less, no company cap. Returns NULL when today's digest is already queued or sent; a failed attempt may retry. 42501 for anyone who is not a platform admin.
+  - Owner-only `kick_platform_digest()` / `platform_digest_tick()`.
+  - pg_cron `plusone-platform-digest` runs at 05:45 and 06:45 UTC; the tick only kicks at 07:xx Amsterdam.
+  - Vault secret `plusone_platform_digest_url`; unset means asleep.
+- **Edge Function `supabase/functions/platform-digest/`:**
+  - `digest.ts` (runtime-agnostic core) and `template.ts` (aggregates only, footer support@plus-one.io).
+  - Resend over fetch with Idempotency-Key `mail_log/<id>`. Without a key it uses Mailpit, and only on a local stack; otherwise it returns 503 after auth and writes no row.
+  - `verify_jwt = false` in `config.toml`.
+  - **No MRR/ARR:** no server path to the Stripe prices exists outside a user session, so the mail links to the Overview.
+- **Guard tightened:** `mail-confinement.test.ts` now also scans `supabase/functions/`. Only `platform-digest` may name the Resend host.
+- **Tests:** pgTAP `platform_digest.test.sql` (55) plus `tables.test.sql`; vitest `tests/unit/platform-digest.test.ts`. Ran locally end to end: kick → pg_net → served function → Mailpit. A second kick gave `skipped: 1`.
+- **Docs:** `docs/mail-deliverability.md` "Platform digest" (go-live steps and local test), `.env.example`, spec decision #57. `database.types.ts` regenerated; it also picks up two older missing entries, `cleanup_venueless_mail_log` and `is_tied_to_venue`.
+- **Review round (fresh reviewer: security clean, 2 blockers + 1 should-fix + 3 nits), 2026-10-09:**
+  - The subscription wrapper now carries `trialing_payment_set_up` from #439 (`20261013140000`), so parity test D1 holds on main + #439. I kept the copy rather than a shared internal body, because sharing would mean a third drop and re-create of the Overview RPC. D1 stays the drift alarm. The mail shows the new count as "Trial, payment set up".
+  - `log_mail_attempt` is re-created so a `platform_digest` row no longer starts the 60-second recipient window (pgTAP E17/E18).
+  - The function answers `{ ok: true }` only, with totals in the log (`net._http_response` is readable by app roles).
+  - Runbook triage row: a failed digest is retried only by a manual `kick_platform_digest()`.
+  - Spec decision renumbered to #57 (#56 went to #438).
+  - Migration moved to `20261013150000` (prod already had `20261013120000`); #439 landed as `20261013140000`. The `mail_log` type constraint keeps `platform_invite` from `20261013130000`.
+  - Full run on main + this branch: pgTAP 98 files / 2515 assertions, `CI=1 pnpm test` 284 files green.
+  - Delta review clean (no blockers). Its two doc nits are now in the runbook and `docs/mail-deliverability.md`: a consumed token without a send (`mail_not_configured`, RPC error) needs a manual kick, and `bounced`/`complained` count as sent.
+
+---
+
+## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
+
+Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
+
+- **Migration `20261013140000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). In the browser, Overview shows "Trial, no payment yet" next to the new "Trial, payment set up" tile (review: one label never means two numbers), so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: both tiles match the database exactly; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+
+---
 
 ## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
 

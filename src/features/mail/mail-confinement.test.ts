@@ -7,7 +7,10 @@
  *   2. the Resend API host is named outside it (the adapter is plain fetch, so
  *      a second hand-rolled caller would dodge rule 1), or
  *   3. anything under src/features/door/ imports the mail module: the door
- *      never sends or waits on mail (#25).
+ *      never sends or waits on mail (#25), or
+ *   4. an Edge Function under supabase/functions/ names the Resend host or
+ *      imports `resend`, except the platform digest (z8uq9m2ybj): Deno cannot
+ *      import this directory, so that one function carries its own sender.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -38,6 +41,9 @@ function sourceFiles(dir: string): string[] {
 }
 
 const FILES = sourceFiles(SRC);
+const FUNCTIONS = path.resolve(process.cwd(), 'supabase', 'functions');
+const FUNCTION_FILES = sourceFiles(FUNCTIONS);
+const DIGEST_DIR = path.join(FUNCTIONS, 'platform-digest') + path.sep;
 const inMail = (f: string) => path.relative(SRC, f).startsWith(ALLOWED_DIR + path.sep);
 
 describe('mail provider confinement', () => {
@@ -57,6 +63,16 @@ describe('mail provider confinement', () => {
     const offenders = FILES.filter((f) => !inMail(f) && readFileSync(f, 'utf8').includes(RESEND_HOST)).map((f) =>
       path.relative(SRC, f)
     );
+    expect(offenders).toEqual([]);
+  });
+
+  it('no Edge Function but platform-digest talks to Resend', () => {
+    expect(FUNCTION_FILES.some((f) => f.startsWith(DIGEST_DIR))).toBe(true);
+    const offenders = FUNCTION_FILES.filter((f) => {
+      if (f.startsWith(DIGEST_DIR)) return false;
+      const src = readFileSync(f, 'utf8');
+      return src.includes(RESEND_HOST) || RESEND_IMPORT.test(src);
+    }).map((f) => path.relative(FUNCTIONS, f));
     expect(offenders).toEqual([]);
   });
 
