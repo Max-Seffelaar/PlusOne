@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-10-08 — Platform R vervolg: daily platform digest (z8uq9m2ybj, golf D, §9 item 19)
 
-Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (new service-role path + scheduler): fresh reviewer session before merge. Merges after vervolg A (`20261012150000`). No prod push, nothing deployed, nothing live.
+Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (new service-role path + scheduler): fresh reviewer session before merge. Merges after vervolg A (`20261013140000`). No prod push, nothing deployed, nothing live.
 
 - **Migration `20261013150000_platform_digest`:**
   - `mail_log.type` + `platform_digest`.
@@ -31,11 +31,125 @@ Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (n
 - **Tests:** pgTAP `platform_digest.test.sql` (55) plus `tables.test.sql`; vitest `tests/unit/platform-digest.test.ts`. Ran locally end to end: kick → pg_net → served function → Mailpit. A second kick gave `skipped: 1`.
 - **Docs:** `docs/mail-deliverability.md` "Platform digest" (go-live steps and local test), `.env.example`, spec decision #57. `database.types.ts` regenerated; it also picks up two older missing entries, `cleanup_venueless_mail_log` and `is_tied_to_venue`.
 - **Review round (fresh reviewer: security clean, 2 blockers + 1 should-fix + 3 nits), 2026-10-09:**
-  - The subscription wrapper now carries `trialing_payment_set_up` from #439 (`20261012150000`), so parity test D1 holds on main + #439. I kept the copy rather than a shared internal body, because sharing would mean a third drop and re-create of the Overview RPC. D1 stays the drift alarm. The mail shows the new count as "Trial, payment set up".
+  - The subscription wrapper now carries `trialing_payment_set_up` from #439 (`20261013140000`), so parity test D1 holds on main + #439. I kept the copy rather than a shared internal body, because sharing would mean a third drop and re-create of the Overview RPC. D1 stays the drift alarm. The mail shows the new count as "Trial, payment set up".
   - `log_mail_attempt` is re-created so a `platform_digest` row no longer starts the 60-second recipient window (pgTAP E17/E18).
   - The function answers `{ ok: true }` only, with totals in the log (`net._http_response` is readable by app roles).
   - Runbook triage row: a failed digest is retried only by a manual `kick_platform_digest()`.
   - Spec decision renumbered to #57 (#56 went to #438).
+
+---
+
+## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
+
+Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
+
+- **Migration `20261013140000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). In the browser, Overview shows "Trial, no payment yet" next to the new "Trial, payment set up" tile (review: one label never means two numbers), so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: both tiles match the database exactly; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+
+---
+
+## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
+
+Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
+
+- **"Free until end of ADE" invite** — migration `20261013130000_platform_invite_ade_trial`. It replaces the first build's "Always free via the invite" (scope change by Max, 2026-10-08, during review):
+  - `platform_invites.free_until_ade` (set on insert, frozen after) and `ade_trial_venue_id`. Only `create_venue_with_owner` writes it, once: the guard checks `current_user`, the insert policy pins it null.
+  - `create_venue_with_owner` starts the invitee's first company as an ordinary `trialing` Pro when the caller's own auth e-mail has an open, unused ADE invite whose inviter is still a platform admin.
+  - Its `trial_ends_at` is `greatest(2026-10-27 00:00 Europe/Amsterdam, now() + 14 days)`. The date is in one place in the migration.
+  - One `audit_log` row (`update`, trial end) names the inviter. Never comped through this route.
+  - `mail_log` type `platform_invite`.
+  - Platform → Invite has a "Free until end of ADE" toggle that hides after the date (`src/features/platform/ade.ts`).
+  - After ADE a follow-up drops the option (expand–contract).
+- **Company invite mail**: the platform invite goes through the same path as team/crew (#430): mail_log first, then `generateLink` with no metadata, then our own Resend mail.
+  - Content: "You've been invited to try PlusOne", the inviter's name, three steps, one button, the link fallback and "expires after 24 hours". It never mentions free or a price.
+  - Resend sends a fresh link.
+  - Without a Resend key the Supabase path is unchanged.
+- **One consent per moment**: the wizard's company step and the switcher quick-create ask only "I accept the Data Processing Agreement on behalf of {company}" (`DpaCheck` in the kit, `DPA_URL`). Terms + Privacy stay on `/consent`. `venues.terms_accepted_*` now means the DPA acceptance (spec #40).
+- **Places**:
+  - `POST /api/places` runs in the nodejs runtime. Order of checks: Zod union, then `getUser` (401), then no key → `{enabled:false}`, then `consume_places_throttle` (migration `20261013130100`, 120 per 10 min per user; 429 when spent).
+  - Google calls use Essentials field masks only (no displayName) and a 3 s timeout. The input text is never logged.
+  - `PlacesField` (kit) is on the wizard address, Company settings (fills street, postcode, city and country) and the event location.
+  - The secret-grep guard covers `GOOGLE_PLACES_API_KEY`.
+- **Review round (#437)**, fixed:
+  - a Places pick in Company settings replaces the whole address (it used to keep parts of the old one);
+  - PlacesField cancels its pending lookup on blur, Escape and pick, and starts a new session token per focus;
+  - VenueStep caps the picked address at 200 characters and never overwrites a name typed meanwhile;
+  - a resend bumps `last_sent_at` only after the mail went;
+  - `NEXT_PUBLIC_DPA_URL` override.
+- **Tests**:
+  - pgTAP `platform_invite_ade_trial` (25) and `places_throttle` (14); full suite 96 files / 2403.
+  - Vitest: route, PlacesField, company template, invite mail/actions, DpaCheck.
+  - Flows: `onboarding` gains Q14 (DPA). New flow `onboarding-ade-trial` (7 checks: platform invite → Mailpit → wizard → Billing TRIAL until 27 Oct → audit), green on 4 variants.
+
+---
+
+## 2026-10-09 — `promo-video` skill: craft rules from the director review
+
+Follow-up to #447, no app code. The skill now holds the rules from the director review of the first campaign:
+- **`references/craft.md`:** story rules (a human between two UI shots; promoters are never the villain; show the money; never promise what the app does not do; one CTA per audience), how to build UI shots in the edit without filming, the sound layers, music licensing, finishing, and an animatic before any credits are spent.
+- **Screen capture:** two new screens for the money moment: `22-door-paid-guest` (the PAID label at the door) and `23-event-tiers-price` (the Paid tier at €17.50).
+- **Gotcha:** the door does not show the paid amount yet. The pay banner is still inert in `src/features/door/model.ts`, so promo copy must not promise a price at the door.
+
+---
+
+## 2026-10-09 — `promo-video` skill: one look, cast and prompt format for PlusOne promo video
+
+Milestone **Now** (marketing). Captures the first reels/trailer session so later videos keep the same quality without re-learning it. No app code.
+
+- **`.claude/skills/promo-video/`**: `SKILL.md` covers the three shot types (AI never renders UI or text; real screens come from `pnpm promo:seed` / `pnpm store:screenshots`), the workflow (story, shotlist, characters, startframes, director prompts, review), startframe rules, model choice in Higgsfield and the review checklist.
+- **`references/`**: `look-and-cast.md` (look bible, the approved REF prompts, character sheets for Lotte, Daan and Robin, building characters in Higgsfield), `prompt-format.md` (the four-block director format with worked examples) and `failure-modes.md` (every failed generation so far, with its cause and fix).
+- **`scripts/`**: `frames.mjs` pulls review stills from a generated .mp4 and `crop.mjs` cuts end frames. Both run headless Edge through Playwright, because the bundled Chromium has no H.264 decoder and the machine has no ffmpeg.
+- The live storyboard stays in the Claude Doc linked from the skill.
+- **Gotcha:** the main checkout is shared between sessions. Another session switched its branch between this session's `git checkout -b` and the commit, so the commit first landed on that session's branch (moved back, not pushed). Do branch work in a separate worktree when other sessions are active.
+
+---
+
+## 2026-10-09 — Local invite mail links to the local dev server, not prod
+
+Milestone **Now** (dev friction on every onboarding test). Max hit it testing #437: in local dev every invite mail on our own path (team/crew via `sendInviteEmail`, and the company invite) put its `/auth/confirm?token_hash=…` button on `https://app.plus-one.io`. The token was minted by the LOCAL Supabase, so prod could never verify it, and a resend didn't help. Prod was unaffected.
+
+- **Root cause:** `appUrl()` in `src/features/mail/send.ts` fell back to the prod origin whenever `NEXT_PUBLIC_APP_URL` was unset, and `scripts/dev-env.mjs` never wrote that key.
+- **`appUrl()`:** still env first. Without it, only a production build (Vercel prod and previews) falls back to the prod origin. Any other build uses `http://localhost:$PORT` (7000 if unset). Prod behaviour is unchanged.
+- **`scripts/dev-env.mjs`:** a fresh `.env.local` gets `NEXT_PUBLIC_APP_URL=http://localhost:<port>` for the port it serves on (`PORT` or 7000 without `--serve`, so also `pnpm stack` and CI). An existing `.env.local` is still never rewritten. If it lacks the key, `pnpm dev` prints a hint. If it holds a localhost origin on another port (CI writes 7000, Playwright serves 3000; a worktree on 70xx), `next dev` gets the right one as a process env var for that run. A non-localhost value, or one set in the shell, is left alone. `next dev` always gets `PORT`. Pure logic lives in `scripts/lib/dev-app-url.mjs`.
+- **Tests:** `tests/unit/dev-app-url.test.ts` (written body, hint, port correction, non-local values kept) and `appUrl` cases in `src/features/mail/send.test.ts` (env wins, dev fallback, prod fallback, the invite button lands on the dev port).
+- **Verified by hand:** `pnpm dev` on a non-7000 port with a key-less `.env.local`, a team invite as manager@ to a new address, the Mailpit link opened `http://localhost:<port>/auth/confirm…` and signed the invitee in (consent screen, "Signed in as …").
+
+---
+
+## 2026-10-09 — CI: flow-shots in parallel shards, one per variant (z8uq9m43m9)
+
+Milestone **Now** (golf D, decision Max 2026-10-09). A PR that touched a shared path (`src/lib/i18n/`, `tests/flows/flows.mjs`, …) selected every flow, and they ran one after another for ~27 min (11 flows × 4 variants, #441). With setup that sat at the 30-min job timeout (#441: 29 min 58 s). #438 and #441 ran into it on 2026-10-08/09, and a cancelled job leaves no contact sheet and no PR comment.
+
+- **Shape:** `flow-shots-select` (registry self-check + `select.mjs`, unchanged semantics) → `flow-shots-shard` matrix, one job per flow variant (`FLOW_SHARDS` in `tests/flows/flows.mjs`), each with its own stack, `pnpm qa:flows <flows> -- --project <variant>`, raw screenshots uploaded as `flow-shots-part-<variant>` → `flow-shots` (the check name the PR knows) downloads the parts, builds the contact sheets once and posts the same `flow-contact-sheets` / `flow-screenshots` artifacts and the one sticky comment. Its last step fails when any shard failed or was cancelled. Still not required. A README-only PR runs no shard.
+- **Why per variant, not per flow:** `crew-existing-account` takes ~4.4 min per variant, ~65% of the whole run. Splitting by flow would leave one shard at ~18 min however many shards there are. Each variant carries the same mix (~7 min of flows), so the run is ¼ of the serial time and grows at ¼ the rate per new flow. Timeout is 25 min per shard.
+- **Guard:** `select.mjs --self-check` fails when `FLOW_SHARDS` and the harness variants (`VARIANT_DEVICES` in `tests/flows/harness.ts`) drift apart, so a new variant can't silently stay out of CI.
+- **Install:** every job installs through `node scripts/session-setup.mjs install` (the merge job too: the contact sheet renders with Playwright's Chromium; no stack there).
+
+---
+
+## 2026-10-09 — Promo demo seed "Kelder Nord" + no real name in the door placeholder
+
+Milestone **Now**: demo data for the promo reels and trailer (Higgsfield storyboard). No migration, no app behaviour change.
+
+- **`pnpm promo:seed`** (`scripts/promo-seed.mjs`): a separate fictional company, Kelder Nord, on top of a fresh local stack. Nine people (two admins, finance, three promoters with quota, two door hosts, an external organizer; log in via dev-login as `owner@kelder-nord.test`, no MFA), three events with Guest / VIP / Paid (€17.50 at the door) and 75+ names each: Velvet Hours live (70 checked in, list locked), Afterglow upcoming (6 open requests, 2 quota requests), Season Opening past (~81% turnout, refusals, no-shows). 180 contacts (12 regulars) reused across events plus name-only guests; four request links per event with page views.
+- **Why a separate venue:** Club Vesper comes from `supabase/seed.sql`, which pgTAP relies on row for row, so its names and addresses cannot change. The Kelder Nord people are members of Kelder Nord only.
+- **Real names in the audit log:** one transaction over the local superuser connection with `request.jwt.claims` set per step, so the audit triggers record the actual person. No trigger is bypassed and nothing is hard-deleted. Auto-approved link sign-ups carry no `added_by`, like `submit_guest_request`.
+- **No duplicates and only fake contact data:** a unique full name per person, each first name at most twice in the venue, e-mail on `example.com`, phones in the `+316000…` series. Guarded by `tests/unit/promo-seed.test.ts` (13 tests, no DB), along with the local-only gate, 75+ per event, the three tiers and the quota math.
+- **Door placeholder:** `door.addInputPlaceholder` was `e.g. "Juri Braakman +2 vip"`, a real name; it is now `e.g. "John Doe +2 vip"`, the same as Add guests.
+- **Gotcha:** the script is a no-op once Kelder Nord exists. Times are anchored at the run, so for a fresh live night run `supabase db reset` and then `pnpm promo:seed` (one-DB-owner rule).
+- **Found, split off:** the Promotion funnel showed more than 100% approved on this data (approved heads over request rows), fixed separately (entry below).
+
+---
+
+## 2026-10-09 — Promotion funnel counts people at every step: no more "148% approved"
+
+The Promotion overview read "31 requests → 46 approved (148% approved)", and leaderboard rows showed the same ("35 requests → 55 approved"). Root cause: every funnel RPC returned `requests` as a count of `guest_requests` rows but `approved_heads`/`checked_in_heads` as headcounts (1 + plus-ones), and `overview.tsx` divided approved heads by request rows. Any request with plus-ones pushed the ratio past 100%.
+
+- **Decision:** after views, every funnel tile counts people (1 + plus-ones). Rows were rejected as the unit because the headline metric ("checked-in headcount", the leaderboard rank) is people. Each % compares like with like: *requested* = request rows per view (a headcount over views read "160%" on a small link with big parties), *approved* = approved people / requested people, *showed up* = checked-in / approved people. All are capped at 100%, because an admin can raise a guest's plus-ones after approval (`updateGuest`); the tiles keep the real counts.
+- **Migration `20261013120000_link_funnel_requested_heads`:** adds `requested_heads` = Σ(1 + `guest_requests.plus_ones`) over every request on the link (any status) to `event_link_funnel`, `venue_influencer_leaderboard`, `venue_label_link_funnel` (drop + create, grant matrix re-declared) and to `get_influencer_stats` (jsonb, `create or replace`, throttle/token logic unchanged). Each per-link `guest_requests` aggregate is one LATERAL pass, not two correlated scans. Expand–contract: `requests` (rows) stays. While `requested_heads` is absent (app deployed before the schema push), the approved % shows "–" and the Requested tile shows the request count as a floor; it never divides people by rows.
+- **UI:** the math lives in `src/features/po/funnel.ts` (`sumFunnels`, `funnelConversion`, `funnelPct`, `requestedDisplay`). The `/i/[token]` bars scale to the largest step instead of views. `scripts/dev/fake-supabase.mjs` carries `requested_heads`, so dev and flow screenshots don't show the old bug. Overview tiles, leaderboard/label funnel lines, per-event link cards and the public `/i/[token]` page show "Requested" (people) instead of "Requests" (rows); the overview card says "People counted, plus-ones included". The Events-screen links row stays on rows ("requests · approved") because it is row-consistent and has no percentages.
+- **Tests:** `src/features/po/funnel.test.ts` (the 148% case, small-link-big-party case, the post-approval plus-one edit, a ≤ 100% sweep over any data shape, empty funnel, unknown requested heads); pgTAP `promotion_stats` +7 (requested heads on all four RPCs, requested ≥ approved, grants on the re-created functions). Full pgTAP 95 files / 2417 assertions green on a fresh reset.
 
 ---
 

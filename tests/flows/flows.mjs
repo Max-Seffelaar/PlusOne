@@ -14,6 +14,17 @@
 // `select.mjs --self-check` (first step of the CI job) fails on a flow file
 // without an entry and on an entry without a flow file.
 
+/**
+ * CI shards: the `flow-shots` job runs one shard per flow variant (a Playwright
+ * project in tests/flows/harness.ts), each on its own runner and local stack, and
+ * a final job merges their screenshots into one contact sheet + one PR comment.
+ * A variant, not a flow, is the unit because one flow can dominate the run
+ * (crew-existing-account: ~4.4 min per variant on 2026-10-09) while every
+ * variant carries the same mix. `select.mjs --self-check` fails when this list
+ * and the harness variants drift apart.
+ */
+export const FLOW_SHARDS = ['desktop-browser', 'phone-browser', 'phone-native', 'ipad-native'];
+
 /** Paths every flow depends on. */
 export const SHARED_PATHS = [
   // the harness
@@ -57,7 +68,7 @@ export const SHARED_PATHS = [
 /** @type {Record<string, { title: string; paths: string[] }>} */
 export const FLOWS = {
   onboarding: {
-    title: 'Onboarding — new owner, consent → wizard → app → billing',
+    title: 'Onboarding — new owner, consent → wizard (DPA) → app → billing',
     paths: [
       'src/app/onboarding/',
       'src/app/consent/',
@@ -68,6 +79,26 @@ export const FLOWS = {
       'src/components/po/screens/onboarding',
       'src/components/po/screens/home',
       'src/components/po/screens/settings',
+      // Q14 (z8uq9m2vg5): the company step asks the DPA only.
+      'src/components/po/places-field',
+      'src/lib/places/',
+      'src/lib/legal.ts',
+    ],
+  },
+  'onboarding-ade-trial': {
+    title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
+    paths: [
+      'src/components/po/screens/platform.tsx',
+      'src/features/platform/',
+      'src/features/auth/invite-mail.ts',
+      'src/features/mail/',
+      'src/features/onboarding/',
+      'src/features/venues/',
+      'src/app/auth/confirm/',
+      'src/app/onboarding/',
+      'src/app/consent/',
+      'src/components/po/screens/settings/billing',
+      'supabase/migrations/20261013130000_platform_invite_ade_trial.sql',
     ],
   },
   'crew-existing-account': {

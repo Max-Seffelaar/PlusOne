@@ -1,7 +1,7 @@
 -- pgTAP — platform digest (z8uq9m2ybj vervolg, 20261013150000_platform_digest.sql).
 -- Run: pnpm db:test.
 --
--- Proves (D1 needs 20261012150000, which adds trialing_payment_set_up):
+-- Proves (D1 needs 20261013140000, which adds trialing_payment_set_up):
 --   A. privileges: the aggregate wrappers, platform_digest_begin and
 --      log_platform_digest_mail are service_role-only; config/kick/tick/today
 --      are owner-only; both new tables are closed to every app role;

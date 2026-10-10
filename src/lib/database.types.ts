@@ -1259,9 +1259,11 @@ export type Database = {
       }
       platform_invites: {
         Row: {
+          ade_trial_venue_id: string | null
           anonymized_at: string | null
           created_at: string
           email: string | null
+          free_until_ade: boolean
           id: string
           invited_by: string
           last_sent_at: string
@@ -1270,9 +1272,11 @@ export type Database = {
           revoked_by: string | null
         }
         Insert: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by: string
           last_sent_at?: string
@@ -1281,9 +1285,11 @@ export type Database = {
           revoked_by?: string | null
         }
         Update: {
+          ade_trial_venue_id?: string | null
           anonymized_at?: string | null
           created_at?: string
           email?: string | null
+          free_until_ade?: boolean
           id?: string
           invited_by?: string
           last_sent_at?: string
@@ -1292,6 +1298,13 @@ export type Database = {
           revoked_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "platform_invites_ade_trial_venue_id_fkey"
+            columns: ["ade_trial_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "platform_invites_invited_by_fkey"
             columns: ["invited_by"]
@@ -2137,6 +2150,7 @@ export type Database = {
         Args: { p_error?: string; p_id: string; p_outcome: string }
         Returns: string
       }
+      consume_places_throttle: { Args: never; Returns: boolean }
       consume_platform_invite_throttle: { Args: never; Returns: boolean }
       consume_public_throttle: {
         Args: { p_key: string; p_max: number; p_window_min: number }
@@ -2228,6 +2242,7 @@ export type Database = {
           label: string
           link_id: string
           max_headcount: number
+          requested_heads: number
           requests: number
           slug: string
           tier_id: string
@@ -2590,6 +2605,7 @@ export type Database = {
           total_companies: number
           trial_lapsed: number
           trialing: number
+          trialing_payment_set_up: number
         }[]
       }
       platform_trial_funnel: {
@@ -2814,6 +2830,7 @@ export type Database = {
           influencer_id: string
           influencer_name: string
           links_count: number
+          requested_heads: number
           requests: number
           views: number
         }[]
@@ -2828,6 +2845,7 @@ export type Database = {
           is_default: boolean
           label: string
           link_id: string
+          requested_heads: number
           requests: number
           views: number
         }[]

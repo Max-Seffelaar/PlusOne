@@ -360,7 +360,7 @@ describe('platform-digest template', () => {
     }
     // Paying = monthly + yearly + unknown.
     expect(mail.text).toContain('Paying: 5');
-    // The subset of trials with a payment set up (20261012150000).
+    // The subset of trials with a payment set up (20261013140000).
     expect(mail.text).toContain('Trial, payment set up: 1');
   });
 

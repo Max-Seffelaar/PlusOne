@@ -22,7 +22,7 @@ export interface DigestSubscriptions {
   canceled: number;
   comped: number;
   no_subscription: number;
-  /** Subset of `trialing`: trials with a Stripe subscription (20261012150000). */
+  /** Subset of `trialing`: trials with a Stripe subscription (20261013140000). */
   trialing_payment_set_up: number;
 }
 

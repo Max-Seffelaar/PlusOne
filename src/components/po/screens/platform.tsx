@@ -25,6 +25,7 @@
 import { type JSX, useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
+import { ADE_LAST_FREE_DAY_LABEL, adeOfferOpen } from '@/features/platform/ade';
 import {
   usePoIsPlatformAdmin,
   usePoPlatformInvites,
@@ -59,6 +60,7 @@ import {
   Scroll,
   StatTile,
   TextArea,
+  ToggleRow,
   Top,
 } from '../kit';
 import { ConfirmSheet } from '../shell';
@@ -238,6 +240,9 @@ function PlatformNav(): JSX.Element {
 function InviteForm(): JSX.Element {
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
+  const [freeUntilAde, setFreeUntilAde] = useState(false);
+  // The offer ends with ADE; the database caps it anyway (greatest(..., +14 d)).
+  const adeOpen = adeOfferOpen();
   const [localError, setLocalError] = useState<string | null>(null);
   const invite = usePoInviteBetaCustomer();
 
@@ -249,11 +254,12 @@ function InviteForm(): JSX.Element {
     }
     setLocalError(null);
     invite.mutate(
-      { email: email.trim(), note },
+      { email: email.trim(), note, freeUntilAde: adeOpen && freeUntilAde },
       {
         onSuccess: () => {
           setEmail('');
           setNote('');
+          setFreeUntilAde(false);
         },
       },
     );
@@ -285,6 +291,18 @@ function InviteForm(): JSX.Element {
         placeholder={t.platform.notePlaceholder}
       />
       <p className="mt-[6px] text-[11.5px] leading-[1.4] text-faint">{t.platform.noteHint}</p>
+
+      {adeOpen && (
+        <div className="mt-[8px]">
+          <ToggleRow
+            title={t.platform.freeUntilAdeTitle}
+            sub={fmt(t.platform.freeUntilAdeSub, { date: ADE_LAST_FREE_DAY_LABEL })}
+            on={freeUntilAde}
+            set={setFreeUntilAde}
+            last
+          />
+        </div>
+      )}
 
       <Btn
         kind="primary"

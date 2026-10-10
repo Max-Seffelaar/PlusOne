@@ -25,7 +25,8 @@ export const links = {
   fullChip: 'FULL',
 
   // Card mini-stats + actions. Checked-in added (M14, K-20) — same funnel step Promo shows.
-  stats: '{views} views · {requests} requests · {approved} approved · {checkedIn} in',
+  // Everything after views counts people (1 + plus-ones), like the Promo funnel.
+  stats: '{views} views · {requested} requested · {approved} approved · {checkedIn} in',
   statsCap: ' · {heads}/{max}',
   copyAria: 'Copy link URL',
   qrAria: 'Show QR code',

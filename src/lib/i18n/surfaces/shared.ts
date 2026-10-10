@@ -26,6 +26,12 @@ export const shared = {
   },
 
   // ── Design-system kit (kit.tsx) ──────────────────────────────────────────
+  // Address autocomplete (PlacesField, z8uq9m2vg5). Google's terms ask for an
+  // attribution next to suggestions shown without a map.
+  places: {
+    listLabel: 'Address suggestions',
+    attribution: 'Suggestions by Google',
+  },
   kit: {
     statusInside: 'Inside',
     statusOnTheWay: 'On the way',

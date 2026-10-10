@@ -189,7 +189,7 @@ Migration `20261013150000_platform_digest.sql`, Edge Function
 
 ### Going live (Max, after the orchestrator's go)
 
-1. Merge after vervolg A (`20261012150000`) is on prod, then the normal prod-push flow
+1. Merge after vervolg A (`20261013140000`) is on prod, then the normal prod-push flow
    (CLAUDE.md) for `20261013150000`.
 2. Edge Function secrets (Dashboard → Edge Functions → Secrets, or
    `supabase secrets set`): `RESEND_API_KEY` (the app-mail key, the same one as on

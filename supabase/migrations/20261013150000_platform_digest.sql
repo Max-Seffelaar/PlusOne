@@ -13,7 +13,7 @@
 --      row and mails nothing; only a day whose attempt FAILED (nothing left the
 --      building, 20261011120000's stance) may be tried again.
 --   4. Service-role-only aggregate wrappers that return the SAME numbers as the
---      Platform > Overview RPCs (20261012130000, and 20261012150000 for
+--      Platform > Overview RPCs (20261012130000, and 20261013140000 for
 --      platform_subscription_counts, which added trialing_payment_set_up):
 --        platform_digest_subscription_counts()  = platform_subscription_counts()
 --        platform_digest_trial_funnel()         = platform_trial_funnel()
@@ -22,7 +22,7 @@
 --      a cron run has no uid, so it cannot call them). The bodies are copies,
 --      deliberately: sharing one internal body would mean a third drop and
 --      re-create of platform_subscription_counts() here (its result type is
---      OUT parameters), on the function 20261012150000 just rebuilt. pgTAP
+--      OUT parameters), on the function 20261013140000 just rebuilt. pgTAP
 --      (platform_digest.test.sql, section D) compares each wrapper with its
 --      Overview twin column for column, so a later change to one side that
 --      forgets the other fails CI instead of drifting silently.
@@ -120,7 +120,7 @@ alter table public.platform_digest_deliveries enable row level security;
 -- ---------------------------------------------------------------------------
 -- 3. Aggregate wrappers (service_role only) — same numbers as Overview
 -- ---------------------------------------------------------------------------
--- Copies of the bodies in 20261012130000 (counts: 20261012150000) minus the is_platform_admin() guard
+-- Copies of the bodies in 20261012130000 (counts: 20261013140000) minus the is_platform_admin() guard
 -- (the caller is the service role, which has no uid). EXECUTE is revoked from
 -- every role but service_role in section 8; that grant IS the guard.
 
