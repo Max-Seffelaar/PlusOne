@@ -259,16 +259,14 @@ select is(
 -- C. audit — decisions land in the log (#4/#15)
 -- ---------------------------------------------------------------------------
 
--- Deny Sofia with a reason (mirrors denyGuestRequest under RLS).
+-- Decline Sofia with a note (since z8uq9m2vga every decline carries a note to
+-- the guest and goes through decide_guest_request; a client deny without one
+-- is refused, see guest_requests_decide.test.sql B10).
 select pg_temp.login('44444444-4444-4444-8444-444444444444');
-select is(
-  pg_temp.rowcount($$ update public.guest_requests
-                      set status = 'denied',
-                          decided_by = '44444444-4444-4444-8444-444444444444',
-                          decided_at = now(),
-                          decision_reason = 'Lijst zit vol'
-                      where id = 'bb000000-0000-7000-8000-000000000002' and status = 'pending' $$),
-  1, 'C1 organizer denies a request with a reason');
+select lives_ok(
+  $$ select public.decide_guest_request('bb000000-0000-7000-8000-000000000002',
+       '{"approved":[],"declined":1,"note":"Lijst zit vol"}'::jsonb) $$,
+  'C1 organizer declines a request with a note');
 
 reset role;
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');  -- admin reads the log

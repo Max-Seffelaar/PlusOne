@@ -10,13 +10,15 @@ import { mapMutationError, unauthorized, invalidInput, type MutationError } from
 import {
   submitGuestRequestSchema,
   approveGuestRequestSchema,
-  denyGuestRequestSchema,
+  decideGuestRequestSchema,
+  decideGuestRequestResultSchema,
   submitGuestRequestResultSchema,
   type SubmitGuestRequestInput,
   type ApproveGuestRequestInput,
-  type DenyGuestRequestInput,
+  type DecideGuestRequestInput,
+  type DecideGuestRequestResult,
 } from './schemas';
-import { queueGuestMails } from '@/features/mail/guest-queue';
+import { drainQueuedGuestMails, queueGuestMails, queueRequestDeclinedMail } from '@/features/mail/guest-queue';
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -127,6 +129,10 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   const payload = parsedPayload.data;
   switch (payload.status) {
     case 'ok':
+      // z8uq9m2vga: an auto-approve link queues the approval mail inside the
+      // RPC (it never hands a guest id back to an anon caller, #28); this only
+      // sends what is due now instead of waiting for the cron.
+      if (payload.auto_approved === true) drainQueuedGuestMails();
       return { ok: true, statusToken, autoApproved: payload.auto_approved === true };
     case 'rate_limited':
       return {
@@ -197,11 +203,24 @@ export async function approveGuestRequest(input: ApproveGuestRequestInput): Prom
   return { ok: true };
 }
 
-/** Deny a request with a mandatory reason. A plain RLS-gated update (#12). */
-export async function denyGuestRequest(input: DenyGuestRequestInput): Promise<ActionResult> {
-  const parsed = denyGuestRequestSchema.safeParse(input);
+export type DecideOutcome = { ok: true; outcome: DecideGuestRequestResult['outcome'] } | MutationError;
+
+/**
+ * Requests E (z8uq9m2vga): decide a landing request in one go — trim it, split
+ * it over tiers, decline (part of) it with a note — through the
+ * `decide_guest_request` RPC, which re-checks the role, runs every cap per
+ * created guest and rolls the whole decision back when one part does not fit.
+ *
+ * Then exactly one decision mail (guest mail F), only for a FIRST decision:
+ * a replay of the same decision (double tap, retried action) queues nothing.
+ *   approved / partly → on the first part (the guest row with the address);
+ *   declined          → on the request (there is no guest).
+ * The decision mail replaces "You're on the list" on this path.
+ */
+export async function decideGuestRequest(input: DecideGuestRequestInput): Promise<DecideOutcome> {
+  const parsed = decideGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { requestId, reason } = parsed.data;
+  const { requestId, approved, declined, note } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -209,21 +228,41 @@ export async function denyGuestRequest(input: DenyGuestRequestInput): Promise<Ac
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  // RLS (guest_requests_decide) pins status='pending' -> 'denied', the actor,
-  // and the admin/organizer role; a stale/decided request simply matches no row.
-  // authenticated may UPDATE only these four columns (20260919150000), so adding
-  // a field here needs a column grant in a migration first.
-  const { error } = await supabase
-    .from('guest_requests')
-    .update({
-      status: 'denied',
-      decided_by: user.id,
-      decided_at: new Date().toISOString(),
-      decision_reason: reason,
-    })
-    .eq('id', requestId)
-    .eq('status', 'pending');
+  const { data, error } = await supabase.rpc('decide_guest_request', {
+    p_request_id: requestId,
+    p_decision: {
+      approved: approved.map((part) => ({ tier_id: part.tierId, plus_ones: part.plusOnes })),
+      declined,
+      note: note ?? null,
+    },
+  });
   if (error) return mapMutationError(error);
 
-  return { ok: true };
+  const result = decideGuestRequestResultSchema.safeParse(data);
+  if (!result.success) {
+    // The decision is saved; only the answer drifted. Say so without a mail.
+    console.error('[decideGuestRequest] unexpected rpc result shape');
+    return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
+  }
+  const { outcome, guest_ids: guestIds, replay } = result.data;
+
+  if (!replay) {
+    if (outcome === 'declined') {
+      if (note) queueRequestDeclinedMail(requestId, note, user.id);
+    } else if (guestIds[0]) {
+      queueGuestMails(
+        [
+          {
+            type: outcome === 'partly' ? 'guest_request_partly' : 'guest_request_approved',
+            guestId: guestIds[0],
+            requestId,
+            remark: note ?? null,
+          },
+        ],
+        user.id,
+      );
+    }
+  }
+
+  return { ok: true, outcome };
 }

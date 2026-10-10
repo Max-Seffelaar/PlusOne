@@ -44,12 +44,14 @@ import { useCanUncheck } from './useCanUncheck';
 import { CockpitRefuseModal } from './CockpitRefuseModal';
 import { CockpitGuestRow } from './CockpitGuestRow';
 import { CockpitConnectionPill } from './CockpitConnectionPill';
+import { DenySheet, type DenyTarget } from '@/components/po/screens/approvals-sheets';
+import { buildDeclineInput } from '@/features/requests/approval';
 import {
   usePoApproveRequest,
   usePoCheckIn,
   usePoCheckOut,
   usePoDecideQuota,
-  usePoDenyRequest,
+  usePoDecideRequest,
   usePoRefuseGuest,
   usePoSetListLock,
   usePoTopUpCheckIn,
@@ -255,7 +257,12 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const topUp = usePoTopUpCheckIn(eventId);
   const setLock = usePoSetListLock(eventId);
   const approve = usePoApproveRequest();
-  const deny = usePoDenyRequest();
+  // A landing decline carries a note to the guest (decline mail + status
+  // page; mandatory in the database since z8uq9m2vga), so it opens the same
+  // note sheet as the Requests screen instead of a one-tap internal reason.
+  const deny = usePoDecideRequest();
+  const [declineTarget, setDeclineTarget] = useState<DenyTarget | null>(null);
+  const [declineErr, setDeclineErr] = useState<string | null>(null);
   const decideQuota = usePoDecideQuota();
   const refuseGuest = usePoRefuseGuest(eventId);
   const undoRefusal = usePoUndoRefusal(eventId);
@@ -411,9 +418,20 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
     );
     pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedApproved, { name: r.name, plus: r.plus ? ` +${r.plus}` : '' }), accent: true });
   }
-  function denyLanding(r: { id: string; name: string }): void {
-    deny.mutate({ requestId: r.id, reason: DENY_REASON, eventId }, { onError: (e) => notify(e.message) });
-    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedDeclined, { name: r.name }), accent: false });
+  function denyLanding(r: { id: string; name: string; plus: number }): void {
+    setDeclineErr(null);
+    setDeclineTarget({ kind: 'landing', id: r.id, name: r.name, eventId, plus: r.plus });
+  }
+  function confirmDecline(note: string): void {
+    const target = declineTarget;
+    if (!target) return;
+    deny.mutate(buildDeclineInput({ id: target.id, eventId: target.eventId, plus: target.plus ?? 0 }, note), {
+      onSuccess: () => {
+        setDeclineTarget(null);
+        pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedDeclined, { name: target.name }), accent: false });
+      },
+      onError: (e) => setDeclineErr(e.message),
+    });
   }
   function approveQuota(r: { id: string; who: string; extra: number }): void {
     decideQuota.mutate(
@@ -869,6 +887,15 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
         )}
         {refuseTarget && (
           <CockpitRefuseModal guest={refuseTarget} onCancel={() => setRefuseTarget(null)} onConfirm={confirmRefuse} />
+        )}
+        {declineTarget && (
+          <DenySheet
+            target={declineTarget}
+            pending={deny.isPending}
+            error={declineErr}
+            onClose={() => setDeclineTarget(null)}
+            onConfirm={confirmDecline}
+          />
         )}
       </div>
     </>

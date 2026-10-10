@@ -28,6 +28,8 @@ import {
   fetchCheckinArrivals,
   fetchEventQuota,
   fetchGuestRequests,
+  fetchRequestDecisionCounts,
+  type PoRequestDecisionCounts,
   fetchQuotaRequests,
   fetchContacts,
   fetchContactKeyRows,
@@ -943,6 +945,20 @@ export function usePoGuestRequests() {
       const rows = await fetchGuestRequests(createClient(), venueId ?? '');
       return rows.map((r) => toPoGuestRequest(r));
     },
+  });
+}
+
+/**
+ * People asked / approved / declined / waiting for the Requests screen's scope
+ * (all events, or one). Keyed under the requests prefix, so a decision
+ * (usePoDecideRequest) refreshes it with the inbox.
+ */
+export function usePoRequestDecisionCounts(eventId: string, enabled = true) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoRequestDecisionCounts>({
+    queryKey: [...poKeys.requests(venueId ?? ''), 'decision-counts', eventId],
+    enabled: enabled && !!venueId,
+    queryFn: () => fetchRequestDecisionCounts(createClient(), venueId ?? '', eventId || undefined),
   });
 }
 

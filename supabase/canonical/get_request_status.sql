@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20261013160000_event_locations.sql:140.
+-- Newest source: supabase/migrations/20261015120000_request_decision_split.sql:335.
 
 create or replace function public.get_request_status(p_token_hash text, p_ip_hash text)
 returns jsonb
@@ -69,7 +69,9 @@ begin
     'approved_plus_ones',
       case when v_approved then v_row.approved_plus_ones end,
     'decision_message',
-      case when v_approved then v_row.decision_message end,
+      -- z8uq9m2vga: the venue note on a declined request too (mandatory on
+      -- any decline). Own token only: the mirror branch selects null for it.
+      case when v_row.status in ('approved', 'denied') then v_row.decision_message end,
     'location_name', nullif(btrim(v_row.location_name), ''),
     'location_address', nullif(btrim(v_row.location_address), ''),
     -- Contract pending: always null since z8uq9m444c. Kept so the app version
