@@ -65,7 +65,11 @@ select tables_are(
     -- company (address hash), the per-mail bearer links (sha256 only) and the
     -- job's single-use tokens. RLS on, no policies, no app-role grants; the
     -- service_role / anon RPCs are the only paths.
-    'guest_mail_queue', 'guest_mail_optouts', 'guest_mail_links', 'guest_mail_tokens'
+    'guest_mail_queue', 'guest_mail_optouts', 'guest_mail_links', 'guest_mail_tokens',
+    -- Platform digest (z8uq9m2ybj, 20261013150000): single-use invocation
+    -- tokens for the platform-digest Edge Function + the per-day delivery
+    -- ledger. RLS on, no policies, no grants; definer RPCs only.
+    'platform_digest_tokens', 'platform_digest_deliveries'
   ],
   'public schema contains exactly the listed tables (each annotated above with the phase/task that added it)' 
 );
