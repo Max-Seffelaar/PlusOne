@@ -204,6 +204,44 @@ test('requests: split +3 over two tiers with one declined → one mail; whole de
   await flow.shot('requests-after');
   await expectNoHorizontalOverflow(flow);
 
+  // ── The desktop cockpit's decline asks for the note too (review S2) ──────
+  // The cockpit is the Deur tab on a fine pointer at ≥1024px only.
+  if (flow.variant === 'desktop-browser') {
+    const cockpitName = `Sem Cockpit ${tag}`;
+    const cockpitEmail = `flow-cockpit-${tag}@plusone.test`;
+    const cockpitId = await fileRequest(cockpitName, cockpitEmail, 0);
+    await page.goto(`/app/door?event=${EVENT}`);
+    const row = page.locator('div').filter({ hasText: cockpitName }).filter({ has: page.getByTitle('Deny') }).last();
+    await row.getByTitle('Deny').click();
+    await flow.shot('cockpit-decline-sheet');
+    await flow.check(11, 'Cockpit: Deny opens the note sheet ("Note to the guest", required); no one-tap decline', async () => {
+      await expect(page.getByText('Note to the guest')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Confirm decline' })).toBeDisabled();
+      const { data } = await adminClient().from('guest_requests').select('status').eq('id', cockpitId).single();
+      expect(data?.status).toBe('pending');
+    });
+    await page.getByRole('textbox', { name: 'Note to the guest' }).fill('Sold out tonight, sorry.');
+    await page.getByRole('button', { name: 'Confirm decline' }).click();
+    await flow.check(12, 'Cockpit decline: declined with the note, and exactly one decline mail', async () => {
+      await expect
+        .poll(async () => {
+          const { data } = await adminClient()
+            .from('guest_requests')
+            .select('status, decision_message')
+            .eq('id', cockpitId)
+            .single();
+          return data;
+        })
+        .toEqual({ status: 'denied', decision_message: 'Sold out tonight, sorry.' });
+      const mails = await mailsTo(cockpitEmail);
+      expect(mails).toHaveLength(1);
+      expect(mails[0].text).toContain('Sold out tonight, sorry.');
+    });
+  } else {
+    flow.skip(11, 'Cockpit decline sheet (desktop cockpit only)');
+    flow.skip(12, 'Cockpit decline: note + one mail (desktop cockpit only)');
+  }
+
   await flow.check(10, 'No uncaught page errors', async () => {
     expect(flow.pageErrors).toEqual([]);
   });

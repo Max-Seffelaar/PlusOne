@@ -128,7 +128,7 @@ vi.mock('@/features/po/mutations', () => ({
   usePoCheckIn: noopMutation,
   usePoCheckOut: noopMutation,
   usePoDecideQuota: noopMutation,
-  usePoDenyRequest: noopMutation,
+  usePoDecideRequest: noopMutation,
   usePoRefuseGuest: noopMutation,
   usePoSetListLock: noopMutation,
   usePoTopUpCheckIn: noopMutation,

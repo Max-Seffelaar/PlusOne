@@ -5,7 +5,7 @@
  *
  * VENUE-WIDE by default ("Alle events"), with a dropdown to pick one event and a
  * name search to find someone fast. Two queues: landing-page guest requests
- * (#12/#31 → approve/denyGuestRequest) and quota requests (#5 → decideQuotaRequest).
+ * (#12/#31 → decideGuestRequest) and quota requests (#5 → decideQuotaRequest).
  * Refused landing requests stay visible under "Afgewezen" and can still be added
  * after all ("Alsnog toevoegen" → re-approve, #12).
  *

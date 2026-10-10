@@ -327,6 +327,17 @@ describe('a request decision split over tiers', () => {
     expect(r.text).not.toContain('+0');
   });
 
+  it('reminder and event-changed to a split guest: every part and the group (review S3)', () => {
+    const reminder = renderGuestMail(content({ type: 'guest_reminder', plusOnes: 0, tiers }));
+    expect(reminder.text).toContain('Your spot: 3 people');
+    expect(reminder.text).toContain('Backstage: 1 person');
+    expect(reminder.text).toContain('Guest: 2 people');
+    const changed = renderGuestMail(content({ type: 'guest_event_changed', plusOnes: 0, tiers }));
+    expect(changed.text).toContain("You're still on the list with +2.");
+    expect(changed.text).toContain('Backstage: 1 person');
+    expect(changed.text).toContain('Guest: 2 people');
+  });
+
   it('partly split: "all 4 people you asked for … covers 3 people", each tier', () => {
     const r = renderGuestMail(content({ type: 'guest_request_partly', plusOnes: 0, tiers, askedPeople: 4, remark: 'Sorry.' }));
     expect(r.subject).toBe('On the list for Neon Friday: 3 people');

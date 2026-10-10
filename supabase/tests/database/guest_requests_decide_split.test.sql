@@ -27,6 +27,11 @@
 --   I. the decision mail: exactly one queue row per decision (approved/partly
 --      on the first part, declined on the request), never "You're on the
 --      list"; the auto-approve link path now queues the approval mail itself.
+--   J. the claim: one payload per decision with every part in `tiers`;
+--   K. the note is mandatory in the database on every path (review S1/S2):
+--      invisible-only text is no note (RPC + CHECK), approve_guest_request
+--      cannot trim without a note, a legacy decline without a note stays valid;
+--   L. a later reminder to a split guest lists every part (review S3).
 --
 -- Seed: event ee..01 (Club Vesper aa..01) with tiers dd..01 Regular, dd..02
 -- VIP, dd..03 (max 10). Max 11.. admin, Noor 22.. user_manager, Femke 33..
@@ -77,7 +82,7 @@ returns void language sql as $fn$
   values (p_id, 'ee000000-0000-7000-8000-000000000001', p_name, p_email, '+31600000000', p_plus);
 $fn$;
 
-select plan(71);
+select plan(82);
 
 -- Fixtures (as the owner).
 select pg_temp.new_request('bb700000-0000-7000-8000-000000000001', 'Lotte Jansen', 3, 'lotte@example.test');
@@ -538,6 +543,79 @@ select is(
 select is(
   (select jsonb_array_length(c.mail -> 'tiers') from j_claim c where c.mail ->> 'to' = 'noa.auto@example.test'),
   1, 'J4 a decision that was not split (the auto-approval) has tiers of length 1');
+
+-- ---------------------------------------------------------------------------
+-- K. The note is mandatory in the database, on every path (review S1/S2)
+-- ---------------------------------------------------------------------------
+select ok(
+  public.request_note_is_blank(null) and public.request_note_is_blank(E'​')
+  and public.request_note_is_blank(chr(1) || chr(127)) and public.request_note_is_blank(E'‮⁦  \t')
+  and public.request_note_is_blank(E'﻿') and not public.request_note_is_blank(E'Hi​'),
+  'K1 request_note_is_blank: zero-width, control, bidi, NBSP and BOM only are blank; real text is not');
+
+select pg_temp.new_request('bb700000-0000-7000-8000-000000000007', 'Zero Width', 1, 'zw@example.test');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok(
+  $$ select public.decide_guest_request('bb700000-0000-7000-8000-000000000007',
+       jsonb_build_object('approved', jsonb_build_array(jsonb_build_object(
+         'tier_id', 'dd000000-0000-7000-8000-000000000001', 'plus_ones', 0)), 'declined', 1,
+         'note', E'​‌')) $$,
+  '23514', 'Add a note when you decline (part of) a request.', 'K2 a zero-width-only note is no note (partial decline)');
+select throws_ok(
+  $$ select public.decide_guest_request('bb700000-0000-7000-8000-000000000007',
+       jsonb_build_object('approved', '[]'::jsonb, 'declined', 2, 'note', chr(1) || chr(127))) $$,
+  '23514', 'Add a note when you decline (part of) a request.', 'K3 a control-character-only note is no note (whole decline)');
+select throws_ok(
+  $$ select public.decide_guest_request('bb700000-0000-7000-8000-000000000007',
+       jsonb_build_object('approved', '[]'::jsonb, 'declined', 2, 'note', E'‮⁦ ')) $$,
+  '23514', 'Add a note when you decline (part of) a request.', 'K4 a bidi/NBSP-only note is no note');
+-- approve_guest_request (the other SECURITY DEFINER path): a trim without a
+-- message is a partial decline, so it needs a note too.
+select throws_ok(
+  $$ select public.approve_guest_request('bb700000-0000-7000-8000-000000000007',
+       'dd000000-0000-7000-8000-000000000001', 0) $$,
+  '23514', 'Add a note when you decline (part of) a request.', 'K5 approve_guest_request: a trim without a message is refused');
+select lives_ok(
+  $$ select public.approve_guest_request('bb700000-0000-7000-8000-000000000007',
+       'dd000000-0000-7000-8000-000000000001') $$,
+  'K6 approve_guest_request: a plain approval as requested still needs no note (the cockpit path)');
+reset role;
+-- The CHECK: even the owner cannot store an invisible note.
+select throws_ok(
+  $$ update public.guest_requests set decision_message = E'​'
+      where id = 'bb700000-0000-7000-8000-000000000007' $$,
+  '23514', null, 'K7 CHECK: an invisible note cannot be stored, even by the owner');
+-- Expand–contract: a decline from before the rule (no note) stays valid and
+-- can still be touched by anything that does not re-decide it.
+insert into public.guest_requests (id, event_id, full_name, plus_ones, status, decided_by, decided_at, decision_reason)
+values ('bb700000-0000-7000-8000-000000000008', 'ee000000-0000-7000-8000-000000000001',
+        'Legacy Decline', 0, 'denied', '11111111-1111-4111-8111-111111111111', now(), 'internal');
+select lives_ok(
+  $$ update public.guest_requests set decision_reason = null, full_name = 'Aanvraag #9'
+      where id = 'bb700000-0000-7000-8000-000000000008' $$,
+  'K8 a legacy decline without a note stays valid (retention-style update passes)');
+
+-- ---------------------------------------------------------------------------
+-- L. Later mails to a split guest name every part too (review S3)
+-- ---------------------------------------------------------------------------
+select pg_temp.login_service();
+select ok(
+  public.enqueue_event_mail('ee000000-0000-7000-8000-000000000001', 'guest_reminder', null,
+    '11111111-1111-4111-8111-111111111111', 0) > 0,
+  'L1 a reminder is queued for the event');
+reset role;
+create temp table l_claim as
+  select m as mail from jsonb_array_elements(
+    (select public.guest_mails_claim(500)) -> 'mails') as m;
+select is(
+  (select c.mail -> 'tiers' from l_claim c
+    where c.mail ->> 'to' = 'lotte@example.test' and c.mail ->> 'type' = 'guest_reminder'),
+  '[{"tier_name":"VIP","people":1,"price_cents":null},{"tier_name":"Regular","people":2,"price_cents":null}]'::jsonb,
+  'L2 the reminder to the split guest lists both parts (S3)');
+select is(
+  (select jsonb_array_length(c.mail -> 'tiers') from l_claim c
+    where c.mail ->> 'to' = 'noa.auto@example.test' and c.mail ->> 'type' = 'guest_reminder'),
+  1, 'L3 the reminder to a guest whose request was not split: tiers of length 1');
 
 select * from finish();
 rollback;

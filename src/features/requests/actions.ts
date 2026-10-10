@@ -10,13 +10,11 @@ import { mapMutationError, unauthorized, invalidInput, type MutationError } from
 import {
   submitGuestRequestSchema,
   approveGuestRequestSchema,
-  denyGuestRequestSchema,
   decideGuestRequestSchema,
   decideGuestRequestResultSchema,
   submitGuestRequestResultSchema,
   type SubmitGuestRequestInput,
   type ApproveGuestRequestInput,
-  type DenyGuestRequestInput,
   type DecideGuestRequestInput,
   type DecideGuestRequestResult,
 } from './schemas';
@@ -267,35 +265,4 @@ export async function decideGuestRequest(input: DecideGuestRequestInput): Promis
   }
 
   return { ok: true, outcome };
-}
-
-/** Deny a request with a mandatory reason. A plain RLS-gated update (#12). */
-export async function denyGuestRequest(input: DenyGuestRequestInput): Promise<ActionResult> {
-  const parsed = denyGuestRequestSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { requestId, reason } = parsed.data;
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return unauthorized();
-
-  // RLS (guest_requests_decide) pins status='pending' -> 'denied', the actor,
-  // and the admin/organizer role; a stale/decided request simply matches no row.
-  // authenticated may UPDATE only these four columns (20260919150000), so adding
-  // a field here needs a column grant in a migration first.
-  const { error } = await supabase
-    .from('guest_requests')
-    .update({
-      status: 'denied',
-      decided_by: user.id,
-      decided_at: new Date().toISOString(),
-      decision_reason: reason,
-    })
-    .eq('id', requestId)
-    .eq('status', 'pending');
-  if (error) return mapMutationError(error);
-
-  return { ok: true };
 }

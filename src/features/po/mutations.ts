@@ -22,11 +22,10 @@ import type {
   ChangeTierInput,
   ChangeTierBulkInput,
 } from '@/features/guests/schemas';
-import { approveGuestRequest, decideGuestRequest, denyGuestRequest } from '@/features/requests/actions';
+import { approveGuestRequest, decideGuestRequest } from '@/features/requests/actions';
 import type {
   ApproveGuestRequestInput,
   DecideGuestRequestInput,
-  DenyGuestRequestInput,
 } from '@/features/requests/schemas';
 import { decideQuotaRequest, requestExtraSlots } from '@/features/quotas/actions';
 import type { DecideQuotaRequestInput, QuotaRequestInput } from '@/features/quotas/schemas';
@@ -825,14 +824,6 @@ export function usePoDecideRequest() {
         void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
       }
     },
-  });
-}
-
-export function usePoDenyRequest() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: DenyGuestRequestInput) => throwOnError(await denyGuestRequest(input)),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: REQUESTS_KEY }),
   });
 }
 

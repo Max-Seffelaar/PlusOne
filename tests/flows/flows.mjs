@@ -95,6 +95,7 @@ export const FLOWS = {
       'src/features/po/queries.ts',
       'src/features/po/adapters.ts',
       'src/components/po/screens/approvals',
+      'src/features/po/eventday/EventDayCockpit.tsx',
       'src/components/po/request-status.tsx',
       'src/app/r/',
       'supabase/tests/database/guest_requests_decide',

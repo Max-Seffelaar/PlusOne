@@ -143,14 +143,6 @@ export const decideGuestRequestResultSchema = z.object({
 });
 export type DecideGuestRequestResult = z.infer<typeof decideGuestRequestResultSchema>;
 
-/** Admin/organizer denies a landing request with a mandatory reason (#12). */
-export const denyGuestRequestSchema = z.object({
-  requestId: uuid,
-  reason: z.string().trim().min(1, 'Give a reason for declining').max(500),
-  eventId: uuid.optional(),
-});
-export type DenyGuestRequestInput = z.input<typeof denyGuestRequestSchema>;
-
 /**
  * Result shape of the `submit_guest_request` RPC (jsonb — see
  * 20260706103000_submit_via_request_link.sql): every `return

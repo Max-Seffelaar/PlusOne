@@ -84,8 +84,6 @@ insert into public.guest_requests (id, event_id, full_name, email, phone, plus_o
    'Legacy Lars', 'lars@pa.test', '+31611700003', 2, 'tok-pa-lars'),
   ('9a000000-0000-7000-8000-000000000004', 'ee000000-0000-7000-8000-000000000001',
    'Guard Gijs', 'gijs@pa.test', '+31611700004', 3, 'tok-pa-gijs'),
-  ('9a000000-0000-7000-8000-000000000005', 'ee000000-0000-7000-8000-000000000001',
-   'Denied Dirk', 'dirk@pa.test', '+31611700005', 1, 'tok-pa-dirk'),
   ('9a000000-0000-7000-8000-000000000006', 'ee000000-0000-7000-8000-000000000001',
    'Blank Bo', 'bo@pa.test', '+31611700006', 1, 'tok-pa-bo'),
   ('9a000000-0000-7000-8000-000000000031', 'ee000000-0000-7000-8000-000000000001',
@@ -94,6 +92,16 @@ insert into public.guest_requests (id, event_id, full_name, email, phone, plus_o
    'Trim Tom', 'trim@pa.test', '+31611700042', 0, 'tok-pa-trim'),
   ('9a000000-0000-7000-8000-000000000041', 'ee000000-0000-7000-8000-000000000001',
    'Moving Mo', 'mo@pa.test', '+31611700051', 1, 'tok-pa-mo');
+
+-- Dirk: a decline from before z8uq9m2vga (internal reason, no note to the
+-- guest), the shape such rows keep on prod. Inserted as denied: the note
+-- guard checks a status TRANSITION, so this row stays valid (expand–contract).
+insert into public.guest_requests
+  (id, event_id, full_name, email, phone, plus_ones, status_token_hash,
+   status, decided_by, decided_at, decision_reason) values
+  ('9a000000-0000-7000-8000-000000000005', 'ee000000-0000-7000-8000-000000000001',
+   'Denied Dirk', 'dirk@pa.test', '+31611700005', 1, 'tok-pa-dirk',
+   'denied', '11111111-1111-4111-8111-111111111111', now(), 'Vol');
 
 -- Accounting fixtures: an event with a max-3 tier and a 3-head link, and an
 -- event with a total capacity of 3. Each request asks for 1 + 4 = 5 people.
@@ -300,8 +308,8 @@ reset role;
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select lives_ok(
   $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000011',
-       '9d000000-0000-7000-8000-000000000001', 2) $$,
-  'D1 +2 of +4 into a tier with max 3');
+       '9d000000-0000-7000-8000-000000000001', 2, 'Fewer this time.') $$,
+  'D1 +2 of +4 into a tier with max 3 (a trimmed approval carries a note since z8uq9m2vga)');
 select is(
   (select used::int from public.event_tier_occupancy('9e000000-0000-7000-8000-000000000001')
     where tier_id = '9d000000-0000-7000-8000-000000000001'),
@@ -313,7 +321,7 @@ select throws_ok(
   '45006', null, 'D3 link-max: 5 people through a 3-head link is refused');
 select lives_ok(
   $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000012',
-       '9d000000-0000-7000-8000-000000000002', 2) $$,
+       '9d000000-0000-7000-8000-000000000002', 2, 'Fewer this time.') $$,
   'D4 ...the same request approved for 3 people fits');
 reset role;
 select is(
@@ -327,7 +335,7 @@ select throws_ok(
   '45005', null, 'D6 capacity: 5 people into a 3-capacity event is refused');
 select lives_ok(
   $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000013',
-       '9d000000-0000-7000-8000-000000000003', 2) $$,
+       '9d000000-0000-7000-8000-000000000003', 2, 'Fewer this time.') $$,
   'D7 ...the same request approved for 3 people fits exactly');
 reset role;
 select is(
@@ -354,12 +362,15 @@ select throws_ok(
             decision_message = 'hand-written', approved_plus_ones = 1
       where id = '9a000000-0000-7000-8000-000000000004' $$,
   '42501', null, 'E2 an admin cannot PATCH a message or approved count onto a request directly');
-select is(
-  pg_temp.rowcount($$ update public.guest_requests
-                        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
-                            decided_at = now(), decision_reason = 'Vol'
-                      where id = '9a000000-0000-7000-8000-000000000005' and status = 'pending' $$),
-  1, 'E3 the deny path (status/decided_by/decided_at/decision_reason) is untouched by the guard');
+-- z8uq9m2vga (S2): the fields guard lets this write through; the note guard
+-- (a decline needs a note to the guest) is what refuses it now.
+select throws_ok(
+  $$ update public.guest_requests
+        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
+            decided_at = now(), decision_reason = 'Vol'
+      where id = '9a000000-0000-7000-8000-000000000004' and status = 'pending' $$,
+  '23514', 'Add a note when you decline (part of) a request.',
+  'E3 the fields guard passes the deny columns; a decline without a note is refused by the note guard');
 reset role;
 
 -- The CHECKs hold even for the owner (a future SECURITY DEFINER path).
@@ -526,13 +537,18 @@ select lives_ok(
   $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000009',
        '9d000000-0000-7000-8000-000000000009', 1, 'Olga, bring your ID.') $$,
   'G1 an old request is approved with a message');
--- The live deny path (denyGuestRequest under RLS): the reason lands in the diff.
+reset role;
+-- A decline with an internal reason AND (since z8uq9m2vga, mandatory) a note
+-- to the guest: both land in the deny diff, both must be scrubbed. Written by
+-- the owner, as a SECURITY DEFINER path would (a client cannot write a note).
 select is(
   pg_temp.rowcount($$ update public.guest_requests
                         set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
-                            decided_at = now(), decision_reason = 'Dana was rude at the door'
+                            decided_at = now(), decision_reason = 'Dana was rude at the door',
+                            decision_message = 'Not this time, Dana.'
                       where id = '9a000000-0000-7000-8000-000000000021' and status = 'pending' $$),
-  1, 'G2 an old request is denied with a reason');
+  1, 'G2 an old request is denied with a reason and a note');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select throws_ok(
   $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000024',
        '9d000000-0000-7000-8000-000000000009', 0, 'another late note') $$,
@@ -557,11 +573,11 @@ select ok(
       and action = 'anonymize'),
   'G7 the anonymize entry lists decision_message among the redacted fields');
 select ok(
-  (select decision_reason is null from public.guest_requests where id = '9a000000-0000-7000-8000-000000000021')
+  (select decision_reason is null and decision_message is null from public.guest_requests where id = '9a000000-0000-7000-8000-000000000021')
   and not exists (select 1 from public.audit_log
                    where entity_id = '9a000000-0000-7000-8000-000000000021'
-                     and diff::text like '%rude at the door%'),
-  'G8 the deny reason is gone from the anonymized row AND from its deny diff (the anonymize entry''s claim is now true)');
+                     and (diff::text like '%rude at the door%' or diff::text like '%Not this time, Dana%')),
+  'G8 the deny reason and the note are gone from the anonymized row AND from its deny diff (the anonymize entry''s claim is now true)');
 select ok(
   (select decision_reason is null from public.guest_requests where id = '9a000000-0000-7000-8000-000000000023')
   and not exists (select 1 from public.audit_log

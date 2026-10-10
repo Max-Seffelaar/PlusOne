@@ -40,20 +40,35 @@
 --   5. request_decision_counts(venue, event?) — people asked / approved /
 --      declined / waiting, aggregated in SQL (SECURITY INVOKER, RLS-scoped).
 --      The declined part of a partly approved request counts as declined.
---   7. guest_mails_claim (6a) gains a `tiers` array, so the one decision mail
---      names every part of a split (orchestrator decision 2026-10-10).
 --   6. submit_guest_request: the auto-approve branch links the guest to its
 --      request and queues the approval mail itself (enqueue_guest_mail, 6a).
 --      It cannot hand the guest id back to the caller: the anon endpoint
 --      answers a fresh and a repeat submitter alike (#28, z8uq9m0gvy), and a
 --      guest id only on the fresh one would be exactly the oracle that
 --      function closed. The server action only drains the queue.
+--   7. guest_mails_claim (6a) gains a `tiers` array, so the one decision mail
+--      names every part of a split (orchestrator decision 2026-10-10), and so
+--      does every later reminder / event-changed mail to a split guest
+--      (review S3).
 --
--- EXPAND–CONTRACT: new column (nullable, no rewrite), a looser CHECK, a new
--- function, two bodies replaced behind unchanged signatures. The deployed app
--- keeps calling approve_guest_request and the RLS deny path; both still work
--- (approve_guest_request does not set guest_request_id; a later migration can
--- turn it into a wrapper). The decision_message CHECK only gets looser.
+-- THE NOTE IS MANDATORY IN THE DATABASE, ON EVERY PATH (review S1/S2):
+--   * request_note_is_blank(text): NULL, whitespace (NBSP included), control,
+--     zero-width, bidi and other invisible characters only = no note. Used by
+--     decide_guest_request and by a CHECK, so an "invisible" note can never be
+--     stored (NOT VALID: new writes only, existing rows are not re-validated).
+--   * guard_guest_request_decision_note (BEFORE UPDATE): a transition to
+--     'denied', or to 'approved' with fewer plus-ones than asked, without a
+--     visible note is refused (23514), whatever path writes it: this RPC,
+--     approve_guest_request, or the RLS deny update. Only the transition is
+--     checked, so declined rows already on prod without a note stay valid.
+--
+-- EXPAND–CONTRACT: new column (nullable, no rewrite), a looser status CHECK, a
+-- NOT VALID note CHECK, a transition trigger, new functions, two bodies
+-- replaced behind unchanged signatures. A plain approve_guest_request (the
+-- cockpit) keeps working. What stops working, on purpose: a decline or a
+-- trimmed approval without a note. The app in this PR sends every decline
+-- through decide_guest_request with a note (Requests and the cockpit), so the
+-- RLS deny policy is now unused; dropping it is the contract step.
 
 -- ---------------------------------------------------------------------------
 -- 1. guests.guest_request_id
@@ -99,8 +114,33 @@ create trigger guests_guard_request_link
   for each row execute function public.guard_guest_request_link();
 
 -- ---------------------------------------------------------------------------
--- 2. decision_message on a declined request
+-- 2. decision_message on a declined request; the note is mandatory
 -- ---------------------------------------------------------------------------
+
+-- True when a note shows nothing to the guest: NULL, or only whitespace
+-- (NBSP included), control characters, zero-width, bidi or other invisible
+-- format characters (review S1: "\u200b" or chr(1) passed as a note).
+create or replace function public.request_note_is_blank(p_note text)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select p_note is null
+      or regexp_replace(
+           p_note,
+           '[[:space:][:cntrl:]\u0080-\u009f\u00a0\u00ad\u034f\u061c\u115f\u1160\u1680\u17b4\u17b5\u180b-\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\u3164\ufe00-\ufe0f\ufeff\uffa0]',
+           '', 'g') = '';
+$$;
+
+comment on function public.request_note_is_blank(text) is
+  'z8uq9m2vga: true when a request note shows nothing (NULL, whitespace, '
+  'control, zero-width, bidi or other invisible characters only).';
+
+revoke execute on function public.request_note_is_blank(text) from public, anon, authenticated, service_role;
+-- The CHECK and the guard trigger evaluate it as the writing role (the RLS
+-- deny path writes as authenticated). Pure and data-free, so safe to grant.
+grant execute on function public.request_note_is_blank(text) to authenticated, service_role;
 
 alter table public.guest_requests drop constraint guest_requests_decision_message_check;
 alter table public.guest_requests add constraint guest_requests_decision_message_check check (
@@ -111,6 +151,43 @@ alter table public.guest_requests add constraint guest_requests_decision_message
     and decision_message ~ '[^[:space:]]'
   )
 );
+
+-- A stored note is always visible. NOT VALID: checked on every new write,
+-- existing rows are not re-validated (expand–contract on prod data).
+alter table public.guest_requests add constraint guest_requests_decision_message_visible
+  check (decision_message is null or not public.request_note_is_blank(decision_message)) not valid;
+
+-- Every path that declines (part of) a request needs a visible note. Checked
+-- on the transition only, so a declined row from before this rule, without a
+-- note, stays as it is (and retention, which nulls the note, never changes
+-- the status). AFTER, not BEFORE: RLS (WITH CHECK) and the column grants
+-- judge a client write first, so a forged write still fails as 42501 and
+-- only an otherwise allowed decline without a note fails here.
+create or replace function public.guard_guest_request_decision_note()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if public.request_note_is_blank(new.decision_message)
+     and (
+       (new.status = 'denied' and old.status is distinct from 'denied')
+       or (new.status = 'approved' and old.status is distinct from 'approved'
+           and new.approved_plus_ones is not null
+           and new.approved_plus_ones < new.plus_ones)
+     ) then
+    raise exception using errcode = '23514',
+      message = 'Add a note when you decline (part of) a request.';
+  end if;
+  return null;
+end;
+$$;
+
+revoke execute on function public.guard_guest_request_decision_note() from public, anon, authenticated;
+
+create trigger guest_requests_guard_decision_note
+  after update of status, approved_plus_ones, decision_message on public.guest_requests
+  for each row execute function public.guard_guest_request_decision_note();
 
 comment on column public.guest_requests.decision_message is
   'Plain-text note from the venue to the requester (z8uq9m0hw6; since '
@@ -226,7 +303,8 @@ begin
     raise exception using errcode = '22023', message = 'The note is text.';
   end if;
   v_note := nullif(btrim(p_decision ->> 'note', ws), '');
-  if v_note !~ '[^[:space:]]' then
+  -- Invisible-only text (control, zero-width, bidi, NBSP…) is no note (S1).
+  if public.request_note_is_blank(v_note) then
     v_note := null;
   end if;
   if v_declined > 0 and v_note is null then
@@ -859,10 +937,12 @@ to anon, authenticated, service_role;
 -- main, taken over word for word, plus ONE addition: a `tiers` array in each
 -- payload with a spot, [{tier_name, people, price_cents}]. For
 -- guest_request_approved/_partly it lists every live guest the decision
--- created (guests.guest_request_id = the queue row's source request), so a
--- split mail says "Regular: 2 people, VIP: 1 person" and the right total; for
--- every other mail (and a request approved before guest_request_id existed)
--- it is the one guest's spot, length 1. `spot` stays as it was, so the
+-- created (guests.guest_request_id = the queue row's source request), and for
+-- guest_reminder/guest_event_changed every live guest of the guest's own
+-- request (review S3), so a split mail says "Regular: 2 people, VIP: 1
+-- person" and the right total; for every other mail (and a guest without a
+-- request) it is the one guest's spot, length 1. The context select also
+-- reads g.guest_request_id for this. `spot` stays as it was, so the
 -- deployed job keeps parsing the payload. Signature, security, search_path
 -- and grants unchanged (create or replace keeps the ACL; restated below).
 
@@ -896,6 +976,7 @@ declare
   v_reply_key text;
   v_asked integer;
   v_tiers jsonb;
+  v_parts_of uuid;
   v_mails jsonb := '[]'::jsonb;
 begin
   -- Rows left 'sending' by a run that died mid-way: the outcome is unknown,
@@ -955,6 +1036,7 @@ begin
            v.name as company_name, v.contact_email,
            g.status as guest_status, g.email as guest_email, g.full_name as guest_name,
            g.plus_ones, g.tier_id, g.anonymized_at as guest_anonymized,
+           g.guest_request_id as guest_request_id,
            r.status as request_status, r.email as request_email, r.full_name as request_name,
            r.anonymized_at as request_anonymized,
            sr.plus_ones as source_plus_ones
@@ -1047,15 +1129,24 @@ begin
     end if;
     -- z8uq9m2vga: every part of the decision, so one mail names them all. A
     -- request split over tiers made one guest per part (guest_request_id);
-    -- any other mail with a spot is that one guest's spot. Stable order: the
+    -- the decision, reminder and event-changed mails list every part, any
+    -- other mail with a spot is that one guest's spot. Stable order: the
     -- part that carries the requester's address first (the one the mail is
     -- queued on), then by tier name. Not created_at/id: every part of one
     -- decision shares now(), and uuid_generate_v7 is not monotonic within a
     -- millisecond.
     v_tiers := null;
     if v_spot then
-      if v_row.type in ('guest_request_approved', 'guest_request_partly')
-         and v_row.source_request_id is not null then
+      -- The decision mail names its request; a later reminder or
+      -- event-changed mail to a split guest uses the guest's own request
+      -- (review S3), so every mail about that spot shows every part.
+      v_parts_of := case
+        when v_row.type in ('guest_request_approved', 'guest_request_partly')
+          then v_row.source_request_id
+        when v_row.type in ('guest_reminder', 'guest_event_changed')
+          then v_ctx.guest_request_id
+      end;
+      if v_parts_of is not null then
         select jsonb_agg(jsonb_build_object(
                  'tier_name', t.name,
                  'people', 1 + g.plus_ones,
@@ -1064,7 +1155,7 @@ begin
           into v_tiers
           from public.guests g
           join public.guest_tiers t on t.id = g.tier_id
-         where g.guest_request_id = v_row.source_request_id
+         where g.guest_request_id = v_parts_of
            and public.guest_mail_has_spot(g.status);
       end if;
       if v_tiers is null then
