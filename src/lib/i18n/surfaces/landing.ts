@@ -124,7 +124,7 @@ export const landing = {
   statusTimeFrom: 'From {start}',
   statusApprovedReduced: 'Approved for {approved} of {requested} people',
   statusMessageLabel: 'Message from the company',
-  statusAddressAria: 'Address',
+  statusLocationAria: 'Location',
   statusNotFoundTitle: 'Nothing here.',
   statusNotFoundBody: "This status link isn't valid (anymore). Request a spot through the event link.",
 

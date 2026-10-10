@@ -17,6 +17,7 @@ import type {
   PoSessionRow,
   PoSubscriptionRow,
   PoVenueSettingsRow,
+  PoCompanyLocationRow,
   PoQuotaStatus,
   ContactProfileHeader,
   ContactAppearance,
@@ -1124,6 +1125,64 @@ export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
     country: row.country ?? 'NL',
     website: row.website ?? '',
   };
+}
+
+// ── Saved company locations (z8uq9m444c) ─────────────────────────────────────
+// One adapter for the entity. An event never references a saved location: it
+// stores a COPY (`toEventLocationCopy`), so editing or archiving one here never
+// changes an existing event (spec #53(c)).
+
+export interface PoCompanyLocation {
+  id: string;
+  name: string;
+  addressLine: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  placeId: string | null;
+  /** "Weteringschans 6, 1017 SG Amsterdam"; null when no address is set. */
+  address: string | null;
+}
+
+export function toPoCompanyLocation(row: PoCompanyLocationRow): PoCompanyLocation {
+  return {
+    id: row.id,
+    name: row.name,
+    addressLine: row.address_line ?? '',
+    postalCode: row.postal_code ?? '',
+    city: row.city ?? '',
+    country: row.country ?? '',
+    placeId: row.place_id ?? null,
+    address: formatVenueAddress(row.address_line, row.postal_code, row.city),
+  };
+}
+
+/** What an event stores when a saved location (or the company address) is
+ *  picked: name + one formatted address line, within the event column caps. */
+export function toEventLocationCopy(loc: { name: string | null; address: string | null }): {
+  locationName: string;
+  locationAddress: string;
+} {
+  return {
+    locationName: (loc.name ?? '').trim().slice(0, 120),
+    locationAddress: (loc.address ?? '').trim().slice(0, 200),
+  };
+}
+
+/**
+ * Where a NEW event starts (z8uq9m444c): the company's first saved location;
+ * without one, the company itself (its name + address). Null when the company
+ * has neither, which leaves the form empty. Always a copy, never a reference.
+ */
+export function defaultEventLocation(
+  saved: readonly PoCompanyLocation[],
+  companyName: string | null | undefined,
+  companyAddress: { address_line: string | null; postal_code: string | null; city: string | null } | null | undefined,
+): { locationName: string; locationAddress: string } | null {
+  const first = saved[0];
+  if (first) return toEventLocationCopy(first);
+  const copy = toEventLocationCopy({ name: companyName ?? null, address: formatCompanyAddress(companyAddress) });
+  return copy.locationName || copy.locationAddress ? copy : null;
 }
 
 // Billing in the po surface (#32, Billing G): one plan, Pro. The row carries

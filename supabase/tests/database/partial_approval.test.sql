@@ -390,17 +390,17 @@ select ok(
           and r ->> 'plus_ones' = '4'
           and r ->> 'approved_plus_ones' = '2'
           and r ->> 'decision_message' = 'We could fit three of you. See you at 23:00.'
-          and r ->> 'venue_address_line' = 'Wibautstraat 150'
-          and r ->> 'venue_postal_code' = '1091 GR'
-          and r ->> 'venue_city' = 'Amsterdam'
+          and r ->> 'venue_address_line' is null
+          and r ->> 'venue_postal_code' is null
+          and r ->> 'venue_city' is null
           and r ->> 'ends_at' is not null
      from public.get_request_status('tok-pa-pia', 'ip-pa-f2') r),
-  'F2 reduced approval: requested +4, approved +2, the message, the venue address and the end time');
+  'F2 reduced approval: requested +4, approved +2, the message and the end time; never the company address (z8uq9m444c)');
 select ok(
   (select r ->> 'approved_plus_ones' = '2' and r ->> 'plus_ones' = '2' and r ->> 'decision_message' is null
-          and r ->> 'venue_address_line' = 'Wibautstraat 150'
+          and r ->> 'venue_address_line' is null
      from public.get_request_status('tok-pa-lars', 'ip-pa-f3') r),
-  'F3 approval as requested: the confirmed count equals the request, no message, the address');
+  'F3 approval as requested: the confirmed count equals the request, no message, no company address');
 select ok(
   (select r ->> 'status' = 'pending'
           and r ->> 'approved_plus_ones' is null and r ->> 'decision_message' is null

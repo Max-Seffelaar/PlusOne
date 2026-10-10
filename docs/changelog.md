@@ -29,6 +29,24 @@ Milestone **Now**. Max tested #443 on Android (sharing from Gmail works; WhatsAp
 
 ---
 
+## 2026-10-09 — Event locations L: saved locations per company, public pages show the event location (z8uq9m444c)
+
+Milestone **Now** (golf D, taak 3b, ADE). Decision Max 2026-10-07; spec #58 (amends #48(c), #53).
+
+- **Migration `20261013160000_event_locations`** (expand-only):
+  - `company_locations` (name, address_line, postal_code, city, country, place_id, archived_at). Members read, admins write (RLS); INSERT on the content columns only, UPDATE on the editable ones (venue_id immutable), no DELETE: archive. Caps 120/16/60 so a copy always fits `events.location_address` (200).
+  - Seed: one saved location per existing company with an address. Backfill, narrowed after review (decision Max 2026-10-10, "no address goes public without someone choosing it"): only a not-over event with no active share link, no guest request (a paused link's earlier status tokens) and no location, at a company with an address, gets the company's name + address, once (owner-only `backfill_event_locations_from_company()`). Past events and events with a live share link stay NULL.
+  - `get_request_status` returns the event's `location_name`/`location_address` for every found token (every state, mirrors too) and no longer reads `venues`. The `venue_*` keys stay, always null, until a contract migration.
+- **App**:
+  - Company settings → Locations (`settings/venue-locations.tsx`, one render line in `venue.tsx`): list, add (Places fills street/postcode/city and the name when empty), edit, archive with a confirm. Server actions in `src/features/venues/location-actions.ts` through the user-scoped client.
+  - Event form: a new event starts at the first saved location, else the company; saved locations are chips (`events/location-picker.tsx`); the event stores a copy. Templates with a location still win. Hint now "Guests see this on the request link and their status page."
+  - `/r/[token]` shows the event location in every state; the adapter ignores the `venue_*` keys, so the deploy window before the prod push renders no company address.
+- **Tests**: pgTAP `event_locations.test.sql` (60; allowed/denied per role, grants, exact payload keys, no company address, mirror, the backfill predicate); `partial_approval` F2/F3 now assert no company address; full suite after merging main (incl. #440) 99 files / 2575. Vitest: adapters, schemas, status view, request status, Locations section, event form. Flow `event-locations` (11 checks, four variants); `company-rename` Q7 follows the new default.
+- **Prod push**: Max, right after the merge (CLAUDE.md "Prod-push flow"; supersedes the §4 "push before merge" text).
+- **Follow-up (parked)**: audit location changes (`company_locations`, `events.location_*`) now that the field is a public address.
+
+---
+
 ## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
 
 Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.
