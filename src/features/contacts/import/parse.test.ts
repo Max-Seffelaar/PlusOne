@@ -60,6 +60,10 @@ describe('normalizeImportPhone', () => {
     expect(normalizeImportPhone('0031612345678')).toBe('+31612345678');
     expect(normalizeImportPhone('31612345678')).toBe('+31612345678');
   });
+  it('restores an NL number Excel stripped the leading 0 from (9 digits)', () => {
+    expect(normalizeImportPhone('646003664')).toBe('+31646003664');
+    expect(normalizeImportPhone('612345678')).toBe('+31612345678');
+  });
   it('coercion matches the stored E.164 under the DB phone_norm', () => {
     // The whole point: a pasted "06…" must dedupe against a stored "+31…".
     expect(normalizePhoneToDigits(normalizeImportPhone('0612345678'))).toBe(
