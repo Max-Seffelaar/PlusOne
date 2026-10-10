@@ -57,7 +57,7 @@ begin
 end;
 $fn$;
 
-select plan(70);
+select plan(71);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner)
@@ -448,6 +448,22 @@ reset role;
 select is(public.kick_billing_mails(), false, 'H1 without plusone_billing_mails_url the kick does nothing');
 select is((select count(*)::int from public.billing_mail_tokens where created_at >= now() - interval '10 minutes'), 0,
   'H2 …and mints no token (the two used ones were consumed)');
+
+-- ---------------------------------------------------------------------------
+-- I. The type constraint stays a superset of every earlier mail type
+-- ---------------------------------------------------------------------------
+
+select lives_ok($$
+  insert into public.mail_log (type, venue_id, recipient_hash)
+  select t, null, repeat('e', 64)
+    from unnest(array[
+      'team_join', 'team_added_to_event', 'team_resend', 'auth_invite',
+      'team_invite_declined', 'team_invite_declined_confirm',
+      'platform_invite', 'platform_digest',
+      'billing_trial_day0', 'billing_trial_day7', 'billing_trial_day12',
+      'billing_trial_ended', 'billing_trial_day21',
+      'billing_payment_failed', 'billing_canceled']) t
+$$, 'I1 mail_log accepts every earlier type (platform_invite, platform_digest included) and the seven billing types');
 
 select * from finish();
 rollback;

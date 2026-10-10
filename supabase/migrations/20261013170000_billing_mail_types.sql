@@ -14,9 +14,10 @@
 -- day, the override, a missed day, comped, paused). The database decides
 -- WHO may get WHAT, and that each (company, mail, recipient) goes out once:
 --
---   1. mail_log.type gains the seven types. Every existing type is kept,
---      'platform_digest' (PR #440, 20261012160000) included, so the order of
---      the two migrations does not matter.
+--   1. mail_log.type gains the seven types. Every existing type is kept:
+--      'platform_invite' (20261013130000) and 'platform_digest' (#440,
+--      20261013150000) included. The constraint is the full set; a later
+--      migration that widens it must start from this list.
 --   2. Billing mails stay OUT of the invitation limits: mail_venue_cap_reached
 --      no longer counts them (a payment-failed mail must never eat a
 --      company's 25 invites a day), and log_mail_attempt's 60-second
@@ -80,6 +81,7 @@ alter table public.mail_log
   check (type in (
     'team_join', 'team_added_to_event', 'team_resend', 'auth_invite',
     'team_invite_declined', 'team_invite_declined_confirm',
+    'platform_invite',
     'platform_digest',
     'billing_trial_day0', 'billing_trial_day7', 'billing_trial_day12',
     'billing_trial_ended', 'billing_trial_day21',
@@ -89,8 +91,10 @@ alter table public.mail_log
 -- ---------------------------------------------------------------------------
 -- 2. Billing mails outside the invitation limits
 -- ---------------------------------------------------------------------------
--- Bodies are the live ones from 20261011120000 with only the billing_
--- predicate added; signatures, security, search_path and grants unchanged.
+-- Bodies are the live ones (mail_venue_cap_reached from 20261011120000,
+-- log_mail_attempt from 20261013150000 with its platform_digest exemption)
+-- with only the billing_ predicate added; signatures, security, search_path
+-- and grants unchanged.
 
 create or replace function public.mail_venue_cap_reached(p_venue_id uuid)
 returns boolean
@@ -136,12 +140,12 @@ begin
 
   -- The decline mails are exempt from the window and do not start one. A
   -- failed attempt (nothing went out) does not start one either, and neither
-  -- does a billing mail.
+  -- does the daily platform digest (20261013150000) or a billing mail.
   if p_type not in ('team_invite_declined', 'team_invite_declined_confirm')
      and exists (
        select 1 from public.mail_log m
         where m.recipient_hash = p_recipient_hash
-          and m.type not in ('team_invite_declined', 'team_invite_declined_confirm')
+          and m.type not in ('team_invite_declined', 'team_invite_declined_confirm', 'platform_digest')
           and m.type not like 'billing\_%'
           and m.status <> 'failed'
           and m.created_at > now() - public.mail_recipient_window()
@@ -164,8 +168,9 @@ comment on function public.log_mail_attempt(text, uuid, text) is
   'Mail sender (service_role): record a queued send and return its id '
   '(= the Resend Idempotency-Key). Refuses (PM429) a second mail to the same '
   'recipient within mail_recipient_window() (the two decline mail types are '
-  'exempt, 20261007150100; failed attempts do not count, 20261011120000; '
-  'billing mails neither count nor pass here, 20261013170000) and a venue past '
+  'exempt, 20261007150100; failed attempts do not count, 20261011120000; a '
+  'platform_digest row does not count, 20261013150000; billing mails neither '
+  'count nor pass here, 20261013170000) and a venue past '
   'mail_venue_daily_cap() for the UTC day.';
 
 -- ---------------------------------------------------------------------------
