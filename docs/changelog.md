@@ -8,6 +8,27 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-10 — Paste a list reads Excel/Sheets columns: ticket count, Excel phone numbers (z8uq9m43m8 follow-up)
+
+Milestone **Now**. Max tested #443 on Android (sharing from Gmail works; WhatsApp and Sheets offer no text share for this, so they go copy → paste). His Excel paste showed two parser bugs: `Henk Achternaam 1 1` as the name, no count, `646003664` as the phone. Decisions Max 2026-10-10; spec #33 refined. Parser only (`quick-add-parser.ts`, plus the row errors in `bulk-row.ts`); `bulk-paste.tsx` untouched (PR #453 works there).
+
+- **By column when there is a header.** `readPasteHeader` gives every column a role: first/last name (also `tussenvoegsel`), name, count, +1, tier, e-mail, phone, notes. A header needs a name column, at least half its cells known, and no cell that looks like data. Unknown columns are ignored.
+  - Max's header (`Aantal tickets`) used to be missed because "aantal tickets" wasn't in the old fixed header list, so the header became a guest.
+  - Name + tier still go through the #33 grammar, so tier aliases resolve and an unknown tier word asks.
+- **A bare number column is the total number of people:** `2` = the guest +1. A header with tickets/aantal/personen/people/qty/guests confirms it; `+2` keeps meaning plus-ones.
+  - Without a header, a bare number 1–20 in its own column (never the first) is the total too, as is one in a column the header doesn't name.
+  - A space-only line too: a bare last number 1–20 is the total, so `Henk Jansen 2` = Henk +1 (Max 2026-10-10). Quick add and the door deliberately keep `Naam 2` = +2.
+  - 0, negative or not a number → "Check the number of people" on that row. More than 51 people (the plus_ones bound of 50, now `PLUS_ONES_MAX`, used by the schema too) → "Too many people on one line (max 51)". Before, such a line only failed the whole batch at the server.
+- **Excel phone numbers.** `repairPastedPhone` rewrites only what Excel mangles, through the one E.164 normaliser `normalizeImportPhone`: 9 digits without a 0 → +31…, `31` + 9 → +31…, `0031…` → +31….
+  - `normalizeImportPhone` gained the 9-digit rule, so the contacts import gets the same fix.
+  - A plain `0612345678` stays as typed, because contacts match on `phone_norm` digits. Quick add and the door repair nothing.
+- **E-mail in the tab layout** was already read; with the header fixed, Max's paste counts "6 with e-mail".
+- **Tests:** vitest on Max's paste (rows 3, 5 and 6 reconstructed: his message showed three of the six) → 6 guests, +N 0/1/1/5/3/1, tier, e-mail, +31 phone, "6 entries · 17 guests total · 6 with e-mail". Also the same rows without a header, count/phone header words, count errors, the header guard and the phone repair (and that quick add doesn't). `bulk-row.test.ts` covers the row errors.
+  - Existing expectations changed by decision: a pasted `31646003600` is now `+31646003600`; `Name⇥email⇥2` is now +1; a pasted `… 1` / `… 5` at the end of a line is now +0 / +4.
+  - Flow `share` Q15/Q16 (4 variants): the paste through Paste a list, the count line, then the database (+N, tier, e-mail, `+31…`). Stand-ins: example.com addresses instead of Max's real ones, `Regular` for `GUEST` (no Guest tier on the seed event).
+
+---
+
 ## 2026-10-09 — Event locations L: saved locations per company, public pages show the event location (z8uq9m444c)
 
 Milestone **Now** (golf D, taak 3b, ADE). Decision Max 2026-10-07; spec #58 (amends #48(c), #53).
@@ -23,6 +44,9 @@ Milestone **Now** (golf D, taak 3b, ADE). Decision Max 2026-10-07; spec #58 (ame
 - **Tests**: pgTAP `event_locations.test.sql` (60; allowed/denied per role, grants, exact payload keys, no company address, mirror, the backfill predicate); `partial_approval` F2/F3 now assert no company address; full suite after merging main (incl. #440) 99 files / 2575. Vitest: adapters, schemas, status view, request status, Locations section, event form. Flow `event-locations` (11 checks, four variants); `company-rename` Q7 follows the new default.
 - **Prod push**: Max, right after the merge (CLAUDE.md "Prod-push flow"; supersedes the §4 "push before merge" text).
 - **Follow-up (parked)**: audit location changes (`company_locations`, `events.location_*`) now that the field is a public address.
+
+---
+
 ## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
 
 Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.

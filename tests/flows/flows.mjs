@@ -258,6 +258,8 @@ export const FLOWS = {
       'src/features/auth/next-path',
       'src/features/auth/components/OtpLoginForm',
       'src/lib/observability/scrub',
+      // Q15/Q16: pasted spreadsheet columns + the Excel phone repair.
+      'src/features/contacts/import/parse',
     ],
   },
 };
