@@ -551,6 +551,40 @@ export function Stepper({ value, onChange, max }: { value: number; onChange: (v:
   );
 }
 
+/** Compact inline − value + for a count inside a row (e.g. people per tier).
+ *  32px buttons with a 7px hit ring = 46px on touch. `max` caps the + button. */
+export function CountStepper({
+  value,
+  onChange,
+  max,
+  lessLabel,
+  moreLabel,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  max?: number;
+  lessLabel: string;
+  moreLabel: string;
+}): JSX.Element {
+  const btn = cn(
+    'flex h-[32px] w-[32px] items-center justify-center rounded-[9px] border border-line bg-elev2 text-text disabled:opacity-40',
+    press,
+    hitRing7,
+  );
+  const atMax = max != null && value >= max;
+  return (
+    <div className="flex items-center gap-[10px]">
+      <button type="button" className={btn} disabled={value <= 0} onClick={() => onChange(Math.max(0, value - 1))} aria-label={lessLabel}>
+        <Icon name="minus" size={15} sw={2.4} />
+      </button>
+      <span className="min-w-[22px] text-center font-display text-[17px] font-extrabold tabular-nums text-text">{value}</span>
+      <button type="button" className={btn} disabled={atMax} onClick={() => onChange(atMax ? value : value + 1)} aria-label={moreLabel}>
+        <Icon name="plus" size={15} sw={2.4} stroke="#B5A6FF" />
+      </button>
+    </div>
+  );
+}
+
 // ── Label ───────────────────────────────────────────────────────────────────
 export function Label({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
   return <div className={cn('font-body text-[12px] font-bold uppercase tracking-[0.04em] text-faint', className)}>{children}</div>;

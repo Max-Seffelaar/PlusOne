@@ -1,0 +1,687 @@
+-- Requests E (z8uq9m2vga): decide a landing request in one atomic step —
+-- trim it, split it over tiers, decline (part of) it with a mandatory note.
+-- Design: onboarding-orchestration §9.3 (spike 3); decisions Max 2026-10-06
+-- (an approver picks from every tier of the event) and the task comment
+-- "bij afwijzen of deels afwijzen is de opmerking verplicht, en die gaat altijd
+-- mee in de mail".
+--
+-- WHAT THIS ADDS
+--
+--   1. guests.guest_request_id — which request a guest row came from. A split
+--      decision makes several rows for one request; this keeps them
+--      traceable (audit, stats, the decision mail, idempotent replay). Only a
+--      SECURITY DEFINER path may set it: authenticated holds a table-wide
+--      INSERT/UPDATE on guests, so a guard trigger refuses the column from
+--      client roles (same shape as guard_guest_request_decision_fields).
+--   2. guest_requests.decision_message may now sit on a DENIED row too: the
+--      note to the guest is mandatory on any (partial) decline and is what the
+--      decline mail and the status page show. The internal decision_reason of
+--      the old deny path stays internal.
+--   3. decide_guest_request(p_request_id, p_decision jsonb) → jsonb.
+--        p_decision = { "approved": [ { "tier_id": uuid, "plus_ones": int }, … ],
+--                       "declined": int,      -- people declined, >= 0
+--                       "note":     text }    -- to the guest; required when declined > 0
+--      Every person of the request is accounted for exactly once:
+--        Σ (1 + plus_ones) + declined = 1 + request.plus_ones.
+--      One guest row per part (one part per tier), each through the normal
+--      guests triggers: capacity 45005, link-max 45006, tier-max 45002 (rows),
+--      audit 'insert' per guest. One UPDATE on the request = one audit row
+--      ('approve' or 'deny') with the approved count and the note in the diff.
+--      Any failure rolls the whole decision back: a half-decided request
+--      never exists.
+--      Returns { outcome: approved|partly|declined, guest_ids: [...],
+--      replay: bool }. A repeated call with the SAME decision on a request it
+--      already decided returns the original result with replay = true and
+--      changes nothing (a double tap, a retried action), so the caller queues
+--      the decision mail only once. A different decision on a decided request
+--      is 45003, except re-approving a declined one (#12 "add anyway").
+--   4. get_request_status shows the note on a declined request too (own
+--      token only; a mirror gets no decision, as before).
+--   5. request_decision_counts(venue, event?) — people asked / approved /
+--      declined / waiting, aggregated in SQL (SECURITY INVOKER, RLS-scoped).
+--      The declined part of a partly approved request counts as declined.
+--   6. submit_guest_request: the auto-approve branch links the guest to its
+--      request and queues the approval mail itself (enqueue_guest_mail, 6a).
+--      It cannot hand the guest id back to the caller: the anon endpoint
+--      answers a fresh and a repeat submitter alike (#28, z8uq9m0gvy), and a
+--      guest id only on the fresh one would be exactly the oracle that
+--      function closed. The server action only drains the queue.
+--
+-- EXPAND–CONTRACT: new column (nullable, no rewrite), a looser CHECK, a new
+-- function, two bodies replaced behind unchanged signatures. The deployed app
+-- keeps calling approve_guest_request and the RLS deny path; both still work
+-- (approve_guest_request does not set guest_request_id; a later migration can
+-- turn it into a wrapper). The decision_message CHECK only gets looser.
+
+-- ---------------------------------------------------------------------------
+-- 1. guests.guest_request_id
+-- ---------------------------------------------------------------------------
+
+alter table public.guests
+  add column guest_request_id uuid references public.guest_requests (id) on delete restrict;
+
+comment on column public.guests.guest_request_id is
+  'The landing request this guest row was created from (z8uq9m2vga). Several '
+  'rows share one when a decision split the request over tiers. Set only by '
+  'decide_guest_request / submit_guest_request (SECURITY DEFINER); client '
+  'roles can neither set nor change it (guard_guest_request_link).';
+
+create index guests_guest_request_id_idx on public.guests (guest_request_id)
+  where guest_request_id is not null;
+
+create or replace function public.guard_guest_request_link()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  -- Inside a SECURITY DEFINER function current_user is the owner, so the
+  -- decision RPCs pass; every PostgREST write runs as authenticated/anon.
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if (tg_op = 'INSERT' and new.guest_request_id is not null)
+     or (tg_op = 'UPDATE' and new.guest_request_id is distinct from old.guest_request_id) then
+    raise exception using errcode = '42501',
+      message = 'The request link of a guest is set by the request decision only.';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.guard_guest_request_link() from public, anon, authenticated;
+
+create trigger guests_guard_request_link
+  before insert or update of guest_request_id on public.guests
+  for each row execute function public.guard_guest_request_link();
+
+-- ---------------------------------------------------------------------------
+-- 2. decision_message on a declined request
+-- ---------------------------------------------------------------------------
+
+alter table public.guest_requests drop constraint guest_requests_decision_message_check;
+alter table public.guest_requests add constraint guest_requests_decision_message_check check (
+  decision_message is null
+  or (
+    status in ('approved', 'denied')
+    and char_length(decision_message) between 1 and 280
+    and decision_message ~ '[^[:space:]]'
+  )
+);
+
+comment on column public.guest_requests.decision_message is
+  'Plain-text note from the venue to the requester (z8uq9m0hw6; since '
+  'z8uq9m2vga also on a declined request, where it is mandatory). Shown on '
+  '/r/[token] (own token only) and in the decision mail. Nulled by the '
+  'retention job. Untrusted plain text: every HTML consumer must escape it.';
+
+-- ---------------------------------------------------------------------------
+-- 3. decide_guest_request
+-- ---------------------------------------------------------------------------
+
+create or replace function public.decide_guest_request(p_request_id uuid, p_decision jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  ws          constant text := E' \t\n\r\f\x0B';
+  uuid_re     constant text := '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+  v_req       public.guest_requests;
+  v_event     uuid;
+  v_parts     jsonb;
+  v_part      jsonb;
+  v_tier      uuid;
+  v_plus      integer;
+  v_tiers     uuid[] := '{}';
+  v_pluses    integer[] := '{}';
+  v_declined  integer;
+  v_approved  integer := 0;
+  v_note      text;
+  v_outcome   text;
+  v_ids       uuid[] := '{}';
+  v_id        uuid;
+  v_first     boolean := true;
+  v_existing  uuid[];
+begin
+  -- Unlocked read: just enough to know whose request this is. An anonymized
+  -- request is gone (#29), like in approve_guest_request.
+  select * into v_req from public.guest_requests where id = p_request_id;
+  if v_req.id is null or v_req.anonymized_at is not null then
+    raise exception using errcode = 'P0002', message = 'Request not found.';
+  end if;
+
+  -- Same gate as approve_guest_request and the guest_requests_decide policy:
+  -- an admin of the event's company or an organizer of the event.
+  if not (
+    public.has_venue_role(public.event_venue(v_req.event_id), '{admin}'::public.venue_role[])
+    or public.is_event_organizer(v_req.event_id)
+  ) then
+    raise exception using errcode = '42501',
+      message = 'Only an admin or an organizer of this event can decide requests.';
+  end if;
+
+  -- Authorized: lock the row and re-read what may have changed meanwhile.
+  v_event := v_req.event_id;
+  select * into v_req from public.guest_requests where id = p_request_id for update;
+  if v_req.id is null
+     or v_req.anonymized_at is not null
+     or v_req.event_id is distinct from v_event then
+    raise exception using errcode = 'P0002', message = 'Request not found.';
+  end if;
+
+  -- ── Parse the decision (after the role check: an outsider learns nothing) ─
+  if p_decision is null or jsonb_typeof(p_decision) <> 'object' then
+    raise exception using errcode = '22023', message = 'Send a decision.';
+  end if;
+  v_parts := coalesce(p_decision -> 'approved', '[]'::jsonb);
+  if jsonb_typeof(v_parts) <> 'array' or jsonb_array_length(v_parts) > 21 then
+    raise exception using errcode = '22023', message = 'Send the approved parts as a list.';
+  end if;
+
+  for v_part in select value from jsonb_array_elements(v_parts)
+  loop
+    if jsonb_typeof(v_part) <> 'object'
+       or jsonb_typeof(v_part -> 'tier_id') is distinct from 'string'
+       or (v_part ->> 'tier_id') !~ uuid_re
+       or jsonb_typeof(v_part -> 'plus_ones') is distinct from 'number'
+       or (v_part ->> 'plus_ones') !~ '^[0-9]{1,2}$' then
+      raise exception using errcode = '22023', message = 'Each part needs a tier and a whole number of plus-ones.';
+    end if;
+    v_tier := (v_part ->> 'tier_id')::uuid;
+    v_plus := (v_part ->> 'plus_ones')::integer;
+    if v_tier = any (v_tiers) then
+      raise exception using errcode = '23514', message = 'Use each tier once.';
+    end if;
+    -- Decision Max 2026-10-06: the approver picks from every tier of THIS
+    -- event (no per-tier right exists). Never a tier of another event.
+    if not exists (
+      select 1 from public.guest_tiers t where t.id = v_tier and t.event_id = v_req.event_id
+    ) then
+      raise exception using errcode = '23514', message = 'Pick a valid tier for this event.';
+    end if;
+    v_tiers := v_tiers || v_tier;
+    v_pluses := v_pluses || v_plus;
+    v_approved := v_approved + 1 + v_plus;
+  end loop;
+
+  if jsonb_typeof(coalesce(p_decision -> 'declined', '0'::jsonb)) <> 'number'
+     or coalesce(p_decision ->> 'declined', '0') !~ '^[0-9]{1,2}$' then
+    raise exception using errcode = '22023', message = 'Declined must be a whole number of people.';
+  end if;
+  v_declined := coalesce(p_decision ->> 'declined', '0')::integer;
+
+  -- Every person of the request exactly once: never more than asked for
+  -- (no quota bypass by inflating a part), never someone left undecided.
+  if v_approved + v_declined <> 1 + v_req.plus_ones then
+    raise exception using errcode = '23514',
+      message = 'The approved and declined people must add up to the request.';
+  end if;
+
+  if p_decision ? 'note' and jsonb_typeof(p_decision -> 'note') not in ('string', 'null') then
+    raise exception using errcode = '22023', message = 'The note is text.';
+  end if;
+  v_note := nullif(btrim(p_decision ->> 'note', ws), '');
+  if v_note !~ '[^[:space:]]' then
+    v_note := null;
+  end if;
+  if v_declined > 0 and v_note is null then
+    raise exception using errcode = '23514',
+      message = 'Add a note when you decline (part of) a request.';
+  end if;
+  if char_length(v_note) > 280 then
+    raise exception using errcode = '23514', message = 'Keep the note to 280 characters.';
+  end if;
+
+  v_outcome := case when v_approved = 0 then 'declined'
+                    when v_declined > 0 then 'partly'
+                    else 'approved' end;
+
+  -- ── Already decided: a replay of the same decision, or 45003 ──────────────
+  if v_req.status = 'approved' then
+    -- The same decision again = the same parts (tier, plus-ones) on the rows
+    -- this request created, the same approved count and the same note.
+    select array_agg(g.id order by g.created_at, g.id) into v_existing
+      from public.guests g
+     where g.guest_request_id = p_request_id;
+    if v_existing is not null
+       and v_req.approved_plus_ones is not distinct from (v_approved - 1)
+       and v_req.decision_message is not distinct from v_note
+       and (select array_agg(g.tier_id::text || ':' || g.plus_ones order by g.tier_id, g.plus_ones)
+              from public.guests g where g.guest_request_id = p_request_id)
+           = (select array_agg(t::text || ':' || p order by t, p)
+                from unnest(v_tiers, v_pluses) as x(t, p)) then
+      return jsonb_build_object('outcome', v_outcome, 'guest_ids', to_jsonb(v_existing), 'replay', true);
+    end if;
+    raise exception using errcode = '45003', message = 'This request was already decided.';
+  end if;
+
+  if v_req.status = 'denied' and v_approved = 0 then
+    if v_req.decision_message is not distinct from v_note then
+      return jsonb_build_object('outcome', 'declined', 'guest_ids', '[]'::jsonb, 'replay', true);
+    end if;
+    raise exception using errcode = '45003', message = 'This request was already decided.';
+  end if;
+  -- pending, or denied and now (partly) approved after all (#12): decide.
+
+  -- G1: serialize concurrent decisions on one link before the inserts; the
+  -- link-max trigger (45006) recomputes from committed state.
+  if v_req.request_link_id is not null then
+    perform 1 from public.request_links rl where rl.id = v_req.request_link_id for update;
+  end if;
+
+  -- One guest row per part. The first carries the requester's contact details
+  -- (and so gets the decision mail); later parts carry the name only, so the
+  -- address book and every later guest mail see one person, not two. added_by
+  -- = the approver; source 'landing' never charges their quota (#31).
+  for i in 1 .. coalesce(array_length(v_tiers, 1), 0)
+  loop
+    insert into public.guests
+      (event_id, tier_id, full_name, email, phone, plus_ones,
+       added_by, source, status, request_link_id, guest_request_id)
+    values
+      (v_req.event_id, v_tiers[i], v_req.full_name,
+       case when v_first then v_req.email end,
+       case when v_first then v_req.phone end,
+       v_pluses[i], (select auth.uid()), 'landing', 'approved',
+       v_req.request_link_id, v_req.id)
+    returning id into v_id;
+    v_ids := v_ids || v_id;
+    v_first := false;
+  end loop;
+
+  -- One UPDATE with the status flip = one audit row ('approve'/'deny') whose
+  -- diff carries the approved count and the note.
+  update public.guest_requests
+     set status             = case when v_approved > 0 then 'approved' else 'denied' end::public.request_status,
+         decided_by         = (select auth.uid()),
+         decided_at         = now(),
+         decided_via        = 'manual',
+         decision_reason    = null,
+         approved_plus_ones = case when v_approved > 0 then v_approved - 1 end,
+         decision_message   = v_note
+   where id = p_request_id;
+
+  return jsonb_build_object('outcome', v_outcome, 'guest_ids', to_jsonb(v_ids), 'replay', false);
+end;
+$$;
+
+comment on function public.decide_guest_request(uuid, jsonb) is
+  'Requests E (z8uq9m2vga): decide a landing request atomically. p_decision = '
+  '{approved: [{tier_id, plus_ones}], declined: n, note}. Parts + declined must '
+  'add up to the request; a note is required when declined > 0. One guest per '
+  'part (every cap trigger fires per row), one audited request update. Admin '
+  'of the company or organizer of the event. Same decision again = replay '
+  '(no change); another decision on a decided request = 45003, except '
+  're-approving a declined one.';
+
+revoke execute on function public.decide_guest_request(uuid, jsonb)
+  from public, anon, authenticated, service_role;
+grant execute on function public.decide_guest_request(uuid, jsonb) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4. get_request_status — the note on a declined request too
+-- ---------------------------------------------------------------------------
+-- Body = 20261013160000 with one change: decision_message is returned for
+-- 'denied' as well as 'approved' (own token only; the mirror branch selects
+-- null for it, unchanged). The confirmed count stays approved-only.
+
+create or replace function public.get_request_status(p_token_hash text, p_ip_hash text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_row      record;
+  v_approved boolean;
+begin
+  if p_token_hash is null
+     or not public.consume_public_throttle('st:' || p_ip_hash, 15, 30) then
+    return jsonb_build_object('found', false);
+  end if;
+
+  select gr.full_name, gr.status, gr.plus_ones,
+         coalesce(gr.approved_plus_ones, gr.plus_ones) as approved_plus_ones,
+         gr.decision_message,
+         e.name as event_name, e.starts_at, e.ends_at,
+         e.location_name, e.location_address
+  into v_row
+  from public.guest_requests gr
+  join public.events e on e.id = gr.event_id
+  where gr.status_token_hash = p_token_hash
+    and gr.anonymized_at is null;
+
+  if not found then
+    select m.full_name, gr.status, m.plus_ones,
+           null::integer as approved_plus_ones, null::text as decision_message,
+           e.name as event_name, e.starts_at, e.ends_at,
+           e.location_name, e.location_address
+    into v_row
+    from public.guest_request_status_mirrors m
+    join public.guest_requests gr on gr.id = m.request_id
+    join public.events e on e.id = gr.event_id
+    where m.token_hash = p_token_hash
+      and gr.anonymized_at is null;
+  end if;
+
+  if not found then
+    return jsonb_build_object('found', false);
+  end if;
+
+  v_approved := v_row.status = 'approved';
+
+  return jsonb_build_object(
+    'found', true,
+    'status', v_row.status,
+    'full_name', v_row.full_name,
+    'plus_ones', v_row.plus_ones,
+    'event_name', v_row.event_name,
+    'starts_at', v_row.starts_at,
+    'ends_at', v_row.ends_at,
+    'approved_plus_ones',
+      case when v_approved then v_row.approved_plus_ones end,
+    'decision_message',
+      case when v_row.status in ('approved', 'denied') then v_row.decision_message end,
+    'location_name', nullif(btrim(v_row.location_name), ''),
+    'location_address', nullif(btrim(v_row.location_address), ''),
+    'venue_address_line', null,
+    'venue_postal_code', null,
+    'venue_city', null
+  );
+end;
+$$;
+
+comment on function public.get_request_status(text, text) is
+  'Guest status page (/r/[token]). Throttled st: 30/15 min. Found payload: '
+  'status, own name + plus-ones, event name/times, the event''s own location '
+  '(every state), on approval the confirmed count, and the venue note on an '
+  'approved or declined request (z8uq9m2vga) — never for a mirror token. Never '
+  'the company address (z8uq9m444c); the venue_* keys are always null pending '
+  'their drop.';
+
+revoke execute on function public.get_request_status(text, text)
+from public, anon, authenticated, service_role;
+grant execute on function public.get_request_status(text, text)
+to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5. request_decision_counts — people asked / approved / declined / waiting
+-- ---------------------------------------------------------------------------
+-- People, not rows (same unit as the Promotion funnel since 20261013120000).
+-- A partly approved request counts its declined part as declined:
+--   approved request: approved = 1 + coalesce(approved_plus_ones, plus_ones),
+--                     declined = plus_ones - coalesce(approved_plus_ones, plus_ones)
+--   denied request:   declined = 1 + plus_ones
+--   pending request:  waiting  = 1 + plus_ones
+-- SECURITY INVOKER: guest_requests RLS decides which requests a caller sees,
+-- so the numbers are role-relative (staff/doorhost see none → zeros).
+-- Filtered by venue_id in SQL (denormalized since 20260708120000), never an
+-- id list.
+
+create or replace function public.request_decision_counts(p_venue_id uuid, p_event_id uuid default null)
+returns table (
+  requested_heads bigint,
+  approved_heads  bigint,
+  declined_heads  bigint,
+  waiting_heads   bigint
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select
+    coalesce(sum(1 + gr.plus_ones), 0)::bigint,
+    coalesce(sum(case when gr.status = 'approved'
+                      then 1 + coalesce(gr.approved_plus_ones, gr.plus_ones) end), 0)::bigint,
+    coalesce(sum(case when gr.status = 'approved'
+                      then gr.plus_ones - coalesce(gr.approved_plus_ones, gr.plus_ones)
+                      when gr.status = 'denied' then 1 + gr.plus_ones end), 0)::bigint,
+    coalesce(sum(case when gr.status = 'pending' then 1 + gr.plus_ones end), 0)::bigint
+  from public.guest_requests gr
+  where gr.venue_id = p_venue_id
+    and (p_event_id is null or gr.event_id = p_event_id);
+$$;
+
+comment on function public.request_decision_counts(uuid, uuid) is
+  'Requests E (z8uq9m2vga): people asked / approved / declined / waiting for a '
+  'company (optionally one event). The declined part of a partly approved '
+  'request counts as declined. SECURITY INVOKER: RLS-scoped, role-relative.';
+
+revoke execute on function public.request_decision_counts(uuid, uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.request_decision_counts(uuid, uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 6. submit_guest_request — the auto-approved guest gets its request + mail
+-- ---------------------------------------------------------------------------
+-- Body = 20260918160000 with two changes, both in the auto-approve insert:
+--   * the guest row carries guest_request_id (= the request just inserted);
+--   * after the request flips to approved, the approval mail is queued
+--     through 6a's enqueue_guest_mail (it derives address and eligibility
+--     from the database, and returns NULL for a guest without an address).
+--     Its own sub-block: a queue problem never fails or un-approves the
+--     submission. Nothing about the queue reaches the caller, so the answer
+--     stays identical for a fresh and a repeat submitter (#28).
+
+create or replace function public.submit_guest_request(
+  p_slug              text,
+  p_full_name         text,
+  p_email             text,
+  p_phone             text,
+  p_plus_ones         integer,
+  p_motivation        text,
+  p_ip_hash           text,
+  p_marketing_opt_in  boolean,
+  p_birthdate         date default null,
+  p_status_token_hash text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  ws           constant text := E' \t\n\r\f\x0B';
+  v_link       public.request_links;
+  v_venue      uuid;
+  v_name       text    := nullif(btrim(p_full_name, ws), '');
+  v_email      text    := nullif(lower(btrim(p_email, ws)), '');
+  v_phone      text    := nullif(btrim(p_phone, ws), '');
+  v_phone_dig  text;
+  v_motivation text    := nullif(btrim(p_motivation, ws), '');
+  v_plus       integer := least(greatest(coalesce(p_plus_ones, 0), 0), 20);
+  v_marketing  boolean := coalesce(p_marketing_opt_in, false);
+  v_key        text;
+  v_contact_id uuid;
+  v_request_id uuid;
+  v_dup_id     uuid;
+  v_auto       boolean := false;
+  v_locked     boolean;
+  v_already    boolean;
+  v_guest_id   uuid;
+begin
+  if v_name is null or char_length(v_name) < 2 or char_length(v_name) > 120 then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+
+  if v_email is null or v_phone is null then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+
+  if char_length(v_email) > 254
+     or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]{2,}$'
+     or v_phone !~ '^\+[1-9][0-9]{1,14}$' then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+
+  if p_status_token_hash is not null and char_length(p_status_token_hash) > 128 then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+
+  if v_motivation is not null and char_length(v_motivation) > 1000 then
+    v_motivation := left(v_motivation, 1000);
+  end if;
+
+  -- Rate limit FIRST (every attempt burns quota — slug probing included, #28).
+  if not public.consume_public_throttle('req:' || p_ip_hash, 15, 5) then
+    return jsonb_build_object('status', 'rate_limited');
+  end if;
+
+  select rl.* into v_link
+  from public.request_links rl
+  where rl.slug = p_slug
+    and public.request_link_open(rl);
+  if v_link.id is null then
+    return jsonb_build_object('status', 'closed');
+  end if;
+
+  v_phone_dig := nullif(regexp_replace(coalesce(v_phone, ''), '[^0-9]', '', 'g'), '');
+  v_key := coalesce(v_email, v_phone_dig);
+
+  begin
+    insert into public.guest_requests
+      (event_id, full_name, email, phone, plus_ones, motivation,
+       marketing_opt_in, dedupe_key, birthdate, request_link_id, status_token_hash)
+    values
+      (v_link.event_id, v_name, v_email, v_phone, v_plus, v_motivation,
+       v_marketing, v_key, p_birthdate, v_link.id, p_status_token_hash)
+    returning id into v_request_id;
+  exception when unique_violation then
+    -- Silent dedup + status-token mirror (z8uq9m0h2v; see 20260918160000).
+    v_dup_id := null;
+    if v_key is not null then
+      select gr.id into v_dup_id
+      from public.guest_requests gr
+      where gr.event_id = v_link.event_id
+        and gr.dedupe_key = v_key
+        and gr.status = 'pending'
+        and gr.anonymized_at is null;
+    end if;
+
+    if v_dup_id is not null
+       and p_status_token_hash is not null
+       and not exists (
+         select 1 from public.guest_requests gr2
+         where gr2.status_token_hash = p_status_token_hash
+       )
+    then
+      begin
+        insert into public.guest_request_status_mirrors
+          (request_id, token_hash, full_name, plus_ones)
+        values
+          (v_dup_id, p_status_token_hash, v_name, v_plus)
+        on conflict (request_id) do update
+          set token_hash = excluded.token_hash,
+              full_name  = excluded.full_name,
+              plus_ones  = excluded.plus_ones,
+              created_at = now();
+      exception when unique_violation then
+        null;
+      end;
+    end if;
+
+    v_request_id := null; -- silent dedup: nothing more to do (no double auto-approve)
+  end;
+
+  -- #8: capture into the venue address book.
+  if v_email is not null or v_phone_dig is not null then
+    v_venue := public.event_venue(v_link.event_id);
+    begin
+      v_contact_id := null;
+      if v_email is not null then
+        select id into v_contact_id from public.contacts
+         where venue_id = v_venue and anonymized_at is null and email_norm = v_email
+         limit 1;
+      end if;
+      if v_contact_id is null and v_phone_dig is not null then
+        select id into v_contact_id from public.contacts
+         where venue_id = v_venue and anonymized_at is null and phone_norm = v_phone_dig
+         limit 1;
+      end if;
+
+      if v_contact_id is not null then
+        update public.contacts set
+          email     = coalesce(email,     v_email),
+          phone     = coalesce(phone,     v_phone),
+          birthdate = coalesce(birthdate, p_birthdate)
+        where id = v_contact_id;
+      else
+        insert into public.contacts
+          (venue_id, full_name, email, phone, birthdate, source, created_by)
+        values
+          (v_venue, v_name, v_email, v_phone, p_birthdate, 'guest_request', null);
+      end if;
+    exception when unique_violation then
+      null; -- concurrent capture; ignore
+    end;
+  end if;
+
+  -- Auto-approve (see 20260918160000 for the #28 / z8uq9m0gvy reasoning on
+  -- `auto_approved` = the requester's standing, not this call's insert).
+  if v_link.auto_approve then
+    perform 1 from public.request_links rl where rl.id = v_link.id for update;
+
+    select e.list_locked into v_locked
+    from public.events e where e.id = v_link.event_id;
+
+    if not v_locked then
+      v_already := v_key is not null and exists (
+        select 1 from public.guest_requests gr
+        where gr.event_id = v_link.event_id
+          and gr.dedupe_key = v_key
+          and gr.status = 'approved'
+      );
+
+      if v_request_id is not null and not v_already then
+        begin
+          insert into public.guests
+            (event_id, tier_id, full_name, email, phone, plus_ones,
+             added_by, source, status, request_link_id, guest_request_id)
+          values
+            (v_link.event_id, v_link.tier_id, v_name, v_email, v_phone, v_plus,
+             null, 'landing', 'approved', v_link.id, v_request_id)
+          returning id into v_guest_id;
+
+          update public.guest_requests
+          set status = 'approved',
+              decided_via = 'auto',
+              decided_at = now()
+          where id = v_request_id;
+
+          v_auto := true;
+        exception when sqlstate '45002' or sqlstate '45005' or sqlstate '45006' then
+          null; -- full: stays pending, indistinguishable for the requester
+        end;
+
+        -- z8uq9m2vga: the approval mail (6a queue). Best effort and silent.
+        if v_auto then
+          begin
+            perform public.enqueue_guest_mail(
+              v_guest_id, 'guest_request_approved', null, null, 0, v_request_id);
+          exception when others then
+            null;
+          end;
+        end if;
+
+      elsif v_already then
+        -- Repeat submitter who already holds an approved spot: report the
+        -- standing (see 20260918160000). No new guest, no mail.
+        v_auto := true;
+      end if;
+    end if;
+  end if;
+
+  return jsonb_build_object('status', 'ok', 'auto_approved', v_auto);
+end;
+$$;
+
+-- Grants unchanged by CREATE OR REPLACE; restated as the matrix of record
+-- (20260706103000: anon + authenticated + service_role, not PUBLIC).
+revoke execute on function public.submit_guest_request(text, text, text, text, integer, text, text, boolean, date, text)
+from public, anon, authenticated, service_role;
+grant execute on function public.submit_guest_request(text, text, text, text, integer, text, text, boolean, date, text)
+to anon, authenticated, service_role;

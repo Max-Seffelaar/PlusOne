@@ -13,7 +13,9 @@
  * role that may not decide sees empty queues. Each request carries its own event,
  * so an approval targets that event's tiers and the right invalidation. Landing
  * approvals fall OUTSIDE the approver's personal quota (#31) but still count
- * toward tier-max. No payment / "notify the guest" copy — no ticketing/mail (#10).
+ * toward tier-max. No payment copy (no ticketing). Since Requests E (z8uq9m2vga)
+ * one decision (approve, split over tiers, trim, decline with a note) sends the
+ * guest exactly one transactional mail about their own request (#10 revised).
  */
 import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -24,16 +26,17 @@ import {
   usePoEvents,
   usePoGuestRequests,
   usePoQuotaRequests,
+  usePoRequestDecisionCounts,
   usePoTiers,
   usePoVenueLinks,
 } from '@/features/po/hooks';
-import { usePoApproveRequest, usePoDecideQuota, usePoDenyRequest } from '@/features/po/mutations';
+import { usePoDecideQuota, usePoDecideRequest } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { requestLinkLabel } from '@/features/po/format';
 import { canDecideRequests, canSeeOwnRequests, canSeeRequestInbox } from '@/features/auth/roles';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
-import { buildApproveInput, type ApprovalDecision } from '@/features/requests/approval';
+import { buildDecideInput, buildDeclineInput, type SplitDecision } from '@/features/requests/approval';
 import type { PoLinkOption } from '@/features/po/queries';
 import { useNav } from '../context';
 import { Icon } from '../icon';
@@ -134,8 +137,10 @@ export function Aanvragen({
   const [creatingLink, setCreatingLink] = useState(false);
 
   const tiersQuery = usePoTiers(assign?.eventId ?? '');
-  const approve = usePoApproveRequest();
-  const denyReq = usePoDenyRequest();
+  // Requests E (z8uq9m2vga): approve, split, trim and decline all go through
+  // one decision (decide_guest_request) with exactly one mail to the guest.
+  const decideReq = usePoDecideRequest();
+  const counts = usePoRequestDecisionCounts(sel, seeInbox);
   const decideQuota = usePoDecideQuota();
 
   const allG = gReqs.data ?? [];
@@ -193,7 +198,7 @@ export function Aanvragen({
   for (const r of allQ) openByEvent.set(r.eventId, (openByEvent.get(r.eventId) ?? 0) + 1);
   const totalOpen = [...openByEvent.values()].reduce((a, b) => a + b, 0);
 
-  const landingBusy = approve.isPending || denyReq.isPending;
+  const landingBusy = decideReq.isPending;
   const quotaBusy = decideQuota.isPending;
   const loading = eventsQuery.isLoading || gReqs.isLoading || qReqs.isLoading;
   const isError = eventsQuery.isError || gReqs.isError || qReqs.isError;
@@ -228,12 +233,11 @@ export function Aanvragen({
     nav.push('tiers', { id: eid });
   };
 
-  const confirmApproveLanding = async (decision: ApprovalDecision): Promise<void> => {
+  const confirmApproveLanding = async (decision: SplitDecision): Promise<void> => {
     if (!assign) return;
     setErr(null);
     try {
-      // z8uq9m0hw6: fewer people and/or a note only ride along when set.
-      await approve.mutateAsync(buildApproveInput(assign, decision));
+      await decideReq.mutateAsync(buildDecideInput(assign, decision));
       setAssign(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.requests.approveFailed);
@@ -245,7 +249,8 @@ export function Aanvragen({
     setErr(null);
     try {
       if (deny.kind === 'landing') {
-        await denyReq.mutateAsync({ requestId: deny.id, reason, eventId: deny.eventId });
+        // The note goes to the guest (decline mail + status page).
+        await decideReq.mutateAsync(buildDeclineInput({ id: deny.id, eventId: deny.eventId, plus: deny.plus ?? 0 }, reason));
       } else {
         await decideQuota.mutateAsync({ requestId: deny.id, decision: 'denied', reason, eventId: deny.eventId });
       }
@@ -392,6 +397,22 @@ export function Aanvragen({
         ) : effectiveTab === 'landing' ? (
           <div className="flex flex-col gap-[11px]">
             <Note icon="user">{canDecide ? t.requests.landingNote : t.requests.readOnlyNote}</Note>
+            {counts.data && counts.data.requested > 0 && (
+              // People, not requests: the declined part of a partly approved
+              // request counts as declined (z8uq9m2vga, request_decision_counts).
+              <div
+                role="status"
+                aria-label={t.requests.decideCountsAria}
+                data-testid="request-decision-counts"
+                className="px-0.5 text-[12.5px] tabular-nums text-faint"
+              >
+                {fmt(t.requests.decideCounts, {
+                  requested: counts.data.requested,
+                  approved: counts.data.approved,
+                  declined: counts.data.declined,
+                })}
+              </div>
+            )}
             {openG === 0 ? (
               <Empty text={q ? fmt(t.requests.emptyLandingSearch, { q: search.trim() }) : t.requests.emptyLanding} />
             ) : (
@@ -432,7 +453,7 @@ export function Aanvragen({
                   {r.motivation && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.motivation}”</div>}
                   {canDecide ? (
                     <div className="flex gap-2">
-                      <Btn sm kind="dark" full icon="close" disabled={landingBusy} onClick={() => openDeny({ kind: 'landing', id: r.id, name: r.name, eventId: r.eventId })}>
+                      <Btn sm kind="dark" full icon="close" disabled={landingBusy} onClick={() => openDeny({ kind: 'landing', id: r.id, name: r.name, eventId: r.eventId, plus: r.plus })}>
                         {t.requests.decline}
                       </Btn>
                       <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
@@ -611,7 +632,7 @@ export function Aanvragen({
           eventName={nameById.get(assign.eventId) ?? ''}
           tiers={tiersQuery.data ?? []}
           tiersLoading={tiersQuery.isLoading}
-          pending={approve.isPending}
+          pending={decideReq.isPending}
           error={err}
           onClose={() => {
             setAssign(null);
@@ -632,7 +653,7 @@ export function Aanvragen({
       {deny && (
         <DenySheet
           target={deny}
-          pending={deny.kind === 'landing' ? denyReq.isPending : decideQuota.isPending}
+          pending={deny.kind === 'landing' ? decideReq.isPending : decideQuota.isPending}
           error={err}
           onClose={() => {
             setDeny(null);

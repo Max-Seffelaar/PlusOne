@@ -1152,6 +1152,7 @@ export type Database = {
           email: string | null
           event_id: string
           full_name: string
+          guest_request_id: string | null
           id: string
           note: string | null
           note_acknowledged_at: string | null
@@ -1175,6 +1176,7 @@ export type Database = {
           email?: string | null
           event_id: string
           full_name: string
+          guest_request_id?: string | null
           id?: string
           note?: string | null
           note_acknowledged_at?: string | null
@@ -1198,6 +1200,7 @@ export type Database = {
           email?: string | null
           event_id?: string
           full_name?: string
+          guest_request_id?: string | null
           id?: string
           note?: string | null
           note_acknowledged_at?: string | null
@@ -1233,6 +1236,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guests_guest_request_id_fkey"
+            columns: ["guest_request_id"]
+            isOneToOne: false
+            referencedRelation: "guest_requests"
             referencedColumns: ["id"]
           },
           {
@@ -2610,6 +2620,10 @@ export type Database = {
         Returns: string
       }
       current_user_requires_mfa: { Args: never; Returns: boolean }
+      decide_guest_request: {
+        Args: { p_decision: Json; p_request_id: string }
+        Returns: Json
+      }
       decline_invite: { Args: { p_invite_id: string }; Returns: boolean }
       declined_invite_mail_context: {
         Args: { p_invite_id: string }
@@ -3201,6 +3215,15 @@ export type Database = {
       redact_jsonb_obj: {
         Args: { p_obj: Json; p_redaction: Json }
         Returns: Json
+      }
+      request_decision_counts: {
+        Args: { p_event_id?: string; p_venue_id: string }
+        Returns: {
+          approved_heads: number
+          declined_heads: number
+          requested_heads: number
+          waiting_heads: number
+        }[]
       }
       request_device_id: { Args: never; Returns: string }
       request_link_consumption: { Args: { p_link_id: string }; Returns: number }

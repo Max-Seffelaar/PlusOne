@@ -1042,6 +1042,7 @@ describe('toPoGuestRequest', () => {
     created_at: new Date(now.getTime() - 18 * 60_000).toISOString(),
     status: 'pending',
     decision_reason: null,
+    decision_message: null,
     request_link_id: null,
     decided_via: 'manual',
     marketing_opt_in: false,
@@ -1103,6 +1104,11 @@ describe('toPoGuestRequest', () => {
     // A pending row never carries a stale reason even if the column is set.
     const pending = toPoGuestRequest({ ...base, status: 'pending', decision_reason: 'Lijst vol' }, now);
     expect(pending).toMatchObject({ status: 'pending', denyReason: null });
+  });
+
+  it('a decline through decide_guest_request shows its note to the guest as the reason (z8uq9m2vga)', () => {
+    const denied = toPoGuestRequest({ ...base, status: 'denied', decision_message: 'Full tonight' }, now);
+    expect(denied.denyReason).toBe('Full tonight');
   });
 
   it('flags a large party (+3 or more) and tolerates a null phone/motivation', () => {

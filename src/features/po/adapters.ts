@@ -825,7 +825,9 @@ export interface PoGuestRequest {
   viaLabel: string | null;
   /** Came through the event's default link — shown as "Standard link" (z8uq9m0hw4). */
   viaStandard: boolean;
-  /** The refusal reason when status is 'denied'; null otherwise. */
+  /** The refusal reason when status is 'denied'; null otherwise. Since
+   *  z8uq9m2vga a decline carries the note to the guest (decision_message)
+   *  instead of an internal reason; the old deny path's reason still wins. */
   denyReason: string | null;
   /** Deterministic nudge for a large party (+3 or more); absent otherwise. */
   flag?: string;
@@ -863,7 +865,7 @@ export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestReq
     requestLinkId: row.request_link_id,
     viaLabel: row.viaLabel,
     viaStandard: row.viaStandard,
-    denyReason: status === 'denied' ? row.decision_reason : null,
+    denyReason: status === 'denied' ? (row.decision_reason ?? row.decision_message ?? null) : null,
     marketingOptIn: row.marketing_opt_in === true,
     flag: row.plus_ones >= 3 ? `Large group (+${row.plus_ones})` : undefined,
   };

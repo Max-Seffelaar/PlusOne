@@ -107,6 +107,42 @@ export const approveGuestRequestSchema = z.object({
 });
 export type ApproveGuestRequestInput = z.input<typeof approveGuestRequestSchema>;
 
+/**
+ * Requests E (z8uq9m2vga): one decision for a whole landing request, sent to
+ * the `decide_guest_request` RPC. `approved` = one part per tier (the person
+ * plus `plusOnes`), `declined` = people turned away, `note` = the text the
+ * guest gets in the decision mail and on the status page.
+ *
+ * Mirrors the RPC's rules so the sheet can't send what it would refuse
+ * (each tier once, a note on any decline, 280 characters). Whether the parts
+ * add up to THIS request needs the row: the RPC is the boundary (23514).
+ */
+export const decideGuestRequestSchema = z
+  .object({
+    requestId: uuid,
+    eventId: uuid.optional(),
+    approved: z
+      .array(z.object({ tierId: uuid, plusOnes: z.number().int().min(0).max(20) }))
+      .max(21)
+      .refine((parts) => new Set(parts.map((p) => p.tierId)).size === parts.length, 'Use each tier once.'),
+    declined: z.number().int().min(0).max(21),
+    note: optionalText(DECISION_MESSAGE_MAX),
+  })
+  .refine((d) => d.approved.length > 0 || d.declined > 0, 'Decide for at least one person.')
+  .refine((d) => d.declined === 0 || (d.note ?? '').length > 0, {
+    message: 'Add a note for the guest when you decline (part of) a request.',
+    path: ['note'],
+  });
+export type DecideGuestRequestInput = z.input<typeof decideGuestRequestSchema>;
+
+/** What `decide_guest_request` returns. Validated, so a drifted shape fails closed. */
+export const decideGuestRequestResultSchema = z.object({
+  outcome: z.enum(['approved', 'partly', 'declined']),
+  guest_ids: z.array(uuid),
+  replay: z.boolean(),
+});
+export type DecideGuestRequestResult = z.infer<typeof decideGuestRequestResultSchema>;
+
 /** Admin/organizer denies a landing request with a mandatory reason (#12). */
 export const denyGuestRequestSchema = z.object({
   requestId: uuid,

@@ -22,9 +22,10 @@ import type {
   ChangeTierInput,
   ChangeTierBulkInput,
 } from '@/features/guests/schemas';
-import { approveGuestRequest, denyGuestRequest } from '@/features/requests/actions';
+import { approveGuestRequest, decideGuestRequest, denyGuestRequest } from '@/features/requests/actions';
 import type {
   ApproveGuestRequestInput,
+  DecideGuestRequestInput,
   DenyGuestRequestInput,
 } from '@/features/requests/schemas';
 import { decideQuotaRequest, requestExtraSlots } from '@/features/quotas/actions';
@@ -801,6 +802,26 @@ export function usePoApproveRequest() {
         void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
         // An approved landing request becomes a guest — the venue-wide All-Guests
         // tab must refresh too, not just the per-event list (C17).
+        void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+      }
+    },
+  });
+}
+
+/**
+ * Requests E (z8uq9m2vga): decide a landing request in one go (trim, split over
+ * tiers, decline with a note). Whatever the outcome the inbox, the request
+ * counts and, when somebody got a spot, the event's guests/tiers refresh.
+ */
+export function usePoDecideRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: DecideGuestRequestInput) => throwOnError(await decideGuestRequest(input)),
+    onSuccess: (_res, input) => {
+      void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
+      if (input.eventId && input.approved.length > 0) {
+        void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
+        void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
         void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
       }
     },
