@@ -33,6 +33,51 @@ Milestone **Now** (golf D, task 5b of the October onboarding programme). Web sid
 
 ---
 
+## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
+
+Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
+
+- **Migration `20261013140000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). In the browser, Overview shows "Trial, no payment yet" next to the new "Trial, payment set up" tile (review: one label never means two numbers), so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: both tiles match the database exactly; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+
+---
+
+## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
+
+Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
+
+- **"Free until end of ADE" invite** — migration `20261013130000_platform_invite_ade_trial`. It replaces the first build's "Always free via the invite" (scope change by Max, 2026-10-08, during review):
+  - `platform_invites.free_until_ade` (set on insert, frozen after) and `ade_trial_venue_id`. Only `create_venue_with_owner` writes it, once: the guard checks `current_user`, the insert policy pins it null.
+  - `create_venue_with_owner` starts the invitee's first company as an ordinary `trialing` Pro when the caller's own auth e-mail has an open, unused ADE invite whose inviter is still a platform admin.
+  - Its `trial_ends_at` is `greatest(2026-10-27 00:00 Europe/Amsterdam, now() + 14 days)`. The date is in one place in the migration.
+  - One `audit_log` row (`update`, trial end) names the inviter. Never comped through this route.
+  - `mail_log` type `platform_invite`.
+  - Platform → Invite has a "Free until end of ADE" toggle that hides after the date (`src/features/platform/ade.ts`).
+  - After ADE a follow-up drops the option (expand–contract).
+- **Company invite mail**: the platform invite goes through the same path as team/crew (#430): mail_log first, then `generateLink` with no metadata, then our own Resend mail.
+  - Content: "You've been invited to try PlusOne", the inviter's name, three steps, one button, the link fallback and "expires after 24 hours". It never mentions free or a price.
+  - Resend sends a fresh link.
+  - Without a Resend key the Supabase path is unchanged.
+- **One consent per moment**: the wizard's company step and the switcher quick-create ask only "I accept the Data Processing Agreement on behalf of {company}" (`DpaCheck` in the kit, `DPA_URL`). Terms + Privacy stay on `/consent`. `venues.terms_accepted_*` now means the DPA acceptance (spec #40).
+- **Places**:
+  - `POST /api/places` runs in the nodejs runtime. Order of checks: Zod union, then `getUser` (401), then no key → `{enabled:false}`, then `consume_places_throttle` (migration `20261013130100`, 120 per 10 min per user; 429 when spent).
+  - Google calls use Essentials field masks only (no displayName) and a 3 s timeout. The input text is never logged.
+  - `PlacesField` (kit) is on the wizard address, Company settings (fills street, postcode, city and country) and the event location.
+  - The secret-grep guard covers `GOOGLE_PLACES_API_KEY`.
+- **Review round (#437)**, fixed:
+  - a Places pick in Company settings replaces the whole address (it used to keep parts of the old one);
+  - PlacesField cancels its pending lookup on blur, Escape and pick, and starts a new session token per focus;
+  - VenueStep caps the picked address at 200 characters and never overwrites a name typed meanwhile;
+  - a resend bumps `last_sent_at` only after the mail went;
+  - `NEXT_PUBLIC_DPA_URL` override.
+- **Tests**:
+  - pgTAP `platform_invite_ade_trial` (25) and `places_throttle` (14); full suite 96 files / 2403.
+  - Vitest: route, PlacesField, company template, invite mail/actions, DpaCheck.
+  - Flows: `onboarding` gains Q14 (DPA). New flow `onboarding-ade-trial` (7 checks: platform invite → Mailpit → wizard → Billing TRIAL until 27 Oct → audit), green on 4 variants.
+
+---
+
 ## 2026-10-09 — `promo-video` skill: craft rules from the director review
 
 Follow-up to #447, no app code. The skill now holds the rules from the director review of the first campaign:

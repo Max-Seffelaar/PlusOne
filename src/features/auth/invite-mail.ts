@@ -52,6 +52,17 @@ export interface SendInviteEmailOptions {
    */
   existingAccountMail?: TeamMailContent;
   /**
+   * Platform invite (Onboarding A, z8uq9m2vg5; decision Max 2026-10-08): with
+   * it and team mail active, the company invite goes the SAME way as a team
+   * invite: logged first, then generateLink, then our own mail ("You've been
+   * invited to try PlusOne", who invited you, three steps). No user metadata
+   * is written (the caller passes seedName: false) and nothing in the mail is
+   * ever read back as authorization: "Always free" comes from
+   * platform_invites.comped. Without team mail (prod without a Resend key) the
+   * Supabase path below is unchanged.
+   */
+  companyInviteMail?: { inviterName: string | null };
+  /**
    * The company this invitation mail counts against (daily cap, decision Max
    * 2026-10-07). Set by team/crew invites and resends. Our own mail counts
    * through its mail_log row (content.venueId); this is only read when
@@ -139,10 +150,11 @@ async function sendOwnInviteMail(
 }
 
 /**
- * Notify an invitee by e-mail (invite + every resend, venue AND crew). Team and
- * crew invites with team mail active go through `sendOwnInviteMail` above: one
- * PlusOne mail whether or not the address has an account. Otherwise (platform
- * invites, or prod without a Resend key, see `teamMailActive`) the Supabase
+ * Notify an invitee by e-mail (invite + every resend, venue, crew AND platform
+ * invites). Team, crew and platform (company) invites with team mail active go
+ * through `sendOwnInviteMail` above: one PlusOne mail whether or not the
+ * address has an account. Otherwise (prod without a Resend key, see
+ * `teamMailActive`) the Supabase
  * path is exactly as before: for a NEW or invited-but-never-accepted address,
  * inviteUserByEmail provisions/re-invites and sends the "You've been invited"
  * mail in one step; an already-CONFIRMED address gets a magic-link login
@@ -157,6 +169,13 @@ export async function sendInviteEmail(
 ): Promise<InviteMailResult> {
   if (options.existingAccountMail && teamMailActive()) {
     return sendOwnInviteMail(email, options.existingAccountMail, options.seedName !== false);
+  }
+  if (options.companyInviteMail && teamMailActive()) {
+    return sendOwnInviteMail(
+      email,
+      { template: 'platform_invite', venueId: null, inviterName: options.companyInviteMail.inviterName },
+      options.seedName !== false
+    );
   }
   const service = createServiceClient();
   // `data` OVERWRITES raw_user_meta_data on an existing but unconfirmed account,

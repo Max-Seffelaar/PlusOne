@@ -115,6 +115,39 @@ export const mail = {
   footerDeclinedInvitee:
     'You got this email because you declined an invite from {company} on PlusOne. Was this not you? Mail support@plus-one.io right away.',
 
+  // Company invite (Onboarding A, z8uq9m2vg5): a PlusOne platform admin invites
+  // someone to set up their own company. Sent through the same path as the
+  // team invite (generateLink + Resend). No company exists yet, so nothing here
+  // names one. It never mentions a price or "free": comped lives on the invite
+  // row only. {inviter} = the platform admin's profile name.
+  companyInvite: {
+    subject: "You've been invited to try PlusOne",
+    heading: "You've been invited to try PlusOne",
+    intro: '{inviter} invited you to run your guest lists on PlusOne. Setting up takes a few minutes.',
+    /** Stands in for {inviter} when the platform admin has no profile name. */
+    inviterFallback: 'The PlusOne team',
+    howItWorks: 'How it works',
+    /** Step 1 for a new or never-confirmed address: the button signs them in once. */
+    stepAccountLink: 'Tap Get started. It signs you in, no password or code needed.',
+    /** Step 1 for an address that can already log in: the plain /login button. */
+    stepAccountLogin: "Tap Get started and enter this email address. We'll send you a 6-digit code.",
+    stepCompany: 'Add your company: name, address and type.',
+    stepEvent: 'Create your first event and invite your team.',
+    whyTitle: 'What you get',
+    benefits: [
+      'Your team adds guests from their phone, each within their own quota.',
+      'The door checks guests in fast, even when the signal drops.',
+      'Every change is logged, so you always know who added whom.',
+    ],
+    cta: 'Get started',
+    /** Only with a one-time sign-in link (new or never-confirmed address). */
+    linkValidity:
+      'The button works once and expires after 24 hours. Expired? Ask {inviter} to send the invite again.',
+    linkForward: "Don't forward this email. The button signs in whoever taps it.",
+    footerReason:
+      "You got this email because {inviter} invited this address to PlusOne. Not expecting it? You can ignore it.",
+  },
+
   cta: 'Log in to PlusOne',
   linkFallback: 'Button not working? Open {url}',
   footerReason:

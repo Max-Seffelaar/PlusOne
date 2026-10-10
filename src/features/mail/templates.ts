@@ -19,7 +19,8 @@ export type TeamMailTemplate =
   | 'team_added_to_event'
   | 'team_resend'
   | 'team_invite_declined'
-  | 'team_invite_declined_confirm';
+  | 'team_invite_declined_confirm'
+  | 'platform_invite';
 
 export type TeamMailContent =
   | { template: 'team_join'; venueId: string; inviterName: string | null; companyName: string }
@@ -60,6 +61,17 @@ export type TeamMailContent =
       companyName: string;
       crew: boolean;
       eventName: string | null;
+    }
+  // Company invite (Onboarding A, z8uq9m2vg5): a platform admin invites someone
+  // to set up their own company. No company exists yet, so no venue (no
+  // company mail cap; consume_platform_invite_throttle is its budget) and no
+  // company name. Display data only: whether the company starts comped is
+  // read from platform_invites.comped, never from this mail.
+  | {
+      template: 'platform_invite';
+      venueId: null;
+      /** The platform admin's profile name; null = "The PlusOne team". */
+      inviterName: string | null;
     };
 
 /** The one-time sign-in token for a new or never-confirmed address, as GoTrue's
@@ -124,7 +136,7 @@ interface MailParts {
   footer?: string;
 }
 
-function partsFor(content: TeamMailContent, newAccount: boolean): MailParts {
+function partsFor(content: Exclude<TeamMailContent, { template: 'platform_invite' }>, newAccount: boolean): MailParts {
   const m = t.mail;
   switch (content.template) {
     case 'team_join':
@@ -172,6 +184,7 @@ function inviteUrl(base: string, link: InviteLink): string {
 }
 
 export function renderTeamMail(content: TeamMailContent, appUrl: string, invite?: InviteLink): RenderedMail {
+  if (content.template === 'platform_invite') return renderCompanyInviteMail(content, appUrl, invite);
   const company = cleanName(content.companyName);
   const inviterName = 'inviterName' in content ? content.inviterName : null;
   const eventName =
@@ -239,6 +252,83 @@ ${steps.map((step) => `<li style="margin:0 0 4px;">${e(step)}</li>`).join('\n')}
     : ''
 }
 ${after.map((p) => `<p style="${P}">${e(p)}</p>`).join('\n')}
+<hr style="border:none;border-top:1px solid #e6e4ee;margin:8px 0 16px;">
+<p style="margin:0 0 8px;font-size:12px;line-height:1.5;color:#77737f;">${e(reason)}</p>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#77737f;">${e(t.mail.footerSupport)}</p>
+</div>
+</body>
+</html>`;
+
+  return { subject, html, text };
+}
+
+/**
+ * The company invite (z8uq9m2vg5). Same page skin and the same two injection
+ * rules as renderTeamMail: the inviter's name is HTML-escaped in the body and
+ * reduced to one plain line (control characters out, length capped). The
+ * subject is fixed copy, no name in it. A new or never-confirmed address gets
+ * the one-time sign-in link and the honest 24-hour validity; an address that
+ * can already log in gets the plain /login button and no link warnings.
+ */
+function renderCompanyInviteMail(
+  content: Extract<TeamMailContent, { template: 'platform_invite' }>,
+  appUrl: string,
+  invite?: InviteLink,
+): RenderedMail {
+  const m = t.mail.companyInvite;
+  const vars = { inviter: cleanName(content.inviterName ?? '') || m.inviterFallback };
+  const fill = (s: string) => fmt(s, vars);
+  const base = appUrl.replace(/\/+$/, '');
+  const url = invite ? inviteUrl(base, invite) : `${base}/login`;
+
+  const subject = plainLine(m.subject);
+  const heading = m.heading;
+  const intro = fill(m.intro);
+  const steps = [invite ? m.stepAccountLink : m.stepAccountLogin, m.stepCompany, m.stepEvent];
+  const notes = invite ? [fill(m.linkValidity), m.linkForward] : [];
+  const reason = fill(m.footerReason);
+  const fallback = fmt(t.mail.linkFallback, { url });
+
+  const text = [
+    heading,
+    '',
+    intro,
+    '',
+    m.howItWorks,
+    ...steps.map((step, i) => `${i + 1}. ${step}`),
+    '',
+    `${m.cta}: ${url}`,
+    '',
+    ...notes.flatMap((p) => [p, '']),
+    m.whyTitle,
+    ...m.benefits.map((b) => `- ${b}`),
+    '',
+    '--',
+    reason,
+    t.mail.footerSupport,
+  ].join('\n');
+
+  const e = escapeHtml;
+  const P = 'margin:0 0 16px;font-size:16px;line-height:1.5;';
+  const html = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(subject)}</title></head>
+<body style="margin:0;padding:24px;background:#f4f3f8;font-family:'Hanken Grotesk',Helvetica,Arial,sans-serif;color:#0B0B0D;">
+<div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;">
+<p style="margin:0 0 24px;font-weight:700;font-size:18px;">PlusOne</p>
+<h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;">${e(heading)}</h1>
+<p style="${P}">${e(intro)}</p>
+<h2 style="margin:24px 0 8px;font-size:16px;line-height:1.3;">${e(m.howItWorks)}</h2>
+<ol style="margin:0 0 20px;padding-left:22px;font-size:16px;line-height:1.5;">
+${steps.map((step) => `<li style="margin:0 0 4px;">${e(step)}</li>`).join('\n')}
+</ol>
+<p style="margin:0 0 12px;"><a href="${e(url)}" style="display:inline-block;background:#B5A6FF;color:#0B0B0D;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px;">${e(m.cta)}</a></p>
+<p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#55525e;word-break:break-all;overflow-wrap:anywhere;">${e(fallback)}</p>
+${notes.map((p) => `<p style="margin:0 0 12px;font-size:14px;line-height:1.5;color:#55525e;">${e(p)}</p>`).join('\n')}
+<h2 style="margin:24px 0 8px;font-size:16px;line-height:1.3;">${e(m.whyTitle)}</h2>
+<ul style="margin:0 0 20px;padding-left:22px;font-size:16px;line-height:1.5;">
+${m.benefits.map((b) => `<li style="margin:0 0 4px;">${e(b)}</li>`).join('\n')}
+</ul>
 <hr style="border:none;border-top:1px solid #e6e4ee;margin:8px 0 16px;">
 <p style="margin:0 0 8px;font-size:12px;line-height:1.5;color:#77737f;">${e(reason)}</p>
 <p style="margin:0;font-size:12px;line-height:1.5;color:#77737f;">${e(t.mail.footerSupport)}</p>
