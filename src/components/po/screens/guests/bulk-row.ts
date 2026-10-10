@@ -2,7 +2,7 @@
 // screen stays under the 800-LOC line. No React, no I/O: the screen owns state
 // and rendering, this module only folds a parsed line into an addable row.
 
-import { resolveAmbiguity, type AmbiguityChoice, type ParseResult } from '@/features/guests/quick-add-parser';
+import { PLUS_ONES_MAX, resolveAmbiguity, type AmbiguityChoice, type ParseResult } from '@/features/guests/quick-add-parser';
 import { t, fmt } from '@/lib/i18n';
 
 export interface ResolvedRow {
@@ -90,7 +90,11 @@ export function buildBulkRow(r: ParseResult, resolvedName: string, ed: RowFix | 
   phone = (ed?.phone ?? phone).trim();
 
   let error: string | null = null;
-  if (name === '') error = t.guests.bulk.errName;
+  // The count column (total people, share-import follow-up): 0, negative or not
+  // a number, or more than one line may bring (the guest schemas' bound).
+  if (r.countError) error = t.guests.bulk.errCount;
+  else if (r.plusOnes > PLUS_ONES_MAX) error = fmt(t.guests.bulk.errCountTooMany, { max: PLUS_ONES_MAX + 1 });
+  else if (name === '') error = t.guests.bulk.errName;
   else if (name.length > BULK_NAME_MAX) error = fmt(t.guests.bulk.errNameLong, { n: name.length });
   else if (email !== '' && !BULK_EMAIL_RE.test(email)) error = t.guests.bulk.errEmail;
   else if (phone !== '' && !isValidBulkPhone(phone)) error = t.guests.bulk.errPhone;
