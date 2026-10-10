@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   parseQuickAdd,
   parseBulk,
+  bulkLines,
+  isHeaderLine,
+  pasteSummary,
   resolveAmbiguity,
   totalSlots,
   type QuickAddTier,
@@ -383,5 +386,56 @@ describe('CSV-style columns (comma / semicolon / tab-separated paste)', () => {
     const [a, b] = parseBulk('Anouk Smit, anouk@mail.com, 0612345601, vip\nKoen Hendriks', TIERS, DEFAULT);
     expect(a).toMatchObject({ name: 'Anouk Smit', email: 'anouk@mail.com', phone: '0612345601', tierId: 'vip' });
     expect(b).toMatchObject({ name: 'Koen Hendriks', tierId: 'regular' });
+  });
+});
+
+describe('shared / pasted lists (share-import S2)', () => {
+  it('"Milan Hendriks +2" is one guest with two extra', () => {
+    const [r] = parseBulk('Milan Hendriks +2', TIERS, DEFAULT);
+    expect(r).toMatchObject({ name: 'Milan Hendriks', plusOnes: 2, slots: 3, tierId: 'regular' });
+  });
+
+  it('"Fleur Janssen fleur@example.com" is a guest with an e-mail', () => {
+    const [r] = parseBulk('Fleur Janssen fleur@example.com', TIERS, DEFAULT);
+    expect(r).toMatchObject({ name: 'Fleur Janssen', email: 'fleur@example.com', plusOnes: 0 });
+  });
+
+  it('reads Name<TAB>Email<TAB>+1 rows copied out of Sheets/Excel', () => {
+    const rows = parseBulk('Milan Hendriks\tmilan@example.com\t2\nFleur Janssen\t\t\nSem de Vries\tsem@example.com', TIERS, DEFAULT);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ name: 'Milan Hendriks', email: 'milan@example.com', plusOnes: 2 });
+    expect(rows[1]).toMatchObject({ name: 'Fleur Janssen', email: null, plusOnes: 0 });
+    expect(rows[2]).toMatchObject({ name: 'Sem de Vries', email: 'sem@example.com' });
+  });
+
+  it('skips a header row on the first line (tab, comma, Dutch)', () => {
+    expect(parseBulk('Name\tEmail\nMilan Hendriks\tmilan@example.com', TIERS, DEFAULT).map((r) => r.name)).toEqual(['Milan Hendriks']);
+    expect(bulkLines('Naam, E-mail, Telefoon\nFleur')).toEqual(['Fleur']);
+    expect(bulkLines('Full name;Phone number;+1\nSem')).toEqual(['Sem']);
+  });
+
+  it('never skips a real guest as a header', () => {
+    expect(isHeaderLine('Email')).toBe(false); // no name column → not a header
+    expect(isHeaderLine('Milan Hendriks, milan@example.com')).toBe(false);
+    expect(isHeaderLine('Name Hendriks')).toBe(false);
+    // Only the first line is ever checked.
+    expect(bulkLines('Milan\nName, Email')).toEqual(['Milan', 'Name, Email']);
+  });
+
+  it('strips bullets and numbering from Notes / WhatsApp lists', () => {
+    expect(bulkLines('- Milan +2\n• Fleur\n* Sem\n1. Noor\n12) Daan\n– Lotte')).toEqual([
+      'Milan +2', 'Fleur', 'Sem', 'Noor', 'Daan', 'Lotte',
+    ]);
+    // "+2" and phone numbers are not list markers.
+    expect(bulkLines('+2 Milan\n06 12345678 Fleur')).toEqual(['+2 Milan', '06 12345678 Fleur']);
+  });
+
+  it('counts entries, total guests and e-mails for the preview', () => {
+    const rows = parseBulk(
+      'Name\tEmail\nMilan Hendriks +2\nFleur Janssen fleur@example.com\nSem +1\nNoor noor@example.com\nDaan\nLotte +2',
+      TIERS,
+      DEFAULT,
+    );
+    expect(pasteSummary(rows)).toEqual({ entries: 6, guests: 11, withEmail: 2 });
   });
 });

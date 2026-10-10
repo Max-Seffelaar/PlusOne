@@ -182,6 +182,9 @@ Migration `20261013150000_platform_digest.sql`, Edge Function
   (`select public.kick_platform_digest();`, runbook triage row). A digest row does not
   start the 60-second recipient window of `log_mail_attempt`, so a team invite to a
   platform admin right after 07:45 still goes out.
+  A run that consumed its token but sent nothing (`mail_not_configured`, or an RPC error
+  after `begin`) also needs that manual kick. Only `failed` counts as "nothing left the
+  building": a `bounced` or `complained` digest counts as sent and is not resent.
 - **The function's response body is `{ "ok": true }` only.** pg_net keeps it in
   `net._http_response`, which app roles can read; the totals are in the function log.
 - **Without config it sleeps:** no Vault URL means no kick; no `RESEND_API_KEY` on the

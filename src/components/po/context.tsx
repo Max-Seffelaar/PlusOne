@@ -24,6 +24,7 @@ export type ScreenName =
   | 'import'
   | 'quickadd'
   | 'bulk'
+  | 'share'
   | 'aanvragen'
   | 'eventedit'
   | 'tiers'

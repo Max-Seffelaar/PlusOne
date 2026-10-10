@@ -60,6 +60,7 @@ export function navKeyForScreen(name: ScreenName, _props: ScreenProps): string {
     case 'pastevent':
       return 'events';
     case 'guest':
+    case 'share':
       return 'guests';
     case 'contacten':
     case 'contactprofile':

@@ -8,6 +8,31 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
+
+Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.
+
+- **Manifest:** `share_target` (GET, `title`/`text`/`url`) → `/app/share`. On Android Chrome the installed PWA shows up in the share sheet.
+- **`/app/share` (screen `share`, G1 route, nav highlight Guests):** `screens/share.tsx` mounts Paste a list with `share`. The text pre-fills the box. Event picker defaults to the next upcoming event, tier picker sets the tier for lines that name none. After Add the screen replaces itself with that event's guest list.
+- **Share inbox** (`src/features/guests/share-inbox.ts`): in-memory only. `captureShareFromLocation` moves `text` (else `title`; `url` is never a list) from the query or a `#text=` fragment into memory and rewrites the URL with `history.replaceState(null, …)`. Gotchas:
+  - Passing Next's own `history.state` (`__NA`) cleans the address bar but not the router, so the import's server-action POST still went to `/app/share?text=…`. The flow caught this in the dev-server log.
+  - Reads are non-destructive. The shell keys its screen on the full URL (entrance animation), so the URL rewrite remounts the screen and a read-once inbox left the remounted screen empty. The text is cleared after a successful import. S6's native plugin calls `putSharedText`.
+- **Parser** (`quick-add-parser.ts`): `bulkLines` strips list markers (`-`, `•`, `*`, `1.`, `2)`) and skips a first-line column header ("Name<TAB>Email", "Naam, E-mail, Telefoon"). Tab/comma columns, e-mail and phone per line already worked. `pasteSummary` feeds the new preview count line "4 entries · 7 guests total · 2 with e-mail" (also on the normal Paste a list).
+- **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
+- **Service-worker share hop (Max 2026-10-09, option a; high-risk → fresh reviewer before merge):** with GET alone, the launch `/app/share?text=…` reached the server once (the dev server printed it; Vercel logs URLs). The SW's network-first path also stored it in the session cache under that URL, and a signed-out share carried it into `/login?next=…`.
+  - `public/service-worker.js` now answers that navigation itself with a 303 to `/app/share#text=…`: no fetch, no cache write. Every other navigation is unchanged.
+  - The Sentry scrubber now also strips URL fragments.
+- **Review round (fresh reviewer: verdict clean, 0 blocking, 3 should-fix, 6 nits), all fixed:**
+  - **S1:** without a SW, `replaceState` cleaned the address bar but not Next's router tree. The tree kept `__PAGE__?{"text":…}` in `history.state` and sent it back as `Next-Router-State-Tree` on the next navigation. The query path now does `location.replace('/app/share#…')`, a fresh document without the query. The flow proves it (Q2 checks `history.state`, Q6 the header); Q2 failed before the fix.
+  - **S2:** the window without a SW is wider than "first launch". It is: (a) installed from `/` and shared before the first signed-in `/app`; (b) after clear site data or eviction; (c) the pre-PR worker during an update, which caches the query URL in session-v1. This is now documented in the SW header, spec #33 and here. **Middleware** (`loginNextPath`, and `requestPathForHeader` for the /app gates) drops `text`/`title`/`url` from `next=` on `/app/share` only.
+  - **S3:** a signed-out share with the SW lands on `/login?next=/app/share#text=…`, because the fragment rides the 307. The login form drops it unread (`dropShareFragment`). The scrubber also catches a keyed fragment on a single-segment path. The empty share box says "Nothing came through? Share the list again, or paste it below." New flow check Q14.
+  - **Nits:** N1 the SW hops `/app/share/` too. N3 the cors test also checks fetch and cache. N4 a spec line: the native shell gets OS shares only with S6. N5 the `Select` restyle is named in the PR. N6 leaving the share screen clears the inbox.
+- **Found, not fixed (in the PR):**
+  - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
+- **Tests:** flow `share` (Q1–Q14 × 4 variants, all green locally; Q14: signed out with the SW, `/login?next=/app/share` without a fragment; Q13: with an active SW no request with the text reaches the network, cross-checked in the dev-server log; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), SW share-hop tests (+6 in `service-worker-cache-scope.test.ts`), scrub fragment test, routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+
+---
+
 ## 2026-10-08 — Platform R vervolg: daily platform digest (z8uq9m2ybj, golf D, §9 item 19)
 
 Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (new service-role path + scheduler): fresh reviewer session before merge. Merges after vervolg A (`20261013140000`). No prod push, nothing deployed, nothing live.
@@ -38,6 +63,7 @@ Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (n
   - Spec decision renumbered to #57 (#56 went to #438).
   - Migration moved to `20261013150000` (prod already had `20261013120000`); #439 landed as `20261013140000`. The `mail_log` type constraint keeps `platform_invite` from `20261013130000`.
   - Full run on main + this branch: pgTAP 98 files / 2515 assertions, `CI=1 pnpm test` 284 files green.
+  - Delta review clean (no blockers). Its two doc nits are now in the runbook and `docs/mail-deliverability.md`: a consumed token without a send (`mail_not_configured`, RPC error) needs a manual kick, and `bounced`/`complained` count as sent.
 
 ---
 
