@@ -347,6 +347,11 @@ begin
     return jsonb_build_object('found', false);
   end if;
 
+  -- 1. The submitter's own row (the fresh-submission path). The confirmed
+  --    count is the recorded approved one, or — for an approval that predates
+  --    the column, or an auto-approval — the requested one, which is exactly
+  --    what those paths put on the guest. No venues join: the company address
+  --    is never part of this payload (z8uq9m444c).
   select gr.full_name, gr.status, gr.plus_ones,
          coalesce(gr.approved_plus_ones, gr.plus_ones) as approved_plus_ones,
          gr.decision_message,
@@ -358,6 +363,13 @@ begin
   where gr.status_token_hash = p_token_hash
     and gr.anonymized_at is null;
 
+  -- 2. z8uq9m0h2v — a mirror: the token of a submission that was silently
+  --    deduped against the row it points at. It answers with the name and
+  --    plus-ones THAT caller submitted, never the row's own; the request's live
+  --    `status` is the only field taken from the row. z8uq9m0hw6: a mirror gets
+  --    nothing the venue decided on approval (no confirmed count, no message).
+  --    The event location is no decision: it is on the share link the mirror
+  --    caller submitted through, so a mirror gets it like everyone else.
   if not found then
     select m.full_name, gr.status, m.plus_ones,
            null::integer as approved_plus_ones, null::text as decision_message,
@@ -388,9 +400,13 @@ begin
     'approved_plus_ones',
       case when v_approved then v_row.approved_plus_ones end,
     'decision_message',
+      -- z8uq9m2vga: the venue note on a declined request too (mandatory on
+      -- any decline). Own token only: the mirror branch selects null for it.
       case when v_row.status in ('approved', 'denied') then v_row.decision_message end,
     'location_name', nullif(btrim(v_row.location_name), ''),
     'location_address', nullif(btrim(v_row.location_address), ''),
+    -- Contract pending: always null since z8uq9m444c. Kept so the app version
+    -- deployed before this migration parses the payload; dropped later.
     'venue_address_line', null,
     'venue_postal_code', null,
     'venue_city', null
@@ -489,6 +505,12 @@ security definer
 set search_path = ''
 as $$
 declare
+  -- One emptiness rule for every free-text field (86eyke279). The single-arg
+  -- btrim() this function used before strips ASCII SPACE only, so a phone of
+  -- E'\t' survived it as a "value" — exactly the kind of input a hand-rolled
+  -- client sends and a browser never does. Naming the whitespace set makes
+  -- '', '   ' and E'\t\n' provably identical here, independent of collation
+  -- (unlike [[:space:]], whose membership is ctype-dependent).
   ws           constant text := E' \t\n\r\f\x0B';
   v_link       public.request_links;
   v_venue      uuid;
@@ -512,19 +534,63 @@ begin
     return jsonb_build_object('status', 'invalid');
   end if;
 
+  -- 86eyke279 — both contact fields must be PRESENT. NULL, '' and
+  -- whitespace-only are one and the same case: nothing the venue can reach.
   if v_email is null or v_phone is null then
     return jsonb_build_object('status', 'invalid');
   end if;
 
+  -- ...and USABLE. A required field that accepts 'x' is theatre: the point of
+  -- the rule is a working channel, not a filled box. These checks are
+  -- deliberately LOOSER than the app's Zod schema (EMAIL_RE / E.164) —
+  -- everything the client accepts passes here, so a stricter client can never
+  -- be silently overruled by the database, while a raw anon caller still can't
+  -- store junk. The phone shape is the app's own E.164 rule: it is what the
+  -- form already emits, and a number without a country code is unreachable
+  -- from a Dutch door phone anyway. v_email also gets an explicit length cap
+  -- (matching Zod's `.max(254)`) — unlike phone, the shape regex alone puts no
+  -- upper bound on it, and this is an anon write path: a multi-KB "e-mail"
+  -- would otherwise sit in the table (up to ~2.7KB, the dedupe index's row-size
+  -- ceiling) or blow past that ceiling and 500 the whole request (86eyke279).
   if char_length(v_email) > 254
      or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]{2,}$'
      or v_phone !~ '^\+[1-9][0-9]{1,14}$' then
     return jsonb_build_object('status', 'invalid');
   end if;
 
+  -- z8uq9m0h2v F-1 — the status-token hash is anon-controlled, UNBOUNDED text
+  -- and lands in a unique BTREE index on both paths. Past that index's
+  -- ~2704-byte row ceiling postgres raises 54000, and since 20260918140000 the
+  -- two paths write to DIFFERENT indexes, so the error MESSAGE names which
+  -- branch ran ("guest_request_status_mirrors_token_idx" vs
+  -- "guest_requests_status_token_idx"). SQLSTATE is 54000 either way, but
+  -- PostgREST forwards postgres' message/detail verbatim in its 500 body — so
+  -- that difference is a one-call "does this e-mail already have a pending
+  -- request?" oracle, in exactly the class 20260918140000 set out not to
+  -- create. Found by the fresh-session security review of PR #300.
+  --
+  -- Capping the argument closes it at the source: neither path can reach the
+  -- ceiling, so neither can raise. This is the same rule 86eyke279 already
+  -- applies to v_email a few lines up, for the same index-row-size reason. The
+  -- app sends a 64-char sha256 hex; 128 leaves headroom for a format change.
+  --
+  -- The cap is on char_length, deliberately: a byte-size test would be fooled
+  -- the way a naive REPRODUCTION is — repeat('A', 5000) never reaches the
+  -- ceiling because pglz compresses it inside the index tuple, so only
+  -- incompressible input (random base64) triggers the raise.
   if p_status_token_hash is not null and char_length(p_status_token_hash) > 128 then
     return jsonb_build_object('status', 'invalid');
   end if;
+
+  -- The guards above all sit BEFORE the throttle, exactly where the pre-existing
+  -- name check sits, and that placement is load-bearing for #28: they are decided
+  -- purely from the caller's own arguments, before any slug, link or row of
+  -- ours is read. An 'invalid' answer therefore echoes back only what the
+  -- caller already sent and discloses nothing about which events, links or
+  -- guests exist — so it is safe to answer it without spending throttle
+  -- budget. Moving them below the throttle would buy nothing (an attacker
+  -- probing for slugs sends well-formed contact details anyway) and would make
+  -- a malformed retry cost a legitimate visitor their quota.
 
   if v_motivation is not null and char_length(v_motivation) > 1000 then
     v_motivation := left(v_motivation, 1000);
@@ -535,6 +601,9 @@ begin
     return jsonb_build_object('status', 'rate_limited');
   end if;
 
+  -- Resolve the LINK, only while open (per-link active/expiry AND the event
+  -- master switch + not cancelled). Unknown, paused, expired and deactivated
+  -- are indistinguishable (#28).
   select rl.* into v_link
   from public.request_links rl
   where rl.slug = p_slug
@@ -543,9 +612,14 @@ begin
     return jsonb_build_object('status', 'closed');
   end if;
 
+  -- Dedup fingerprint: e-mail, else phone digits (name-only stays NULL).
   v_phone_dig := nullif(regexp_replace(coalesce(v_phone, ''), '[^0-9]', '', 'g'), '');
   v_key := coalesce(v_email, v_phone_dig);
 
+  -- Insert. A duplicate PENDING request (same event + fingerprint, any link)
+  -- trips the partial unique index; the caller still walks away with a working
+  -- status URL and cannot tell "new" from "duplicate" (#28) — see the dedup
+  -- branch for how that is done without touching the existing row.
   begin
     insert into public.guest_requests
       (event_id, full_name, email, phone, plus_ones, motivation,
@@ -555,7 +629,26 @@ begin
        v_marketing, v_key, p_birthdate, v_link.id, p_status_token_hash)
     returning id into v_request_id;
   exception when unique_violation then
-    -- Silent dedup + status-token mirror (z8uq9m0h2v; see 20260918160000).
+    -- z8uq9m0h2v. This used to be:
+    --
+    --     update public.guest_requests
+    --     set status_token_hash = p_status_token_hash
+    --     where event_id = ... and dedupe_key = ... and status = 'pending';
+    --
+    -- i.e. it pointed a CALLER-CHOSEN token at a row belonging to whoever owns
+    -- that e-mail address, and orphaned that person's own status URL in the
+    -- same statement. See the header for the full reproduction.
+    --
+    -- Now: the existing row is never written to. The caller's token is bound
+    -- to the name and plus-ones THEY just submitted, so their status URL
+    -- resolves — with their own identity on it, exactly as a fresh submission
+    -- would answer — while the existing requester keeps theirs.
+    --
+    -- Resolve the duplicate EXPLICITLY rather than re-using the old blind
+    -- UPDATE's predicate: this exception also fires for a collision on
+    -- guest_requests_status_token_idx, where there is no pending duplicate at
+    -- all and the old statement quietly matched zero rows. Being explicit
+    -- keeps that case from writing a mirror onto an unrelated request.
     v_dup_id := null;
     if v_key is not null then
       select gr.id into v_dup_id
@@ -563,11 +656,24 @@ begin
       where gr.event_id = v_link.event_id
         and gr.dedupe_key = v_key
         and gr.status = 'pending'
+        -- z8uq9m0h2v F-2: retention anonymizes a request but leaves it
+        -- `pending` with its dedupe_key intact, so it keeps occupying the
+        -- partial unique index and later submissions keep landing here. A
+        -- mirror on such a row is unreadable by construction
+        -- (get_request_status refuses an anonymized request), so writing one
+        -- only parks a fresh caller's real name in a table no retention run
+        -- would ever reach again. Skipping the write changes nothing the
+        -- caller can observe: with or without it that token answers
+        -- {"found": false}. Verified on the live stack both ways.
         and gr.anonymized_at is null;
     end if;
 
     if v_dup_id is not null
        and p_status_token_hash is not null
+       -- Never let a mirror shadow, or be shadowed by, a real status token.
+       -- Only reachable by a caller who already holds another requester's
+       -- token; refusing it here means it cannot be set up from the anon side
+       -- at all.
        and not exists (
          select 1 from public.guest_requests gr2
          where gr2.status_token_hash = p_status_token_hash
@@ -584,6 +690,9 @@ begin
               plus_ones  = excluded.plus_ones,
               created_at = now();
       exception when unique_violation then
+        -- token_hash already taken by another mirror. Nothing to report: the
+        -- caller's URL simply will not resolve, which needs a 256-bit
+        -- collision or a token the caller already had.
         null;
       end;
     end if;
@@ -591,7 +700,7 @@ begin
     v_request_id := null; -- silent dedup: nothing more to do (no double auto-approve)
   end;
 
-  -- #8: capture into the venue address book.
+  -- #8: capture into the venue address book (unchanged from 20260625100000).
   if v_email is not null or v_phone_dig is not null then
     v_venue := public.event_venue(v_link.event_id);
     begin
@@ -624,15 +733,33 @@ begin
     end;
   end if;
 
-  -- Auto-approve (see 20260918160000 for the #28 / z8uq9m0gvy reasoning on
-  -- `auto_approved` = the requester's standing, not this call's insert).
+  -- Auto-approve (link opt-in; CHECK guarantees a pinned tier). Every guard
+  -- falls back to a PLAIN PENDING request — the submission never fails and the
+  -- requester never learns why (#28: link config/fullness is not enumerable).
+  --
+  -- z8uq9m0gvy: `auto_approved` reports the REQUESTER'S STANDING — "you hold an
+  -- approved spot for this event" — not whether THIS particular call did the
+  -- inserting. Those two read the same for a first-time submitter and came
+  -- apart for a repeat one, which is what made this endpoint an oracle; see the
+  -- long comment on the `elsif` below.
   if v_link.auto_approve then
+    -- Serialize concurrent auto-approvals on the same link (the max/tier
+    -- triggers recompute from committed state; the row lock closes the
+    -- read-committed race for this hot path).
     perform 1 from public.request_links rl where rl.id = v_link.id for update;
 
     select e.list_locked into v_locked
     from public.events e where e.id = v_link.event_id;
 
+    -- A locked list takes no automatic additions (#23). The insert AND the
+    -- answer both hang off this single check, so a locked list replies `false`
+    -- to every e-mail alike — lock state stays a property of the event, never
+    -- of who is asking (#28).
     if not v_locked then
+      -- Does this person already hold an approved request on this event? A
+      -- decided request frees the dedup key, so a re-submit lands as a NEW
+      -- pending row; that row is deliberate (staff judge the repeat manually)
+      -- and this flag only stops us approving the same person a second time.
       v_already := v_key is not null and exists (
         select 1 from public.guest_requests gr
         where gr.event_id = v_link.event_id
@@ -642,6 +769,9 @@ begin
 
       if v_request_id is not null and not v_already then
         begin
+          -- added_by NULL = the system decided (#4/#15); guests_added_by_check
+          -- allows it exactly for this shape. Tier-max (45002), link-max (45006)
+          -- and event capacity (45005) all roll back just this block.
           insert into public.guests
             (event_id, tier_id, full_name, email, phone, plus_ones,
              added_by, source, status, request_link_id, guest_request_id)
@@ -661,7 +791,10 @@ begin
           null; -- full: stays pending, indistinguishable for the requester
         end;
 
-        -- z8uq9m2vga: the approval mail (6a queue). Best effort and silent.
+        -- z8uq9m2vga: the approval mail (6a queue), queued here because the
+        -- anon caller never gets the guest id (#28). Best effort and silent:
+        -- a queue problem never fails or un-approves the submission, and
+        -- nothing about it reaches the answer.
         if v_auto then
           begin
             perform public.enqueue_guest_mail(
@@ -672,8 +805,36 @@ begin
         end if;
 
       elsif v_already then
-        -- Repeat submitter who already holds an approved spot: report the
-        -- standing (see 20260918160000). No new guest, no mail.
+        -- The one place this function used to break its own #28 promise. On an
+        -- auto-approve link with an unlocked list the answer was `false`
+        -- EXACTLY when the submitted e-mail already had an approved request —
+        -- so an anonymous caller could ask "is this named person on the list
+        -- for this event?" and read a reliable yes/no off the response, which
+        -- is precisely what the CLAUDE.md rule "public endpoints never reveal
+        -- whether a guest/e-mail exists" forbids. `p_ip_hash` is an argument,
+        -- so a direct PostgREST caller picks its own throttle bucket and probes
+        -- as often as it likes.
+        --
+        -- `true` is honest — they ARE on the list, and the landing page's "say
+        -- your name at the door" is the correct thing to tell them — and BELOW
+        -- CAPACITY it is the same answer a stranger gets under the same link +
+        -- lock state, so there is nothing left to compare.
+        --
+        -- AT CAPACITY it is NOT the same answer: the stranger's insert above is
+        -- rejected by the capacity triggers and leaves `v_auto` false, while
+        -- this arm skips the insert and reports `true`. That regime is a live
+        -- oracle introduced here; it is recorded as such in the header and in
+        -- docs/security-audit.md §4A rather than glossed as pre-existing.
+        --
+        -- Note this arm is reached from BOTH shapes of repeat submission: with
+        -- a fresh pending row (v_request_id set), and via the silent-dedup path
+        -- above (v_request_id null, a pending row was already there). Covering
+        -- only the first would move the oracle one probe later rather than
+        -- close it — a deduped second probe would answer `false` again.
+        --
+        -- What this does NOT change: the new pending row still lands and still
+        -- waits for staff. The requester is told about their spot, not about
+        -- the bookkeeping.
         v_auto := true;
       end if;
     end if;
