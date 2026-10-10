@@ -36,6 +36,17 @@ describe('renderTeamNotify', () => {
     expect(many.text).toContain('12 requests for Neon Friday came in over the last hour.');
   });
 
+  it('a bundle over more than one event names the company, not one event (review #458 S3)', () => {
+    const many = renderTeamNotify({ ...base, event: null, count: 12, request: null });
+    expect(many.subject).toBe('12 new requests at Club Vesper');
+    expect(many.text).toContain('12 requests for events at Club Vesper came in over the last hour.');
+    expect(many.text).not.toContain('Neon Friday');
+    expect(many.buttonUrl).toBe('https://app.plus-one.io/app/requests');
+    const quota = renderTeamNotify({ ...base, type: 'team_quota', event: null, count: 3, request: null, quota: { requester: 'Tom', extra: 2 } });
+    expect(quota.subject).toBe('3 quota requests at Club Vesper');
+    expect(quota.buttonUrl).toBe('https://app.plus-one.io/app/requests/quota');
+  });
+
   it('a quota request names the team member and the exact extra spots', () => {
     const r = renderTeamNotify({ ...base, type: 'team_quota', request: null, quota: { requester: 'Tom Bakker', extra: 3 } });
     expect(r.subject).toBe('Tom Bakker wants 3 more guests for Neon Friday');

@@ -15,6 +15,9 @@
 --      token.
 --   H. mail_log: the four types exist, log_mail_attempt refuses them, the
 --      invitation cap ignores them.
+--   I. Review #458: access re-checked per member at send time (admin role
+--      lost, membership removed, a platform admin without a membership), a
+--      bundle over two events names none, the daily budget, email: null.
 --
 -- Everything rolls back.
 
@@ -70,7 +73,7 @@ returns jsonb language sql security definer as $fn$
 $fn$;
 grant execute on function pg_temp.prefs(uuid) to anon, authenticated, service_role;
 
-select plan(43);
+select plan(53);
 
 -- Seed: Club Vesper (aa…01): Max 1111 admin, Noor 2222 user_manager, Femke
 -- 3333 finance, Tom 5555 staff, Lisa 6666 doorhost+staff; Yusuf 4444
@@ -284,6 +287,119 @@ select is(
   (select m ->> 'type' || '|' || (m ->> 'to') || '|' || (m -> 'decision' ->> 'status')
      from claims, jsonb_array_elements(j -> 'mails') m where k = 'e2'),
   'team_decision|staff@plusone.test|approved', 'E3 the decision goes back to the requester');
+
+-- ---------------------------------------------------------------------------
+-- I. Access at send time, bundles, budget (review #458)
+-- ---------------------------------------------------------------------------
+
+-- I1/I2 (S2): Noor is made admin, a request queues mail for her and Max,
+-- then she loses the admin role before the job runs.
+select pg_temp.as_owner();
+update public.venue_memberships set roles = roles || '{admin}'::public.venue_role[]
+ where venue_id = 'aa000000-0000-7000-8000-000000000001' and user_id = '22222222-2222-4222-8222-222222222222';
+insert into public.guest_requests (id, event_id, full_name)
+values ('9e000000-0000-7000-8000-000000000011', 'ee000000-0000-7000-8000-000000000001', 'Iris');
+update public.venue_memberships set roles = array_remove(roles, 'admin'::public.venue_role)
+ where venue_id = 'aa000000-0000-7000-8000-000000000001' and user_id = '22222222-2222-4222-8222-222222222222';
+select pg_temp.login_service();
+insert into claims select 'i1', public.team_mails_claim(50);
+select is(
+  (select array_agg(m ->> 'to' order by m ->> 'to') from claims, jsonb_array_elements(j -> 'mails') m where k = 'i1'),
+  array['admin@plusone.test'], 'I1 only the admin who still is one gets the request mail');
+select pg_temp.as_owner();
+select is(
+  (select status || ':' || last_error from public.notification_outbox
+    where source_id = '9e000000-0000-7000-8000-000000000011' and channel = 'email'
+      and recipient_user_id = '22222222-2222-4222-8222-222222222222'),
+  'skipped:no_access', 'I2 the ex-admin''s row is skipped as no_access');
+
+-- I3/I4 (B1): Tom files two quota requests; one is decided while he is
+-- still in the team, then his membership is removed, then the other one.
+insert into public.quota_requests (id, event_id, user_id, requested_extra, venue_id)
+values ('9f000000-0000-7000-8000-000000000011', 'ee000000-0000-7000-8000-000000000001',
+        '55555555-5555-4555-8555-555555555555', 2, 'aa000000-0000-7000-8000-000000000001'),
+       ('9f000000-0000-7000-8000-000000000012', 'ee000000-0000-7000-8000-000000000001',
+        '55555555-5555-4555-8555-555555555555', 4, 'aa000000-0000-7000-8000-000000000001');
+update public.user_notification_prefs set notification_prefs = '{}'
+ where user_id = '55555555-5555-4555-8555-555555555555';
+update public.quota_requests
+   set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
+ where id = '9f000000-0000-7000-8000-000000000011';
+delete from public.venue_memberships
+ where venue_id = 'aa000000-0000-7000-8000-000000000001' and user_id = '55555555-5555-4555-8555-555555555555';
+update public.quota_requests
+   set status = 'approved', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
+ where id = '9f000000-0000-7000-8000-000000000012';
+select ok(
+  not exists (select 1 from public.notification_outbox
+               where source_id = '9f000000-0000-7000-8000-000000000012' and kind = 'quota_request_decided'),
+  'I3 a decision after the requester left the company queues no push and no mail');
+select pg_temp.login_service();
+insert into claims select 'i3', public.team_mails_claim(50);
+select ok(
+  not exists (select 1 from claims, jsonb_array_elements(j -> 'mails') m
+               where k = 'i3' and m ->> 'to' = 'staff@plusone.test'),
+  'I4 a decision queued before they left is not mailed either');
+select pg_temp.as_owner();
+select is(
+  (select status || ':' || last_error from public.notification_outbox
+    where source_id = '9f000000-0000-7000-8000-000000000011' and kind = 'quota_request_decided' and channel = 'email'),
+  'skipped:no_access', 'I5 skipped as no_access');
+
+-- I6 (#49): a platform admin without a membership gets no team mail row.
+select set_config('plusone.platform_admin_write', 'on', true);
+update public.user_profiles set is_platform_admin = true where id = '44444444-4444-4444-8444-444444444444';
+insert into public.quota_requests (id, event_id, user_id, requested_extra, venue_id)
+values ('9f000000-0000-7000-8000-000000000013', 'ee000000-0000-7000-8000-000000000001',
+        '66666666-6666-4666-8666-666666666666', 1, 'aa000000-0000-7000-8000-000000000001');
+select ok(
+  not exists (select 1 from public.notification_outbox
+               where source_id = '9f000000-0000-7000-8000-000000000013'
+                 and recipient_user_id = '44444444-4444-4444-8444-444444444444'),
+  'I6 a platform admin without a membership gets no row (#49)');
+update public.user_profiles set is_platform_admin = false where id = '44444444-4444-4444-8444-444444444444';
+
+-- I7 (S3): one bundle slot over two events names no event.
+select pg_temp.login_service();
+select public.team_mails_claim(50); -- clear I6's quota mail
+select pg_temp.as_owner();
+insert into public.events (id, venue_id, name, starts_at, landing_slug)
+values ('ee000000-0000-7000-8000-0000000000b2', 'aa000000-0000-7000-8000-000000000001',
+        'Second Night', now() + interval '10 days', 'pgtap-second-night');
+insert into public.guest_requests (id, event_id, full_name)
+values ('9e000000-0000-7000-8000-000000000021', 'ee000000-0000-7000-8000-000000000001', 'Ada'),
+       ('9e000000-0000-7000-8000-000000000022', 'ee000000-0000-7000-8000-0000000000b2', 'Bo');
+update public.notification_outbox set collapse_key = 'pgtap-slot', deliver_after = now()
+ where source_id in ('9e000000-0000-7000-8000-000000000021', '9e000000-0000-7000-8000-000000000022')
+   and channel = 'email';
+select pg_temp.login_service();
+insert into claims select 'i7', public.team_mails_claim(50);
+select is(
+  (select (m ->> 'count') || '|' || coalesce(m -> 'event' ->> 'name', 'no event') || '|' || (m -> 'company' ->> 'name')
+     from claims, jsonb_array_elements(j -> 'mails') m
+    where k = 'i7' and m ->> 'to' = 'admin@plusone.test'),
+  '2|no event|Club Vesper', 'I7 two events in one bundle: the count and the company, no event');
+
+-- I8/I9 (S1): over the company's daily budget, rows wait.
+select pg_temp.as_owner();
+insert into public.mail_log (type, venue_id, recipient_hash)
+select 'team_request', 'aa000000-0000-7000-8000-000000000001', repeat('c', 64)
+  from generate_series(1, public.team_mail_venue_daily_cap());
+insert into public.guest_requests (id, event_id, full_name)
+values ('9e000000-0000-7000-8000-000000000031', 'ee000000-0000-7000-8000-000000000001', 'Cas');
+select pg_temp.login_service();
+select is(jsonb_array_length(public.team_mails_claim(50) -> 'mails'), 0,
+  'I8 the company spent its daily team mail budget: no mail');
+select pg_temp.as_owner();
+select is(
+  (select status from public.notification_outbox
+    where source_id = '9e000000-0000-7000-8000-000000000031' and channel = 'email'),
+  'pending', 'I9 the row waits (pending), it is not dropped');
+
+-- I10 (N1): an email mode that is not a string is refused.
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok($$ select public.set_my_notification_prefs('{"requests": {"email": null}}') $$,
+  '23514', null, 'I10 "email": null is refused, never stored as a silent "off"');
 
 -- ---------------------------------------------------------------------------
 -- F. The daily summary

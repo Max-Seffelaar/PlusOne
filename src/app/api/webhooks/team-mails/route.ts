@@ -5,7 +5,9 @@
 // user session: the middleware exempts /api/webhooks/, and authentication is
 // team_mails_begin(), which CONSUMES the token before anything is read and
 // refuses (42501) an unknown, expired or reused one. Nothing from the body is
-// read. Responses carry counts only.
+// read. A success answers {"ok":true} only: pg_net keeps every response in
+// net._http_response, which app roles can read, so the counts go to the
+// server log instead (the #440/#446/#453 rule; review #458).
 
 import { defaultTeamMailDeps, runTeamMailsRoute } from '@/features/mail/team-job';
 
@@ -16,8 +18,9 @@ export const maxDuration = 60;
 
 export async function POST(req: Request): Promise<Response> {
   const result = await runTeamMailsRoute(req.headers.get('x-team-mails-token'), defaultTeamMailDeps());
-  const body = result.status === 200 ? result.totals : { error: result.error };
-  return Response.json(body, { status: result.status });
+  if (result.status !== 200) return Response.json({ error: result.error }, { status: result.status });
+  console.info(JSON.stringify({ job: 'team-mails', event: 'run', ...result.totals }));
+  return Response.json({ ok: true }, { status: 200 });
 }
 
 export function GET(): Response {

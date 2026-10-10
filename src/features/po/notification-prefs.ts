@@ -3,7 +3,8 @@
 // Profile → Notifications (6b): the caller's own preferences. Read through the
 // my_notification_prefs RPC (the table is closed to app roles), written
 // through saveNotificationPrefsAction. Optimistic: the switch moves at once,
-// a failed save rolls it back.
+// a failed save rolls it back. A change is applied to the latest cached value,
+// so quick taps never overwrite each other.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
@@ -30,21 +31,34 @@ export function usePoNotificationPrefs() {
 export function usePoSaveNotificationPrefs() {
   const { userId } = usePoIdentity();
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (prefs: NotificationPrefs) => {
-      const res = await saveNotificationPrefsAction(prefs);
+  const mutationKey = [...prefsKey(userId), 'save'] as const;
+  const mutation = useMutation({
+    mutationKey,
+    mutationFn: async ({ next }: { next: NotificationPrefs; before: NotificationPrefs | undefined }) => {
+      const res = await saveNotificationPrefsAction(next);
       if (!res.ok) throw new Error(res.message ?? 'save failed');
       return res.prefs;
     },
-    onMutate: async (prefs) => {
-      await qc.cancelQueries({ queryKey: prefsKey(userId) });
-      const before = qc.getQueryData<NotificationPrefs>(prefsKey(userId));
-      qc.setQueryData(prefsKey(userId), prefs);
-      return { before };
+    onError: (_e, { before }) => {
+      if (before) qc.setQueryData(prefsKey(userId), before);
     },
-    onError: (_e, _prefs, ctx) => {
-      if (ctx?.before) qc.setQueryData(prefsKey(userId), ctx.before);
+    // Only the last save in flight writes the server's answer back, so an
+    // earlier answer never undoes a later tap.
+    onSuccess: (prefs) => {
+      if (qc.isMutating({ mutationKey }) <= 1) qc.setQueryData(prefsKey(userId), prefs);
     },
-    onSuccess: (prefs) => qc.setQueryData(prefsKey(userId), prefs),
   });
+  /**
+   * Apply a change to the LATEST preferences, synchronously: two quick taps
+   * each build on the one before (review #458 N6), never on a stale render.
+   */
+  const update = (change: (prefs: NotificationPrefs) => NotificationPrefs): void => {
+    const before = qc.getQueryData<NotificationPrefs>(prefsKey(userId));
+    if (!before) return;
+    const next = change(before);
+    void qc.cancelQueries({ queryKey: prefsKey(userId), exact: true });
+    qc.setQueryData(prefsKey(userId), next);
+    mutation.mutate({ next, before });
+  };
+  return { ...mutation, update };
 }

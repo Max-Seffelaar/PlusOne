@@ -12,7 +12,14 @@ import { DEFAULT_NOTIFICATION_PREFS } from '@/features/notifications/prefs-schem
 const H = vi.hoisted(() => ({ mutate: vi.fn(), prefs: null as unknown }));
 vi.mock('@/features/po/notification-prefs', () => ({
   usePoNotificationPrefs: () => ({ data: H.prefs }),
-  usePoSaveNotificationPrefs: () => ({ mutate: H.mutate, isPending: false, isError: false, isSuccess: false }),
+  // update(change) applies the change to the current value; the test records
+  // the resulting object.
+  usePoSaveNotificationPrefs: () => ({
+    update: (change: (p: unknown) => unknown) => H.mutate(change(H.prefs)),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+  }),
 }));
 
 import { NotificationPrefsSection } from './notification-prefs';

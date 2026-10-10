@@ -74,6 +74,18 @@ describe('parseTeamMail', () => {
   });
 });
 
+describe('parseTeamMail: a bundle over more than one event (review #458 S3)', () => {
+  it('takes a bundled request or quota mail without an event', () => {
+    expect(parseTeamMail(claimed({ event: null, count: 5 }))?.event).toBeNull();
+    expect(parseTeamMail(claimed({ type: 'team_quota', event: null, count: 2, quota: { requester: 'Tom', extra: 1 } }))).not.toBeNull();
+  });
+
+  it('still refuses a single mail or a decision without its event', () => {
+    expect(parseTeamMail(claimed({ event: null, count: 1 }))).toBeNull();
+    expect(parseTeamMail(claimed({ type: 'team_decision', event: null, count: 2, decision: { status: 'approved', extra: 1 } }))).toBeNull();
+  });
+});
+
 describe('buildTeamMail', () => {
   it('one-click unsubscribe headers, the /n link, the mail_log idempotency key', () => {
     const m = parseTeamMail(claimed());

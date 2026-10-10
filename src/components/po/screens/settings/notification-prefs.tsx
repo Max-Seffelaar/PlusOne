@@ -64,7 +64,7 @@ export function NotificationPrefsSection({
   const prefs = q.data;
   if (!prefs) return null;
 
-  const set = (next: NotificationPrefs): void => save.mutate(next);
+  const set = (change: (p: NotificationPrefs) => NotificationPrefs): void => save.update(change);
   const modes = [
     ['immediate', p.emailImmediate],
     ['daily', p.emailDaily],
@@ -80,11 +80,11 @@ export function NotificationPrefsSection({
         title={p.requestsTitle}
         sub={p.requestsSub}
         push={prefs.requests.push}
-        onPush={(v) => set({ ...prefs, requests: { ...prefs.requests, push: v } })}
+        onPush={(v) => set((p) => ({ ...p, requests: { ...p.requests, push: v } }))}
         email={
           <Seg<EmailMode>
             value={prefs.requests.email}
-            onChange={(v) => set({ ...prefs, requests: { ...prefs.requests, email: v }, digest: v === 'daily' ? true : prefs.digest })}
+            onChange={(v) => set((p) => ({ ...p, requests: { ...p.requests, email: v }, digest: v === 'daily' ? true : p.digest }))}
             items={modes}
             className="max-w-[360px]"
           />
@@ -100,11 +100,11 @@ export function NotificationPrefsSection({
         title={p.quotaTitle}
         sub={p.quotaSub}
         push={prefs.quota.push}
-        onPush={(v) => set({ ...prefs, quota: { ...prefs.quota, push: v } })}
+        onPush={(v) => set((p) => ({ ...p, quota: { ...p.quota, push: v } }))}
         email={
           <Seg<EmailMode>
             value={prefs.quota.email}
-            onChange={(v) => set({ ...prefs, quota: { ...prefs.quota, email: v }, digest: v === 'daily' ? true : prefs.digest })}
+            onChange={(v) => set((p) => ({ ...p, quota: { ...p.quota, email: v }, digest: v === 'daily' ? true : p.digest }))}
             items={modes}
             className="max-w-[360px]"
           />
@@ -119,11 +119,11 @@ export function NotificationPrefsSection({
       title={p.decisionsTitle}
       sub={p.decisionsSub}
       push={prefs.decisions.push}
-      onPush={(v) => set({ ...prefs, decisions: { ...prefs.decisions, push: v } })}
+      onPush={(v) => set((p) => ({ ...p, decisions: { ...p.decisions, push: v } }))}
       email={
         <Toggle
           on={prefs.decisions.email}
-          onClick={() => set({ ...prefs, decisions: { ...prefs.decisions, email: !prefs.decisions.email } })}
+          onClick={() => set((p) => ({ ...p, decisions: { ...p.decisions, email: !p.decisions.email } }))}
           ariaLabel={`${p.decisionsTitle}: ${p.email}`}
         />
       }
@@ -143,7 +143,7 @@ export function NotificationPrefsSection({
               <div className="font-body text-[14.5px] font-semibold text-text">{p.digestTitle}</div>
               <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{p.digestSub}</div>
             </div>
-            <Toggle on={prefs.digest} onClick={() => set({ ...prefs, digest: !prefs.digest })} ariaLabel={p.digestTitle} />
+            <Toggle on={prefs.digest} onClick={() => set((p) => ({ ...p, digest: !p.digest }))} ariaLabel={p.digestTitle} />
           </div>
         )}
       </div>

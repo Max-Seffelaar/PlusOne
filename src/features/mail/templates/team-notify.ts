@@ -60,6 +60,7 @@ export function renderTeamNotify(content: TeamNotifyContent): RenderedTeamNotify
     event_date: ev ? eventDate(ev.startsAt) : '',
     event_time: ev ? eventTime(ev.startsAt) : '',
     count: content.count,
+    company: clean(content.company),
   };
   const fill = (s: string, extra: Record<string, string | number> = {}) => fmt(s, { ...vars, ...extra });
 
@@ -75,8 +76,8 @@ export function renderTeamNotify(content: TeamNotifyContent): RenderedTeamNotify
     const guest = r?.firstName ? clean(r.firstName) : '';
     const people = peopleLabel(Math.max(0, Math.trunc(r?.plusOnes ?? 0)) + 1);
     if (content.count > 1) {
-      subject = fill(c.request.subjectMany);
-      intro = fill(c.request.introMany);
+      subject = fill(ev ? c.request.subjectMany : c.request.subjectManyEvents);
+      intro = fill(ev ? c.request.introMany : c.request.introManyEvents);
     } else {
       subject = fill(guest ? c.request.subject : c.request.subjectNoName, { guest_first_name: guest });
       intro = fill(guest ? c.request.intro : c.request.introNoName, { guest_first_name: guest, people });
@@ -86,8 +87,9 @@ export function renderTeamNotify(content: TeamNotifyContent): RenderedTeamNotify
   } else if (content.type === 'team_quota') {
     const q = content.quota;
     const extra = { requester: clean(q?.requester ?? ''), extra: Math.max(0, Math.trunc(q?.extra ?? 0)) };
-    subject = fill(content.count > 1 ? c.quota.subjectMany : c.quota.subject, extra);
-    intro = fill(content.count > 1 ? c.quota.introMany : c.quota.intro, extra);
+    const many = content.count > 1;
+    subject = fill(many ? (ev ? c.quota.subjectMany : c.quota.subjectManyEvents) : c.quota.subject, extra);
+    intro = fill(many ? (ev ? c.quota.introMany : c.quota.introManyEvents) : c.quota.intro, extra);
     button = c.quota.button;
     buttonUrl = `${base}/app/requests/quota${eventQuery}`;
   } else if (content.type === 'team_decision') {

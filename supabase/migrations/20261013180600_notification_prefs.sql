@@ -196,14 +196,16 @@ create table public.user_notification_prefs (
            and (not (notification_prefs -> 'requests') ? 'push'
                 or jsonb_typeof(notification_prefs -> 'requests' -> 'push') = 'boolean')
            and (not (notification_prefs -> 'requests') ? 'email'
-                or (notification_prefs -> 'requests' ->> 'email') in ('immediate', 'daily', 'off'))))
+                or (jsonb_typeof(notification_prefs -> 'requests' -> 'email') = 'string'
+                    and (notification_prefs -> 'requests' ->> 'email') in ('immediate', 'daily', 'off')))))
       and (not notification_prefs ? 'quota' or (
            jsonb_typeof(notification_prefs -> 'quota') = 'object'
            and ((notification_prefs -> 'quota') - array['push', 'email']) = '{}'::jsonb
            and (not (notification_prefs -> 'quota') ? 'push'
                 or jsonb_typeof(notification_prefs -> 'quota' -> 'push') = 'boolean')
            and (not (notification_prefs -> 'quota') ? 'email'
-                or (notification_prefs -> 'quota' ->> 'email') in ('immediate', 'daily', 'off'))))
+                or (jsonb_typeof(notification_prefs -> 'quota' -> 'email') = 'string'
+                    and (notification_prefs -> 'quota' ->> 'email') in ('immediate', 'daily', 'off')))))
       and (not notification_prefs ? 'decisions' or (
            jsonb_typeof(notification_prefs -> 'decisions') = 'object'
            and ((notification_prefs -> 'decisions') - array['push', 'email']) = '{}'::jsonb
@@ -374,6 +376,12 @@ begin
       ) r
       cross join (values ('push'), ('email')) as ch(channel)
       where new.decided_by is distinct from old.user_id
+        -- Never to someone who left the company (review #458 B1): still a
+        -- member, or still crew on the request's event.
+        and (exists (select 1 from public.venue_memberships m
+                      where m.venue_id = new.venue_id and m.user_id = old.user_id)
+             or exists (select 1 from public.event_organizers eo
+                         where eo.event_id = new.event_id and eo.user_id = old.user_id))
         and ((ch.channel = 'push' and (r.prefs -> 'decisions' ->> 'push')::boolean)
           or (ch.channel = 'email' and (r.prefs -> 'decisions' ->> 'email')::boolean))
       on conflict (dedupe_key, recipient_user_id, channel) do nothing;
@@ -719,6 +727,30 @@ $$;
 -- Re-checked at send time: the recipient's preference, their access (still
 -- admin / organizer), the request still pending (a single mail), an address.
 -- Anything that fails a check is settled 'skipped' with the reason.
+-- Daily budgets for team mail (review #458 S1), the guest-mail pattern
+-- (20261013180200): per company and overall per UTC day, failed attempts not
+-- counted. Over budget, rows wait in the outbox; a summary waits for the next
+-- run. Team mail shares the Resend account with login codes.
+create or replace function public.team_mail_venue_daily_cap()
+returns integer language sql immutable set search_path = '' as $$ select 300 $$;
+
+create or replace function public.team_mail_daily_cap()
+returns integer language sql immutable set search_path = '' as $$ select 3000 $$;
+
+create or replace function public.team_mail_sent_today(p_venue_id uuid)
+returns integer
+language sql
+stable
+set search_path = ''
+as $$
+  select count(*)::int
+    from public.mail_log m
+   where m.type like 'team\_%'
+     and m.status <> 'failed'
+     and (p_venue_id is null or m.venue_id = p_venue_id)
+     and m.created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC';
+$$;
+
 create or replace function public.team_mails_claim(p_limit integer default 200)
 returns jsonb
 language plpgsql
@@ -732,19 +764,25 @@ declare
   v_rep record;
   v_user record;
   v_ids uuid[];
-  v_prefs jsonb;
+  v_ok uuid[];
   v_type text;
   v_pref text;
   v_skip text;
   v_count integer;
+  v_events integer;
   v_log uuid;
   v_token text;
   v_extra jsonb;
   v_event jsonb;
+  v_company jsonb;
   v_local timestamp := now() at time zone 'Europe/Amsterdam';
   v_today date := (now() at time zone 'Europe/Amsterdam')::date;
   v_digest jsonb;
   v_du uuid;
+  -- Daily budgets (UTC day), the guest-mail pattern: over budget, rows wait.
+  v_global_left integer := public.team_mail_daily_cap() - public.team_mail_sent_today(null);
+  v_venue_left jsonb := '{}'::jsonb;
+  v_left integer;
 begin
   -- A row left 'sending' (the job died after the provider call, or before
   -- settle): unknown outcome, never re-sent.
@@ -759,18 +797,32 @@ begin
 
   for v_g in
     with due as (
-      select o.id, o.collapse_key, o.recipient_user_id, o.next_attempt_at
+      select o.id, o.collapse_key, o.recipient_user_id, o.venue_id, o.next_attempt_at
         from public.notification_outbox o
        where o.channel = 'email' and o.status = 'pending' and o.next_attempt_at <= now()
        order by o.next_attempt_at
        limit v_limit
        for update skip locked
     )
-    select coalesce(d.collapse_key, d.id::text) as grp, d.recipient_user_id, min(d.next_attempt_at) as first_due
+    select coalesce(d.collapse_key, d.id::text) as grp, d.recipient_user_id, d.venue_id,
+           min(d.next_attempt_at) as first_due
       from due d
-     group by 1, 2
-     order by 3
+     group by 1, 2, 3
+     order by 4
   loop
+    exit when v_global_left <= 0;
+
+    -- Per-company budget, computed once per company per run.
+    if not v_venue_left ? v_g.venue_id::text then
+      v_venue_left := v_venue_left || jsonb_build_object(
+        v_g.venue_id::text,
+        public.team_mail_venue_daily_cap() - public.team_mail_sent_today(v_g.venue_id));
+    end if;
+    v_left := (v_venue_left ->> v_g.venue_id::text)::int;
+    if v_left <= 0 then
+      continue; -- stays pending until tomorrow (or is skipped once decided)
+    end if;
+
     -- Every due member of this group (a slot is never split), claimed.
     with m as (
       select o.id
@@ -790,8 +842,7 @@ begin
       continue;
     end if;
 
-    -- The newest member speaks for the group (UUIDv7 ids are time-ordered).
-    select o.kind, o.venue_id, o.source_id, o.payload into v_rep
+    select o.kind, o.venue_id into v_rep
       from public.notification_outbox o
      where o.id = v_ids[array_length(v_ids, 1)];
 
@@ -811,7 +862,6 @@ begin
                 when 'quota_request_created' then 'quota'
                 else 'decisions' end;
     v_skip := null;
-    v_count := array_length(v_ids, 1);
 
     if v_user.id is null or v_user.email is null then
       v_skip := 'no_address';
@@ -819,37 +869,7 @@ begin
       v_skip := 'pref_off';
     elsif v_pref = 'decisions' and not (v_user.prefs -> 'decisions' ->> 'email')::boolean then
       v_skip := 'pref_off';
-    elsif v_pref = 'requests' and not (
-        exists (select 1 from public.venue_memberships m
-                 where m.venue_id = v_rep.venue_id and m.user_id = v_user.id
-                   and m.roles @> '{admin}'::public.venue_role[])
-        or exists (select 1 from public.event_organizers o
-                    where o.event_id = (v_rep.payload ->> 'event_id')::uuid and o.user_id = v_user.id)) then
-      v_skip := 'no_access';
-    elsif v_pref = 'quota' and not exists (
-        select 1 from public.venue_memberships m
-         where m.venue_id = v_rep.venue_id and m.user_id = v_user.id
-           and m.roles @> '{admin}'::public.venue_role[]) then
-      v_skip := 'no_access';
     end if;
-
-    -- How many of the group's requests are still open (a single mail about a
-    -- request decided in the meantime is pointless).
-    if v_skip is null and v_pref = 'requests' then
-      select count(*)::int into v_count
-        from public.notification_outbox o
-        join public.guest_requests r on r.id = o.source_id
-       where o.id = any (v_ids) and r.status = 'pending';
-    elsif v_skip is null and v_pref = 'quota' then
-      select count(*)::int into v_count
-        from public.notification_outbox o
-        join public.quota_requests q on q.id = o.source_id
-       where o.id = any (v_ids) and q.status = 'pending';
-    end if;
-    if v_skip is null and v_count = 0 then
-      v_skip := 'already_decided';
-    end if;
-
     if v_skip is not null then
       update public.notification_outbox o
          set status = 'skipped', last_error = v_skip, locked_at = null
@@ -857,12 +877,78 @@ begin
       continue;
     end if;
 
-    select jsonb_build_object('id', e.id, 'name', e.name, 'starts_at', e.starts_at,
-                              'company', jsonb_build_object('id', v.id, 'name', v.name))
-      into v_event
-      from public.events e
-      join public.venues v on v.id = e.venue_id
-     where e.id = (v_rep.payload ->> 'event_id')::uuid;
+    -- Access, per member, at send time (review #458 B1/S3): guest requests
+    -- for an admin of the company or the organizer of THAT member's event;
+    -- quota requests for an admin; a decision for someone still in the
+    -- company (a member, or crew on the request's event). A member the
+    -- recipient lost access to is skipped on its own; the rest still go.
+    select array_agg(o.id order by o.id) into v_ok
+      from public.notification_outbox o
+     where o.id = any (v_ids)
+       and case v_pref
+             when 'requests' then
+               exists (select 1 from public.venue_memberships m
+                        where m.venue_id = o.venue_id and m.user_id = v_user.id
+                          and m.roles @> '{admin}'::public.venue_role[])
+               or exists (select 1 from public.event_organizers eo
+                           where eo.event_id = (o.payload ->> 'event_id')::uuid and eo.user_id = v_user.id)
+             when 'quota' then
+               exists (select 1 from public.venue_memberships m
+                        where m.venue_id = o.venue_id and m.user_id = v_user.id
+                          and m.roles @> '{admin}'::public.venue_role[])
+             else
+               exists (select 1 from public.venue_memberships m
+                        where m.venue_id = o.venue_id and m.user_id = v_user.id)
+               or exists (select 1 from public.event_organizers eo
+                           where eo.event_id = (o.payload ->> 'event_id')::uuid and eo.user_id = v_user.id)
+           end;
+    update public.notification_outbox o
+       set status = 'skipped', last_error = 'no_access', locked_at = null
+     where o.id = any (v_ids) and not (o.id = any (coalesce(v_ok, '{}'::uuid[])));
+    if v_ok is null then
+      continue;
+    end if;
+    v_ids := v_ok;
+
+    -- How many of the group's requests are still open, over how many events
+    -- (a single mail about a request decided in the meantime is pointless).
+    if v_pref = 'requests' then
+      select count(*)::int, count(distinct r.event_id)::int into v_count, v_events
+        from public.notification_outbox o
+        join public.guest_requests r on r.id = o.source_id
+       where o.id = any (v_ids) and r.status = 'pending';
+    elsif v_pref = 'quota' then
+      select count(*)::int, count(distinct q.event_id)::int into v_count, v_events
+        from public.notification_outbox o
+        join public.quota_requests q on q.id = o.source_id
+       where o.id = any (v_ids) and q.status = 'pending';
+    else
+      v_count := array_length(v_ids, 1);
+      v_events := 1;
+    end if;
+    if v_count = 0 then
+      update public.notification_outbox o
+         set status = 'skipped', last_error = 'already_decided', locked_at = null
+       where o.id = any (v_ids);
+      continue;
+    end if;
+
+    -- The newest member the recipient may still see speaks for the group.
+    select o.kind, o.venue_id, o.source_id, o.payload into v_rep
+      from public.notification_outbox o
+     where o.id = v_ids[array_length(v_ids, 1)];
+
+    select jsonb_build_object('id', v.id, 'name', v.name) into v_company
+      from public.venues v where v.id = v_rep.venue_id;
+    -- A bundle over more than one event names none (review #458 S3): the
+    -- mail says the company and the button opens all requests.
+    v_event := null;
+    if v_events = 1 then
+      select jsonb_build_object('id', e.id, 'name', e.name, 'starts_at', e.starts_at)
+        into v_event
+        from public.events e
+       where e.id = (v_rep.payload ->> 'event_id')::uuid;
+    end if;
 
     v_extra := '{}'::jsonb;
     if v_pref = 'requests' and v_count = 1 then
@@ -882,7 +968,7 @@ begin
         from public.quota_requests q
         left join public.user_profiles up on up.id = q.user_id
        where q.id = v_rep.source_id;
-    else
+    elsif v_pref = 'decisions' then
       select jsonb_build_object('decision', jsonb_build_object(
                'status', q.status, 'extra', q.requested_extra))
         into v_extra
@@ -894,6 +980,8 @@ begin
     values (v_type, v_rep.venue_id,
             encode(extensions.digest(lower(btrim(v_user.email)), 'sha256'), 'hex'))
     returning id into v_log;
+    v_global_left := v_global_left - 1;
+    v_venue_left := jsonb_set(v_venue_left, array[v_g.venue_id::text], to_jsonb(v_left - 1));
 
     v_token := public.guest_mail_new_token();
     insert into public.team_mail_links (token_hash, user_id, pref, mail_log_id, expires_at)
@@ -907,15 +995,17 @@ begin
       'first_name', nullif(btrim(coalesce(v_user.first_name,
                       split_part(btrim(coalesce(v_user.full_name, '')), ' ', 1))), ''),
       'link', jsonb_build_object('token', v_token, 'pref', v_pref),
-      'company', v_event -> 'company',
-      'event', v_event - 'company',
+      'company', v_company,
+      'event', v_event,
       'count', v_count) || coalesce(v_extra, '{}'::jsonb));
   end loop;
 
-  -- The daily summary: 09:00 to 11:59 Amsterdam, once per user per day.
+  -- The daily summary: 09:00 to 11:59 Amsterdam, once per user per day,
+  -- within the global budget (a summary has no company).
   if v_local::time >= time '09:00' and v_local::time < time '12:00' then
     for v_du in select d.user_id from public.team_digest_due(v_today, v_limit) d
     loop
+      exit when v_global_left <= 0;
       insert into public.team_digest_deliveries (user_id, local_date)
       values (v_du, v_today)
       on conflict do nothing;
@@ -933,6 +1023,7 @@ begin
       insert into public.mail_log (type, venue_id, recipient_hash)
       values ('team_digest', null, encode(extensions.digest(lower(btrim(v_user.email)), 'sha256'), 'hex'))
       returning id into v_log;
+      v_global_left := v_global_left - 1;
       update public.team_digest_deliveries d set mail_log_id = v_log
        where d.user_id = v_du and d.local_date = v_today;
 
@@ -959,9 +1050,10 @@ $$;
 
 comment on function public.team_mails_claim(integer) is
   'Team mail job (service_role): claim due email outbox rows (a bundle slot = '
-  'one mail), re-check preference, access and the request at send time, write '
-  'mail_log, mint the unsubscribe link; plus the daily summary between 09:00 '
-  'and 11:59 Amsterdam, once per user per day.';
+  'one mail), re-check preference, access (per member) and the request at send '
+  'time, write mail_log, mint the unsubscribe link; plus the daily summary '
+  'between 09:00 and 11:59 Amsterdam, once per user per day. Within '
+  'team_mail_venue_daily_cap() / team_mail_daily_cap() per UTC day.';
 
 -- p_results: [{ mail_log_id, queue_ids: [uuid], ok, provider_message_id?, error_code? }]
 -- A refusal the provider answered (429, quota, 5xx) goes back to pending (up
@@ -1224,6 +1316,9 @@ revoke execute on function
   public.team_digest_due(date, integer),
   public.team_digest_items(uuid),
   public.team_mails_setting(text),
+  public.team_mail_venue_daily_cap(),
+  public.team_mail_daily_cap(),
+  public.team_mail_sent_today(uuid),
   public.kick_team_mails(),
   public.team_mails_tick(),
   public.notification_outbox_kick(),

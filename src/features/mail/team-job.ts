@@ -103,7 +103,10 @@ export function parseTeamMail(raw: unknown): ClaimedTeamMail | null {
     ev && str(ev.id) && str(ev.name) && str(ev.starts_at)
       ? { id: str(ev.id) as string, name: str(ev.name) as string, startsAt: str(ev.starts_at) as string }
       : null;
-  if (type !== 'team_digest' && !event) return null;
+  // A bundle over more than one event names none (review #458 S3); a single
+  // request, a quota request or a decision always has its event.
+  const count = Math.max(1, num(m.count) || 1);
+  if (type !== 'team_digest' && !event && !(count > 1 && (type === 'team_request' || type === 'team_quota'))) return null;
 
   const r = obj(m.request);
   const q = obj(m.quota);
@@ -137,7 +140,7 @@ export function parseTeamMail(raw: unknown): ClaimedTeamMail | null {
     linkToken: token,
     company: str(obj(m.company)?.name) ?? '',
     event,
-    count: Math.max(1, num(m.count) || 1),
+    count,
     request: r ? { firstName: str(r.first_name), plusOnes: num(r.plus_ones) } : null,
     quota: q && str(q.requester) ? { requester: str(q.requester) as string, extra: num(q.extra) } : null,
     decision: d && (status === 'approved' || status === 'denied') ? { status, extra: num(d.extra) } : null,

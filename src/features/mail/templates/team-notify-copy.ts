@@ -16,6 +16,9 @@ export const teamNotifyCopy = {
     introNoName: 'Someone asked for a spot on the list for {event_name}: {people}.',
     subjectMany: '{count} new requests for {event_name}',
     introMany: '{count} requests for {event_name} came in over the last hour.',
+    // A bundle over more than one event (review #458 S3).
+    subjectManyEvents: '{count} new requests at {company}',
+    introManyEvents: '{count} requests for events at {company} came in over the last hour.',
     button: 'Review requests',
   },
   quota: {
@@ -23,6 +26,8 @@ export const teamNotifyCopy = {
     intro: '{requester} asked for {extra} extra guest spots for {event_name}.',
     subjectMany: '{count} quota requests for {event_name}',
     introMany: '{count} quota requests for {event_name} came in over the last hour.',
+    subjectManyEvents: '{count} quota requests at {company}',
+    introManyEvents: '{count} quota requests for events at {company} came in over the last hour.',
     button: 'Review quota request',
   },
   decision: {
