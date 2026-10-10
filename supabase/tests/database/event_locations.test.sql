@@ -9,8 +9,9 @@
 --      user_manager, finance, staff, doorhost), a non-member reads nothing
 --      (event organizer without membership, member of the other venue); only
 --      an admin inserts / updates / archives; nobody deletes;
---   D. the narrowed backfill: only not-over events without a live share link
---      and without any location, at a company with an address, get filled;
+--   D. the narrowed backfill: only not-over events without a live share link,
+--      without any guest request and without any location, at a company
+--      with an address, get filled;
 --      owner-only function, idempotent (review #452, decision Max 2026-10-10);
 --   C. get_request_status: still SECURITY DEFINER with an empty search_path,
 --      same grants; every found payload has exactly the documented key set;
@@ -27,7 +28,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(58);
+select plan(60);
 
 create function pg_temp.login(p_user uuid)
 returns void language plpgsql as $fn$
@@ -407,6 +408,23 @@ select ok(
   (select location_name is null and location_address is null from public.events where id = '9e200000-0000-7000-8000-000000000006'),
   'D8 an event at a company without an address is not filled');
 select is(public.backfill_event_locations_from_company(), 0, 'D9 a second run changes nothing (idempotent)');
+
+-- D10 (delta review #452): a future event whose link was ON, got a request,
+-- and is now paused. Its status token must not start resolving to the
+-- company address.
+insert into public.events (id, venue_id, name, starts_at, ends_at, landing_slug, landing_active) values
+  ('9e200000-0000-7000-8000-000000000007', 'aa000000-0000-7000-8000-000000000001',
+   'BF paused link', now() + interval '8 days', now() + interval '8 days 6 hours', 'bf-paused', true);
+insert into public.guest_requests (id, event_id, full_name, email, phone, plus_ones, status_token_hash) values
+  ('9a200000-0000-7000-8000-000000000001', '9e200000-0000-7000-8000-000000000007',
+   'Paused Pia', 'paused@el.test', '+31611800099', 0, 'tok-el-paused');
+update public.events set landing_active = false where id = '9e200000-0000-7000-8000-000000000007';
+select is(public.backfill_event_locations_from_company(), 0,
+  'D10 a future event with a paused link and an existing request is not filled');
+select ok(
+  (select r ->> 'location_address' is null and r::text !~ 'Wibautstraat'
+     from public.get_request_status('tok-el-paused', 'ip-el-d10') r),
+  'D11 ...so that request''s status token still gets no address at all');
 
 select * from finish();
 rollback;

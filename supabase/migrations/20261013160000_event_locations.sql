@@ -26,7 +26,9 @@
 -- 3. Backfill, narrowed (decision Max 2026-10-10, review #452 blocker 3: "no
 --    address goes public without someone choosing it"): only an event that is
 --    not over yet (coalesce(ends_at, starts_at) > now(), the #26 anchor) AND
---    has NO active share link (landing_active = false) AND has no location at
+--    has NO active share link (landing_active = false) AND has no guest
+--    request at all (a paused link's earlier status tokens would otherwise
+--    resolve to the company address; delta review #452) AND has no location at
 --    all, at a company that has an address, gets the company's name + address,
 --    once. Its share link is off, so nothing becomes public by this; the admin
 --    sees the prefilled location before switching the link on. Past events
@@ -158,7 +160,12 @@ begin
     -- not over yet (#26: anchored on the event, end or else start)
     and coalesce(e.ends_at, e.starts_at) > now()
     -- no live share link: nothing becomes public without someone choosing it
-    and not e.landing_active;
+    and not e.landing_active
+    -- and never had one that was used: a request (and any mirror token, which
+    -- hangs off guest_requests) issued while the link was on still resolves
+    -- through get_request_status, so filling it would hand those holders the
+    -- company address (delta review #452)
+    and not exists (select 1 from public.guest_requests gr where gr.event_id = e.id);
   get diagnostics v_count = row_count;
   return v_count;
 end;
@@ -166,8 +173,8 @@ $$;
 
 comment on function public.backfill_event_locations_from_company() is
   'One-shot backfill (z8uq9m444c, narrowed per review #452): copies the company '
-  'name + address onto not-over events with no location and no active share '
-  'link. Idempotent. Owner-only; called once by migration 20261013160000.';
+  'name + address onto not-over events with no location, no active share link '
+  'and no guest request. Idempotent. Owner-only; called once by migration 20261013160000.';
 
 revoke all on function public.backfill_event_locations_from_company()
 from public, anon, authenticated, service_role;
