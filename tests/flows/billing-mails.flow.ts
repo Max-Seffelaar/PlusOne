@@ -110,12 +110,10 @@ test('billing-mails: job → Mailpit → Platform timeline → pause', async ({ 
   const adminId = await getUserIdByEmail(ADMIN);
 
   const token = await mintToken();
-  await flow.check(1, 'A job run with a fresh token answers 200 with counts only', async () => {
+  await flow.check(1, 'A job run with a fresh token answers 200 with {"ok":true} only (no counts: pg_net keeps responses)', async () => {
     const res = await page.request.post('/api/webhooks/billing-mails', { headers: { 'x-billing-mails-token': token } });
     expect(res.status()).toBe(200);
-    const body = (await res.json()) as Record<string, number>;
-    expect(Object.keys(body).sort()).toEqual(['failed', 'mails', 'sent', 'skipped']);
-    expect(body.failed).toBe(0);
+    expect(await res.json()).toEqual({ ok: true });
   });
   await flow.check(2, 'The same token a second time is refused (single use), as is a run without one', async () => {
     const again = await page.request.post('/api/webhooks/billing-mails', { headers: { 'x-billing-mails-token': token } });

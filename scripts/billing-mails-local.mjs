@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Billing-mails B1 (z8uq9m2z19): run the billing-mail job by hand against the
 // LOCAL stack, the way pg_cron does it on prod (mint a single-use token,
-// POST it to /api/webhooks/billing-mails), and print the run's totals. The
-// mails land in Mailpit (http://127.0.0.1:55324).
+// POST it to /api/webhooks/billing-mails). The route answers {"ok":true}; the
+// run's totals are in the dev-server log (the `done` line). The mails land in
+// Mailpit (http://127.0.0.1:55324).
 //
 //   pnpm billing-mails:local            one job run
 //   pnpm billing-mails:local --demo     first set up one company per mail

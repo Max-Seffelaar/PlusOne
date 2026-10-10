@@ -4,7 +4,10 @@
 // no user session: the middleware exempts /api/webhooks/, and authentication
 // is billing_mails_begin(), which CONSUMES the token before anything is read
 // and refuses (42501) an unknown, expired or reused one. Nothing from the body
-// is read. Responses carry counts only, never an address or a name.
+// is read. The 200 body is `{"ok":true}` only: pg_net stores every response
+// in net._http_response, which app roles can read on Supabase, so even the
+// run's counts stay in the server log (the job's `done` line), as in the
+// platform digest (#440).
 
 import { defaultBillingMailDeps, runBillingMails } from '@/features/billing/mail-job';
 
@@ -15,7 +18,7 @@ export const maxDuration = 60;
 
 export async function POST(req: Request): Promise<Response> {
   const result = await runBillingMails(req.headers.get('x-billing-mails-token'), defaultBillingMailDeps());
-  const body = result.status === 200 ? result.totals : { error: result.error };
+  const body = result.status === 200 ? { ok: true } : { error: result.error };
   return Response.json(body, { status: result.status });
 }
 
