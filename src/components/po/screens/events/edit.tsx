@@ -281,9 +281,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         }
         const locationName = locName.trim() || null;
         const locationAddress = locAddress.trim() || null;
-        const newId = templateId
+        const created = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt, contactEmail: contact })
-          : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, contactEmail: contact });
+          : { eventId: await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, contactEmail: contact }), contactSaved: true };
+        const newId = created.eventId;
         // The template RPC copies the template's CURRENT DB location
         // (20261007135000), which can differ from the cached one the form
         // showed (no realtime on templates). So after a template create we
@@ -295,7 +296,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           try {
             await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress, contactEmail: contact });
           } catch {
-            toast?.(t.events.locationNotSaved);
+            // The action's own contact write failed too (contactSaved false):
+            // say that first, it is the one that holds the guests' mail back.
+            toast?.(created.contactSaved ? t.events.locationNotSaved : t.events.contactEmail.notSaved);
           }
         }
         // Save the event first, then the tiers (Max, z8uq9m0hw3 item 7): a

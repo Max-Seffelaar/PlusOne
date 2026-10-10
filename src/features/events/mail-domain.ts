@@ -27,6 +27,8 @@ export interface DomainResolver {
   resolveMx(domain: string): Promise<Array<{ exchange: string; priority: number }>>;
   resolve4(domain: string): Promise<string[]>;
   resolve6(domain: string): Promise<string[]>;
+  /** Stop queries still in flight (when the budget wins the race). */
+  cancel?(): void;
 }
 
 /** One try, short per-query timeout: a save waits at most CHECK_BUDGET_MS. */
@@ -47,7 +49,8 @@ export function mailDomainOf(email: string): string | null {
   if (at < 1) return null;
   const domain = email.slice(at + 1).trim().toLowerCase().replace(/\.$/, '');
   if (domain.length < 3 || domain.length > 253 || !domain.includes('.')) return null;
-  // Hostname characters only (IDN arrives as punycode or fails the lookup).
+  // Hostname characters only: the schemas store an IDN domain as punycode
+  // (normalizeEmailAddress), so anything else here is not a hostname.
   if (!/^[a-z0-9.-]+$/.test(domain) || domain.includes('..')) return null;
   // An IP literal is not a mail domain (and never a lookup target).
   if (/^[0-9.]+$/.test(domain)) return null;
@@ -60,6 +63,7 @@ function defaultResolver(): DomainResolver {
     resolveMx: (d) => r.resolveMx(d),
     resolve4: (d) => r.resolve4(d),
     resolve6: (d) => r.resolve6(d),
+    cancel: () => r.cancel(),
   };
 }
 
@@ -120,5 +124,6 @@ export async function checkMailDomain(
     return result;
   } finally {
     if (timer) clearTimeout(timer);
+    resolver.cancel?.();
   }
 }

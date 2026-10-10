@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { t } from '@/lib/i18n';
+import { EMAIL_ADDRESS_RE, normalizeEmailAddress } from '@/lib/email-address';
 
 const uuid = z.string().uuid('Invalid id');
 
@@ -55,17 +56,17 @@ const houseRules = locationField(HOUSE_RULES_MAX, t.events.houseRulesTooLong);
 // The event's contact address (guest mail 6c): where guests reply. Required on
 // create and when saving an event that has none; the same strict syntax as
 // events_contact_email_check / venues_contact_email_check (no header syntax),
-// lower-cased like the company address. The domain is checked server-side
-// (mail-domain.ts), never here: this schema also runs in the browser.
+// lower-cased like the company address, printable ASCII only with an IDN
+// domain as punycode (src/lib/email-address.ts). The domain is checked
+// server-side (mail-domain.ts), never here: this schema also runs in the browser.
 export const CONTACT_EMAIL_MAX = 254;
-export const CONTACT_EMAIL_RE = /^[^@\s<>",;:]+@[^@\s<>",;:]+\.[^@\s<>",;:]+$/;
 export const contactEmailField = z
   .string()
   .trim()
   .min(1, t.events.contactEmail.required)
-  .max(CONTACT_EMAIL_MAX, t.events.contactEmail.invalid)
-  .transform((v) => v.toLowerCase())
-  .refine((v) => CONTACT_EMAIL_RE.test(v), t.events.contactEmail.invalid);
+  .transform(normalizeEmailAddress)
+  .refine((v) => v.length <= CONTACT_EMAIL_MAX, t.events.contactEmail.invalid)
+  .refine((v) => EMAIL_ADDRESS_RE.test(v), t.events.contactEmail.invalid);
 
 export const createEventSchema = z
   .object({

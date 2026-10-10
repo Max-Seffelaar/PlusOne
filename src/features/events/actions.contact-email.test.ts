@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 const H = vi.hoisted(() => ({
   domain: 'ok' as 'ok' | 'no_mail_domain',
   checked: [] as string[],
+  /** has_venue_role / is_event_organizer: may the caller write here? */
+  canWrite: true,
 }));
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
@@ -42,7 +44,11 @@ interface Op {
 /** A recording PostgREST fake: every chain resolves; `stored` is the event's current contact_email. */
 function fakeClient(stored: { contact_email: string | null } | null) {
   const ops: Op[] = [];
-  const rpc = vi.fn(async () => ({ data: EVENT, error: null }));
+  const rpc = vi.fn(async (fn: string) =>
+    fn === 'has_venue_role' || fn === 'is_event_organizer'
+      ? { data: H.canWrite, error: null }
+      : { data: EVENT, error: null },
+  );
   const from = (table: string) => {
     let op: Op = { table, kind: 'select' };
     const chain = {
@@ -78,6 +84,7 @@ function writes(ops: Op[]): Op[] {
 
 beforeEach(() => {
   H.domain = 'ok';
+  H.canWrite = true;
   H.checked = [];
   (getAuthContext as Mock).mockResolvedValue({ user: { id: 'u1' } });
 });
@@ -125,7 +132,7 @@ describe('createEventFromTemplate', () => {
     (createClient as Mock).mockResolvedValue(f.client);
     const res = await createEventFromTemplate({ templateId: TEMPLATE, name: 'Night', startsAt: STARTS, contactEmail: 'a@b.nl' });
     expect(res.ok).toBe(false);
-    expect(f.rpc).not.toHaveBeenCalled();
+    expect(f.rpc).not.toHaveBeenCalledWith('create_event_from_template', expect.anything());
   });
 
   it('is refused without an address (templates never carry one)', async () => {
@@ -134,6 +141,34 @@ describe('createEventFromTemplate', () => {
     const res = await createEventFromTemplate({ templateId: TEMPLATE, name: 'Night', startsAt: STARTS } as never);
     expect(res.ok).toBe(false);
     expect(f.rpc).not.toHaveBeenCalled();
+  });
+});
+
+// Review #456 N1: no DNS lookup for a caller who can't write there; the write
+// itself is left to RLS, exactly as before.
+describe('the domain check runs only for someone who may write', () => {
+  it('createEvent: a non-admin is not looked up', async () => {
+    H.canWrite = false;
+    const f = fakeClient(null);
+    (createClient as Mock).mockResolvedValue(f.client);
+    await createEvent({ venueId: VENUE, name: 'Night', startsAt: STARTS, contactEmail: 'night@club.nl' });
+    expect(H.checked).toEqual([]);
+  });
+
+  it('createEventFromTemplate: a non-admin is not looked up', async () => {
+    H.canWrite = false;
+    const f = fakeClient(null);
+    (createClient as Mock).mockResolvedValue(f.client);
+    await createEventFromTemplate({ templateId: TEMPLATE, name: 'Night', startsAt: STARTS, contactEmail: 'night@club.nl' });
+    expect(H.checked).toEqual([]);
+  });
+
+  it('updateEvent: staff (read, no write) are not looked up', async () => {
+    H.canWrite = false;
+    const f = fakeClient({ contact_email: 'night@club.nl' });
+    (createClient as Mock).mockResolvedValue(f.client);
+    await updateEvent({ eventId: EVENT, contactEmail: 'promo@club.nl' });
+    expect(H.checked).toEqual([]);
   });
 });
 

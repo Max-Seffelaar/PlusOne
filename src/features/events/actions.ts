@@ -85,6 +85,22 @@ async function contactDomainRefused(contactEmail: string): Promise<MutationError
     ? invalidInput(t.events.contactEmail.noDomain)
     : null;
 }
+type UserClient = Awaited<ReturnType<typeof createClient>>;
+
+/** Admin of the company (platform admin included, #49): the insert policy's predicate. */
+async function canAdminVenue(supabase: UserClient, venueId: string): Promise<boolean> {
+  const { data } = await supabase.rpc('has_venue_role', { p_venue_id: venueId, p_roles: ['admin'] });
+  return data === true;
+}
+
+/** Company admin or organizer of this event: the update policy's predicate. */
+async function canEditEvent(supabase: UserClient, eventId: string, venueId: string): Promise<boolean> {
+  const [admin, organizer] = await Promise.all([
+    canAdminVenue(supabase, venueId),
+    supabase.rpc('is_event_organizer', { p_event_id: eventId }),
+  ]);
+  return admin || organizer.data === true;
+}
 export type CreateTemplateResult = { ok: true; templateId: string } | MutationError;
 
 // ── Event CRUD ──────────────────────────────────────────────────────────────
@@ -100,13 +116,18 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  const refused = await contactDomainRefused(contactEmail);
-  if (refused) return refused;
-
   // Soft-block (#32 refinement): a canceled venue / lapsed unpaid trial adds no
   // NEW events; existing events keep running (door included).
   const blocked = await assertVenueBillingActive(venueId);
   if (blocked) return blocked;
+
+  // The DNS check only for someone who may create here (admin, RLS
+  // events_insert_admin); anyone else goes on to the insert, which RLS refuses
+  // as before. Review #456 N1: no lookups for callers who can't write.
+  if (await canAdminVenue(supabase, venueId)) {
+    const refused = await contactDomainRefused(contactEmail);
+    if (refused) return refused;
+  }
 
   // Retry on the astronomically rare slug collision with a fresh suffix.
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -158,10 +179,17 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
   // one at their first edit), and a new or changed one must sit on a domain
   // that takes mail. Read through RLS: an event the caller can't see is left
   // to the update below, which RLS refuses as before.
-  const { data: current } = await supabase.from('events').select('contact_email').eq('id', eventId).maybeSingle();
+  // The DNS lookup runs only for someone who may edit the event (company
+  // admin or its organizer, RLS events_update_admin_organizer); staff, who can
+  // read it, go on to the update, which RLS filters as before (review #456 N1).
+  const { data: current } = await supabase
+    .from('events')
+    .select('contact_email, venue_id')
+    .eq('id', eventId)
+    .maybeSingle();
   if (current) {
     if (contactEmail === undefined && !current.contact_email) return invalidInput(t.events.contactEmail.required);
-    if (contactEmail !== undefined && contactEmail !== current.contact_email) {
+    if (contactEmail !== undefined && contactEmail !== current.contact_email && (await canEditEvent(supabase, eventId, current.venue_id))) {
       const refused = await contactDomainRefused(contactEmail);
       if (refused) return refused;
     }
@@ -1061,9 +1089,6 @@ export async function createEventFromTemplate(
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  const refused = await contactDomainRefused(contactEmail);
-  if (refused) return refused;
-
   // Same soft-block as createEvent: resolve the template's venue (RLS-scoped
   // read; a non-member simply sees nothing and fails on the RPC as before).
   const { data: tpl } = await supabase
@@ -1074,6 +1099,12 @@ export async function createEventFromTemplate(
   if (tpl) {
     const blocked = await assertVenueBillingActive(tpl.venue_id);
     if (blocked) return blocked;
+    // The DNS check only for an admin of the template's company (the RPC
+    // re-checks admin); anyone else is refused by the RPC as before.
+    if (await canAdminVenue(supabase, tpl.venue_id)) {
+      const refused = await contactDomainRefused(contactEmail);
+      if (refused) return refused;
+    }
   }
 
   const { data, error } = await supabase.rpc('create_event_from_template', {

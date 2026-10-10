@@ -10,7 +10,8 @@
 --
 -- What this migration does:
 --   1. events.contact_email: nullable, the same strict check as
---      venues.contact_email (no header syntax), explicit column grants.
+--      venues.contact_email (no header syntax, printable ASCII only; the
+--      company address gets that ASCII rule too), explicit column grants.
 --      Who may edit an event (RLS events_update_admin_organizer / insert
 --      admin) may set it; anon gets nothing (default ACL).
 --   2. guest_mails_claim, get_guest_status, resolve_guest_mail_reply read
@@ -33,8 +34,18 @@ alter table public.events
     constraint events_contact_email_check
     check (contact_email is null or (
       char_length(contact_email) between 3 and 254
-      and contact_email ~ '^[^@\s<>",;:]+@[^@\s<>",;:]+\.[^@\s<>",;:]+$'
+      and contact_email ~ '^(?=[\x21-\x7e]+$)[^@\s<>",;:]+@[^@\s<>",;:]+\.[^@\s<>",;:]+$'
     ));
+
+-- The same printable-ASCII rule on the company address (review #456 S1):
+-- `\s` does not cover control, zero-width or bidi characters, and a pasted
+-- address can carry them into every Reply-To. Added NOT VALID and then
+-- validated, so a row that breaks it fails this migration loudly instead of
+-- being skipped. src/lib/email-address.ts holds the same rule for the app.
+alter table public.venues
+  add constraint venues_contact_email_ascii_check
+  check (contact_email is null or contact_email ~ '^[\x21-\x7e]+$') not valid;
+alter table public.venues validate constraint venues_contact_email_ascii_check;
 
 comment on column public.events.contact_email is
   'Where guests reach the organiser of this event: reply-to, mail footer, '

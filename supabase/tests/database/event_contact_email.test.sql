@@ -55,7 +55,7 @@ returns text language sql security definer as $fn$
 $fn$;
 grant execute on function pg_temp.event_contact() to anon, authenticated, service_role;
 
-select plan(24);
+select plan(29);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner)
@@ -115,6 +115,22 @@ select throws_ok(
 select throws_ok(
   $$ update public.events set contact_email = 'a@localhost' where id = 'ee000000-0000-7000-8000-000000000001' $$,
   '23514', null, 'B3 a domain without a dot is refused');
+-- Review #456 S1: invisible and control characters, which `\s` misses.
+select throws_ok(
+  $$ update public.events set contact_email = E'a\u200Bb@vesper.test' where id = 'ee000000-0000-7000-8000-000000000001' $$,
+  '23514', null, 'B4 a zero-width space in the event address is refused');
+select throws_ok(
+  $$ update public.events set contact_email = E'a\u202Eb@vesper.test' where id = 'ee000000-0000-7000-8000-000000000001' $$,
+  '23514', null, 'B5 a bidi override in the event address is refused');
+select throws_ok(
+  $$ update public.venues set contact_email = E'a\u0001b@vesper.test' where id = 'aa000000-0000-7000-8000-000000000001' $$,
+  '23514', null, 'B6 a control character in the company address is refused (venues_contact_email_ascii_check)');
+select throws_ok(
+  $$ update public.venues set contact_email = E'a\u200Bb@vesper.test' where id = 'aa000000-0000-7000-8000-000000000001' $$,
+  '23514', null, 'B7 a zero-width space in the company address is refused');
+select lives_ok(
+  $$ update public.events set contact_email = 'info@xn--caf-dma.nl' where id = 'ee000000-0000-7000-8000-000000000001' $$,
+  'B8 an IDN domain as punycode is accepted');
 
 -- ---------------------------------------------------------------------------
 -- C. Who may set it
