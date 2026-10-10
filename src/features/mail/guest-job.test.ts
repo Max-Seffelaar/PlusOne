@@ -114,6 +114,45 @@ describe('buildGuestMail', () => {
   });
 });
 
+// z8uq9m2vga: the claim lists every part of a split request decision.
+describe('tiers from the claim (Requests E)', () => {
+  const split = {
+    type: 'guest_request_partly',
+    remark: 'We could fit three of you.',
+    asked_people: 4,
+    spot: { plus_ones: 1, tier_name: 'Regular', price_cents: null },
+    tiers: [
+      { tier_name: 'Regular', people: 2, price_cents: null },
+      { tier_name: 'VIP', people: 1, price_cents: null },
+    ],
+  };
+
+  it('parses the tiers and the partly mail names every part and the real total', () => {
+    const mail = parseClaimedMail(claimed(split))!;
+    expect(mail.tiers).toEqual([
+      { name: 'Regular', people: 2, priceCents: null },
+      { name: 'VIP', people: 1, priceCents: null },
+    ]);
+    const out = buildGuestMail(mail, 'https://app.plus-one.io');
+    expect(out.subject).toBe('On the list for Neon Friday: 3 people');
+    expect(out.text).toContain('so your spot covers 3 people.');
+    expect(out.text).toContain('Your spot: 3 people');
+    expect(out.text).toContain('Regular: 2 people');
+    expect(out.text).toContain('VIP: 1 person');
+  });
+
+  it('without tiers (an older claim) the one spot is rendered as before', () => {
+    const mail = parseClaimedMail(claimed())!;
+    expect(mail.tiers).toBeNull();
+    expect(buildGuestMail(mail, 'https://app.plus-one.io').text).toContain('Guest · You +1 (2 people)');
+  });
+
+  it('a malformed tier entry fails the row closed (never mailed)', () => {
+    expect(parseClaimedMail(claimed({ ...split, tiers: [{ tier_name: 'VIP', people: 0 }] }))).toBeNull();
+    expect(parseClaimedMail(claimed({ ...split, tiers: [{ people: 2 }] }))).toBeNull();
+  });
+});
+
 describe('runGuestMailsRoute', () => {
   it('refuses a missing or malformed token before any RPC', async () => {
     const { d, rpc } = deps();

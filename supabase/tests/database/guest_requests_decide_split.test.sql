@@ -77,7 +77,7 @@ returns void language sql as $fn$
   values (p_id, 'ee000000-0000-7000-8000-000000000001', p_name, p_email, '+31600000000', p_plus);
 $fn$;
 
-select plan(67);
+select plan(71);
 
 -- Fixtures (as the owner).
 select pg_temp.new_request('bb700000-0000-7000-8000-000000000001', 'Lotte Jansen', 3, 'lotte@example.test');
@@ -143,7 +143,7 @@ reset role;
 select is(pg_temp.req_state('bb700000-0000-7000-8000-000000000001'), 'approved|2|One spot less, sorry!|2',
   'B2 request approved, approved_plus_ones 2 (3 people), the trimmed note, two guests');
 select is(
-  (select string_agg(t.name || ':' || g.plus_ones || ':' || coalesce(g.email, '-'), ',' order by g.created_at, g.id)
+  (select string_agg(t.name || ':' || g.plus_ones || ':' || coalesce(g.email, '-'), ',' order by (g.email is null), g.id)
      from public.guests g join public.guest_tiers t on t.id = g.tier_id
     where g.guest_request_id = 'bb700000-0000-7000-8000-000000000001'),
   'VIP:0:lotte@example.test,Regular:1:-',
@@ -350,7 +350,7 @@ select is(
         jsonb_build_object('tier_id', 'dd000000-0000-7000-8000-000000000001', 'plus_ones', 1),
         jsonb_build_object('tier_id', 'dd000000-0000-7000-8000-000000000002', 'plus_ones', 0)),
      'declined', 1, 'note', 'One spot less, sorry!')) -> 'guest_ids',
-  (select jsonb_agg(g.id order by g.created_at, g.id) from public.guests g
+  (select jsonb_agg(g.id order by (g.email is null), g.id) from public.guests g
     where g.guest_request_id = 'bb700000-0000-7000-8000-000000000001'),
   'F2 a replay returns the guests of the first call');
 reset role;
@@ -458,14 +458,14 @@ select pg_temp.login_service();
 select isnt(
   public.enqueue_guest_mail(
     (select g.id from public.guests g where g.guest_request_id = 'bb700000-0000-7000-8000-000000000001'
-      order by g.created_at, g.id limit 1),
+      order by (g.email is null), g.id limit 1),
     'guest_request_partly', 'One spot less, sorry!', '11111111-1111-4111-8111-111111111111', 0,
     'bb700000-0000-7000-8000-000000000001'),
   null, 'I1 the partly mail queues on the first part of the split');
 select is(
   public.enqueue_guest_mail(
     (select g.id from public.guests g where g.guest_request_id = 'bb700000-0000-7000-8000-000000000001'
-      order by g.created_at, g.id offset 1 limit 1),
+      order by (g.email is null), g.id offset 1 limit 1),
     'guest_request_partly', 'One spot less, sorry!', '11111111-1111-4111-8111-111111111111', 0,
     'bb700000-0000-7000-8000-000000000001'),
   null, 'I2 the second part has no address, so it can never get a second mail');
@@ -512,6 +512,32 @@ select is(
      from public.guest_mail_queue q join public.guests g on g.id = q.guest_id
     where g.email = 'noa.auto@example.test'),
   'guest_request_approved:true', 'I9 exactly one approval mail queued, naming its request (no "You''re on the list")');
+
+
+-- ---------------------------------------------------------------------------
+-- J. The claim: one payload per decision, naming every part (option a)
+-- ---------------------------------------------------------------------------
+-- Guest mail waits for a company contact address; give Club Vesper one, then
+-- claim as the job does (service_role) and read our rows' payloads.
+update public.venues set contact_email = 'guests@clubvesper.test'
+ where id = 'aa000000-0000-7000-8000-000000000001';
+create temp table j_claim as
+  select m as mail from jsonb_array_elements(
+    (select public.guest_mails_claim(500)) -> 'mails') as m;
+select is(
+  (select count(*)::int from j_claim c
+    where c.mail ->> 'to' = 'lotte@example.test'),
+  1, 'J1 the split decision gives exactly one claimed mail');
+select is(
+  (select c.mail -> 'tiers' from j_claim c where c.mail ->> 'to' = 'lotte@example.test'),
+  '[{"tier_name":"VIP","people":1,"price_cents":null},{"tier_name":"Regular","people":2,"price_cents":null}]'::jsonb,
+  'J2 ...whose tiers list both parts: VIP 1 person (the part with the address first), Regular 2 people');
+select is(
+  (select (c.mail ->> 'asked_people')::int from j_claim c where c.mail ->> 'to' = 'lotte@example.test'),
+  4, 'J3 ...and the asked-for 4 people, so the partly mail reads "3 of 4"');
+select is(
+  (select jsonb_array_length(c.mail -> 'tiers') from j_claim c where c.mail ->> 'to' = 'noa.auto@example.test'),
+  1, 'J4 a decision that was not split (the auto-approval) has tiers of length 1');
 
 select * from finish();
 rollback;

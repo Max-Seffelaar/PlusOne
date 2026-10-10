@@ -1,5 +1,4 @@
 import { test, expect, expectNoHorizontalOverflow } from './harness';
-import type { Page } from '@playwright/test';
 import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
 
 /**
@@ -71,11 +70,6 @@ async function fileRequest(name: string, email: string, plusOnes: number): Promi
   return data.id as string;
 }
 
-async function goApp(page: Page, path: string): Promise<void> {
-  await page.goto(path);
-  await page.waitForLoadState('networkidle').catch(() => {});
-}
-
 test.beforeAll(async () => {
   await acceptConsent(ADMIN);
   const id = await getUserIdByEmail(ADMIN);
@@ -104,7 +98,7 @@ test('requests: split +3 over two tiers with one declined → one mail; whole de
   await flow.shot('requests-card');
 
   await flow.check(1, 'Requests shows the new request with its +3', async () => {
-    await expect(card.getByText('+3')).toBeVisible();
+    await expect(card.getByText('+3', { exact: true })).toBeVisible();
   });
 
   // ── The split sheet ───────────────────────────────────────────────────────
@@ -135,7 +129,7 @@ test('requests: split +3 over two tiers with one declined → one mail; whole de
   await page.getByRole('button', { name: 'Add 3, decline 1' }).click();
   await expect(page.getByTestId('decide-tiers')).toBeHidden();
 
-  await flow.check(4, 'Database: two guests from the request (VIP solo, Regular +1), the request approved for 3 with the note', async () => {
+  await flow.check(4, 'Database: two guests from the request (Regular +1 with the contact, VIP solo), the request approved for 3 with the note', async () => {
     await expect
       .poll(async () => {
         const { data } = await adminClient()
@@ -145,7 +139,7 @@ test('requests: split +3 over two tiers with one declined → one mail; whole de
           .order('created_at');
         return (data ?? []).map((g) => `${g.tier_id === VIP ? 'VIP' : g.tier_id === REGULAR ? 'Regular' : '?'}:${g.plus_ones}:${g.email ? 'mail' : '-'}`).sort();
       })
-      .toEqual(['Regular:1:-', 'VIP:0:mail']);
+      .toEqual(['Regular:1:mail', 'VIP:0:-']);
     const { data: req } = await adminClient()
       .from('guest_requests')
       .select('status, approved_plus_ones, decision_message')
@@ -155,10 +149,14 @@ test('requests: split +3 over two tiers with one declined → one mail; whole de
   });
 
   const splitMails = await mailsTo(splitEmail);
-  await flow.check(5, 'Exactly one mail to the requester: the partly mail with the note (no separate "You\'re on the list")', async () => {
+  await flow.check(5, 'Exactly one mail to the requester: the partly mail for 3 people, both tiers, the note (no separate "You\'re on the list")', async () => {
     expect(splitMails).toHaveLength(1);
-    expect(splitMails[0].subject).toMatch(new RegExp(`^On the list for ${EVENT_NAME}`));
+    expect(splitMails[0].subject).toBe(`On the list for ${EVENT_NAME}: 3 people`);
     expect(splitMails[0].text).toContain('We could fit three of you, sorry.');
+    // One mail names every part of the split (claim `tiers`, z8uq9m2vga).
+    expect(splitMails[0].text).toContain('Your spot: 3 people');
+    expect(splitMails[0].text).toContain('Regular: 2 people');
+    expect(splitMails[0].text).toContain('VIP: 1 person');
   });
 
   await flow.check(6, 'The card left the queue; the totals line counts the declined person', async () => {
