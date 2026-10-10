@@ -230,7 +230,10 @@ test('event locations: company settings → two saved locations → event at the
   expect(tierErr).toBeNull();
   await goApp(page, `/app/requests?event=${event.id}`, baseURL);
   await page.getByRole('button', { name: /Approve…/ }).first().click();
-  await page.getByRole('button', { name: new RegExp(TIER) }).click();
+  // The decision sheet (z8uq9m2vga) starts with the whole request on the
+  // event's first tier; this event has only the one, so it is already chosen.
+  await expect(page.getByRole('button', { name: `One more on ${TIER}` })).toBeVisible();
+  await expect(page.getByTestId('decide-summary')).toHaveText('1 of 1 on the list');
   await flow.shot('approve-sheet');
   await page.getByRole('button', { name: /Add to the list/ }).click();
   await expect
