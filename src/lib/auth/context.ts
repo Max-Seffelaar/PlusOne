@@ -47,7 +47,7 @@ export interface MyProfile {
 }
 
 /**
- * The signed-in user's own `user_profiles` row (RLS: own profile), read ONCE
+ * The signed-in user's own `user_profiles` row (via `my_profile()`), read ONCE
  * per request for the `/app` layout: the shell name, the consent gate and the
  * MFA recommendation all used to read it separately (perf audit finding 2).
  * Null when signed out or the row is missing — callers treat that exactly like
@@ -57,8 +57,10 @@ export const getMyProfile = cache(async (): Promise<MyProfile | null> => {
   const user = await getSessionUser();
   if (!user) return null;
   const supabase = await createClient();
+  // An RPC, not a table read: terms_version and mfa_snooze_until are outside
+  // `authenticated`'s column grant on user_profiles (20261014120100).
   const { data } = await supabase
-    .from('user_profiles')
+    .rpc('my_profile')
     .select('full_name, terms_accepted_at, terms_version, mfa_snooze_until')
     .eq('id', user.id)
     .maybeSingle();

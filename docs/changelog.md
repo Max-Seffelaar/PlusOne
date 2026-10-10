@@ -8,6 +8,19 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-10 — user_profiles: column-level SELECT for authenticated
+
+Milestone **Now** (privacy/legal hygiene before more venues sign). High-risk surface (grants): fresh-session `/code-review` + `/security-review` before merge.
+
+- **The hole (verified on prod 2026-10-10, schema only):** `authenticated` held table-level SELECT on `user_profiles` since `20260613000000`; `20260923120000` narrowed only INSERT/UPDATE. With `user_profiles_select: can_view_profile(id)`, every colleague (same venue, or co-organizer on an event) could read every column of the others' rows: `is_platform_admin` (who the PlusOne operators are), `mfa_snooze_until` (who skipped MFA), `phone`, and any future column. A column-level REVOKE does not narrow a table-level GRANT — the reason 6b put notification prefs in their own table. CLAUDE.md claimed the opposite.
+- **Two PRs, expand–contract** (precedent J2, #309 before #307: Vercel deploys on merge, the push comes after):
+  1. **Expand — `20261014120000_my_profile_rpc`:** `my_profile()`, SECURITY DEFINER, `search_path = ''`, STABLE, no parameter, returns only the `auth.uid()` row (own private columns; not `is_platform_admin`, which keeps `is_platform_admin()` as its one read path). EXECUTE authenticated only. pgTAP `my_profile.test.sql` (14). Merge and push first; the deployed app does not call it.
+  2. **Contract — `20261014120100_user_profiles_column_select`:** revokes the table-level SELECT, grants `select (id, full_name, email, terms_accepted_at)`. Inventory behind the list: every `user_profiles` read in `src/`, plus every invoker view/function on the DB (only `audit_feed`, `security_invoker`, reading `id`/`full_name`; every function touching the table is SECURITY DEFINER). Cross-user reads: embeds on `venue_memberships`/`event_organizers`/`guests.added_by` (`full_name`, `email`), crew "joined" state (`terms_accepted_at`), crew invite lookup (`email`). The app's own-row reads moved in the same PR: `getMyProfile`, `hasAcceptedCurrentTerms`, the consent page and `fetchMyProfile` call `my_profile()`; `isPlatformAdminServer`, `fetchIsPlatformAdmin`, `guestReminderAvailable` and `sendGuestReminder` call `is_platform_admin()`. Push only after that app version is live — the previous one reads `mfa_snooze_until`/`terms_version`/`phone`/`is_platform_admin` directly and would get 42501 (the consent gate would bounce everyone).
+- **Tests:** pgTAP `user_profiles_column_select.test.sql` (29: catalog, colleague, self, platform admin, anon; every denial a hard 42501, incl. WHERE/ORDER BY on a private column, so no oracle). `grant_matrix.test.sql` 15 → 17: a table-level SELECT on `user_profiles`, or a readable column outside the allowlist, fails CI (verified red by re-granting locally). Probed through real PostgREST with the app's exact supabase-js shapes (embeds, `!inner` + `ilike`, `count: 'exact'` updates, the consent fallback insert): all pass.
+- **Unchanged:** RLS policies, the INSERT/UPDATE column grants, SECURITY DEFINER writers, service_role.
+
+---
+
 ## 2026-10-10 — Onboarding programme, golf D closed; golf E half-way (orchestrator)
 
 Milestone **Now** (ADE). Orchestrator status for golf D plus the early-started golf E. Per-task detail is in each PR's own entry below; this is the wave-level record. State table: §2b of `onboarding-orchestration-claude-code.md`.

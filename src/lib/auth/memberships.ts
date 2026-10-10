@@ -191,21 +191,18 @@ export async function getMyPendingInvites(): Promise<PendingInvite[]> {
 
 // ── PlusOne platform (system) admin support-access (P-02/P-05) ──────────────
 
-// Whether the signed-in user is a PlusOne platform admin. Reads the caller's
-// OWN user_profiles row (RLS: always readable), so this is one cheap select —
-// never a service-role bypass. Mirrors `fetchIsPlatformAdmin` in
-// `src/features/po/queries.ts`, which reads the same column over the browser
-// client for the UI gate; this is the server-side counterpart used by the
-// venue-switch action + layout below.
+// Whether the signed-in user is a PlusOne platform admin, through the
+// `is_platform_admin()` RPC over the user-scoped client — never a service-role
+// bypass, and never a direct column read: `authenticated` holds no SELECT on
+// user_profiles.is_platform_admin (20261014120100). Mirrors
+// `fetchIsPlatformAdmin` in `src/features/po/queries.ts`, the browser-client
+// counterpart for the UI gate; this one serves the venue-switch action + layout
+// below.
 export async function isPlatformAdminServer(): Promise<boolean> {
   const user = await getSessionUser();
   if (!user) return false;
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('is_platform_admin');
   // Throw on a read error rather than reading it as "not a platform admin":
   // `switchActiveVenueAction` decides whether a `platform_access_log` row is
   // owed from this, and a silent false would switch a platform admin in
@@ -214,7 +211,7 @@ export async function isPlatformAdminServer(): Promise<boolean> {
   // `.catch(() => null)`, and the crew path of the switch action lets it
   // propagate so the switch fails closed.
   if (error) throw error;
-  return data?.is_platform_admin === true;
+  return data === true;
 }
 
 /**

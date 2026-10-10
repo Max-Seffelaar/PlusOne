@@ -212,7 +212,7 @@ function guestReminderEnabled(): boolean {
 
 /**
  * Whether this caller may see the "Send reminder" button: the env flag is on
- * and they are a platform admin (read through RLS, their own row). The action
+ * and they are a platform admin (`is_platform_admin()`, user-scoped). The action
  * below re-checks both; this only decides what the screen shows.
  */
 export async function guestReminderAvailable(): Promise<boolean> {
@@ -220,15 +220,15 @@ export async function guestReminderAvailable(): Promise<boolean> {
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return false;
-  const { data } = await supabase.from('user_profiles').select('is_platform_admin').eq('id', ctx.user.id).maybeSingle();
-  return data?.is_platform_admin === true;
+  const { data } = await supabase.rpc('is_platform_admin');
+  return data === true;
 }
 
 /**
  * "Send reminder" (guest mail F, test): mails every guest with a spot and an
  * address "Reminder: you're on the list". Platform admins only, and only with
  * GUEST_REMINDER_ENABLED=true; a later decision makes it a company feature or
- * not. The platform-admin check reads the caller's own flag through RLS; the
+ * not. The platform-admin check is the `is_platform_admin()` RPC; the
  * event must be visible to them (RLS) and still ahead.
  */
 export async function sendGuestReminder(input: SendGuestReminderInput): Promise<ActionResult> {
@@ -240,12 +240,8 @@ export async function sendGuestReminder(input: SendGuestReminderInput): Promise<
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('is_platform_admin')
-    .eq('id', ctx.user.id)
-    .maybeSingle();
-  if (profile?.is_platform_admin !== true) return unauthorized();
+  const { data: isPlatformAdmin } = await supabase.rpc('is_platform_admin');
+  if (isPlatformAdmin !== true) return unauthorized();
 
   const { data: event } = await supabase
     .from('events')
