@@ -11,6 +11,7 @@ import { mapMutationError, unauthorized, invalidInput, notFound, type MutationEr
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { queueEventMail } from '@/features/mail/guest-queue';
 import { buildEventSlug } from './slug';
+import { checkMailDomain } from './mail-domain';
 import type { Database } from '@/lib/database.types';
 import {
   createEventSchema,
@@ -75,7 +76,31 @@ import {
 // as 45004 → src/lib/db-errors.ts.
 
 export type ActionResult = { ok: true } | MutationError;
-export type CreateEventResult = { ok: true; eventId: string } | MutationError;
+/** contactSaved false: a template event exists, but its contact address didn't stick (the form says so). */
+export type CreateEventResult = { ok: true; eventId: string; contactSaved?: boolean } | MutationError;
+
+/** The organiser's contact address must sit on a domain that takes mail (6c; DNS, fail-open). */
+async function contactDomainRefused(contactEmail: string): Promise<MutationError | null> {
+  return (await checkMailDomain(contactEmail)) === 'no_mail_domain'
+    ? invalidInput(t.events.contactEmail.noDomain)
+    : null;
+}
+type UserClient = Awaited<ReturnType<typeof createClient>>;
+
+/** Admin of the company (platform admin included, #49): the insert policy's predicate. */
+async function canAdminVenue(supabase: UserClient, venueId: string): Promise<boolean> {
+  const { data } = await supabase.rpc('has_venue_role', { p_venue_id: venueId, p_roles: ['admin'] });
+  return data === true;
+}
+
+/** Company admin or organizer of this event: the update policy's predicate. */
+async function canEditEvent(supabase: UserClient, eventId: string, venueId: string): Promise<boolean> {
+  const [admin, organizer] = await Promise.all([
+    canAdminVenue(supabase, venueId),
+    supabase.rpc('is_event_organizer', { p_event_id: eventId }),
+  ]);
+  return admin || organizer.data === true;
+}
 export type CreateTemplateResult = { ok: true; templateId: string } | MutationError;
 
 // ── Event CRUD ──────────────────────────────────────────────────────────────
@@ -84,7 +109,8 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules } = parsed.data;
+  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules, contactEmail } =
+    parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -94,6 +120,14 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   // NEW events; existing events keep running (door included).
   const blocked = await assertVenueBillingActive(venueId);
   if (blocked) return blocked;
+
+  // The DNS check only for someone who may create here (admin, RLS
+  // events_insert_admin); anyone else goes on to the insert, which RLS refuses
+  // as before. Review #456 N1: no lookups for callers who can't write.
+  if (await canAdminVenue(supabase, venueId)) {
+    const refused = await contactDomainRefused(contactEmail);
+    if (refused) return refused;
+  }
 
   // Retry on the astronomically rare slug collision with a fresh suffix.
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -111,6 +145,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         location_name: locationName ?? null,
         location_address: locationAddress ?? null,
         house_rules: houseRules ?? null,
+        contact_email: contactEmail,
         landing_slug: buildEventSlug(name, startsAt),
       } as Database['public']['Tables']['events']['Insert'])
       .select('id')
@@ -134,11 +169,31 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules } = parsed.data;
+  const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules, contactEmail } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+
+  // 6c: no save leaves an event without a contact address (older events get
+  // one at their first edit), and a new or changed one must sit on a domain
+  // that takes mail. Read through RLS: an event the caller can't see is left
+  // to the update below, which RLS refuses as before.
+  // The DNS lookup runs only for someone who may edit the event (company
+  // admin or its organizer, RLS events_update_admin_organizer); staff, who can
+  // read it, go on to the update, which RLS filters as before (review #456 N1).
+  const { data: current } = await supabase
+    .from('events')
+    .select('contact_email, venue_id')
+    .eq('id', eventId)
+    .maybeSingle();
+  if (current) {
+    if (contactEmail === undefined && !current.contact_email) return invalidInput(t.events.contactEmail.required);
+    if (contactEmail !== undefined && contactEmail !== current.contact_email && (await canEditEvent(supabase, eventId, current.venue_id))) {
+      const refused = await contactDomainRefused(contactEmail);
+      if (refused) return refused;
+    }
+  }
 
   const patch = {
     ...(name !== undefined ? { name } : {}),
@@ -147,6 +202,7 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     ...(locationName !== undefined ? { location_name: locationName } : {}),
     ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
     ...(houseRules !== undefined ? { house_rules: houseRules } : {}),
+    ...(contactEmail !== undefined ? { contact_email: contactEmail } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
@@ -1027,7 +1083,7 @@ export async function createEventFromTemplate(
 ): Promise<CreateEventResult> {
   const parsed = createEventFromTemplateSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { templateId, name, startsAt, endsAt } = parsed.data;
+  const { templateId, name, startsAt, endsAt, contactEmail } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -1043,6 +1099,12 @@ export async function createEventFromTemplate(
   if (tpl) {
     const blocked = await assertVenueBillingActive(tpl.venue_id);
     if (blocked) return blocked;
+    // The DNS check only for an admin of the template's company (the RPC
+    // re-checks admin); anyone else is refused by the RPC as before.
+    if (await canAdminVenue(supabase, tpl.venue_id)) {
+      const refused = await contactDomainRefused(contactEmail);
+      if (refused) return refused;
+    }
   }
 
   const { data, error } = await supabase.rpc('create_event_from_template', {
@@ -1052,7 +1114,13 @@ export async function createEventFromTemplate(
     p_ends_at: endsAt ?? undefined,
   });
   if (error) return mapMutationError(error);
-  return { ok: true, eventId: data as string };
+  const eventId = data as string;
+  // Templates never carry a contact address (6c): the organiser typed one for
+  // this event. The event exists by now, so a failed write must not read as a
+  // failed create (a second Save would make a second event): report it and
+  // let the form say so.
+  const { error: contactError } = await supabase.from('events').update({ contact_email: contactEmail }).eq('id', eventId);
+  return { ok: true, eventId, contactSaved: !contactError };
 }
 
 /**

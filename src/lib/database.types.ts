@@ -644,6 +644,7 @@ export type Database = {
           auto_lock_at: string | null
           cancelled_at: string | null
           capacity: number | null
+          contact_email: string | null
           created_at: string
           default_member_quota: number
           ends_at: string | null
@@ -668,6 +669,7 @@ export type Database = {
           auto_lock_at?: string | null
           cancelled_at?: string | null
           capacity?: number | null
+          contact_email?: string | null
           created_at?: string
           default_member_quota: number
           ends_at?: string | null
@@ -692,6 +694,7 @@ export type Database = {
           auto_lock_at?: string | null
           cancelled_at?: string | null
           capacity?: number | null
+          contact_email?: string | null
           created_at?: string
           default_member_quota?: number
           ends_at?: string | null
