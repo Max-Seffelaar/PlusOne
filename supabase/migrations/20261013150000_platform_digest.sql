@@ -68,7 +68,7 @@
 -- ---------------------------------------------------------------------------
 -- 1. mail_log type
 -- ---------------------------------------------------------------------------
--- Last defined in 20261007150000. Every existing type kept.
+-- Last defined in 20261013130000 (+ platform_invite). Every existing type kept.
 
 alter table public.mail_log drop constraint mail_log_type_check;
 alter table public.mail_log
@@ -76,6 +76,7 @@ alter table public.mail_log
   check (type in (
     'team_join', 'team_added_to_event', 'team_resend', 'auth_invite',
     'team_invite_declined', 'team_invite_declined_confirm',
+    'platform_invite',
     'platform_digest'
   ));
 

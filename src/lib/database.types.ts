@@ -2528,6 +2528,7 @@ export type Database = {
           total_companies: number
           trial_lapsed: number
           trialing: number
+          trialing_payment_set_up: number
         }[]
       }
       platform_digest_tick: { Args: never; Returns: boolean }

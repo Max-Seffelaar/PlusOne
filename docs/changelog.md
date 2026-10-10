@@ -36,6 +36,8 @@ Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (n
   - The function answers `{ ok: true }` only, with totals in the log (`net._http_response` is readable by app roles).
   - Runbook triage row: a failed digest is retried only by a manual `kick_platform_digest()`.
   - Spec decision renumbered to #57 (#56 went to #438).
+  - Migration moved to `20261013150000` (prod already had `20261013120000`); #439 landed as `20261013140000`. The `mail_log` type constraint keeps `platform_invite` from `20261013130000`.
+  - Full run on main + this branch: pgTAP 98 files / 2515 assertions, `CI=1 pnpm test` 284 files green.
 
 ---
 
