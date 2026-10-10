@@ -73,7 +73,7 @@ returns jsonb language sql security definer as $fn$
 $fn$;
 grant execute on function pg_temp.prefs(uuid) to anon, authenticated, service_role;
 
-select plan(53);
+select plan(56);
 
 -- Seed: Club Vesper (aa…01): Max 1111 admin, Noor 2222 user_manager, Femke
 -- 3333 finance, Tom 5555 staff, Lisa 6666 doorhost+staff; Yusuf 4444
@@ -395,6 +395,35 @@ select is(
   (select status from public.notification_outbox
     where source_id = '9e000000-0000-7000-8000-000000000031' and channel = 'email'),
   'pending', 'I9 the row waits (pending), it is not dropped');
+
+-- I11-I13 (S4 + nits a/b): Club Vesper is over its budget with a row
+-- waiting; venue 2 has one due row. A claim with room for one mail still
+-- reaches venue 2, and Vesper's waiting row is no reason to kick.
+select pg_temp.as_owner();
+insert into public.events (id, venue_id, name, starts_at, landing_slug)
+values ('ee000000-0000-7000-8000-0000000000c2', 'aa000000-0000-7000-8000-000000000002',
+        'Venue Two Night', now() + interval '12 days', 'pgtap-venue-two-night');
+insert into public.guest_requests (id, event_id, full_name)
+values ('9e000000-0000-7000-8000-000000000041', 'ee000000-0000-7000-8000-0000000000c2', 'Dirk');
+update public.notification_outbox set next_attempt_at = now() - interval '1 minute'
+ where source_id = '9e000000-0000-7000-8000-000000000041' and channel = 'email';
+update public.notification_outbox set next_attempt_at = now() - interval '1 hour'
+ where source_id = '9e000000-0000-7000-8000-000000000031' and channel = 'email';
+select pg_temp.login_service();
+insert into claims select 'i11', public.team_mails_claim(1);
+select is(
+  (select array_agg((m -> 'company' ->> 'name') order by m ->> 'mail_log_id') from claims, jsonb_array_elements(j -> 'mails') m where k = 'i11'),
+  (select array[v.name] from public.venues v where v.id = 'aa000000-0000-7000-8000-000000000002'),
+  'I11 a company over budget never crowds out another: the one-mail window reaches venue 2');
+select pg_temp.as_owner();
+select ok(
+  'aa000000-0000-7000-8000-000000000001'::uuid = any (public.team_mail_full_venues())
+  and not ('aa000000-0000-7000-8000-000000000002'::uuid = any (public.team_mail_full_venues())),
+  'I12 only the company over budget counts as full (its waiting rows trigger no kick)');
+insert into public.mail_log (type, venue_id, recipient_hash)
+select 'team_join', 'aa000000-0000-7000-8000-000000000002', repeat('d', 64) from generate_series(1, 5);
+select is(public.team_mail_sent_today('aa000000-0000-7000-8000-000000000002'), 1,
+  'I13 team invites do not count toward the notification budget (only the four team_* notification types)');
 
 -- I10 (N1): an email mode that is not a string is refused.
 select pg_temp.login('11111111-1111-4111-8111-111111111111');

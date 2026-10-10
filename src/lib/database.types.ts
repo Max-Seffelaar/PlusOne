@@ -3421,6 +3421,7 @@ export type Database = {
       }
       team_digest_items: { Args: { p_user: string }; Returns: Json }
       team_mail_daily_cap: { Args: never; Returns: number }
+      team_mail_full_venues: { Args: never; Returns: string[] }
       team_mail_sent_today: { Args: { p_venue_id: string }; Returns: number }
       team_mail_venue_daily_cap: { Args: never; Returns: number }
       team_mails_begin: {

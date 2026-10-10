@@ -729,7 +729,8 @@ $$;
 -- Anything that fails a check is settled 'skipped' with the reason.
 -- Daily budgets for team mail (review #458 S1), the guest-mail pattern
 -- (20261013180200): per company and overall per UTC day, failed attempts not
--- counted. Over budget, rows wait in the outbox; a summary waits for the next
+-- counted, only the four notification types (team invites have their own
+-- limits). Over budget, rows wait in the outbox; a summary waits for the next
 -- run. Team mail shares the Resend account with login codes.
 create or replace function public.team_mail_venue_daily_cap()
 returns integer language sql immutable set search_path = '' as $$ select 300 $$;
@@ -745,10 +746,26 @@ set search_path = ''
 as $$
   select count(*)::int
     from public.mail_log m
-   where m.type like 'team\_%'
+   where m.type in ('team_request', 'team_quota', 'team_decision', 'team_digest')
      and m.status <> 'failed'
      and (p_venue_id is null or m.venue_id = p_venue_id)
      and m.created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC';
+$$;
+
+-- Companies with due email rows that already spent today's budget (review
+-- #458 S4): the claim leaves their rows out of its window, so they never
+-- crowd out other companies, and the tick does not kick for them.
+create or replace function public.team_mail_full_venues()
+returns uuid[]
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(array_agg(d.venue_id), '{}'::uuid[])
+    from (select distinct o.venue_id
+            from public.notification_outbox o
+           where o.channel = 'email' and o.status = 'pending' and o.next_attempt_at <= now()) d
+   where public.team_mail_sent_today(d.venue_id) >= public.team_mail_venue_daily_cap();
 $$;
 
 create or replace function public.team_mails_claim(p_limit integer default 200)
@@ -783,6 +800,7 @@ declare
   v_global_left integer := public.team_mail_daily_cap() - public.team_mail_sent_today(null);
   v_venue_left jsonb := '{}'::jsonb;
   v_left integer;
+  v_full uuid[] := public.team_mail_full_venues();
 begin
   -- A row left 'sending' (the job died after the provider call, or before
   -- settle): unknown outcome, never re-sent.
@@ -796,13 +814,23 @@ begin
   end if;
 
   for v_g in
-    with due as (
-      select o.id, o.collapse_key, o.recipient_user_id, o.venue_id, o.next_attempt_at
+    -- Fair over companies (review #458 S4, the guest_mails_claim pattern): a
+    -- company over budget is left out, and no company fills the window with
+    -- more than 100 rows, so one busy company never holds up the others.
+    with ranked as (
+      select o.id,
+             row_number() over (partition by o.venue_id order by o.next_attempt_at, o.id) as rn
         from public.notification_outbox o
        where o.channel = 'email' and o.status = 'pending' and o.next_attempt_at <= now()
+         and not (o.venue_id = any (v_full))
+    ), due as (
+      select o.id, o.collapse_key, o.recipient_user_id, o.venue_id, o.next_attempt_at
+        from public.notification_outbox o
+        join ranked r on r.id = o.id
+       where r.rn <= 100
        order by o.next_attempt_at
        limit v_limit
-       for update skip locked
+       for update of o skip locked
     )
     select coalesce(d.collapse_key, d.id::text) as grp, d.recipient_user_id, d.venue_id,
            min(d.next_attempt_at) as first_due
@@ -1216,8 +1244,15 @@ begin
   delete from public.team_mail_links l where l.expires_at < now();
   delete from public.team_digest_deliveries d where d.local_date < (v_local::date - 30);
 
+  -- Nothing to do once today's overall budget is spent, and rows of a
+  -- company over its budget never count as due (review #458 nit b: no kick
+  -- every minute until midnight for mail that has to wait anyway).
+  if public.team_mail_sent_today(null) >= public.team_mail_daily_cap() then
+    return false;
+  end if;
   if exists (select 1 from public.notification_outbox o
-              where o.channel = 'email' and o.status = 'pending' and o.next_attempt_at <= now())
+              where o.channel = 'email' and o.status = 'pending' and o.next_attempt_at <= now()
+                and not (o.venue_id = any (public.team_mail_full_venues())))
      or (v_local::time >= time '09:00' and v_local::time < time '12:00'
          and exists (select 1 from public.team_digest_due(v_local::date, 1))) then
     return public.kick_team_mails();
@@ -1319,6 +1354,7 @@ revoke execute on function
   public.team_mail_venue_daily_cap(),
   public.team_mail_daily_cap(),
   public.team_mail_sent_today(uuid),
+  public.team_mail_full_venues(),
   public.kick_team_mails(),
   public.team_mails_tick(),
   public.notification_outbox_kick(),
