@@ -33,6 +33,40 @@ Milestone **Now** (golf D, task 5b of the October onboarding programme). Web sid
 
 ---
 
+## 2026-10-08 — Platform R vervolg: daily platform digest (z8uq9m2ybj, golf D, §9 item 19)
+
+Milestone **Now** (Max 2026-10-08: "ja, een vervolg-PR"). Draft PR, high-risk (new service-role path + scheduler): fresh reviewer session before merge. Merges after vervolg A (`20261013140000`). No prod push, nothing deployed, nothing live.
+
+- **Migration `20261013150000_platform_digest`:**
+  - `mail_log.type` + `platform_digest`.
+  - `platform_digest_tokens`: single-use invocation tokens (sha256, 10 minutes), the push-dispatch pattern.
+  - `platform_digest_deliveries`: a ledger per Amsterdam day per recipient. Both tables have RLS on, no policies and no grants.
+  - Service-role-only wrappers `platform_digest_subscription_counts/_trial_funnel/_usage_30d`: copies of the Overview bodies, which stay unchanged. pgTAP asserts parity.
+  - `platform_digest_begin(token)`: consumes the token or raises 42501, then returns the aggregates plus the current platform admins.
+  - `log_platform_digest_mail(recipient)`: venue-less, no company cap. Returns NULL when today's digest is already queued or sent; a failed attempt may retry. 42501 for anyone who is not a platform admin.
+  - Owner-only `kick_platform_digest()` / `platform_digest_tick()`.
+  - pg_cron `plusone-platform-digest` runs at 05:45 and 06:45 UTC; the tick only kicks at 07:xx Amsterdam.
+  - Vault secret `plusone_platform_digest_url`; unset means asleep.
+- **Edge Function `supabase/functions/platform-digest/`:**
+  - `digest.ts` (runtime-agnostic core) and `template.ts` (aggregates only, footer support@plus-one.io).
+  - Resend over fetch with Idempotency-Key `mail_log/<id>`. Without a key it uses Mailpit, and only on a local stack; otherwise it returns 503 after auth and writes no row.
+  - `verify_jwt = false` in `config.toml`.
+  - **No MRR/ARR:** no server path to the Stripe prices exists outside a user session, so the mail links to the Overview.
+- **Guard tightened:** `mail-confinement.test.ts` now also scans `supabase/functions/`. Only `platform-digest` may name the Resend host.
+- **Tests:** pgTAP `platform_digest.test.sql` (55) plus `tables.test.sql`; vitest `tests/unit/platform-digest.test.ts`. Ran locally end to end: kick → pg_net → served function → Mailpit. A second kick gave `skipped: 1`.
+- **Docs:** `docs/mail-deliverability.md` "Platform digest" (go-live steps and local test), `.env.example`, spec decision #57. `database.types.ts` regenerated; it also picks up two older missing entries, `cleanup_venueless_mail_log` and `is_tied_to_venue`.
+- **Review round (fresh reviewer: security clean, 2 blockers + 1 should-fix + 3 nits), 2026-10-09:**
+  - The subscription wrapper now carries `trialing_payment_set_up` from #439 (`20261013140000`), so parity test D1 holds on main + #439. I kept the copy rather than a shared internal body, because sharing would mean a third drop and re-create of the Overview RPC. D1 stays the drift alarm. The mail shows the new count as "Trial, payment set up".
+  - `log_mail_attempt` is re-created so a `platform_digest` row no longer starts the 60-second recipient window (pgTAP E17/E18).
+  - The function answers `{ ok: true }` only, with totals in the log (`net._http_response` is readable by app roles).
+  - Runbook triage row: a failed digest is retried only by a manual `kick_platform_digest()`.
+  - Spec decision renumbered to #57 (#56 went to #438).
+  - Migration moved to `20261013150000` (prod already had `20261013120000`); #439 landed as `20261013140000`. The `mail_log` type constraint keeps `platform_invite` from `20261013130000`.
+  - Full run on main + this branch: pgTAP 98 files / 2515 assertions, `CI=1 pnpm test` 284 files green.
+  - Delta review clean (no blockers). Its two doc nits are now in the runbook and `docs/mail-deliverability.md`: a consumed token without a send (`mail_not_configured`, RPC error) needs a manual kick, and `bounced`/`complained` count as sent.
+
+---
+
 ## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
 
 Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
