@@ -32,6 +32,22 @@ describe('scrubText', () => {
     ).toBe('https://x.supabase.co/rest/v1/contacts?[filtered]');
   });
 
+  it('strips a fragment — the share target hands the guest list over as #text= (share-import S2)', () => {
+    expect(scrubText('/app/share#text=Milan+Hendriks+%2B2%0AFleur&title=Friday')).toBe('/app/share#[filtered]');
+    expect(scrubText('https://app.plus-one.io/app/share#text=Milan')).toBe('https://app.plus-one.io/app/share#[filtered]');
+    expect(scrubText('from /app/share#text=Noor to /app/share')).toBe('from /app/share#[filtered] to /app/share');
+    // A query followed by a fragment: the query pattern takes both.
+    expect(scrubText('/app/share?keep=1#text=Noor')).toBe('/app/share?[filtered]');
+  });
+
+  it('strips a keyed fragment on a single-segment path — the signed-out share on /login (review S3)', () => {
+    expect(scrubText('/login?next=%2Fapp%2Fshare#text=Iris+Koster')).toBe('/login?next=%2Fapp%2Fshare#[filtered]');
+    expect(scrubText('navigated to /login#title=Friday')).toBe('navigated to /login#[filtered]');
+    // A plain anchor and free text with a # stay as they are.
+    expect(scrubText('/login#top')).toBe('/login#top');
+    expect(scrubText('see issue #12')).toBe('see issue #12');
+  });
+
   it('leaves a URL without a query string untouched', () => {
     expect(scrubText('GET https://x.supabase.co/rest/v1/contacts')).toBe(
       'GET https://x.supabase.co/rest/v1/contacts',

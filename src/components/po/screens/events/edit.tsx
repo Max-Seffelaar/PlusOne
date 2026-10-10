@@ -29,7 +29,7 @@ import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { useNav, usePo } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
-import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
+import { Btn, Field, InfoTip, Label, Note, PlacesField, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { ExportEventRow } from '../settings/export';
 import { SaveAsTemplate } from './save-as-template';
@@ -407,8 +407,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           }}
         />
 
-        {/* Per-event location (z8uq9m2vqc). Plain text for now; Places
-            autocomplete lands in onboarding task 3. Saves with the form. */}
+        {/* Per-event location (z8uq9m2vqc). Places (z8uq9m2vg5) on the
+            address: one pick fills the name (if empty) and the address. Saves
+            with the form. */}
         <Label className="mb-2">{t.events.fieldLocation}</Label>
         <Field
           icon="building"
@@ -419,12 +420,16 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           maxLength={LOCATION_NAME_MAX}
           className="mb-2"
         />
-        <Field
+        <PlacesField
           icon="pin"
           ariaLabel={t.events.locationAddressAria}
           placeholder={locAddressPlaceholder}
           value={locAddress}
           onChange={writable ? setLocAddress : undefined}
+          onPick={(p) => {
+            setLocAddress((p.address?.formattedAddress ?? p.label).slice(0, LOCATION_ADDRESS_MAX));
+            if (!locName.trim()) setLocName(p.name.slice(0, LOCATION_NAME_MAX));
+          }}
           maxLength={LOCATION_ADDRESS_MAX}
           className="mb-2"
         />

@@ -24,6 +24,7 @@ describe('routes: screenPath ↔ parseAppUrl round-trip', () => {
     ['quickadd', {}],
     ['bulk', { id: 'e1' }],
     ['bulk', {}],
+    ['share', {}],
     ['pastevent', { id: 'e1' }],
     ['guest', { id: 'g1' }],
     ['guest', { id: 'g1', eventId: 'e1' }],
@@ -144,5 +145,12 @@ describe('routes: aanvragen tab:"landing" normalizes to the default (no explicit
   it('screenPath treats tab:"landing" the same as omitted', () => {
     expect(screenPath('aanvragen', { tab: 'landing' })).toBe(screenPath('aanvragen', {}));
     expect(screenPath('aanvragen', { id: 'e1', tab: 'landing' })).toBe(screenPath('aanvragen', { id: 'e1' }));
+  });
+});
+
+describe('routes: share target (share-import S2)', () => {
+  it('parses /app/share with the shared text in the query, but never into a prop', () => {
+    const target = parseAppUrl('/app/share', new URLSearchParams({ text: 'Milan Hendriks +2', title: 't' }));
+    expect(target).toEqual({ kind: 'screen', name: 'share', props: {} });
   });
 });

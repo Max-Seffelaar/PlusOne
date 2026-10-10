@@ -68,7 +68,7 @@ export const SHARED_PATHS = [
 /** @type {Record<string, { title: string; paths: string[] }>} */
 export const FLOWS = {
   onboarding: {
-    title: 'Onboarding — new owner, consent → wizard → app → billing',
+    title: 'Onboarding — new owner, consent → wizard (DPA) → app → billing',
     paths: [
       'src/app/onboarding/',
       'src/app/consent/',
@@ -79,6 +79,26 @@ export const FLOWS = {
       'src/components/po/screens/onboarding',
       'src/components/po/screens/home',
       'src/components/po/screens/settings',
+      // Q14 (z8uq9m2vg5): the company step asks the DPA only.
+      'src/components/po/places-field',
+      'src/lib/places/',
+      'src/lib/legal.ts',
+    ],
+  },
+  'onboarding-ade-trial': {
+    title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
+    paths: [
+      'src/components/po/screens/platform.tsx',
+      'src/features/platform/',
+      'src/features/auth/invite-mail.ts',
+      'src/features/mail/',
+      'src/features/onboarding/',
+      'src/features/venues/',
+      'src/app/auth/confirm/',
+      'src/app/onboarding/',
+      'src/app/consent/',
+      'src/components/po/screens/settings/billing',
+      'supabase/migrations/20261013130000_platform_invite_ade_trial.sql',
     ],
   },
   'crew-existing-account': {
@@ -216,6 +236,24 @@ export const FLOWS = {
       'src/features/billing/',
       'src/features/po/',
       'src/components/po/screens/platform',
+    ],
+  },
+  share: {
+    title: 'Share-import S2 — text shared from WhatsApp/Mail/Notes/Excel lands on Paste a list with event + tier, imports once, never leaks (z8uq9m43m8)',
+    paths: [
+      'public/manifest.json',
+      'src/components/po/screens/share',
+      'src/components/po/screens/guests/bulk-paste',
+      'src/components/po/screens/guests/bulk-row',
+      'src/features/guests/quick-add-parser',
+      'src/features/guests/share-inbox',
+      'src/features/guests/bulk-dedupe',
+      'src/features/guests/actions.ts',
+      // Q13/Q14: the service-worker hop, the login's fragment drop, next= hygiene.
+      'public/service-worker.js',
+      'src/features/auth/next-path',
+      'src/features/auth/components/OtpLoginForm',
+      'src/lib/observability/scrub',
     ],
   },
 };

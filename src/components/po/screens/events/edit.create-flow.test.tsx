@@ -172,7 +172,7 @@ describe('EventEdit location fields', () => {
   it('shows the company name and address as placeholders', () => {
     render(<EventEdit isNew />);
     expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveAttribute('placeholder', 'Club Nova');
-    expect(screen.getByRole('textbox', { name: t.events.locationAddressAria })).toHaveAttribute(
+    expect(screen.getByRole('combobox', { name: t.events.locationAddressAria })).toHaveAttribute(
       'placeholder',
       'Wibautstraat 150, 1091 GR Amsterdam'
     );
@@ -181,7 +181,7 @@ describe('EventEdit location fields', () => {
   it('writes a typed location with the create, trimmed', async () => {
     render(<EventEdit isNew />);
     fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: '  Paradiso ' } });
-    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationAddressAria }), {
+    fireEvent.change(screen.getByRole('combobox', { name: t.events.locationAddressAria }), {
       target: { value: 'Weteringschans 6, Amsterdam' },
     });
     fillAndCreate();
@@ -237,7 +237,7 @@ describe('EventEdit template location prefill', () => {
     render(<EventEdit isNew />);
     fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
     expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Paradiso');
-    expect(screen.getByRole('textbox', { name: t.events.locationAddressAria })).toHaveValue('Weteringschans 6');
+    expect(screen.getByRole('combobox', { name: t.events.locationAddressAria })).toHaveValue('Weteringschans 6');
     fireEvent.click(screen.getByRole('button', { name: t.events.templateBlank }));
     expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('');
   });
@@ -257,7 +257,7 @@ describe('EventEdit template location prefill', () => {
 
   // Review #419: a chip tap never overwrites a location the user typed.
   const nameBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.locationNameAria });
-  const addrBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.locationAddressAria });
+  const addrBox = (): HTMLElement => screen.getByRole('combobox', { name: t.events.locationAddressAria });
   const noLoc = { id: 'tpl-none', name: 'Plain', tierCount: 1, landing_active: true, location_name: null, location_address: null };
 
   it('keeps a typed location when a template without a location is picked', () => {
@@ -313,7 +313,7 @@ describe('EventEdit template location prefill', () => {
     render(<EventEdit isNew />);
     fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
     fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: 'Melkweg' } });
-    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationAddressAria }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('combobox', { name: t.events.locationAddressAria }), { target: { value: '' } });
     fillAndCreate();
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
     expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null });

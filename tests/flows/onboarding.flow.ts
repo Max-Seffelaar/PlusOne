@@ -1,4 +1,4 @@
-import { test, expect, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY, type Flow } from './harness';
+import { test, expect, clickUntilVisible, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY, type Flow } from './harness';
 import type { Page } from '@playwright/test';
 
 /**
@@ -8,6 +8,9 @@ import type { Page } from '@playwright/test';
  * shell). Each run mints a fresh account with `/auth/dev-login?create=1` (local
  * stack only — the route 404s in prod), so it never depends on seed state and
  * can run again on the same stack.
+ *
+ * Q14 (Onboarding A, z8uq9m2vg5): the company step asks the DPA only. The
+ * comped platform invite walk is its own flow, onboarding-comped.flow.ts.
  *
  * The numbered checks are the machine-answerable half of this flow's test
  * handoff (CLAUDE.md "Per-screen test handoff"); the rest of the handoff is
@@ -60,15 +63,19 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
     await wizardHasNoPurchaseCopy(page, flow);
   });
   await flow.shot('welcome');
-  await page.getByRole('button', { name: /Set up account/i }).click();
-
   const name = page.getByPlaceholder('e.g. LOFI');
-  await expect(name).toBeVisible();
+  await clickUntilVisible(page.getByRole('button', { name: /Set up account/i }), name);
   await flow.shot('company-empty');
   await name.fill(VENUE);
   await page.getByPlaceholder('Wibautstraat 150, Amsterdam').fill('Wibautstraat 150, Amsterdam');
   const club = page.getByRole('button', { name: /^Club$/ });
   if (await club.count()) await club.first().click();
+  await flow.check(14, 'The company step asks one thing: the DPA on behalf of the typed company (no Terms or Privacy there)', async () => {
+    await expect(page.getByText(`on behalf of ${VENUE}.`)).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Data Processing Agreement' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^Terms$|Privacy Policy/ })).toHaveCount(0);
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(1);
+  });
   await agree(page);
   await flow.shot('company-filled');
   await page.getByRole('button', { name: 'Create company' }).click();

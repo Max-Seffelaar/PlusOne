@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appGateNextPath, requestPathForHeader, safeNextPath } from './next-path';
+import { appGateNextPath, loginNextPath, requestPathForHeader, safeNextPath } from './next-path';
 
 describe('safeNextPath (open-redirect guard)', () => {
   it('passes through safe in-app paths', () => {
@@ -228,5 +228,28 @@ describe('appGateNextPath (next= for the /app consent/MFA gates)', () => {
 
   it('drops an oversized value instead of carrying it into the redirect', () => {
     expect(appGateNextPath(`/app/contacts?q=${'x'.repeat(4096)}`)).toBe('/app');
+  });
+});
+
+// Share-import S2: a share target that reached the server (no service worker)
+// must not copy the guest list into a second URL via `next=`.
+describe('share payload never rides along in a next= (share-import S2)', () => {
+  const share = new URL('http://localhost:3000/app/share?title=Friday&text=Milan+Hendriks+%2B2%0AFleur&url=https%3A%2F%2Fx.test');
+
+  it('loginNextPath drops text/title/url on /app/share, also encoded or with a trailing slash', () => {
+    expect(loginNextPath(share)).toBe('/app/share');
+    expect(loginNextPath(new URL('http://localhost:3000/app/share?keep=1&te%78t=Noor'))).toBe('/app/share?keep=1');
+    expect(loginNextPath(new URL('http://localhost:3000/app/share/?text=Noor'))).toBe('/app/share/');
+  });
+
+  it('loginNextPath leaves every other path and query byte-for-byte', () => {
+    expect(loginNextPath(new URL('http://localhost:3000/app?new=event'))).toBe('/app?new=event');
+    expect(loginNextPath(new URL('http://localhost:3000/app/contacts?text=a%20b&flag'))).toBe('/app/contacts?text=a%20b&flag');
+    expect(loginNextPath(new URL('http://localhost:3000/app/events/abc'))).toBe('/app/events/abc');
+  });
+
+  it('requestPathForHeader (the /app gates) drops it too, next to _rsc', () => {
+    expect(requestPathForHeader(share)).toBe('/app/share');
+    expect(requestPathForHeader(new URL('http://localhost:3000/app/share?_rsc=1&text=Noor&keep=1'))).toBe('/app/share?keep=1');
   });
 });

@@ -777,3 +777,76 @@ describe('persistent-shell PII contract', () => {
     expect(read('next.config.js')).toMatch(/unoptimized:\s*true/);
   });
 });
+
+// Share-import S2 (z8uq9m43m8): the manifest's GET share target opens
+// `/app/share?text=…` — a guest list in a URL. The worker must answer that one
+// navigation itself (a 303 to the same path with the share keys in the
+// FRAGMENT): never touch the network with it, never store it.
+describe('share-target hop — a shared guest list never reaches the network or a cache', () => {
+  const LIST = 'Milan Hendriks +2\nFleur Janssen fleur@example.com';
+  const sharePath = `/app/share?${new URLSearchParams({ title: 'Friday', text: LIST }).toString()}`;
+
+  it('answers with a 303 to /app/share#… and makes no request and no cache write', async () => {
+    const sw = await bootedSw();
+    const served = await sw.navigate(sharePath);
+    expect(served?.status).toBe(303);
+    const target = new URL(served!.tag.replace(/^redirect:/, ''));
+    expect(target.origin + target.pathname + target.search).toBe(`${ORIGIN}/app/share`);
+    const fragment = new URLSearchParams(target.hash.slice(1));
+    expect(fragment.get('text')).toBe(LIST);
+    expect(fragment.get('title')).toBe('Friday');
+    expect(sw.fetched).toEqual([]);
+    expect([...sw.cacheStorage.buckets.values()].reduce((n, c) => n + c.entries.size, 0)).toBe(0);
+  });
+
+  it('hops offline too (it never needed the network)', async () => {
+    const sw = await bootedSw({ online: null });
+    const served = await sw.navigate(sharePath);
+    expect(served?.status).toBe(303);
+    expect(sw.fetched).toEqual([]);
+  });
+
+  it('keeps a non-share query key in the query, moves only text/title/url', async () => {
+    const sw = await bootedSw();
+    const served = await sw.navigate(`/app/share?${new URLSearchParams({ keep: '1', url: 'https://x.test', text: 'Noor' }).toString()}`);
+    const target = new URL(served!.tag.replace(/^redirect:/, ''));
+    expect(target.search).toBe('?keep=1');
+    expect(new URLSearchParams(target.hash.slice(1)).get('url')).toBe('https://x.test');
+    expect(new URLSearchParams(target.hash.slice(1)).get('text')).toBe('Noor');
+  });
+
+  it('leaves a share-less /app/share on the normal session path', async () => {
+    const sw = await bootedSw();
+    await sw.navigate('/app/share');
+    expect(sw.fetched).toEqual([`${ORIGIN}/app/share`]);
+    expect(sw.cacheStorage.bucketsHolding(`${ORIGIN}/app/share`)).toEqual([SESSION]);
+  });
+
+  it('hops a trailing-slash /app/share/ too, to the canonical path (review N1)', async () => {
+    const sw = await bootedSw();
+    const served = await sw.navigate('/app/share/?text=Noor');
+    expect(served?.status).toBe(303);
+    const target = new URL(served!.tag.replace(/^redirect:/, ''));
+    expect(target.pathname + target.search).toBe('/app/share');
+    expect(new URLSearchParams(target.hash.slice(1)).get('text')).toBe('Noor');
+    expect(sw.fetched).toEqual([]);
+  });
+
+  it('only hops the share path, and only navigations', async () => {
+    const sw = await bootedSw();
+    await sw.navigate('/app/bulk?text=Noor');
+    expect(sw.fetched).toEqual([`${ORIGIN}/app/bulk?text=Noor`]);
+    // A non-navigation request to the share URL (an RSC/cors fetch) is not
+    // hopped, not fetched by the worker and not cached (review N3).
+    const before = sw.fetched.length;
+    const rsc = await sw.navigate(sharePath, { mode: 'cors' });
+    expect(rsc).toBeUndefined();
+    expect(sw.fetched.length).toBe(before);
+    expect(sw.cacheStorage.bucketsHolding(new URL(sharePath, ORIGIN).href)).toEqual([]);
+  });
+
+  it('is off with the rest of the worker on plain localhost (dev kill-switch)', async () => {
+    const dev = await bootedSw({ hostname: 'localhost' });
+    expect(await dev.navigate(sharePath)).toBeUndefined();
+  });
+});

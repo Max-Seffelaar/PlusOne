@@ -5,7 +5,9 @@
  *     new or never-confirmed one gets a one-time sign-in link (generateLink,
  *     resolved only after the send is logged), a confirmed one the /login
  *     button. GoTrue sends nothing: no inviteUserByEmail, no magic link;
- *   - platform invites (no context) → the Supabase path exactly as before;
+ *   - platform invites with companyInviteMail + team mail active → the same
+ *     path with the company template, and no metadata (z8uq9m2vg5);
+ *   - platform invites without that context → the Supabase path as before;
  *   - team mail inactive (prod without a key) → the Supabase path too, so
  *     prod never regresses to "no mail".
  * The InviteMailResult (ok / recent / cap) is the same for a new and an
@@ -174,6 +176,45 @@ describe('sendInviteEmail — one invite mail (team mail active, team/crew conte
     await sendInviteEmail('new@example.test', { existingAccountMail: CONTEXT });
     const logged = JSON.stringify(spies.flatMap((s) => s.mock.calls));
     expect(logged).not.toContain(TOKEN_HASH);
+  });
+});
+
+// Platform (company) invite (Onboarding A, z8uq9m2vg5; decision Max
+// 2026-10-08): the same path as team/crew, with the company template, and NO
+// user metadata written (seedName: false → generateLink without options).
+describe('sendInviteEmail — company invite mail (team mail active)', () => {
+  const COMPANY = { seedName: false, companyInviteMail: { inviterName: 'Joeri' } };
+  const MAIL = { template: 'platform_invite', venueId: null, inviterName: 'Joeri', to: 'klant@venue.test' };
+
+  it('a new address: generateLink without metadata, our company mail carries the link', async () => {
+    expect(await sendInviteEmail('klant@venue.test', COMPANY)).toEqual({ ok: true });
+    expect(H.generateLink).toHaveBeenCalledWith({ type: 'invite', email: 'klant@venue.test', options: undefined });
+    expect(H.sendTeamMail).toHaveBeenCalledWith(MAIL, { cta: expect.any(Function) });
+    expect(resolvedCta).toEqual({ kind: 'invite', link: { tokenHash: TOKEN_HASH, verifyType: 'invite' } });
+    expect(H.inviteUserByEmail).not.toHaveBeenCalled();
+    expect(H.signInWithOtp).not.toHaveBeenCalled();
+    expect(H.recordAuthInviteMail).not.toHaveBeenCalled();
+  });
+
+  it('a confirmed account gets the company mail with the /login button, no magic link', async () => {
+    H.generateLink.mockResolvedValue({ data: { properties: null, user: null }, error: EXISTS });
+    expect(await sendInviteEmail('klant@venue.test', COMPANY)).toEqual({ ok: true });
+    expect(resolvedCta).toEqual({ kind: 'login' });
+    expect(H.signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it('the 60-second window answers recent, before any token is minted', async () => {
+    sendOutcome = { ok: false, reason: 'recipient_window' };
+    expect(await sendInviteEmail('klant@venue.test', COMPANY)).toEqual({ ok: false, reason: 'recent' });
+    expect(H.generateLink).not.toHaveBeenCalled();
+  });
+
+  it('team mail inactive (prod without a key): the Supabase path, still without metadata', async () => {
+    H.active = false;
+    expect(await sendInviteEmail('klant@venue.test', COMPANY)).toEqual({ ok: true });
+    expect(H.inviteUserByEmail).toHaveBeenCalledWith('klant@venue.test', undefined);
+    expect(H.sendTeamMail).not.toHaveBeenCalled();
+    expect(H.generateLink).not.toHaveBeenCalled();
   });
 });
 

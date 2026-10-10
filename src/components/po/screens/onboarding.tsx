@@ -14,7 +14,7 @@ import { createVenueAction, switchActiveVenueAction } from '@/features/venues/ac
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { useIsDemoAccount } from '../app-shell-data';
 import { useNav } from '../context';
-import { Btn, ConsentCheck, Field, Label, Note, Scroll, Top, press } from '../kit';
+import { Btn, DpaCheck, Field, Label, Note, Scroll, Top, press } from '../kit';
 import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -156,7 +156,7 @@ export function VenueCreate(): JSX.Element {
         <Label className="mb-2">{vc.vatLabel}</Label>
         <Field icon="card" placeholder={vc.vatPlaceholder} value={vat} onChange={setVat} className="mb-1.5" />
 
-        <ConsentCheck checked={agreed} onChange={setAgreed} copy={vc} className="mt-[18px]" />
+        <DpaCheck checked={agreed} onChange={setAgreed} companyName={name} className="mt-[18px]" />
       </Scroll>
       <BottomBar>
         {error && <div className="mb-2.5 text-[13.5px] leading-[1.45] text-[#ff9b9b]">{error}</div>}

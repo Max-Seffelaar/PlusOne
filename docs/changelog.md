@@ -53,6 +53,109 @@ queue calls; timeline component. pgTAP `billing_mails.test.sql` (68). Flow
 
 ---
 
+## 2026-10-09 — Share-import S2: share a list from WhatsApp/Mail/Notes/Excel to Paste a list (z8uq9m43m8)
+
+Milestone **Now** (golf D, task 5b of the October onboarding programme). Web side only; the native share sheet (Android intent, iOS Share Extension) is S6 in `capacitor-plan-claude-code.md`. No migration, no new server action or route handler, import RPC untouched.
+
+- **Manifest:** `share_target` (GET, `title`/`text`/`url`) → `/app/share`. On Android Chrome the installed PWA shows up in the share sheet.
+- **`/app/share` (screen `share`, G1 route, nav highlight Guests):** `screens/share.tsx` mounts Paste a list with `share`. The text pre-fills the box. Event picker defaults to the next upcoming event, tier picker sets the tier for lines that name none. After Add the screen replaces itself with that event's guest list.
+- **Share inbox** (`src/features/guests/share-inbox.ts`): in-memory only. `captureShareFromLocation` moves `text` (else `title`; `url` is never a list) from the query or a `#text=` fragment into memory and rewrites the URL with `history.replaceState(null, …)`. Gotchas:
+  - Passing Next's own `history.state` (`__NA`) cleans the address bar but not the router, so the import's server-action POST still went to `/app/share?text=…`. The flow caught this in the dev-server log.
+  - Reads are non-destructive. The shell keys its screen on the full URL (entrance animation), so the URL rewrite remounts the screen and a read-once inbox left the remounted screen empty. The text is cleared after a successful import. S6's native plugin calls `putSharedText`.
+- **Parser** (`quick-add-parser.ts`): `bulkLines` strips list markers (`-`, `•`, `*`, `1.`, `2)`) and skips a first-line column header ("Name<TAB>Email", "Naam, E-mail, Telefoon"). Tab/comma columns, e-mail and phone per line already worked. `pasteSummary` feeds the new preview count line "4 entries · 7 guests total · 2 with e-mail" (also on the normal Paste a list).
+- **Refactor:** `BulkPaste` moved from `guests/index.tsx` (767 LOC) to `guests/bulk-paste.tsx`, re-exported. No behaviour change outside `share`.
+- **Service-worker share hop (Max 2026-10-09, option a; high-risk → fresh reviewer before merge):** with GET alone, the launch `/app/share?text=…` reached the server once (the dev server printed it; Vercel logs URLs). The SW's network-first path also stored it in the session cache under that URL, and a signed-out share carried it into `/login?next=…`.
+  - `public/service-worker.js` now answers that navigation itself with a 303 to `/app/share#text=…`: no fetch, no cache write. Every other navigation is unchanged.
+  - The Sentry scrubber now also strips URL fragments.
+- **Review round (fresh reviewer: verdict clean, 0 blocking, 3 should-fix, 6 nits), all fixed:**
+  - **S1:** without a SW, `replaceState` cleaned the address bar but not Next's router tree. The tree kept `__PAGE__?{"text":…}` in `history.state` and sent it back as `Next-Router-State-Tree` on the next navigation. The query path now does `location.replace('/app/share#…')`, a fresh document without the query. The flow proves it (Q2 checks `history.state`, Q6 the header); Q2 failed before the fix.
+  - **S2:** the window without a SW is wider than "first launch". It is: (a) installed from `/` and shared before the first signed-in `/app`; (b) after clear site data or eviction; (c) the pre-PR worker during an update, which caches the query URL in session-v1. This is now documented in the SW header, spec #33 and here. **Middleware** (`loginNextPath`, and `requestPathForHeader` for the /app gates) drops `text`/`title`/`url` from `next=` on `/app/share` only.
+  - **S3:** a signed-out share with the SW lands on `/login?next=/app/share#text=…`, because the fragment rides the 307. The login form drops it unread (`dropShareFragment`). The scrubber also catches a keyed fragment on a single-segment path. The empty share box says "Nothing came through? Share the list again, or paste it below." New flow check Q14.
+  - **Nits:** N1 the SW hops `/app/share/` too. N3 the cors test also checks fetch and cache. N4 a spec line: the native shell gets OS shares only with S6. N5 the `Select` restyle is named in the PR. N6 leaving the share screen clears the inbox.
+- **Found, not fixed (in the PR):**
+  - manager@ is a user_manager without guest rights, so the brief's handoff user can't import. The flow uses staff@, and manager@ is the denied case.
+- **Tests:** flow `share` (Q1–Q14 × 4 variants, all green locally; Q14: signed out with the SW, `/login?next=/app/share` without a fragment; Q13: with an active SW no request with the text reaches the network, cross-checked in the dev-server log; Q6 records every request: after the launch only the import carries the text, and names go only into the POST bodies of the two existing Supabase lookups, never into a URL), `share-inbox.test.ts` (9), `share.test.tsx` (6), parser tests (+7), SW share-hop tests (+6 in `service-worker-cache-scope.test.ts`), scrub fragment test, routes round-trip + `share` parse. Layout suite has `share`. i18n snapshot updated on purpose.
+
+---
+
+## 2026-10-08 — Platform → Overview: tile "Trial, payment set up" (z8uq9m2ybj follow-up, golf D)
+
+Milestone **Now** (Max 2026-10-08, after #436). Draft PR, not merged; no prod push.
+
+- **Migration `20261013140000_platform_counts_trial_paid`:** `platform_subscription_counts()` gains `trialing_payment_set_up` (trialing with a `stripe_subscription_id`). It is a subset of `trialing`, which keeps its meaning, so the deployed app is unaffected (expand-only). The function is dropped and re-created in one transaction because Postgres can't change a result type in place. Grants, the 42501 gate before any read and `search_path = ''` are unchanged.
+- **App:** the adapter splits trialing into `trialingNoPayment` + `trialingPaymentSetUp` (clamped, never negative). In the browser, Overview shows "Trial, no payment yet" next to the new "Trial, payment set up" tile (review: one label never means two numbers), so every company still sits in exactly one status tile. Inside the native shell there is no payment copy (store-tax seam; the flows' `PURCHASE_COPY` guard caught the first version), so there the new tile is not rendered and "Trial" shows every running trial. MRR/ARR still count `active` only. The funnel hint now says converted includes past due (decision Max 15b).
+- **Tests:** pgTAP `platform_overview.test.sql` 46 → 50 (new column present, follows a trialing subscription that gets a Stripe id, Stripe's clock beats a passed local end). Vitest: adapter split + one-tile-per-company sum + the two tiles + the native variant. Flow `platform-overview` Q11 (browser: both tiles match the database exactly; native: one Trial tile, no payment copy; hint text), 4/4 variants green.
+
+---
+
+## 2026-10-08 — Onboarding A: "Free until end of ADE" platform invite, company invite mail, DPA-only consent, Places (z8uq9m2vg5)
+
+Milestone **Now** (golf D, ADE). Built on Billing G (plan step, back button and card already shipped there).
+
+- **"Free until end of ADE" invite** — migration `20261013130000_platform_invite_ade_trial`. It replaces the first build's "Always free via the invite" (scope change by Max, 2026-10-08, during review):
+  - `platform_invites.free_until_ade` (set on insert, frozen after) and `ade_trial_venue_id`. Only `create_venue_with_owner` writes it, once: the guard checks `current_user`, the insert policy pins it null.
+  - `create_venue_with_owner` starts the invitee's first company as an ordinary `trialing` Pro when the caller's own auth e-mail has an open, unused ADE invite whose inviter is still a platform admin.
+  - Its `trial_ends_at` is `greatest(2026-10-27 00:00 Europe/Amsterdam, now() + 14 days)`. The date is in one place in the migration.
+  - One `audit_log` row (`update`, trial end) names the inviter. Never comped through this route.
+  - `mail_log` type `platform_invite`.
+  - Platform → Invite has a "Free until end of ADE" toggle that hides after the date (`src/features/platform/ade.ts`).
+  - After ADE a follow-up drops the option (expand–contract).
+- **Company invite mail**: the platform invite goes through the same path as team/crew (#430): mail_log first, then `generateLink` with no metadata, then our own Resend mail.
+  - Content: "You've been invited to try PlusOne", the inviter's name, three steps, one button, the link fallback and "expires after 24 hours". It never mentions free or a price.
+  - Resend sends a fresh link.
+  - Without a Resend key the Supabase path is unchanged.
+- **One consent per moment**: the wizard's company step and the switcher quick-create ask only "I accept the Data Processing Agreement on behalf of {company}" (`DpaCheck` in the kit, `DPA_URL`). Terms + Privacy stay on `/consent`. `venues.terms_accepted_*` now means the DPA acceptance (spec #40).
+- **Places**:
+  - `POST /api/places` runs in the nodejs runtime. Order of checks: Zod union, then `getUser` (401), then no key → `{enabled:false}`, then `consume_places_throttle` (migration `20261013130100`, 120 per 10 min per user; 429 when spent).
+  - Google calls use Essentials field masks only (no displayName) and a 3 s timeout. The input text is never logged.
+  - `PlacesField` (kit) is on the wizard address, Company settings (fills street, postcode, city and country) and the event location.
+  - The secret-grep guard covers `GOOGLE_PLACES_API_KEY`.
+- **Review round (#437)**, fixed:
+  - a Places pick in Company settings replaces the whole address (it used to keep parts of the old one);
+  - PlacesField cancels its pending lookup on blur, Escape and pick, and starts a new session token per focus;
+  - VenueStep caps the picked address at 200 characters and never overwrites a name typed meanwhile;
+  - a resend bumps `last_sent_at` only after the mail went;
+  - `NEXT_PUBLIC_DPA_URL` override.
+- **Tests**:
+  - pgTAP `platform_invite_ade_trial` (25) and `places_throttle` (14); full suite 96 files / 2403.
+  - Vitest: route, PlacesField, company template, invite mail/actions, DpaCheck.
+  - Flows: `onboarding` gains Q14 (DPA). New flow `onboarding-ade-trial` (7 checks: platform invite → Mailpit → wizard → Billing TRIAL until 27 Oct → audit), green on 4 variants.
+
+---
+
+## 2026-10-09 — `promo-video` skill: craft rules from the director review
+
+Follow-up to #447, no app code. The skill now holds the rules from the director review of the first campaign:
+- **`references/craft.md`:** story rules (a human between two UI shots; promoters are never the villain; show the money; never promise what the app does not do; one CTA per audience), how to build UI shots in the edit without filming, the sound layers, music licensing, finishing, and an animatic before any credits are spent.
+- **Screen capture:** two new screens for the money moment: `22-door-paid-guest` (the PAID label at the door) and `23-event-tiers-price` (the Paid tier at €17.50).
+- **Gotcha:** the door does not show the paid amount yet. The pay banner is still inert in `src/features/door/model.ts`, so promo copy must not promise a price at the door.
+
+---
+
+## 2026-10-09 — `promo-video` skill: one look, cast and prompt format for PlusOne promo video
+
+Milestone **Now** (marketing). Captures the first reels/trailer session so later videos keep the same quality without re-learning it. No app code.
+
+- **`.claude/skills/promo-video/`**: `SKILL.md` covers the three shot types (AI never renders UI or text; real screens come from `pnpm promo:seed` / `pnpm store:screenshots`), the workflow (story, shotlist, characters, startframes, director prompts, review), startframe rules, model choice in Higgsfield and the review checklist.
+- **`references/`**: `look-and-cast.md` (look bible, the approved REF prompts, character sheets for Lotte, Daan and Robin, building characters in Higgsfield), `prompt-format.md` (the four-block director format with worked examples) and `failure-modes.md` (every failed generation so far, with its cause and fix).
+- **`scripts/`**: `frames.mjs` pulls review stills from a generated .mp4 and `crop.mjs` cuts end frames. Both run headless Edge through Playwright, because the bundled Chromium has no H.264 decoder and the machine has no ffmpeg.
+- The live storyboard stays in the Claude Doc linked from the skill.
+- **Gotcha:** the main checkout is shared between sessions. Another session switched its branch between this session's `git checkout -b` and the commit, so the commit first landed on that session's branch (moved back, not pushed). Do branch work in a separate worktree when other sessions are active.
+
+---
+
+## 2026-10-09 — Local invite mail links to the local dev server, not prod
+
+Milestone **Now** (dev friction on every onboarding test). Max hit it testing #437: in local dev every invite mail on our own path (team/crew via `sendInviteEmail`, and the company invite) put its `/auth/confirm?token_hash=…` button on `https://app.plus-one.io`. The token was minted by the LOCAL Supabase, so prod could never verify it, and a resend didn't help. Prod was unaffected.
+
+- **Root cause:** `appUrl()` in `src/features/mail/send.ts` fell back to the prod origin whenever `NEXT_PUBLIC_APP_URL` was unset, and `scripts/dev-env.mjs` never wrote that key.
+- **`appUrl()`:** still env first. Without it, only a production build (Vercel prod and previews) falls back to the prod origin. Any other build uses `http://localhost:$PORT` (7000 if unset). Prod behaviour is unchanged.
+- **`scripts/dev-env.mjs`:** a fresh `.env.local` gets `NEXT_PUBLIC_APP_URL=http://localhost:<port>` for the port it serves on (`PORT` or 7000 without `--serve`, so also `pnpm stack` and CI). An existing `.env.local` is still never rewritten. If it lacks the key, `pnpm dev` prints a hint. If it holds a localhost origin on another port (CI writes 7000, Playwright serves 3000; a worktree on 70xx), `next dev` gets the right one as a process env var for that run. A non-localhost value, or one set in the shell, is left alone. `next dev` always gets `PORT`. Pure logic lives in `scripts/lib/dev-app-url.mjs`.
+- **Tests:** `tests/unit/dev-app-url.test.ts` (written body, hint, port correction, non-local values kept) and `appUrl` cases in `src/features/mail/send.test.ts` (env wins, dev fallback, prod fallback, the invite button lands on the dev port).
+- **Verified by hand:** `pnpm dev` on a non-7000 port with a key-less `.env.local`, a team invite as manager@ to a new address, the Mailpit link opened `http://localhost:<port>/auth/confirm…` and signed the invitee in (consent screen, "Signed in as …").
+
+---
+
 ## 2026-10-09 — CI: flow-shots in parallel shards, one per variant (z8uq9m43m9)
 
 Milestone **Now** (golf D, decision Max 2026-10-09). A PR that touched a shared path (`src/lib/i18n/`, `tests/flows/flows.mjs`, …) selected every flow, and they ran one after another for ~27 min (11 flows × 4 variants, #441). With setup that sat at the 30-min job timeout (#441: 29 min 58 s). #438 and #441 ran into it on 2026-10-08/09, and a cancelled job leaves no contact sheet and no PR comment.

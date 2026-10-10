@@ -24,6 +24,8 @@ interface ClientOpts {
   insertError?: { code?: string; message: string } | null;
   selectRow?: { id: string; email: string; revoked_at: string | null } | null;
   updateCount?: number;
+  /** The acting platform admin's profile name (the mail's "{inviter}"). */
+  inviterName?: string | null;
 }
 
 function makeClient(opts: ClientOpts = {}) {
@@ -67,6 +69,18 @@ function makeClient(opts: ClientOpts = {}) {
     }),
   };
 
+  // The caller's own profile row (always readable to themselves).
+  const profiles = {
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        maybeSingle: vi.fn(async () => ({
+          data: opts.inviterName === null ? null : { full_name: opts.inviterName ?? 'Max Platform' },
+          error: null,
+        })),
+      })),
+    })),
+  };
+
   const table = {
     insert: vi.fn(async () => {
       callLog.push('insert');
@@ -83,6 +97,7 @@ function makeClient(opts: ClientOpts = {}) {
     client: {
       auth: { getUser: vi.fn(async () => ({ data: { user: { id: ADMIN_ID } } })) },
       from: vi.fn((t: string) => {
+        if (t === 'user_profiles') return profiles;
         if (t !== 'platform_invites') throw new Error(`unexpected table ${t}`);
         return table;
       }),
@@ -93,12 +108,15 @@ function makeClient(opts: ClientOpts = {}) {
   };
 }
 
-function inviteForm(email = 'klant@venue.test', note?: string) {
+function inviteForm(email = 'klant@venue.test', note?: string, freeUntilAde?: string) {
   const fd = new FormData();
   fd.set('email', email);
   if (note !== undefined) fd.set('note', note);
+  if (freeUntilAde !== undefined) fd.set('free_until_ade', freeUntilAde);
   return fd;
 }
+
+const COMPANY_MAIL = { seedName: false, companyInviteMail: { inviterName: 'Max Platform' } };
 
 function idForm(id = INVITE_ID) {
   const fd = new FormData();
@@ -139,6 +157,45 @@ describe('inviteBetaCustomerAction', () => {
       email: 'klant@venue.test',
       note: null,
       invited_by: ADMIN_ID,
+      free_until_ade: false,
+    });
+  });
+
+  it('stores "Free until end of ADE" on the invite row when ticked (z8uq9m2vg5)', async () => {
+    const { client, table } = makeClient();
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test', '', 'true'));
+
+    expect(table.insert).toHaveBeenCalledWith(expect.objectContaining({ free_until_ade: true }));
+    // The ADE trial lives on the row only: the mail gets the inviter's name
+    // and nothing else (no metadata, no free period).
+    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', COMPANY_MAIL);
+  });
+
+  it.each(['false', 'on', 'yes'])('free_until_ade=%s: false stores false, anything malformed is refused', async (value) => {
+    const { client, table } = makeClient();
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test', '', value));
+
+    if (value === 'false') {
+      expect(table.insert).toHaveBeenCalledWith(expect.objectContaining({ free_until_ade: false }));
+    } else {
+      // Anything but the literal 'true'/'false' is malformed input: refused.
+      expect(table.insert).not.toHaveBeenCalled();
+    }
+  });
+
+  it('falls back to no inviter name when the profile has none', async () => {
+    const { client } = makeClient({ inviterName: null });
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', {
+      seedName: false,
+      companyInviteMail: { inviterName: null },
     });
   });
 
@@ -164,8 +221,9 @@ describe('inviteBetaCustomerAction', () => {
 
     expect(res.ok).toBe(true);
     // seedName: false — the payload would overwrite an existing unconfirmed
-    // account's raw_user_meta_data (security review F5).
-    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', { seedName: false });
+    // account's raw_user_meta_data (security review F5). The company mail
+    // carries only the inviter's name (z8uq9m2vg5).
+    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', COMPANY_MAIL);
   });
 
   it.each(['notify', 'provision'] as const)(
@@ -250,7 +308,38 @@ describe('resendBetaInviteAction', () => {
 
     expect(res.ok).toBe(true);
     expect(table.update).toHaveBeenCalled();
-    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', { seedName: false });
+    // A fresh company mail, so an expired 24-hour link gets a new one.
+    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', COMPANY_MAIL);
+  });
+
+  it('answers a resend within the recipient window as a rate limit', async () => {
+    const { client, table } = makeClient({
+      selectRow: { id: INVITE_ID, email: 'klant@venue.test', revoked_at: null },
+    });
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'recent' });
+
+    const res = await resendBetaInviteAction({ ok: false }, idForm());
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/too many/i);
+    // No mail went, so no audited "resent" either (review #437).
+    expect(table.update).not.toHaveBeenCalled();
+  });
+
+  it('bumps last_sent_at only after the mail went out', async () => {
+    const { client, callLog } = makeClient({
+      selectRow: { id: INVITE_ID, email: 'klant@venue.test', revoked_at: null },
+    });
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockImplementation(async () => {
+      callLog.push('mail');
+      return { ok: true };
+    });
+
+    await resendBetaInviteAction({ ok: false }, idForm());
+
+    expect(callLog.indexOf('mail')).toBeLessThan(callLog.indexOf('update'));
   });
 
   it('refuses a revoked row and sends nothing', async () => {
