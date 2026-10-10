@@ -17,14 +17,14 @@ Milestone **Now**. Max tested #443 on Android (sharing from Gmail works; WhatsAp
   - Name + tier still go through the #33 grammar, so tier aliases resolve and an unknown tier word asks.
 - **A bare number column is the total number of people:** `2` = the guest +1. A header with tickets/aantal/personen/people/qty/guests confirms it; `+2` keeps meaning plus-ones.
   - Without a header, a bare number 1–20 in its own column (never the first) is the total too, as is one in a column the header doesn't name.
-  - A whitespace-only line keeps `Naam 2` = +2, the same as quick add and the door. My reading of "eigen kolom/token", stated in the PR.
+  - A space-only line too: a bare last number 1–20 is the total, so `Henk Jansen 2` = Henk +1 (Max 2026-10-10). Quick add and the door deliberately keep `Naam 2` = +2.
   - 0, negative or not a number → "Check the number of people" on that row. More than 51 people (the plus_ones bound of 50, now `PLUS_ONES_MAX`, used by the schema too) → "Too many people on one line (max 51)". Before, such a line only failed the whole batch at the server.
 - **Excel phone numbers.** `repairPastedPhone` rewrites only what Excel mangles, through the one E.164 normaliser `normalizeImportPhone`: 9 digits without a 0 → +31…, `31` + 9 → +31…, `0031…` → +31….
   - `normalizeImportPhone` gained the 9-digit rule, so the contacts import gets the same fix.
   - A plain `0612345678` stays as typed, because contacts match on `phone_norm` digits. Quick add and the door repair nothing.
 - **E-mail in the tab layout** was already read; with the header fixed, Max's paste counts "6 with e-mail".
 - **Tests:** vitest on Max's paste (rows 3, 5 and 6 reconstructed: his message showed three of the six) → 6 guests, +N 0/1/1/5/3/1, tier, e-mail, +31 phone, "6 entries · 17 guests total · 6 with e-mail". Also the same rows without a header, count/phone header words, count errors, the header guard and the phone repair (and that quick add doesn't). `bulk-row.test.ts` covers the row errors.
-  - Two existing expectations changed by decision: a pasted `31646003600` is now `+31646003600`, and `Name⇥email⇥2` is now +1.
+  - Existing expectations changed by decision: a pasted `31646003600` is now `+31646003600`; `Name⇥email⇥2` is now +1; a pasted `… 1` / `… 5` at the end of a line is now +0 / +4.
   - Flow `share` Q15/Q16 (4 variants): the paste through Paste a list, the count line, then the database (+N, tier, e-mail, `+31…`). Stand-ins: example.com addresses instead of Max's real ones, `Regular` for `GUEST` (no Guest tier on the seed event).
 
 ---
