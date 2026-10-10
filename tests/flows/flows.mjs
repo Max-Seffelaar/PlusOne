@@ -106,6 +106,17 @@ export const FLOWS = {
       'src/components/po/screens/events/guest-mail.tsx',
     ],
   },
+  'event-contact': {
+    title: 'Gastcommunicatie F (6c) — event contact email: required, never pre-filled, domain-checked → guest mail reply-to + footer use the event address',
+    paths: [
+      'src/features/events/',
+      'src/features/mail/',
+      'src/features/po/queries.ts',
+      'src/components/po/screens/events/edit.tsx',
+      'src/components/po/screens/events/contact-email-field.tsx',
+      'supabase/migrations/20261013180500_event_contact_email.sql',
+    ],
+  },
   'onboarding-ade-trial': {
     title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
     paths: [
