@@ -59,6 +59,7 @@ vi.mock('@/features/po/hooks', () => ({
   }),
   usePoSessions: () => ({ data: [] }),
   usePoCanManageTemplates: () => false,
+  usePoCompanyLocations: () => ({ data: [], isLoading: false, isError: false }),
 }));
 vi.mock('@/features/po/mutations', () => {
   const names = [
@@ -73,6 +74,9 @@ vi.mock('@/features/po/mutations', () => {
     'usePoUpdateProfile',
     'usePoUpdateEmail',
     'usePoRevokeOwnSession',
+    'usePoCreateCompanyLocation',
+    'usePoUpdateCompanyLocation',
+    'usePoArchiveCompanyLocation',
   ];
   return Object.fromEntries(names.map((n) => [n, () => (H.mutations[n] ??= stub())]));
 });

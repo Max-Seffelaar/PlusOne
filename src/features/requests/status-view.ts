@@ -3,11 +3,17 @@
  * view the page renders (#28, #43(f), amended z8uq9m0hw6).
  *
  * The RPC is the boundary for what a token holder may see: it returns the
- * venue address, the approved count and the venue message for an APPROVED
- * request only, never to a mirror token, and `{found:false}` for everything it
- * does not recognise. This adapter re-applies the same state gate anyway, so a
- * payload that ever carries more than it should still renders no more than
- * the state allows. Anything that does not parse is the neutral not-found.
+ * approved count and the venue message for an APPROVED request only, never to
+ * a mirror token, and `{found:false}` for everything it does not recognise.
+ * This adapter re-applies the same state gate anyway, so a payload that ever
+ * carries more than it should still renders no more than the state allows.
+ * Anything that does not parse is the neutral not-found.
+ *
+ * Location (z8uq9m444c, spec #48(c) revised): the page shows the EVENT's own
+ * location in every state, never the company address. The legacy
+ * `venue_address_*` keys are ignored here on purpose: a function from before
+ * migration 20261013160000 still fills them on approval with the company
+ * address, and this page must not show that during the deploy window.
  */
 import { formatTime, formatWeekdayDate } from '@/features/po/format';
 import { fmt, t } from '@/lib/i18n';
@@ -30,8 +36,9 @@ export type RequestStatusData = {
   date: string;
   /** "23:00 to 05:00", "From 23:00", or '' when the start is unknown. */
   time: string;
-  /** "Warmoesstraat 12, 1012 JD Amsterdam"; approved requests only. */
-  address: string | null;
+  /** The event's own location, "Paradiso, Weteringschans 6, 1017 SG Amsterdam";
+   *  every state. Null when the event has none. Never the company address. */
+  location: string | null;
   /** The venue's plain-text message; approved requests only. */
   message: string | null;
 };
@@ -68,6 +75,12 @@ export function formatVenueAddress(
   return out.length > 0 ? out : null;
 }
 
+/** "Name, address" from the event's own location; null when neither is set. */
+export function formatEventLocation(name: string | null | undefined, address: string | null | undefined): string | null {
+  const out = [(name ?? '').trim(), (address ?? '').trim()].filter(Boolean).join(', ');
+  return out.length > 0 ? out : null;
+}
+
 export function toRequestStatusView(data: unknown, now: Date = new Date()): RequestStatusData | null {
   const parsed = requestStatusPayloadSchema.safeParse(data);
   if (!parsed.success) return null;
@@ -95,7 +108,7 @@ export function toRequestStatusView(data: unknown, now: Date = new Date()): Requ
     eventName: p.event_name,
     date: formatWeekdayDate(validIso(p.starts_at) ?? now.toISOString()),
     time: formatEventTimes(p.starts_at, p.ends_at),
-    address: approved ? formatVenueAddress(p.venue_address_line, p.venue_postal_code, p.venue_city) : null,
+    location: formatEventLocation(p.location_name, p.location_address),
     message: message.length > 0 ? message : null,
   };
 }

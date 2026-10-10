@@ -21,6 +21,7 @@ const nav = { push: vi.fn(), replace: vi.fn(), back: vi.fn(), setTab: vi.fn(), o
 const createEvent = vi.fn().mockResolvedValue(NEW_ID);
 const createFromTemplate = vi.fn().mockResolvedValue(NEW_ID);
 
+let savedLocations: Array<{ id: string; name: string; addressLine: string; postalCode: string; city: string; country: string; placeId: string | null; address: string | null }> = [];
 let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean; location_name?: string | null; location_address?: string | null }> = [];
 
 const mutation = () => ({ mutateAsync: vi.fn(), isPending: false });
@@ -31,6 +32,7 @@ vi.mock('@/features/po/hooks', () => ({
   usePoTemplates: () => ({ data: templates }),
   usePoRequestLinks: () => ({ data: [] }),
   usePoVenueSettings: () => ({ data: { addressLine: 'Wibautstraat 150', postalCode: '1091 GR', city: 'Amsterdam' } }),
+  usePoCompanyLocations: () => ({ data: savedLocations, isLoading: false }),
 }));
 
 vi.mock('@/features/po/mutations', () => ({
@@ -77,6 +79,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   templates = [];
+  savedLocations = [];
   vi.clearAllMocks();
   createEvent.mockResolvedValue(NEW_ID);
   createFromTemplate.mockResolvedValue(NEW_ID);
@@ -166,16 +169,38 @@ describe('SaveAsTemplate copy (item 8)', () => {
   });
 });
 
-// Per-event location (z8uq9m2vqc): the company is the placeholder, a typed
-// location is written with the create, and an empty one stays null.
+// Per-event location (z8uq9m2vqc; z8uq9m444c): a new event starts at the
+// company's first saved location, else the company itself; a typed or picked
+// location is written with the create as a copy.
+const paradiso = {
+  id: 'loc-1', name: 'Paradiso', addressLine: 'Weteringschans 6', postalCode: '1017 SG', city: 'Amsterdam',
+  country: 'NL', placeId: null, address: 'Weteringschans 6, 1017 SG Amsterdam',
+};
+const melkweg = {
+  id: 'loc-2', name: 'Melkweg', addressLine: 'Lijnbaansgracht 234A', postalCode: '1017 PH', city: 'Amsterdam',
+  country: 'NL', placeId: null, address: 'Lijnbaansgracht 234A, 1017 PH Amsterdam',
+};
+
 describe('EventEdit location fields', () => {
-  it('shows the company name and address as placeholders', () => {
+  it('without saved locations, a new event starts at the company name and address', () => {
     render(<EventEdit isNew />);
-    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveAttribute('placeholder', 'Club Nova');
-    expect(screen.getByRole('combobox', { name: t.events.locationAddressAria })).toHaveAttribute(
-      'placeholder',
-      'Wibautstraat 150, 1091 GR Amsterdam'
-    );
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Club Nova');
+    expect(screen.getByRole('combobox', { name: t.events.locationAddressAria })).toHaveValue('Wibautstraat 150, 1091 GR Amsterdam');
+    expect(screen.queryByRole('group', { name: t.events.savedLocationsAria })).not.toBeInTheDocument();
+  });
+
+  it('with saved locations, it starts at the first one and a chip swaps in another', async () => {
+    savedLocations = [paradiso, melkweg];
+    render(<EventEdit isNew />);
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Paradiso');
+    expect(screen.getByRole('button', { name: 'Paradiso' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Melkweg' }));
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Melkweg');
+    expect(screen.getByRole('combobox', { name: t.events.locationAddressAria })).toHaveValue('Lijnbaansgracht 234A, 1017 PH Amsterdam');
+    expect(screen.getByRole('button', { name: 'Melkweg' })).toHaveAttribute('aria-pressed', 'true');
+    fillAndCreate();
+    await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
+    expect(createEvent.mock.calls[0][0]).toMatchObject({ locationName: 'Melkweg', locationAddress: 'Lijnbaansgracht 234A, 1017 PH Amsterdam' });
   });
 
   it('writes a typed location with the create, trimmed', async () => {
@@ -190,8 +215,17 @@ describe('EventEdit location fields', () => {
     expect(updateEvent).not.toHaveBeenCalled();
   });
 
-  it('leaves an untouched location null (= follow the company)', async () => {
+  it('saves the untouched default as the event\'s own copy (never null)', async () => {
     render(<EventEdit isNew />);
+    fillAndCreate();
+    await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
+    expect(createEvent.mock.calls[0][0]).toMatchObject({ locationName: 'Club Nova', locationAddress: 'Wibautstraat 150, 1091 GR Amsterdam' });
+  });
+
+  it('cleared fields save as no location', async () => {
+    render(<EventEdit isNew />);
+    fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('combobox', { name: t.events.locationAddressAria }), { target: { value: '' } });
     fillAndCreate();
     await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
     expect(createEvent.mock.calls[0][0]).toMatchObject({ locationName: null, locationAddress: null });
@@ -204,7 +238,11 @@ describe('EventEdit location fields', () => {
     fireEvent.change(screen.getByRole('textbox', { name: t.events.locationNameAria }), { target: { value: 'Paradiso' } });
     fillAndCreate();
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
-    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: null });
+    expect(updateEvent).toHaveBeenCalledWith({
+      eventId: NEW_ID,
+      locationName: 'Paradiso',
+      locationAddress: 'Wibautstraat 150, 1091 GR Amsterdam',
+    });
   });
 });
 
@@ -232,14 +270,14 @@ describe('EventEdit template path, location write fails', () => {
 describe('EventEdit template location prefill', () => {
   const withLoc = { id: 'tpl-loc', name: 'Offsite', tierCount: 1, landing_active: true, location_name: 'Paradiso', location_address: 'Weteringschans 6' };
 
-  it('prefills the location from the picked template and clears it when un-picked', () => {
+  it('prefills the location from the picked template and goes back to the default when un-picked', () => {
     templates = [withLoc];
     render(<EventEdit isNew />);
     fireEvent.click(screen.getByRole('button', { name: 'Offsite' }));
     expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Paradiso');
     expect(screen.getByRole('combobox', { name: t.events.locationAddressAria })).toHaveValue('Weteringschans 6');
     fireEvent.click(screen.getByRole('button', { name: t.events.templateBlank }));
-    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Club Nova');
   });
 
   it('always writes the location the form showed after a template create (never diffs against the cache)', async () => {
@@ -326,6 +364,6 @@ describe('EventEdit create form', () => {
   it('has no Company field', () => {
     render(<EventEdit isNew />);
     expect(screen.queryByText(t.events.fieldVenue)).not.toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveAttribute('placeholder', 'Club Nova');
+    expect(screen.getByRole('textbox', { name: t.events.locationNameAria })).toHaveValue('Club Nova');
   });
 });

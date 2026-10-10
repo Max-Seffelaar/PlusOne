@@ -2,9 +2,10 @@
  *
  *  data=null is the neutral not-found: an invalid, revoked, anonymized or
  *  throttled token all render the identical "Nothing here." with no event info.
- *  For a found token the page shows the event and the night's window; an
- *  APPROVED request also gets the venue address, "Approved for X of Y" when the
- *  venue approved fewer than asked, and the venue's message. The adapter
+ *  For a found token the page shows the event, the night's window and the
+ *  event's own location (every state; never the company address, z8uq9m444c);
+ *  an APPROVED request also gets "Approved for X of Y" when the venue approved
+ *  fewer than asked, and the venue's message. The adapter
  *  (`toRequestStatusView`) and the RPC both gate those fields on the state.
  *  The message is plain text rendered as a React text node, never as HTML.
  *  Read-only and explicitly NOT a ticket. No hooks: renders on the server. */
@@ -92,9 +93,9 @@ export function RequestStatus({ data }: { data: RequestStatusData | null }): JSX
         <div className="mt-[12px] flex flex-wrap items-center justify-center gap-[8px]">
           <MetaChip icon="cal">{data.date}</MetaChip>
           {data.time && <MetaChip icon="clock">{data.time}</MetaChip>}
-          {data.address && (
-            <MetaChip icon="pin" label={t.landing.statusAddressAria}>
-              {data.address}
+          {data.location && (
+            <MetaChip icon="pin" label={t.landing.statusLocationAria}>
+              {data.location}
             </MetaChip>
           )}
         </div>

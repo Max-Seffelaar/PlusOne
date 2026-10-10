@@ -1930,6 +1930,29 @@ export async function fetchVenueSettings(
   return data ?? null;
 }
 
+// ── Saved company locations (z8uq9m444c) ─────────────────────────────────────
+// Members read (RLS company_locations_select), active rows only, oldest first:
+// the first one is the company's default for a new event. A company keeps a
+// handful, so a cap is enough (no paging).
+
+export type PoCompanyLocationRow = Pick<
+  Tables['company_locations']['Row'],
+  'id' | 'name' | 'address_line' | 'postal_code' | 'city' | 'country' | 'place_id' | 'created_at'
+>;
+
+export async function fetchCompanyLocations(client: Client, venueId: string): Promise<PoCompanyLocationRow[]> {
+  const { data, error } = await client
+    .from('company_locations')
+    .select('id, name, address_line, postal_code, city, country, place_id, created_at')
+    .eq('venue_id', venueId)
+    .is('archived_at', null)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(200);
+  if (error) throw error;
+  return data ?? [];
+}
+
 export type PoSubscriptionRow = Pick<
   Tables['subscriptions']['Row'],
   | 'status'
