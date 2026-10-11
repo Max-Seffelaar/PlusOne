@@ -543,10 +543,13 @@ select is(
 -- I. event_guest_mail_status
 -- ---------------------------------------------------------------------------
 
-select pg_temp.login('55555555-5555-4555-8555-555555555555');
+-- The admin, who sees these guests (they were added by the admin). Since
+-- 20261015130000 the read follows guests_select: staff see only their own
+-- guests' states (mail_delivery_status.test.sql compares it per role).
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select ok(
   (select count(*) from public.event_guest_mail_status('ee000000-0000-7000-8000-000000000001')) >= 1,
-  'I1 a member of the company sees the per-guest status');
+  'I1 a member of the company who may see the guests sees the per-guest status');
 select pg_temp.login('77777777-7777-4777-8777-777777777777');
 select throws_ok(
   $$ select * from public.event_guest_mail_status('ee000000-0000-7000-8000-000000000001') $$,

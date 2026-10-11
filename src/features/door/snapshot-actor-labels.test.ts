@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { fetchDoorSnapshot, mergeDoorProfiles, type DoorSnapshot } from './queries';
+import { buildDoorView } from './model';
 
 const tables: Record<string, unknown[]> = {
   events: [{ id: 'e1', name: 'Launch', status: 'open', list_locked: false, allow_uncheck: null, venue_id: 'v1', location_name: null, location_address: null }],
@@ -69,6 +70,14 @@ describe('door snapshot actor labels (#62a)', () => {
       'u-op': 'PlusOne support',
       'u-me': 'Me Myself',
     });
+    // The kind rides along (review #466 r3): the door renders support typed.
+    expect(snap.profileKinds).toEqual({ 'u-former': 'member', 'u-op': 'support', 'u-me': 'member' });
+    const view = buildDoorView(snap);
+    const g1 = [...view.guests, ...view.refused].find((g) => g.id === 'g1')!;
+    expect(g1.addedByKind).toBe('member');
+    expect(g1.inByKind).toBe('support');
+    const g2 = [...view.guests, ...view.refused].find((g) => g.id === 'g2')!;
+    expect(g2.addedByKind).toBe('system'); // request-link guest: no adder
   });
 
   it('still loads the door when the label RPC fails (door speed, #25): no labels, no throw', async () => {
@@ -101,6 +110,12 @@ describe('mergeDoorProfiles (#466 N3): a label-less refetch keeps the names the 
     expect(merged.profiles).toEqual({ a: 'New A', b: 'Kept B', c: 'New C' });
     expect(merged.guests).toBe(next.guests);
     expect(merged.fetchedAt).toBe(next.fetchedAt);
+  });
+
+  it('keeps the kinds alongside the labels', () => {
+    const prev = { ...snap('e1', { a: 'PlusOne support' }), profileKinds: { a: 'support' as const } };
+    const next = snap('e1', {});
+    expect(mergeDoorProfiles(prev, next).profileKinds).toEqual({ a: 'support' });
   });
 
   it('never carries labels across events, and is a no-op without a previous snapshot', () => {

@@ -19,11 +19,20 @@ import { DECISION_MESSAGE_MAX } from '@/features/requests/schemas';
 import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { Icon } from '../icon';
-import { Avatar, Btn, CountStepper, Label, Note, TextArea, press } from '../kit';
+import { ActorPhrase, Avatar, Btn, CountStepper, Label, Note, TextArea, press } from '../kit';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import { Sheet } from '../shell';
 
 /** `plus` (landing only): the request's plus-ones, so a whole decline names everyone. */
-export type DenyTarget = { kind: 'landing' | 'quota'; id: string; name: string; eventId: string; plus?: number };
+export type DenyTarget = {
+  kind: 'landing' | 'quota';
+  id: string;
+  name: string;
+  eventId: string;
+  plus?: number;
+  /** quota: what `name` (the requester) is (spec #62a); render through kit ActorPhrase. */
+  nameKind?: ActorKind;
+};
 
 export function ErrLine({ msg }: { msg: string }): JSX.Element {
   return <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
@@ -324,9 +333,11 @@ export function DenySheet({
         {isLanding ? t.requests.declineHeading : t.requests.denyHeading}
       </div>
       <div className="mb-4 text-[13px] text-faint">
-        {isLanding
-          ? fmt(t.requests.declineFromLanding, { name: target.name })
-          : fmt(t.requests.denyFromQuota, { name: target.name })}
+        {isLanding ? (
+          fmt(t.requests.declineFromLanding, { name: target.name })
+        ) : (
+          <ActorPhrase template={t.requests.denyFromQuota} slot="name" name={target.name} kind={target.nameKind} />
+        )}
       </div>
       <Label className="mb-[10px]">
         {isLanding ? t.requests.declineNoteLabel : t.requests.reasonLabel}{' '}

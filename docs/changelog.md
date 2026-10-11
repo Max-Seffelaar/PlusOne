@@ -53,6 +53,22 @@ Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes 
   - **N2 (P2):** a non-null actor without a label is "Unknown" in the audit feed, never "System" (former members and operators have a null RLS name).
   - **N3 (P2):** `mergeDoorProfiles` keeps the previous (IndexedDB-persisted) snapshot's labels when a refetch comes back with fewer, so a label-RPC outage no longer wipes the door's names. The outbox is untouched.
   - pgTAP 59 (Unicode probes I1–I13 incl. `ensure_my_profile` from spoofed metadata); Vitest for the mirror, N2 and N3.
+- **Review round 3** (N2/N3 confirmed fixed; N1 still P1: the hand-picked class missed U+2066–206F, U+034F, U+FE0F, U+3164, U+180E, U+061C, U+115F, U+FFA0, tags, U+2800). New design, two layers:
+  - **Layer 1, structural (the primary guarantee):** who-did-what is a TYPE. `ActorLabels`/`actorRef` carry a kind per actor (`member | support | system | unknown | unnamed`, `src/lib/po/actor-kind.ts`). Only `member` is user text. Every surface renders the other kinds through one kit primitive (`ActorName`/`ActorPhrase` in `kit.tsx`: muted, italic, icon): audit feed and guest history, door added-by/checked-in-by/done-by, guest-row captions (`GuestSourceCaption`), recap, recent check-ins, quota requester, profile timeline, stats per-member rows. A member named "System" + U+2066 or "PlusOne support" renders plain. CSV export: `created_by_type`, `decided_by_type`, `acted_by_type` (`member | plusone_support | system | unknown`), appended as the LAST column of each row so every existing column keeps its position (decision Max; a test pins the pre-#466 column order); documented in `legal-v03-plan-claude-code.md`. `firstName()` keeps the full name when the first word reads like a label ("System Smith").
+  - **Layer 2, defence in depth:** the class is now every Default_Ignorable_Code_Point plus Cc and Cf (explicit ranges in the migration; `INVISIBLE_RANGES` + `\p{}` in `profile-name.ts`), U+2800 counts as a space, `'unknown'` is reserved. `profile-name.cross-check.test.ts` walks U+0001..U+10FFFF and proves the migration class equals the app list and covers everything the runtime's Unicode tables call DI/Cc/Cf. Prod re-checked (aggregates): 22 profiles, 0 affected.
+  - pgTAP 72 (J1–J13: U+2066, U+034F, U+FE0F, U+3164, U+2800, U+E0001, U+180E, U+061C, U+115F, U+FFA0, 'Unknown' refused; `ensure_my_profile` with "System" + U+2066 stores 'User'; "José Müller" accepted). F1–F3 untouched.
+- **Review round 4** (plumbing confirmed sound; one P1: a STYLED look-alike — shield symbol + Mathematical Sans-Serif Italic letters + U+2800 — passed the key and looked like the italic label):
+  - **Layer 1:** non-member kinds now render as a **chip** (bordered pill: lavender outline for support, neutral for system/unknown/unnamed, icon, `sr-only` hint `t.shared.actor.labelHint`); a member's name is plain text. The chip shrinks and truncates its own text (min-w-0 + truncate). Also wired: the cockpit's quota requester and its quota feed lines (`FeedEntry.actor`), the quota deny sheet, and the audit SUBJECT (quota/membership target) via `AuditLine.subject` + `textTemplate`; the "a user" fallback is `t.shared.actor.someUser`.
+  - **Layer 2:** `profile_name_key` folds with `normalize(NFKC)` first (JS `.normalize('NFKC')`); U+2800 splits words in `firstName()` too; a key containing "plusone support" is reserved (`profile_name_key_reserved`); ZWNJ/ZWJ/U+FE0F are allowed in a stored name (left out of the refused class, still stripped from the key). The cross-check's coverage direction only runs on runtimes at or below the stamped Unicode version (`INVISIBLE_RANGES_UNICODE_VERSION`); SQL == app stays unconditional. Spec #62(a) and the migration header now state what each layer guarantees, with no "can never pass" claims.
+  - Export: an empty `*_type` means no actor yet (pending request); a blank-named member exports "Unnamed" with type `member` — documented. Removed: the unused `actorLabel` export and the caller-less `src/features/audit/queries.ts`.
+  - pgTAP 82 (K1–K10: styled look-alike, fullwidth, Mathematical Bold "System", the phrase, "System" + ZWJ refused; "Systema Smith", "Zoë 李", emoji ZWJ sequences and U+FE0F accepted; `ensure_my_profile` with the styled look-alike stores 'User'). The round-4 widening needs the same prod aggregate re-check before the push (query in the migration header).
+- **Visual pass + review round 5** (round 5: merge-ready; P2s folded in):
+  - **V1:** a chip inside a plain `truncate` caption was clipped mid-pill (guest rows, door row at 375px). New kit `ActorCaption`: a flex row (`min-w-0`) whose text truncates while a **compact** chip (icon + short label `t.shared.actor.short`, full label in `title` and the accessible name) stays whole. Used in guest rows, the profile event caption, the door row, recent check-ins, recap; door detail and the cockpit feed use the compact chip; tables, stats and the audit feed keep the full chip.
+  - **V2:** new kit `ActorAvatar`: initials for a member, the kind's icon (styled like the chip) otherwise — audit WHO column and timeline, stats per-member rows, quota requester rows (approvals, cockpit).
+  - Audit subject: the sentence comes pre-split (`subjectParts`) around a U+0000 sentinel no stored text can contain, only for the quota / quota-request / membership entity types, joined with `split`/`join` (no `$&` expansion). Guest named `{subject}` and `$&` names tested.
+  - The neutral chip uses `border-line` (visible on hover rows and `bg-elev`). The chip's hint is ON the element (`role="img"`, `aria-label` "{label}, PlusOne label"), not a sibling sr-only span; "plusone label" joins the reserved phrases (DB + app). The audit timeline's second actor mention is `aria-hidden`.
+  - The profile and consent forms strip refused invisible characters before validating (copy-paste bidi marks, a Khmer ZWSP, a variation selector, flag tags, U+FE0E, a soft hyphen); blank/reserved after stripping is still refused; the DB CHECK is unchanged.
+  - Removed the dead `Guest.by` field (always ''). pgTAP 84 (L1–L2: the hint phrase).
 
 ---
 
@@ -81,6 +97,39 @@ Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` colu
 - **Tests:**
   - pgTAP `definer_profile_scope.test.sql` (20): operator hidden but counted; named for themselves, as a real member, and for a former member; `aal` null for admins and kept for yourself; existing gates and anon grants unchanged.
   - Unit test for the "PlusOne support" label.
+
+---
+
+## 2026-10-11 — Billing mails follow-ups: 409 = outcome unknown, Stripe mails first, Billing ?venue= deep link (z8uq9m49k4)
+
+Follow-up of 2c (#446), review nits D1/D3 and an open point. Milestone **Now**.
+
+- **D1, Resend 409 has its own code.** `resend-adapter.ts` maps a 409 (an Idempotency-Key Resend already holds: first request still in flight, or a retry with a different body) to `idempotency_conflict` instead of `provider_rejected`. `log_billing_mail` already never retries it (not in its transient list), so no second mail can follow. Migration `20261015135000_billing_mail_unknown_outcome.sql` re-creates `platform_billing_mail_timeline` with one extra count, `unknown`; the Platform timeline shows "N unknown" instead of "failed". Guest and team mail treat the new code like the old one (no retry); only the name in `mail_log.error_code` changes.
+- **D3, Stripe mails first.** A run builds its list with the payment-failed/canceled mails before the trial mails, so a run that hits its 45 s budget never makes a failed payment wait an hour.
+- **Billing deep link.** Every Billing button in a billing mail is `/app/billing?venue=<company>` (uuid-checked; the welcome mail's "Create your first event" is unchanged). For another company the user is a member of, Billing shows "Billing for {company}" + "Switch to {company}" (the event deep link's pattern: never a silent switch). The switch goes through `switchToVenue` → `switchActiveVenueAction` (membership check, platform_access_log rules unchanged) and lands on `/app/billing`. The active company, a company the user is no member of, or junk show the active company's billing: the link never reveals another company.
+- **Tests.** vitest: adapter 409 mapping, job order + `?venue=` in the sent mail, template CTA (uuid only, plain URL otherwise), routes round-trip, Billing deep-link screen (incl. native: no purchase copy). pgTAP `billing_mail_followups.test.sql` (8): a 409 is never retried, the timeline counts it as unknown, grants unchanged. Flow `billing-mails` Q12/Q13: the deep link on all four variants.
+
+---
+
+## 2026-10-11 — Resend confirmation visible on the guest page (z8uq9m49k1 follow-up)
+
+Milestone **Now**. UI only, no migration. Max's local test of #463: nobody found "Resend confirmation" behind the event card's "Edit". The confirmation line, the bounce/complaint hint and the button now sit on the guest profile's event card itself (`EventCardConfirmation` in `screens/guests/mail-status.tsx`), and are gone from the Edit sheet (never twice on one screen). Who sees the button is unchanged: `canResend` from the database and `editPlusOnes` from `profileRowActions`; the server action checks RLS again. Tests: vitest `mail-status.test.tsx`; flow `mail-status` Q2/Q4/Q5/Q12 now act on the card.
+
+---
+
+## 2026-10-11 — Guest mail delivery status, resend, bounce rule, platform mail log, test mails (z8uq9m49k1)
+
+Milestone **Now** (ADE). Spec #61 (new). Migration `20261015130000_mail_delivery_status.sql`, merges after task 7 (#457, `…120000`); it does not touch `guest_mails_claim`.
+
+- **Guest list:** every guest with an address shows "Confirmation: Not sent / Sending / Sent / Delivered / Bounced / Marked as spam / Didn't send / Unsubscribed", read through the redefined `event_guest_mail_status` (it had no app caller yet).
+- **Resend:** "Resend confirmation" in the guest's event sheet when nothing went out, it failed, or it was sent or delivered but the guest says they never got it (decision Max 2026-10-11); never while one is queued, never to a bounced address or an opted-out guest. RLS decides who may: `can_edit_guest()` runs the real `guests_update` policy as a rolled-back probe (nothing written, no audit row), then the service client queues through the same queue and budgets.
+- **Bounce rule in the database:** bounced or marked as spam to the address the guest still has → `PMB01`, no resend until the address changes (a case or spacing change is not a change).
+- **Platform → Mail log:** every outgoing mail with type, company, event where known, status and a test flag; addresses masked. "Show address" needs a ticket and writes a `platform_access_log` row; that table's `venue_id` became nullable for mails without a company.
+- **Test mail:** any of 26 templates with made-up data to a platform admin, "[Test]" in the subject, no one-time links, `mail_log.is_test`; outside every budget and the invite recipient window, with its own limit (10 per admin, 30 overall per day).
+- **Review #463 (changes, 2 blocking):** the bounce rule is now "any bounce or complaint at the current address" (a bounce, a failed detour to another address and a switch back no longer reopens the resend), and `event_guest_mail_status` filters with the `guests_select` predicate (staff saw the state of guests they can't see; pgTAP compares the RPC with RLS for every seed role). Also: at most 3 resends per guest per day, a resend re-queues the original type (approval mails keep their request), test mails go only to a current platform admin's sign-in address (SQL-enforced, a picker in the UI), and pgTAP for `can_edit_guest` on a locked list.
+- **Review #463 delta (approve, 2 nits):** `guest_mail_email_hash` trims every whitespace character JS `trim()` strips (it trimmed only spaces, so a raw-API `\ta@x` reopened the resend after a bounce); `recipientHash` agrees, pinned by vitest and pgTAP. No backfill: for an address without such characters the hash is unchanged. pgTAP also compares the RPC with RLS for a platform admin without a membership.
+- **Gotchas:** the seed event predates 6c and has no contact address, so guest mail for it waits by design; the flow gives it one. The first "Edit" on a guest profile is the contact editor; the per-event one is named "Edit <event>".
+- **Tests:** pgTAP `mail_delivery_status.test.sql` (67), vitest for the test-mail renderer (all 26 types), the actions, the Platform screen; flow `mail-status` (Q1–Q12).
 
 ---
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { auditPersonIds, describeAuditEntry, formatWhen, type AuditFeedRow } from './translate';
+import { ActorLabels } from './actor-labels';
 
 // Minimal audit_feed row factory — only the fields the translator reads.
 function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
@@ -219,10 +220,9 @@ describe('describeAuditEntry', () => {
   // former member or a PlusOne operator comes back null there; the labels from
   // venue_actor_names win.
   describe('actor labels (#62a)', () => {
-    const labels = new Map([
-      ['u-former', 'Lisa van den Berg'],
-      ['u-op', 'PlusOne support'],
-    ]);
+    const labels = new ActorLabels()
+      .setActor('u-former', 'Lisa van den Berg', 'member')
+      .setActor('u-op', 'PlusOne support', 'support');
 
     it('names a former member the view could no longer resolve', () => {
       const line = describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), labels);
@@ -254,6 +254,79 @@ describe('describeAuditEntry', () => {
 
     it('falls back to the view name without a label (RPC not deployed yet)', () => {
       expect(describeAuditEntry(row({ actor_id: 'u-max' }), new Map()).actor).toBe('Max');
+    });
+
+    it('carries the actor KIND so the screen renders labels typed (review #466 r3)', () => {
+      expect(describeAuditEntry(row({ actor_id: 'u-op', actor_name: null }), labels).actorKind).toBe('support');
+      expect(describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), labels).actorKind).toBe('member');
+      expect(describeAuditEntry(row({ actor_id: null, actor_name: null }), labels).actorKind).toBe('system');
+      expect(describeAuditEntry(row({ actor_id: 'u-x', actor_name: null }), labels).actorKind).toBe('unknown');
+    });
+
+    it('a member NAMED "System" (with an invisible suffix) is kind member, never system', () => {
+      const lri = String.fromCodePoint(0x2066);
+      const named = new ActorLabels().setActor('u-sys', `System${lri}`, 'member');
+      const line = describeAuditEntry(row({ actor_id: 'u-sys', actor_name: null }), named);
+      expect(line.actor).toBe(`System${lri}`);
+      expect(line.actorKind).toBe('member');
+    });
+
+    it('carries the SUBJECT as a ref with its kind, slotted in the template (review #466 r4)', () => {
+      const line = describeAuditEntry(
+        row({ entity_type: 'venue_memberships', action: 'delete', subject_user_id: 'u-op', subject_name: null, guest_name: null }),
+        labels,
+      );
+      expect(line.subject).toEqual({ text: 'PlusOne support', kind: 'support' });
+      expect(line.subjectParts).toEqual({ before: 'removed ', after: "'s access" });
+      expect(line.text).toBe("removed PlusOne support's access");
+    });
+
+    it('an unresolved subject is the i18n "a user", kind unknown; no subject → no template', () => {
+      const line = describeAuditEntry(
+        row({ entity_type: 'quotas', action: 'quota_grant', subject_user_id: 'u-x', subject_name: null, guest_name: null,
+              diff: { before: null, after: { default_count: 5 } } }),
+        new ActorLabels(),
+      );
+      expect(line.subject).toEqual({ text: 'a user', kind: 'unknown' });
+      expect(line.text).toBe('granted a user an venue quota of 5');
+      expect(describeAuditEntry(row({ action: 'delete' }), labels).subject).toBeUndefined();
+    });
+
+    it('a guest NAMED "{subject}" cannot forge or hide a subject (review #466 r5)', () => {
+      // A guest line: no subject entity, so no subject at all, and the name is literal text.
+      const guestLine = describeAuditEntry(row({ action: 'delete', guest_name: '{subject}' }), labels);
+      expect(guestLine.subject).toBeUndefined();
+      expect(guestLine.text).toBe('removed {subject} (soft delete)');
+      // A quota-request deny whose free-text reason says "{subject}": the real
+      // requester stays the subject, the reason stays text.
+      const deny = describeAuditEntry(
+        row({
+          entity_type: 'quota_requests', action: 'deny', subject_user_id: 'u-former', subject_name: null, guest_name: null,
+          diff: { before: null, after: { decision_reason: '{subject} tried this' } },
+        }),
+        labels,
+      );
+      expect(deny.subject).toEqual({ text: 'Lisa van den Berg', kind: 'member' });
+      expect(deny.subjectParts).toEqual({ before: 'denied the quota request from ', after: ', {subject} tried this' });
+    });
+
+    it('a member name containing replacement patterns ($&, $`, $\') is inserted literally', () => {
+      const name = 'A$&B$`C$\'D';
+      const tricky = new ActorLabels().setActor('u-t', name, 'member');
+      const line = describeAuditEntry(
+        row({ entity_type: 'venue_memberships', action: 'delete', subject_user_id: 'u-t', subject_name: null, guest_name: null }),
+        tricky,
+      );
+      expect(line.text).toBe(`removed ${name}'s access`);
+      expect(line.subject?.text).toBe(name);
+    });
+
+    it('the RLS-name fallback goes through the same blank → "Unnamed" rule', () => {
+      const blank = String.fromCodePoint(0x3164);
+      const line = describeAuditEntry(row({ actor_id: 'u-max', actor_name: blank }), new ActorLabels());
+      expect(line.actor).toBe('Unnamed');
+      expect(line.actorKind).toBe('unnamed');
+      expect(describeAuditEntry(row({ actor_id: 'u-max' }), new ActorLabels()).actorKind).toBe('member');
     });
 
     it('never calls a real actor "System" when labels are missing: "Unknown" (review #466 N2)', () => {

@@ -8,10 +8,11 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   ACTOR_ID_CHUNK,
   ActorLabels,
-  actorLabel,
   fetchActorLabels,
+  actorRef,
   fetchActorLabelsSafe,
   labelForActorRow,
+  refForActorRow,
 } from './actor-labels';
 import { t } from '@/lib/i18n';
 
@@ -84,16 +85,44 @@ describe('the label rule', () => {
     expect(labelForActorRow({ user_id: 'u6', display_name: ' Anne Marie ', is_support: false })).toBe('Anne Marie');
   });
 
-  it('says "System" for no actor', () => {
-    expect(actorLabel(null, new Map())).toBe('System');
-    expect(actorLabel(undefined, new Map([['u1', 'Lisa']]))).toBe(t.shared.actor.system);
+  it('says "System" for no actor, "Unknown" for an unresolved id (never a raw uuid)', () => {
+    const labels = new ActorLabels().setActor('u1', 'Lisa', 'member');
+    expect(actorRef(null, labels)).toEqual({ text: t.shared.actor.system, kind: 'system' });
+    expect(actorRef('u1', labels)).toEqual({ text: 'Lisa', kind: 'member' });
+    expect(actorRef('u-unknown', labels)).toEqual({ text: t.shared.actor.unknown, kind: 'unknown' });
+  });
+});
+
+describe('typed labels (review #466 round 3): only a member carries user text', () => {
+  const lri = String.fromCodePoint(0x2066);
+
+  it.each([`System${lri}`, 'PlusOne support', 'PIusOne support', 'Unknown'])(
+    'a member named %j is kind member, never system/support',
+    (name) => {
+      expect(refForActorRow({ user_id: 'u', display_name: name, is_support: false })).toEqual({
+        text: name,
+        kind: 'member',
+      });
+    },
+  );
+
+  it('support comes from the flag; blank is unnamed', () => {
+    expect(refForActorRow({ user_id: 'u', display_name: null, is_support: true })).toEqual({
+      text: 'PlusOne support',
+      kind: 'support',
+    });
+    expect(refForActorRow({ user_id: 'u', display_name: String.fromCodePoint(0x3164), is_support: false }).kind).toBe(
+      'unnamed',
+    );
   });
 
-  it('uses the resolved label, else the caller fallback (never a raw uuid)', () => {
-    const labels = new Map([['u1', 'Lisa']]);
-    expect(actorLabel('u1', labels)).toBe('Lisa');
-    expect(actorLabel('u-unknown', labels)).toBe('');
-    expect(actorLabel('u-unknown', labels, 'Door')).toBe('Door');
+  it('actorRef: null → system, missing → unknown, resolved → its kind', () => {
+    const labels = new ActorLabels().setActor('u1', `System${lri}`, 'member').setActor('u2', 'PlusOne support', 'support');
+    expect(actorRef(null, labels)).toEqual({ text: 'System', kind: 'system' });
+    expect(actorRef('u-x', labels)).toEqual({ text: 'Unknown', kind: 'unknown' });
+    expect(actorRef('u1', labels)).toEqual({ text: `System${lri}`, kind: 'member' });
+    expect(actorRef('u2', labels)).toEqual({ text: 'PlusOne support', kind: 'support' });
+    expect(labels.idsOfKind('support')).toEqual(['u2']);
   });
 });
 

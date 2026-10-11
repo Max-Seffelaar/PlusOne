@@ -231,6 +231,12 @@ function PlatformNav(): JSX.Element {
         sub={t.platform.accessLogNavSub}
         onClick={() => nav.push('platformaccess', {})}
       />
+      <ActionItem
+        icon="mail"
+        label={t.platform.mailLogNavTitle}
+        sub={t.platform.mailLogNavSub}
+        onClick={() => nav.push('platformmail', {})}
+      />
     </div>
   );
 }

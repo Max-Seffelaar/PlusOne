@@ -107,6 +107,10 @@ const PlatformAccessLog = dynamic(
   () => import('./screens/platform-access-log').then((m) => m.PlatformAccessLog),
   { loading: ScreenLoading, ssr: false },
 );
+const PlatformMailLog = dynamic(
+  () => import('./screens/platform-mail-log').then((m) => m.PlatformMailLog),
+  { loading: ScreenLoading, ssr: false },
+);
 // QuickAdd (#2b): the guest quick-add flow carries the parser + dedupe engine and
 // (via the lazy phone field) the country picker — heavy and only ever reached by
 // tapping "add guest", never on the door-only / common path. Split into its own
@@ -175,7 +179,7 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav): ReactNode {
     case 'profile':
       return <Profile />;
     case 'billing':
-      return <Billing />;
+      return <Billing venueId={p.id} />;
     case 'allowance':
       return <Allowance />;
     case 'stats':
@@ -202,6 +206,8 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav): ReactNode {
       return <PlatformAccessLog venueId={p.id} />;
     case 'platformoverview':
       return <PlatformOverview />;
+    case 'platformmail':
+      return <PlatformMailLog />;
     default:
       return null;
   }

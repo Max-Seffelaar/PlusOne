@@ -111,7 +111,9 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
     case 'profile':
       return '/app/profile';
     case 'billing':
-      return '/app/billing';
+      // `id` = the company a billing mail was about (z8uq9m49k4): the screen
+      // offers "Switch to {company}" when it is not the active one.
+      return withVenueQuery('/app/billing', id);
     case 'stats':
       return '/app/analytics';
     case 'audit':
@@ -136,6 +138,8 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
     case 'platformaccess':
       // Same `?venue=` pre-scope as the audit viewer.
       return withVenueQuery('/app/platform/access', id);
+    case 'platformmail':
+      return '/app/platform/mail';
     // Promotion hub (G3): 'overview' is the URL-less default tab — an explicit
     // {tab:'overview'} builds the same URL as {} (mirrors aanvragen's 'landing').
     case 'promotion':
@@ -266,7 +270,10 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
   }
 
   if (first === 'profile') return { kind: 'screen', name: 'profile', props: {} };
-  if (first === 'billing') return { kind: 'screen', name: 'billing', props: {} };
+  if (first === 'billing') {
+    const venue = search.get('venue');
+    return { kind: 'screen', name: 'billing', props: venue ? { id: venue } : {} };
+  }
   if (first === 'analytics') return { kind: 'screen', name: 'stats', props: {} };
   if (first === 'audit') return { kind: 'screen', name: 'audit', props: { id: search.get('event') ?? undefined } };
   if (first === 'sessions') return { kind: 'screen', name: 'adminsessions', props: {} };
@@ -282,6 +289,7 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
     if (second === 'access') {
       return { kind: 'screen', name: 'platformaccess', props: { id: search.get('venue') ?? undefined } };
     }
+    if (second === 'mail') return { kind: 'screen', name: 'platformmail', props: {} };
     return { kind: 'screen', name: 'platform', props: {} };
   }
 

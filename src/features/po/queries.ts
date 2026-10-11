@@ -2,8 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { auditPersonIds, describeAuditEntry, type AuditLine } from '@/features/audit/translate';
-import { ActorLabels, actorLabel, fetchActorLabelsSafe } from '@/features/audit/actor-labels';
-import { t } from '@/lib/i18n';
+import { ActorLabels, actorRef, fetchActorLabelsSafe } from '@/features/audit/actor-labels';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
@@ -72,9 +72,9 @@ export interface GuestSourceEmbedFlat {
   /** Who added the guest, by the who-did-what rule (#62a); null for a
    *  request-link guest (no adder) or an id the venue has no record of. */
   addedByName: string | null;
-  /** The adder is "PlusOne support" (venue_actor_names is_support). The flag,
-   *  never the label text, decides how the UI treats it (review #466 P1-2). */
-  addedBySupport: boolean;
+  /** What the adder is (spec #62a): only 'member' is a person's own text; the
+   *  kind, never the label text, decides how the UI shows it. null = no adder. */
+  addedByKind: ActorKind | null;
   /** Label of a NON-default request link (its own label, else the influencer's
    *  name); null for the event's default link or an unreadable link row. */
   linkLabel: string | null;
@@ -107,7 +107,7 @@ export function flattenGuestSource<T extends GuestSourceEmbedRaw>(
   return {
     ...rest,
     addedByName: added_by ? (labels.get(added_by) ?? null) : null,
-    addedBySupport: labels.isSupport(added_by),
+    addedByKind: added_by ? labels.kindOf(added_by) : null,
     // The default link IS "the sign-up link" — only a named or influencer link
     // earns the extra "· {label}" on the row.
     linkLabel: link && !link.is_default ? link.label ?? influencer?.name ?? null : null,
@@ -458,8 +458,10 @@ export interface RecentCheckinRow {
   plus: number;
   /** Check-in instant (ISO) for display. */
   at: string;
-  /** Display name of who let them in (check_ins.checked_by → profile). */
+  /** Who let them in (check_ins.checked_by), by the who-did-what rule (#62a). */
   by: string;
+  /** What `by` is — render through kit ActorName/ActorPhrase. */
+  byKind: ActorKind;
 }
 
 /**
@@ -490,13 +492,17 @@ export async function fetchRecentCheckins(
     ? await fetchActorLabelsSafe(client, venueId, rows.map((r) => r.checked_by))
     : new ActorLabels();
 
-  return rows.map((r) => ({
-    guestId: r.guests.id,
-    name: r.guests.full_name,
-    plus: r.plus_ones_arrived,
-    at: r.checked_at,
-    by: actorLabel(r.checked_by, labels, t.shared.actor.unknown),
-  }));
+  return rows.map((r) => {
+    const by = actorRef(r.checked_by, labels);
+    return {
+      guestId: r.guests.id,
+      name: r.guests.full_name,
+      plus: r.plus_ones_arrived,
+      at: r.checked_at,
+      by: by.text,
+      byKind: by.kind,
+    };
+  });
 }
 
 /**
@@ -690,6 +696,8 @@ export interface PoQuotaRequestRow {
   created_at: string;
   /** Requester label by the who-did-what rule (#62a, venue_actor_names). */
   requesterName: string;
+  /** What the requester label is — render through kit ActorName. */
+  requesterKind: ActorKind;
 }
 
 /**
@@ -713,14 +721,18 @@ export async function fetchQuotaRequests(
   const rows = reqs ?? [];
   const labels = await fetchActorLabelsSafe(client, venueId, rows.map((r) => r.user_id));
 
-  return rows.map((r) => ({
-    id: r.id,
-    eventId: r.event_id,
-    requestedExtra: r.requested_extra,
-    motivation: r.motivation,
-    created_at: r.created_at,
-    requesterName: actorLabel(r.user_id, labels, t.shared.actor.unknown),
-  }));
+  return rows.map((r) => {
+    const who = actorRef(r.user_id, labels);
+    return {
+      id: r.id,
+      eventId: r.event_id,
+      requestedExtra: r.requested_extra,
+      motivation: r.motivation,
+      created_at: r.created_at,
+      requesterName: who.text,
+      requesterKind: who.kind,
+    };
+  });
 }
 
 export interface RecapGuestRow {
@@ -732,6 +744,8 @@ export interface RecapGuestRow {
   /** guest_tiers.color — drives the door-style tier pill in the recap list. */
   tierColor: string | null;
   addedByName: string | null;
+  /** What the adder is (spec #62a); null = no adder (request link). */
+  addedByKind: ActorKind | null;
   /** Latest non-voided check-in instant (ISO), or null when never arrived. */
   checkedAt: string | null;
 }
@@ -795,6 +809,7 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
       tierName: tier?.name ?? null,
       tierColor: tier?.color ?? null,
       addedByName: g.added_by ? (labels.get(g.added_by) ?? null) : null,
+      addedByKind: g.added_by ? labels.kindOf(g.added_by) : null,
       checkedAt: checkedAt ?? null,
     };
   });
@@ -1489,9 +1504,9 @@ export interface ContactProfileData {
   /** Actor labels by user id for the timeline, by the who-did-what rule (#62a):
    *  a current or former member's name, or "PlusOne support". */
   actorNames: Record<string, string>;
-  /** The ids among them that are "PlusOne support" (is_support). The UI keys
-   *  on this, never on the label text (review #466 P1-2). */
-  supportActorIds: string[];
+  /** What each of them is (spec #62a): only 'member' is a person's own text.
+   *  The UI keys on this, never on the label text. */
+  actorKinds: Record<string, ActorKind>;
 }
 
 /**
@@ -1662,10 +1677,10 @@ async function fetchGuestAppearance(client: Client, guestId: string): Promise<Ra
 async function fetchActorNames(
   client: Client,
   { appearances, venueId }: RawAppearances,
-): Promise<Pick<ContactProfileData, 'actorNames' | 'supportActorIds'>> {
-  if (!venueId) return { actorNames: {}, supportActorIds: [] };
+): Promise<Pick<ContactProfileData, 'actorNames' | 'actorKinds'>> {
+  if (!venueId) return { actorNames: {}, actorKinds: {} };
   const labels = await fetchActorLabelsSafe(client, venueId, actorIds(appearances));
-  return { actorNames: Object.fromEntries(labels), supportActorIds: [...labels.support] };
+  return { actorNames: Object.fromEntries(labels), actorKinds: Object.fromEntries(labels.kinds) };
 }
 
 /** The contact header + all appearances + resolved actor names for the profile.
@@ -1681,9 +1696,9 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
   ]);
   if (cErr) throw cErr;
 
-  if (!c) return { header: null, appearances: [], actorNames: {}, supportActorIds: [] };
+  if (!c) return { header: null, appearances: [], actorNames: {}, actorKinds: {} };
 
-  const { actorNames, supportActorIds } = await fetchActorNames(client, raw);
+  const { actorNames, actorKinds } = await fetchActorNames(client, raw);
   const { appearances } = raw;
 
   return {
@@ -1702,7 +1717,7 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
     },
     appearances,
     actorNames,
-    supportActorIds,
+    actorKinds,
   };
 }
 
@@ -1710,7 +1725,7 @@ const EMPTY_PERSON: PersonProfileData = {
   header: null,
   appearances: [],
   actorNames: {},
-  supportActorIds: [],
+  actorKinds: {},
   isContact: false,
   promoteGuestId: null,
   restricted: false,
@@ -1752,7 +1767,7 @@ export async function fetchPersonProfile(
     // caller → a one-appearance profile synthesised from the guest row (readable
     // via the guests RLS, which is far more permissive than contacts).
     const raw = await fetchGuestAppearance(client, g.id);
-    const { actorNames, supportActorIds } = await fetchActorNames(client, raw);
+    const { actorNames, actorKinds } = await fetchActorNames(client, raw);
     const { appearances } = raw;
     return {
       header: {
@@ -1770,7 +1785,7 @@ export async function fetchPersonProfile(
       },
       appearances,
       actorNames,
-      supportActorIds,
+      actorKinds,
       isContact: false,
       // A restricted (already-linked) guest never offers the "Save as contact"
       // promote flow — it's already a contact, just not visible to this caller.
@@ -2053,9 +2068,9 @@ export async function fetchSubscription(
 }
 
 // ── Audit log reads (S10 Mobiel Audit-log) ───────────────────────────────────
-// Client-agnostic mirror of the SERVER-only src/features/audit/queries.ts so the
-// mobile po surface can read the same audit_feed over the BROWSER client (same
-// pattern as fetchPoGuests lifting the desktop guests select). RLS
+// The audit_feed reads for the po surface, over the BROWSER client (same
+// pattern as fetchPoGuests; the old server-only mirror had no callers and was
+// removed in #466). RLS
 // (audit_log_select_admin: admin/finance, role-only — the AAL2 requirement
 // this policy carried was dropped in 20260624160000_mfa_scope_sensitive_actions,
 // matching CLAUDE.md's "no AAL2 requirement in RLS anywhere"; the name here is
@@ -2788,7 +2803,8 @@ export interface PlatformAccessLogRow {
   id: string;
   admin_id: string;
   admin_name: string | null;
-  venue_id: string;
+  /** Null for an access that belongs to no company (a digest's mail address). */
+  venue_id: string | null;
   venue_name: string | null;
   reason: string | null;
   created_at: string;

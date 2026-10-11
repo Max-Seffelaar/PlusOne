@@ -137,6 +137,23 @@ export const FLOWS = {
       'supabase/migrations/20261013180600_notification_prefs.sql',
     ],
   },
+  'mail-status': {
+    title: 'Guest mail status (z8uq9m49k1) — guest list confirmation states → resend → bounce rule → Platform mail log (masked, reveal with ticket) → test mail',
+    paths: [
+      'src/features/mail/',
+      'src/features/guests/confirmation-actions.ts',
+      'src/features/platform/mail-log-actions.ts',
+      'src/features/po/guest-mail-status.ts',
+      'src/features/po/platform-mail-log.ts',
+      'src/lib/mail-type-groups.ts',
+      'src/components/po/screens/guests/mail-status.tsx',
+      'src/components/po/screens/guests/list-shared.tsx',
+      'src/components/po/screens/guests/profile-event-actions.tsx',
+      'src/components/po/screens/guests/profile.tsx',
+      'src/components/po/screens/platform-mail-log.tsx',
+      'supabase/migrations/20261015130000_mail_delivery_status.sql',
+    ],
+  },
   'event-contact': {
     title: 'Gastcommunicatie F (6c) — event contact email: required, never pre-filled, domain-checked → guest mail reply-to + footer use the event address',
     paths: [
@@ -298,9 +315,12 @@ export const FLOWS = {
     ],
   },
   'billing-mails': {
-    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause',
+    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause, Billing ?venue= deep link',
     paths: [
       'supabase/migrations/20261013170000_billing_mail_types.sql',
+      'supabase/migrations/20261015135000_billing_mail_unknown_outcome.sql',
+      'src/components/po/screens/settings/billing',
+      'src/components/po/routes.ts',
       'src/features/billing/mail-',
       'src/features/mail/',
       'src/app/api/webhooks/billing-mails/',
