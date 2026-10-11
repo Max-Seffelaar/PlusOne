@@ -214,11 +214,11 @@ describe('describeAuditEntry', () => {
     expect(describeAuditEntry(row({ actor_id: null, actor_name: null })).actor).toBe('System');
   });
 
-  // ── Who did it: one rule (spec #61a) ──────────────────────────────────────
+  // ── Who did it: one rule (spec #62a) ──────────────────────────────────────
   // The view's actor_name/subject_name are RLS-scoped (can_view_profile), so a
   // former member or a PlusOne operator comes back null there; the labels from
   // venue_actor_names win.
-  describe('actor labels (#61a)', () => {
+  describe('actor labels (#62a)', () => {
     const labels = new Map([
       ['u-former', 'Lisa van den Berg'],
       ['u-op', 'PlusOne support'],

@@ -208,7 +208,7 @@ export async function collectVenueExport(
   if (checkIns.length + refusals.length > EXPORT_MAX_ROWS) throw new ExportTooLargeError('door');
 
   // ── Actor names (team-sized id list, chunked) ───────────────────────────────
-  // The who-did-what rule (spec #61a, decision Max 2026-10-11): a current OR
+  // The who-did-what rule (spec #62a, decision Max 2026-10-11): a current OR
   // former member/crew is named — the export is the venue's own record of who
   // did what, and that must survive someone leaving (#24); a PlusOne platform
   // admin without a tie to the venue is "PlusOne support"; an action without an

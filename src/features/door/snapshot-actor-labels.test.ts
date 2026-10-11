@@ -1,6 +1,6 @@
 /**
  * The door snapshot's "added by" / "checked in by" labels follow the one
- * who-did-what rule (spec #61a): they come from venue_actor_names for the
+ * who-did-what rule (spec #62a): they come from venue_actor_names for the
  * event's venue, so a doorhost who has since left is still named and a PlusOne
  * operator reads "PlusOne support" — never an RLS user_profiles read, which
  * hid both.
@@ -52,7 +52,7 @@ function fakeClient() {
   return { client: client as never, rpcCalls, fromTables };
 }
 
-describe('door snapshot actor labels (#61a)', () => {
+describe('door snapshot actor labels (#62a)', () => {
   it('labels adders and checkers via venue_actor_names for the event venue', async () => {
     const { client, rpcCalls, fromTables } = fakeClient();
     const snap = await fetchDoorSnapshot(client, 'e1');

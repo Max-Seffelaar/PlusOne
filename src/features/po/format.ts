@@ -86,7 +86,7 @@ export function toDateInput(iso: string): string {
 /** Just the projection `guestSourceLabel` reads — any Guest/appearance fits. */
 export interface GuestSourceInput {
   source: GuestSource;
-  /** Who added them, by the one who-did-what rule (#61a): a member's name or
+  /** Who added them, by the one who-did-what rule (#62a): a member's name or
    *  "PlusOne support"; null when unknown. */
   addedByName?: string | null;
   /** Non-default request link label (or its influencer); null for the default
@@ -107,7 +107,7 @@ function firstName(full: string): string {
  */
 export function guestSourceLabel(g: GuestSourceInput): string {
   const s = t.guests.source;
-  // The who-did-what placeholders (#61a: "PlusOne support", "System") are not
+  // The who-did-what placeholders (#62a: "PlusOne support", "System") are not
   // a person: never cut them down to a first name.
   const placeholder = g.addedByName === t.shared.actor.support || g.addedByName === t.shared.actor.system;
   const who = g.addedByName ? (placeholder ? g.addedByName : firstName(g.addedByName)) : '';

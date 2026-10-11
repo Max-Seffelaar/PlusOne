@@ -128,7 +128,7 @@ export interface DoorSnapshot {
   checkIns: CheckInRow[];
   refusals: RefusalRow[];
   /** user_id → label, for "toegevoegd door" / "ingecheckt door", by the
-   *  who-did-what rule (#61a): a current or former member's name, or
+   *  who-did-what rule (#62a): a current or former member's name, or
    *  "PlusOne support" for an operator without a tie to the company. */
   profiles: Record<string, string>;
   fetchedAt: string;
@@ -232,7 +232,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   } = await client.auth.getUser();
   if (user) ids.add(user.id);
 
-  // venue_actor_names via fetchActorLabels (#61a): a former member who worked
+  // venue_actor_names via fetchActorLabels (#62a): a former member who worked
   // this door stays named, an operator reads "PlusOne support". Chunked to
   // <=120 ids per call (CLAUDE.md scale rule): a busy event's added_by/
   // checked_by/acknowledged_by set can exceed that well before 1000 rows.

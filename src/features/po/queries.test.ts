@@ -721,7 +721,7 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
 
   function makeClient(opts: { contact: unknown; guest: unknown; appearances: unknown[] }) {
     const inCalls: unknown[][] = [];
-    // venue_actor_names calls (#61a): the profile's actor labels, venue-scoped.
+    // venue_actor_names calls (#62a): the profile's actor labels, venue-scoped.
     const rpcCalls: { venue: unknown; ids: unknown[] }[] = [];
     const client = {
       rpc: vi.fn((name: string, args: { p_venue_id: unknown; p_ids: unknown[] }) => {

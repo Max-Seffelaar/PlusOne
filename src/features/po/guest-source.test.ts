@@ -16,7 +16,7 @@ import { t } from '@/lib/i18n';
 
 const s = t.guests.source;
 
-// added_by → label comes from the venue's actor labels (venue_actor_names, #61a).
+// added_by → label comes from the venue's actor labels (venue_actor_names, #62a).
 const labels = new Map([
   ['u-sanne', 'Sanne de Vries'],
   ['u-op', t.shared.actor.support],
@@ -190,7 +190,7 @@ describe('the venue-wide guest read carries provenance', () => {
 
     expect(capture.select).toContain('source');
     expect(capture.select).toContain('added_by');
-    // The adder is labelled via venue_actor_names (#61a), never an RLS-scoped
+    // The adder is labelled via venue_actor_names (#62a), never an RLS-scoped
     // user_profiles embed (it hid former members and named operators).
     expect(capture.select).not.toContain('user_profiles');
     expect(capture.select).toContain('request_links(label, is_default, influencers(name))');

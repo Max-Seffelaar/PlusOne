@@ -8,9 +8,9 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-10-11 — Who did it: one label, one rule (spec #61a)
+## 2026-10-11 — Who did it: one label, one rule (spec #62a)
 
-Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes the "Open" item of spec #61(a). Builds on #461 (must merge after it). High-risk surface (new SECURITY DEFINER function): fresh-session `/code-review` + `/security-review` before merge.
+Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes the "Open" item of spec #62(a). Builds on #461 (must merge after it). High-risk surface (new SECURITY DEFINER function): fresh-session `/code-review` + `/security-review` before merge.
 
 - **Rule, on every company-facing surface** (audit feed, export, door, guest lists, recap, recent check-ins, quota requests, person profile, stats):
   - current and former members/crew by name (full_name only);

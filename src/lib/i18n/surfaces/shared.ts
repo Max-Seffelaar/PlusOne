@@ -10,7 +10,7 @@
  * `t.shared.<key>` and fill {placeholders} with `fmt`.
  */
 export const shared = {
-  // ── Who did it (spec #61a): ONE label set for every company-facing surface
+  // ── Who did it (spec #62a): ONE label set for every company-facing surface
   // that names an actor (audit feed, export, door, guest list, stats). A current
   // or former member/crew is named; these two cover everyone else.
   actor: {

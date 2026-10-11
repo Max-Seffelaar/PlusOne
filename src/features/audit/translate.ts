@@ -4,7 +4,7 @@
 // Pure, no I/O, so it is trivially unit-testable and runs on server and client
 // alike. The DB (audit_feed view) already resolved guest/tier names; the
 // actor and subject (people) labels come from `venue_actor_names` via
-// fetchActorLabels (spec #61a — the view's RLS-scoped actor_name/subject_name
+// fetchActorLabels (spec #62a — the view's RLS-scoped actor_name/subject_name
 // hide former members and PlusOne support, so they are only a fallback here).
 // We compose the sentence and read the small JSONB diff for numbers
 // (plus_ones, quota, reason). Output matches the mock AuditEntry API
@@ -269,7 +269,7 @@ export function auditPersonIds(rows: readonly AuditFeedRow[]): string[] {
 
 /**
  * One feed row → one log line. `labels` (actor id → label, from
- * fetchActorLabels) applies the who-did-what rule (#61a): a null actor is
+ * fetchActorLabels) applies the who-did-what rule (#62a): a null actor is
  * "System", a resolved id is the member's name or "PlusOne support". Without a
  * label (none passed, or the RPC not deployed yet) the view's RLS-scoped name
  * is the fallback.

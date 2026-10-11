@@ -59,7 +59,7 @@ export type PoGuestRow = Pick<
 // ── Guest provenance (ADE round, item J) ─────────────────────────────────────
 // `guests.source` alone can't say "Added by Sanne" or "Sign-up link · Joeri", so
 // both guest reads carry `added_by` and embed the request link. The adder's
-// label comes from venue_actor_names (fetchActorLabels, spec #61a): a former
+// label comes from venue_actor_names (fetchActorLabels, spec #62a): a former
 // member stays named, an operator reads "PlusOne support" — an RLS-scoped
 // user_profiles embed hid both. `request_links` stays an RLS-scoped embed:
 // admin/finance/organizer only, so staff simply get null and the label degrades
@@ -68,7 +68,7 @@ const GUEST_SOURCE_SELECT = 'source, added_by, request_links(label, is_default, 
 
 /** The flattened provenance every guest row carries once the embeds are folded in. */
 export interface GuestSourceEmbedFlat {
-  /** Who added the guest, by the who-did-what rule (#61a); null for a
+  /** Who added the guest, by the who-did-what rule (#62a); null for a
    *  request-link guest (no adder) or an id the venue has no record of. */
   addedByName: string | null;
   /** Label of a NON-default request link (its own label, else the influencer's
@@ -479,7 +479,7 @@ export async function fetchRecentCheckins(
   if (error) throw error;
 
   const rows = data ?? [];
-  // Who let them in, by the who-did-what rule (#61a) — one round-trip.
+  // Who let them in, by the who-did-what rule (#62a) — one round-trip.
   const venueId = rows[0]?.venue_id;
   const labels = venueId
     ? await fetchActorLabels(client, venueId, rows.map((r) => r.checked_by))
@@ -683,7 +683,7 @@ export interface PoQuotaRequestRow {
   requestedExtra: number;
   motivation: string | null;
   created_at: string;
-  /** Requester label by the who-did-what rule (#61a, venue_actor_names). */
+  /** Requester label by the who-did-what rule (#62a, venue_actor_names). */
   requesterName: string;
 }
 
@@ -763,7 +763,7 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
       .order('id')
       .range(from, to),
   );
-  // Who added them, by the who-did-what rule (#61a). One event = one venue.
+  // Who added them, by the who-did-what rule (#62a). One event = one venue.
   const venueId = data[0]?.venue_id;
   const labels = venueId
     ? await fetchActorLabels(client, venueId, data.map((g) => g.added_by))
@@ -1481,7 +1481,7 @@ export interface ContactProfileData {
   /** null when the contact isn't visible to the caller (RLS) or doesn't exist. */
   header: ContactProfileHeader | null;
   appearances: ContactAppearance[];
-  /** Actor labels by user id for the timeline, by the who-did-what rule (#61a):
+  /** Actor labels by user id for the timeline, by the who-did-what rule (#62a):
    *  a current or former member's name, or "PlusOne support". */
   actorNames: Record<string, string>;
 }
@@ -1648,7 +1648,7 @@ async function fetchGuestAppearance(client: Client, guestId: string): Promise<Ra
   return toRawAppearances(data);
 }
 
-/** Resolve the profile's actor ids → labels by the who-did-what rule (#61a,
+/** Resolve the profile's actor ids → labels by the who-did-what rule (#62a,
  *  venue_actor_names). fetchActorLabels drops null ids, so a system-added row
  *  never reaches the RPC as the literal "null". */
 async function fetchActorNames(
@@ -2103,7 +2103,7 @@ export async function fetchPoAuditFeed(
   const { data, error } = await query;
   if (error) throw error;
   const rows = data ?? [];
-  // Who-did-what (#61a): actor + subject labels from venue_actor_names, so a
+  // Who-did-what (#62a): actor + subject labels from venue_actor_names, so a
   // former member stays named and an operator reads "PlusOne support".
   const labels = await fetchActorLabels(client, filters.venueId, auditPersonIds(rows));
   return rows.map((r) => describeAuditEntry(r, labels));

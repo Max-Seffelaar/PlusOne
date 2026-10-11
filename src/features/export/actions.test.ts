@@ -288,7 +288,7 @@ describe('exportVenueData — content', () => {
   });
 });
 
-describe('exportVenueData — who did it (spec #61a)', () => {
+describe('exportVenueData — who did it (spec #62a)', () => {
   it('names a former team member: the label comes from venue_actor_names, not RLS', async () => {
     H.store.user_profiles = []; // can_view_profile denies: membership gone (#24)
     const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
