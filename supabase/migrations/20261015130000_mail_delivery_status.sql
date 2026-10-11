@@ -188,7 +188,9 @@ $$;
 -- can_resend: the event is still ahead and not cancelled, the guest holds a
 -- spot, has an address, has not opted out, no bounce at this address, fewer
 -- than guest_confirmation_resend_daily_cap() resends today, and the state is
--- not_sent, failed, or bounced/complained at an address since changed.
+-- not_sent, failed, sent, delivered ("the guest says they never got it",
+-- decision Max 2026-10-11), or bounced/complained at an address since
+-- changed. Never while one is queued (that row is returned instead).
 
 -- Resends per guest (review #463: at most 3 a day, in the database).
 create table public.guest_confirmation_resends (
@@ -301,7 +303,7 @@ begin
   can_resend := v_open
     and not v_bounced_here
     and v_resends < public.guest_confirmation_resend_daily_cap()
-    and v_state in ('not_sent', 'failed', 'bounced', 'complained');
+    and v_state in ('not_sent', 'failed', 'sent', 'delivered', 'bounced', 'complained');
   return next;
 end;
 $$;

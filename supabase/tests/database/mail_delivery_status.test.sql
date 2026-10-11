@@ -59,7 +59,7 @@ returns text language sql security definer as $fn$
 $fn$;
 grant execute on function pg_temp.st(uuid) to anon, authenticated, service_role;
 
-select plan(64);
+select plan(67);
 
 -- Seed: Club Vesper (aa…01), event ee…01: Max 1111 admin, Noor 2222
 -- user_manager, Tom 5555 staff, Lisa 6666 doorhost+staff.
@@ -83,6 +83,13 @@ values
    '11111111-1111-4111-8111-111111111111', 'app'),
   ('f9000000-0000-7000-8000-000000000006', 'ee000000-0000-7000-8000-000000000001',
    'dd000000-0000-7000-8000-000000000001', 'Ilse de Boer', 'ilse@example.test', 0,
+   '11111111-1111-4111-8111-111111111111', 'app'),
+  -- B6: confirmations that went out (decision Max 2026-10-11: "they never got it").
+  ('f9000000-0000-7000-8000-000000000008', 'ee000000-0000-7000-8000-000000000001',
+   'dd000000-0000-7000-8000-000000000001', 'Eva Smit', 'eva@example.test', 0,
+   '11111111-1111-4111-8111-111111111111', 'app'),
+  ('f9000000-0000-7000-8000-000000000009', 'ee000000-0000-7000-8000-000000000001',
+   'dd000000-0000-7000-8000-000000000001', 'Joris Peters', 'joris@example.test', 0,
    '11111111-1111-4111-8111-111111111111', 'app'),
   -- Added by staff@ Tom: his own guest (D).
   ('f9000000-0000-7000-8000-000000000007', 'ee000000-0000-7000-8000-000000000001',
@@ -155,12 +162,46 @@ values ('guest_on_list', 'aa000000-0000-7000-8000-000000000001',
 returning id as l1 \gset
 update public.guest_mail_queue set status = 'sent', mail_log_id = :'l1'
  where id = (select id from ids where k = 'q1');
-select is(pg_temp.st('f9000000-0000-7000-8000-000000000001'), 'delivered|false|false',
-  'B5 delivered: shown as delivered, no resend');
+select is(pg_temp.st('f9000000-0000-7000-8000-000000000001'), 'delivered|true|false',
+  'B5 delivered: shown as delivered, and resend is offered (decision Max 2026-10-11)');
+
+-- B6: sent and delivered may be resent ("the guest says they never got it").
+select pg_temp.as_owner();
+with m as (
+  insert into public.mail_log (type, venue_id, recipient_hash, status)
+  values ('guest_on_list', 'aa000000-0000-7000-8000-000000000001',
+          public.guest_mail_email_hash('eva@example.test'), 'sent') returning id
+), q as (
+  insert into public.guest_mail_queue (venue_id, event_id, guest_id, type, status, mail_log_id)
+  select 'aa000000-0000-7000-8000-000000000001', 'ee000000-0000-7000-8000-000000000001',
+         'f9000000-0000-7000-8000-000000000008', 'guest_on_list', 'sent', m.id
+    from m returning id
+)
+insert into ids select 'q8', id from q;
+with m as (
+  insert into public.mail_log (type, venue_id, recipient_hash, status)
+  values ('guest_on_list', 'aa000000-0000-7000-8000-000000000001',
+          public.guest_mail_email_hash('joris@example.test'), 'delivered') returning id
+), q as (
+  insert into public.guest_mail_queue (venue_id, event_id, guest_id, type, status, mail_log_id)
+  select 'aa000000-0000-7000-8000-000000000001', 'ee000000-0000-7000-8000-000000000001',
+         'f9000000-0000-7000-8000-000000000009', 'guest_on_list', 'sent', m.id
+    from m returning id
+)
+insert into ids select 'q9', id from q;
+select is(pg_temp.st('f9000000-0000-7000-8000-000000000008'), 'sent|true|false',
+  'B6 sent, no delivery report: resend offered');
 select pg_temp.login_service();
-select throws_ok(
-  $$ select public.resend_guest_confirmation('f9000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111') $$,
-  '22023', null, 'B6 a delivered confirmation is not resent');
+select ok(
+  public.resend_guest_confirmation('f9000000-0000-7000-8000-000000000008', '11111111-1111-4111-8111-111111111111')
+    is distinct from (select id from ids where k = 'q8'),
+  'B6b resend after sent queues a new confirmation');
+select ok(
+  public.resend_guest_confirmation('f9000000-0000-7000-8000-000000000009', '11111111-1111-4111-8111-111111111111')
+    is distinct from (select id from ids where k = 'q9'),
+  'B6c resend after delivered queues a new confirmation');
+select is(pg_temp.st('f9000000-0000-7000-8000-000000000009'), 'queued|false|false',
+  'B6d and while it is queued, no second resend is offered');
 
 -- It bounced.
 select pg_temp.as_owner();

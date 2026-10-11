@@ -8,7 +8,8 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  *
  *   Guest list → each guest with an address shows "Confirmation: …" →
  *   a guest who never got one: Edit → "Resend confirmation" → queued, and
- *   Mailpit gets "You're on the list" → a guest whose confirmation bounced:
+ *   Mailpit gets "You're on the list" → once it has gone out, Resend again
+ *   sends a second one (Q12, "they never got it") → a guest whose confirmation bounced:
  *   no resend, the hint says to change the address; after the address
  *   changes, Resend is back → Platform → Mail log: masked addresses, "Show
  *   address" needs a ticket and writes the access log → "Send a test mail"
@@ -139,6 +140,16 @@ test('mail status: guest list states, resend, bounce rule, platform mail log, te
   });
   await flow.check(3, 'The guest gets "You\'re on the list" in Mailpit', async () => {
     expect(await mailTo(fresh, /on the list/i)).not.toBeNull();
+  });
+
+  // ── Sent, but "the guest says they never got it" (decision Max 2026-10-11) ─
+  await page.reload();
+  await page.getByRole('button', { name: 'Edit PLUSONE Launch Night' }).click();
+  const sentBlock = page.getByTestId('guest-confirmation');
+  await sentBlock.getByRole('button', { name: 'Resend confirmation' }).click();
+  await expect(sentBlock.getByText('Confirmation queued.')).toBeVisible();
+  await flow.check(12, 'A sent confirmation can be resent: a second "You\'re on the list" in Mailpit', async () => {
+    await expect.poll(() => countMails(fresh, /on the list/i), { timeout: 20_000 }).toBe(2);
   });
 
   // ── The bounced guest: no resend until the address changes ─────────────────
