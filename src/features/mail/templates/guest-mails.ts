@@ -15,10 +15,12 @@
 
 import { fmt } from '@/lib/i18n';
 import { escapeHtml, plainLine } from '../templates';
-import { googleCalendarUrl, type CalendarEvent } from '../ics';
+import { googleCalendarUrl, multiLine, type CalendarEvent } from '../ics';
 import { guestMailCopy, guestMailShared, type ByPlusOnes, type GuestMailType } from './guest-copy';
 
 const NAME_MAX = 80;
+/** events_guest_info_check caps the column at 1000 characters. */
+const GUEST_INFO_MAX = 1000;
 /** The sender's display name stays short in an inbox list. */
 const SENDER_EVENT_MAX = 40;
 const TZ = 'Europe/Amsterdam';
@@ -33,6 +35,7 @@ export interface GuestMailTier {
 export interface GuestMailContent {
   type: GuestMailType;
   firstName: string | null;
+  /** `description` is the event's info for guests (events.guest_info, z8uq9m4a5n). */
   event: CalendarEvent & { houseRules: string | null };
   companyName: string;
   contactEmail: string;
@@ -46,6 +49,8 @@ export interface GuestMailContent {
   links: {
     statusUrl: string | null;
     icsUrl: string | null;
+    /** The live Google Calendar link (/s/[token]/google, z8uq9m4a5n). Null = build a static one. */
+    googleUrl?: string | null;
     unsubscribeUrl: string;
   };
 }
@@ -67,6 +72,12 @@ function cleanName(value: string, max = NAME_MAX): string {
 /** Free text from the team (note, house rules): one paragraph, no controls. */
 function cleanText(value: string): string {
   return plainLine(value).slice(0, 500);
+}
+
+/** The event's info for guests: line breaks kept, no other control characters. */
+export function cleanGuestInfo(value: string | null | undefined): string | null {
+  const text = value ? multiLine(value).slice(0, GUEST_INFO_MAX).trim() : '';
+  return text || null;
 }
 
 /** "Saturday 18 October" in Amsterdam time. */
@@ -185,7 +196,8 @@ export function renderGuestMail(content: GuestMailContent): RenderedGuestMail {
 
   const calendar: CalendarEvent = content.event;
   const icsUrl = content.links.icsUrl;
-  const googleUrl = googleCalendarUrl(calendar);
+  const googleUrl = content.links.googleUrl ?? googleCalendarUrl(calendar);
+  const guestInfo = cleanGuestInfo(content.event.description);
   const statusUrl = content.links.statusUrl;
   const houseRules = vars.house_rules ? fill(s.houseRules) : null;
   const after = c.after ? fill(c.after) : null;
@@ -209,6 +221,7 @@ export function renderGuestMail(content: GuestMailContent): RenderedGuestMail {
     if (block === 'details' && showDetails) {
       textParts.push(String(vars.event_name), ...detailLines, ...spotLines, ...priceLines, '');
     }
+    if (block === 'guestInfo' && guestInfo) textParts.push(`${s.guestInfoLabel}:`, guestInfo, '');
     if (block === 'calendar' && showCalendar) {
       textParts.push(`${s.calendarLead} ${s.calendarIcs}: ${icsUrl}`, `${s.calendarGoogle}: ${googleUrl}`, '');
     }
@@ -249,6 +262,12 @@ export function renderGuestMail(content: GuestMailContent): RenderedGuestMail {
       ];
       htmlBlocks.push(
         `<div style="margin:0 0 16px;padding:16px;border-radius:8px;background:#f4f3f8;">${rows.join('')}</div>`,
+      );
+    }
+    if (block === 'guestInfo' && guestInfo) {
+      // Escaped line by line, then joined with <br>: the only markup is ours.
+      htmlBlocks.push(
+        `<div data-block="guest-info" style="margin:0 0 16px;padding:12px 16px;border-radius:8px;background:#f7f5ff;"><p style="margin:0 0 4px;font-size:12px;line-height:1.5;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:#55525e;">${e(s.guestInfoLabel)}</p><p style="margin:0;font-size:15px;line-height:1.5;">${guestInfo.split('\n').map(e).join('<br>')}</p></div>`,
       );
     }
     if (block === 'calendar' && showCalendar) {
