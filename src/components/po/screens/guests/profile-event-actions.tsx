@@ -14,6 +14,8 @@ import { ActionItem, Btn, Label, Note, TextArea } from '../../kit';
 import { ConfirmSheet, Sheet } from '../../shell';
 import { press } from './_shared';
 import { PlusOnesSheet } from './profile-sheets';
+import { ConfirmationBlock } from './mail-status';
+import { usePoGuestMailStatus } from '@/features/po/guest-mail-status';
 
 // ── Per-event row actions on the person profile (Joeri walkthrough, z8uq9m0hw5) ──
 // Each event card on the profile gets a "…" that opens this sheet, from ANY entry
@@ -50,6 +52,8 @@ export function EventRowActions({
   const [step, setStep] = useState<Step>('menu');
   // Lazy: only the event whose sheet is open pays for its tier list.
   const { data: tiers = [], isLoading: tiersLoading } = usePoTiers(event.eventId);
+  // The confirmation mail (z8uq9m49k1): same per-event read as the guest list.
+  const mailStatus = usePoGuestMailStatus(event.eventId);
   const cp = t.guests.contactProfile;
   const po = t.guests.plusOnes;
 
@@ -106,6 +110,14 @@ export function EventRowActions({
         {event.dateLabel} · {guestName}
       </div>
       {actions.blockedBy === 'locked' && <Note icon="lock">{cp.lockedNote}</Note>}
+      <div className="mb-2">
+        <ConfirmationBlock
+          guestId={event.guestId}
+          eventId={event.eventId}
+          status={mailStatus.data?.get(event.guestId)}
+          mayEdit={canEdit}
+        />
+      </div>
       <div className="flex flex-col gap-2">
         {actions.openEvent && (
           <ActionItem
