@@ -31,7 +31,33 @@
 --      within its own small limit (10 per platform admin, 30 overall per UTC
 --      day).
 --
+--   0. guest_mail_email_hash trims every whitespace character, not only
+--      spaces (review #463): an address stored as E'\ta@x' or 'a@x\n' by a
+--      raw-API editor hashed differently from 'a@x' and reopened the resend
+--      after a bounce. The set is exactly what JS String.prototype.trim()
+--      strips, so recipientHash (src/features/mail/send.ts) keeps agreeing.
+--      For an address without such characters the hash is unchanged, so the
+--      hashes already stored (mail_log, opt-outs) need no backfill.
+--
 -- guest_mails_claim is not touched (task 7 redefines it).
+
+-- ---------------------------------------------------------------------------
+-- 0. Address hash: trim all whitespace, like recipientHash
+-- ---------------------------------------------------------------------------
+
+-- create or replace keeps the owner-only ACL from 20261013180200.
+create or replace function public.guest_mail_email_hash(p_email text)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select encode(extensions.digest(lower(regexp_replace(
+    p_email,
+    '^[\t\n\v\f\r    -     　﻿]+'
+    '|[\t\n\v\f\r    -     　﻿]+$',
+    '', 'g')), 'sha256'), 'hex')
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 1. Test mails in mail_log

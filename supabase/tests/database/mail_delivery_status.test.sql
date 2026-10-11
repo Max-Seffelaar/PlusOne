@@ -59,7 +59,7 @@ returns text language sql security definer as $fn$
 $fn$;
 grant execute on function pg_temp.st(uuid) to anon, authenticated, service_role;
 
-select plan(61);
+select plan(64);
 
 -- Seed: Club Vesper (aa…01), event ee…01: Max 1111 admin, Noor 2222
 -- user_manager, Tom 5555 staff, Lisa 6666 doorhost+staff.
@@ -177,6 +177,12 @@ select pg_temp.as_owner();
 update public.guests set email = 'LOTTE@example.test ' where id = 'f9000000-0000-7000-8000-000000000001';
 select is(pg_temp.st('f9000000-0000-7000-8000-000000000001'), 'bounced|false|true',
   'B9 only a case or spacing change is not a new address');
+update public.guests set email = E'\tlotte@example.test\n' where id = 'f9000000-0000-7000-8000-000000000001';
+select is(pg_temp.st('f9000000-0000-7000-8000-000000000001'), 'bounced|false|true',
+  'B9b a tab or newline around the bounced address is not a new address either (review #463)');
+update public.guests set email = E'\r\nLotte@Example.test\u00a0' where id = 'f9000000-0000-7000-8000-000000000001';
+select is(pg_temp.st('f9000000-0000-7000-8000-000000000001'), 'bounced|false|true',
+  'B9c nor CR/LF or a no-break space (the set JS trim() strips, as recipientHash does)');
 update public.guests set email = 'lotte.jansen@example.test' where id = 'f9000000-0000-7000-8000-000000000001';
 select is(pg_temp.st('f9000000-0000-7000-8000-000000000001'), 'bounced|true|false',
   'B10 a changed address: resend allowed');
@@ -345,6 +351,24 @@ select pg_temp.login('77777777-7777-4777-8777-777777777777');
 select throws_ok(
   $$ select * from public.event_guest_mail_status('ee000000-0000-7000-8000-000000000001') $$,
   '42501', null, 'C3 an outsider is refused');
+
+-- A platform admin without a membership (decision #49): the last disjunct of
+-- the gate and of the guests_select predicate (review #463).
+select pg_temp.as_owner();
+select set_config('plusone.platform_admin_write', 'on', true);
+insert into public.user_profiles (id, full_name, email, is_platform_admin)
+values ('77777777-7777-4777-8777-777777777777', 'Out Sider', 'outsider@plusone.test', true);
+select pg_temp.login('77777777-7777-4777-8777-777777777777');
+select set_eq(
+  $$ select guest_id from public.event_guest_mail_status('ee000000-0000-7000-8000-000000000001') $$,
+  $$ select g.id from public.guests g
+      where g.event_id = 'ee000000-0000-7000-8000-000000000001'
+        and g.status in ('approved', 'checked_in') and g.anonymized_at is null
+        and nullif(btrim(coalesce(g.email, '')), '') is not null $$,
+  'C-platform admin: no membership, the RPC lists exactly the guests RLS shows them (review #463)');
+select pg_temp.as_owner();
+update public.user_profiles set is_platform_admin = false where id = '77777777-7777-4777-8777-777777777777';
+select set_config('plusone.platform_admin_write', '', true);
 
 -- ---------------------------------------------------------------------------
 -- D. can_edit_guest: RLS decides, nothing is written
