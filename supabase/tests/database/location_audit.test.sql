@@ -8,7 +8,7 @@
 -- (the trigger stays WHEN-gated); and that the audit rows are readable by the
 -- venue's admin under RLS, and NOT by staff or the event's organizer (in
 -- audit_log and in the audit_feed view), and that audit_feed names the saved
--- location even when the diff does not (D8/D9). The get_request_status contract (no venue_* keys)
+-- location even when the diff does not (D8/D9), and only within the row's own venue (D10/D11). The get_request_status contract (no venue_* keys)
 -- is asserted in event_locations.test.sql (C5/C7).
 --
 -- Seed: venue aa..01 (admin 11.., staff 55..); organizer 44.. organizes event
@@ -18,7 +18,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(25);
+select plan(27);
 
 create function pg_temp.login(p_user uuid)
 returns void language plpgsql as $fn$
@@ -283,6 +283,42 @@ select throws_ok(
      values ('11111111-1111-4111-8111-111111111111', 'aa000000-0000-7000-8000-000000000001',
              'company_locations', gen_random_uuid(), 'create', '{}'::jsonb) $$,
   '42501', null, 'D7 no app role can forge a location audit row directly');
+reset role;
+
+-- The audit_feed name join is venue-scoped (defence in depth, delta review
+-- #467): an audit row scoped to venue 1 that points at venue 2's location
+-- (forged as owner; no app role can insert audit rows, D7) resolves no name,
+-- even for a platform admin, who can read both venues. Control: the same
+-- location's own create row (venue 2) does resolve.
+insert into public.company_locations (venue_id, name)
+values ('aa000000-0000-7000-8000-000000000002', 'Cross Venue Hall');
+create temp table xloc as
+  select id from public.company_locations
+   where venue_id = 'aa000000-0000-7000-8000-000000000002' and name = 'Cross Venue Hall';
+insert into public.audit_log (actor_id, venue_id, entity_type, entity_id, action, diff)
+values (null, 'aa000000-0000-7000-8000-000000000001', 'company_locations',
+        (select id from xloc), 'update', '{"before": {"archived_at": null}, "after": {"archived_at": "2026-10-11T10:00:00Z"}}'::jsonb);
+grant select on xloc to authenticated;
+select set_config('plusone.platform_admin_write', 'on', true);
+update public.user_profiles set is_platform_admin = true
+ where id = '55555555-5555-4555-8555-555555555555';
+select set_config('plusone.platform_admin_write', 'off', true);
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select is(
+  (select array_agg(coalesce(location_name, '<null>'))
+     from public.audit_feed
+    where entity_id = (select id from xloc)
+      and venue_id = 'aa000000-0000-7000-8000-000000000001'),
+  array['<null>'],
+  'D10 a cross-venue audit row resolves no location name in audit_feed, even for a platform admin');
+select is(
+  (select array_agg(location_name)
+     from public.audit_feed
+    where entity_id = (select id from xloc)
+      and venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  array['Cross Venue Hall'],
+  'D11 control: the location''s own-venue row does resolve its name for the platform admin');
 reset role;
 
 select * from finish();

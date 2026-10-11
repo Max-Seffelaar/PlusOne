@@ -17,7 +17,7 @@
 --       its venue_id column, which audit_trigger's default branch reads.
 --    c. audit_feed gains one trailing column, location_name: the saved
 --       location's CURRENT name for a company_locations row (joined on
---       entity_id). An update diff holds only the changed columns, so an
+--       entity_id, and only within the audit row's own venue_id). An update diff holds only the changed columns, so an
 --       archive (archived_at only) would otherwise read "archived a saved
 --       location" with no way to tell which (#467 test 10). The view stays
 --       security_invoker: the join reads under the caller's RLS
@@ -215,4 +215,8 @@ left join public.guest_tiers ot on ot.id = b.old_tier_id
 left join public.guest_tiers nt on nt.id = b.new_tier_id
 left join public.events ev on ev.id = b.event_id
 left join public.guest_requests gr on gr.id = b.rel_request_id
-left join public.company_locations cl on cl.id = b.rel_location_id;
+-- Defence in depth: the location must belong to the audit row's own venue,
+-- so a mis-scoped audit row can never resolve another company's location name
+-- (not even for a platform admin, whom RLS lets read every venue).
+left join public.company_locations cl
+  on cl.id = b.rel_location_id and cl.venue_id = b.venue_id;
