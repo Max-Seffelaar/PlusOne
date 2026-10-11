@@ -144,7 +144,7 @@ describe('describeAuditEntry', () => {
         diff: { before: { roles: ['staff'] }, after: { roles: ['staff', 'doorhost'] } },
       })
     );
-    expect(line.text).toBe("changed Lisa's roles (staff → staff, doorhost)");
+    expect(line.text).toBe("changed Lisa's roles (Staff → Staff, Door host)");
   });
 
   it('describes a landing-page request decision (#12)', () => {
@@ -623,9 +623,9 @@ describe('describeAuditEntry: every audited table reads as a sentence', () => {
     it('names the roles, never the e-mail address', () => {
       const text = invite('create', {
         before: null,
-        after: { email: 'new.hire@example.test', roles: ['manager', 'doorhost'], event_ids: [] },
+        after: { email: 'new.hire@example.test', roles: ['doorhost', 'user_manager'], event_ids: [] },
       });
-      expect(text).toBe('invited someone to the team (manager, doorhost)');
+      expect(text).toBe('invited someone to the team (User manager, Door host)');
       expect(text).not.toContain('@');
       expect(invite('create', { before: null, after: { email: 'dj@example.test', roles: [], event_ids: ['e1'] } })).toBe(
         'invited someone to the external crew',
@@ -729,14 +729,54 @@ describe('describeAuditEntry: every audited table reads as a sentence', () => {
         'create', 'update', 'delete', 'check_in', 'refuse', 'tier_change', 'quota_grant', 'approve', 'deny',
         'lock', 'unlock', 'anonymize', 'export', 'platform_admin_grant', 'platform_admin_revoke',
       ];
+      // Every role in both diff sides, so any line that lists roles is exercised.
+      const allRoles = ['admin', 'user_manager', 'finance', 'staff', 'doorhost'];
+      const rawRoleKey = /\b(admin|user_manager|finance|staff|doorhost)\b/; // lowercase enum values
+      const diffs = [
+        { before: {}, after: {} },
+        { before: { roles: ['staff'] }, after: { roles: allRoles } },
+        { before: null, after: { roles: allRoles } },
+      ];
       for (const entity_type of tables) {
         for (const action of actions) {
-          const { text } = describeAuditEntry(row({ entity_type, action, diff: { before: {}, after: {} } }));
-          expect(text, `${entity_type} × ${action}`).not.toContain(entity_type);
-          expect(text, `${entity_type} × ${action}`).not.toMatch(/_/);
-          expect(text, `${entity_type} × ${action}`).not.toMatch(new RegExp(`^${action} on `));
+          for (const diff of diffs) {
+            const { text } = describeAuditEntry(row({ entity_type, action, diff }));
+            const where = `${entity_type} × ${action} × ${JSON.stringify(diff)}`;
+            expect(text, where).not.toContain(entity_type);
+            expect(text, where).not.toMatch(/_/);
+            expect(text, where).not.toMatch(new RegExp(`^${action} on `));
+            // "platform admin rights" is copy, not a role key.
+            expect(text.replace(/platform admin/g, ''), where).not.toMatch(rawRoleKey);
+          }
         }
       }
+    });
+
+    it('lists roles with the app role labels, never the enum keys', () => {
+      const membership = describeAuditEntry(
+        company({
+          entity_type: 'venue_memberships',
+          action: 'create',
+          subject_name: 'Noor van Dijk',
+          subject_user_id: 'u-noor',
+          diff: { before: null, after: { user_id: 'u-noor', roles: ['user_manager'] } },
+        }),
+      );
+      expect(membership.text).toBe('gave Noor van Dijk access (User manager)');
+      const multi = describeAuditEntry(
+        company({
+          entity_type: 'venue_memberships',
+          action: 'create',
+          subject_name: 'Sam',
+          diff: { before: null, after: { roles: ['staff', 'doorhost'] } },
+        }),
+      );
+      // UI role order (VENUE_ROLES), not the array's order.
+      expect(multi.text).toBe('gave Sam access (Staff, Door host)');
+      const unknown = describeAuditEntry(
+        company({ entity_type: 'invites', action: 'create', diff: { before: null, after: { roles: ['night_manager'] } } }),
+      );
+      expect(unknown.text).toBe('invited someone to the team (night manager)');
     });
   });
 });

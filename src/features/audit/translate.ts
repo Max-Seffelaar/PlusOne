@@ -15,6 +15,7 @@ import type { Database } from '@/lib/database.types';
 import { fmt, t } from '@/lib/i18n';
 import { formatLongDate, formatShortDate, formatTime, toDateInput } from '@/features/po/format';
 import type { ActorKind } from '@/lib/po/actor-kind';
+import { ROLE_LABELS, VENUE_ROLES, isVenueRole } from '@/features/auth/roles';
 import { ActorLabels, nameRef } from './actor-labels';
 
 export type AuditFeedRow = Database['public']['Views']['audit_feed']['Row'];
@@ -54,8 +55,17 @@ function str(v: unknown): string | null {
 function num(v: unknown): number | null {
   return typeof v === 'number' ? v : null;
 }
+/** A roles array as the app's role labels ("Admin, Door host"), in the UI's
+ *  role order; never the raw enum keys (user_manager, doorhost). */
 function roleList(v: unknown): string | null {
-  return Array.isArray(v) && v.length > 0 ? v.join(', ') : null;
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const known = VENUE_ROLES.filter((r) => v.includes(r)).map((r) => ROLE_LABELS[r]);
+  // A role added to the enum before it gets a label: never print the raw key.
+  const unknown = v
+    .filter((r): r is string => typeof r === 'string' && !isVenueRole(r))
+    .map((r) => r.replace(/_/g, ' '));
+  const labels = [...known, ...unknown];
+  return labels.length > 0 ? labels.join(', ') : null;
 }
 
 const SYSTEM = t.shared.actor.system;
