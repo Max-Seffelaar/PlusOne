@@ -2327,6 +2327,7 @@ export type Database = {
           email: string
           first_name: string | null
           full_name: string
+          has_joined: boolean | null
           id: string
           is_platform_admin: boolean
           last_name: string | null
@@ -2341,6 +2342,7 @@ export type Database = {
           email: string
           first_name?: string | null
           full_name: string
+          has_joined?: boolean | null
           id: string
           is_platform_admin?: boolean
           last_name?: string | null
@@ -2355,6 +2357,7 @@ export type Database = {
           email?: string
           first_name?: string | null
           full_name?: string
+          has_joined?: boolean | null
           id?: string
           is_platform_admin?: boolean
           last_name?: string | null
