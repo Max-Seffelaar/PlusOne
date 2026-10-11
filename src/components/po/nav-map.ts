@@ -21,7 +21,7 @@ import type { ScreenName, ScreenProps } from './context';
 export const WIDE_DESKTOP = new Set([
   'start', 'events', 'guests', 'lijst', 'stats', 'audit', 'gebruikers',
   'event', 'pastevent', 'aanvragen', 'deur', 'platform', 'platformvenues', 'platformaudit',
-  'platformaccess', 'platformoverview',
+  'platformaccess', 'platformoverview', 'platformmail',
 ]);
 
 /** Mobile only has 5 real bottom tabs — collapse every desktop-only sidebar
@@ -78,6 +78,7 @@ export function navKeyForScreen(name: ScreenName, _props: ScreenProps): string {
     case 'platformaudit':
     case 'platformaccess':
     case 'platformoverview':
+    case 'platformmail':
       return 'platform';
     default:
       // rollen, import, venueswitch, venuesettings, venuecreate, profile,

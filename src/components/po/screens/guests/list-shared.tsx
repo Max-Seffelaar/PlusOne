@@ -1,5 +1,7 @@
 'use client';
 
+import type { GuestConfirmation } from '@/features/po/guest-mail-status';
+import { MailStatusTag } from './mail-status';
 import { type JSX, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
@@ -238,11 +240,14 @@ export function GuestCardList({
   selected,
   onAct,
   onToggle,
+  mailStatus,
 }: {
   rows: GuestT[];
   selected: Set<string>;
   onAct: (id: string) => void;
   onToggle: (id: string) => void;
+  /** Confirmation-mail state per guest (z8uq9m49k1); absent = no address. */
+  mailStatus?: Map<string, GuestConfirmation>;
 }): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const longPress = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
@@ -341,6 +346,9 @@ export function GuestCardList({
                         {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
                       </span>
                     )}
+                    {!isRefused && (
+                      <MailStatusTag status={mailStatus?.get(g.id)} className="truncate font-body text-[11px] opacity-80" />
+                    )}
                   </span>
                   {g.note && !isSelected && (
                     <span className={cn('shrink-0', isRefused && 'text-acc-soft')} style={ink ? { color: ink, opacity: 0.9 } : undefined}>
@@ -389,12 +397,15 @@ export function GuestTable({
   onOpen,
   onToggle,
   onToggleAll,
+  mailStatus,
 }: {
   rows: GuestT[];
   selected: Set<string>;
   onOpen: (id: string) => void;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
+  /** Confirmation-mail state per guest (z8uq9m49k1); absent = no address. */
+  mailStatus?: Map<string, GuestConfirmation>;
 }): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -506,6 +517,10 @@ export function GuestTable({
                             {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
                           </span>
                         )}
+                        <MailStatusTag
+                          status={g.status === 'refused' ? undefined : mailStatus?.get(g.id)}
+                          className="mt-0.5 block max-w-[280px] truncate text-[12px] text-faint"
+                        />
                         {g.note && (
                           <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-acc-soft">{g.note}</span>
                         )}
