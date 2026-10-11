@@ -25,6 +25,7 @@ import {
   AddToEventSheet,
 } from './profile-sheets';
 import { EventRowActions } from './profile-event-actions';
+import { EventCardConfirmation } from './mail-status';
 
 // Contact-row hit rings (44x44; technique: kit `hitArea44`). The 22px select dot
 // reaches 11px past its 2px border, into the card's 12px padding and the 10px
@@ -388,14 +389,16 @@ export function ContactProfile({
   // Whether a card's button reads "Edit" (opens the actions sheet) or is a plain
   // "Open event". Tier count is unknown here, which only hides "Change tier" —
   // the sheet works that out itself once it opens.
-  const rowCanEdit = (e: PoProfileEvent): boolean => {
-    const a = profileRowActions({
+  const rowActions = (e: PoProfileEvent) =>
+    profileRowActions({
       viewer: { roles, userId, isOrganizer: organizerEventIds.includes(e.eventId) },
       event: { cancelled: e.cancelled, listLocked: e.listLocked, autoLockAt: e.autoLockAt },
       row: { addedBy: e.addedById, anonymized: e.anonymized },
       tierCount: null,
       nowMs: Date.now(),
     });
+  const rowCanEdit = (e: PoProfileEvent): boolean => {
+    const a = rowActions(e);
     return a.editPlusOnes || a.remove || a.blockedBy !== null;
   };
   const onStar = (): void => {
@@ -589,6 +592,10 @@ export function ContactProfile({
                     <div className={cn('text-[12.5px] leading-[1.4]', e.noteFlag === 'high' ? 'text-text' : 'text-faint')}>{e.note}</div>
                   </div>
                 )}
+                {/* The confirmation mail and "Resend confirmation", on the card
+                    itself (z8uq9m49k1); may-edit mirrors the guests RLS, and
+                    the database checks again. */}
+                <EventCardConfirmation guestId={e.guestId} eventId={e.eventId} mayEdit={rowActions(e).editPlusOnes} />
               </div>
             ))}
           </div>

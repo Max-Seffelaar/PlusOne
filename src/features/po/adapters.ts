@@ -1655,7 +1655,8 @@ export interface PlatformAccessLogEntry {
   adminId: string;
   /** Null when the profile is gone — the screen supplies the fallback copy. */
   adminName: string | null;
-  venueId: string;
+  /** Null: an access that belongs to no company (a digest's mail address). */
+  venueId: string | null;
   venueName: string | null;
   reason: string | null;
   createdAt: string;
