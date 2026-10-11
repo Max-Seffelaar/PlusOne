@@ -14,7 +14,7 @@
 --     venue's events — for the fixture window AND for every adder venue-wide;
 --   * a normal check-in still counts; a voided check-in still does not;
 --   * the platform-admin name rule (20261016130000) is unchanged: a hidden
---     operator's row has counts but no name; the operator sees their own name;
+--     operator's row has counts but no name, for the operator too (venue-relative);
 --   * the gate and grants are unchanged.
 --
 -- Own fixture events far in the future (2099), read through a date window, so
@@ -270,8 +270,8 @@ select is(
      from public.venue_user_additions('aa000000-0000-7000-8000-000000000001',
                                       '2099-01-01'::timestamptz, '2100-01-01'::timestamptz)
     where user_id = 'a9000000-0000-4000-8000-0000000000b1'),
-  'Hidden Operator',
-  'C5 the operator reading the stats sees their own name');
+  null,
+  'C5 venue-relative: the operator reading this venue''s stats sees no name either');
 reset role;
 
 -- ---------------------------------------------------------------------------

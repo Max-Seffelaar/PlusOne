@@ -25,7 +25,8 @@
 --
 -- Body otherwise copied verbatim from 20261016130000_definer_rpc_profile_scope
 -- (PR #461): the platform-admin name rule (name null when the adder is a
--- platform admin the caller cannot see via can_view_profile), the `agg` CTE,
+-- platform admin with no membership or crew tie at the venue — venue-relative,
+-- like venue_actor_names), the `agg` CTE,
 -- the sort on the displayed name, the can_read_venue_stats gate. This migration
 -- MUST be applied after 20261016130000 — it replaces the same function; the
 -- timestamp order guarantees that on `db reset` / `db push`.
@@ -76,7 +77,13 @@ begin
     select
       reg.added_by as a_user,
       case
-        when p.is_platform_admin and not public.can_view_profile(reg.added_by) then null
+        when p.is_platform_admin
+             and not exists (select 1 from public.venue_memberships m
+                              where m.venue_id = p_venue_id and m.user_id = reg.added_by)
+             and not exists (select 1 from public.event_organizers eo
+                              join public.events e1 on e1.id = eo.event_id
+                              where e1.venue_id = p_venue_id and eo.user_id = reg.added_by)
+          then null
         else p.full_name
       end as a_name,
       count(*)::int as a_added,
