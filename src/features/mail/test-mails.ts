@@ -140,6 +140,8 @@ export function buildTestMail(type: TestMailType, to: string, appUrl: string, ma
       firstName: 'Max',
       companyName: COMPANY,
       trialEndsAt: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+      // Made-up company: the button is the plain Billing URL, no ?venue=.
+      venueId: null,
     },
     base,
   );
