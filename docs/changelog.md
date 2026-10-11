@@ -8,6 +8,12 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Resend confirmation visible on the guest page (z8uq9m49k1 follow-up)
+
+Milestone **Now**. UI only, no migration. Max's local test of #463: nobody found "Resend confirmation" behind the event card's "Edit". The confirmation line, the bounce/complaint hint and the button now sit on the guest profile's event card itself (`EventCardConfirmation` in `screens/guests/mail-status.tsx`), and are gone from the Edit sheet (never twice on one screen). Who sees the button is unchanged: `canResend` from the database and `editPlusOnes` from `profileRowActions`; the server action checks RLS again. Tests: vitest `mail-status.test.tsx`; flow `mail-status` Q2/Q4/Q5/Q12 now act on the card.
+
+---
+
 ## 2026-10-11 — Guest mail delivery status, resend, bounce rule, platform mail log, test mails (z8uq9m49k1)
 
 Milestone **Now** (ADE). Spec #61 (new). Migration `20261015130000_mail_delivery_status.sql`, merges after task 7 (#457, `…120000`); it does not touch `guest_mails_claim`.
