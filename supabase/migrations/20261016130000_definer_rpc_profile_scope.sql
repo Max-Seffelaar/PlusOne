@@ -25,7 +25,7 @@
 --    It returned, per session, `aal` (whether that member signed in with MFA,
 --    the same class of information as user_profiles.mfa_snooze_until, closed
 --    in 20261016120100) and the raw `ip`. Both are now always null (decision
---    Max 2026-10-11, spec #61b):
+--    Max 2026-10-11, spec #62b):
 --      * the remote-logout list needs which session (device + last active),
 --        not where it came from or how it was secured — data minimisation,
 --        GDPR art. 5(1)(c); an IP address is personal data;
