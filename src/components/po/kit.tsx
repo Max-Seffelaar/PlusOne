@@ -422,7 +422,10 @@ export function Select({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label={ariaLabel}
-        className="h-[44px] min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none"
+        // The options get the theme's own colours: Windows Chrome draws the
+        // native list on a white background, and inheriting text-text left
+        // every option but the highlighted one unreadable (Max, #463).
+        className="h-[44px] min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none [&>option]:bg-elev [&>option]:text-text"
       >
         {placeholder != null && <option value="">{placeholder}</option>}
         {options.map((o) => (
