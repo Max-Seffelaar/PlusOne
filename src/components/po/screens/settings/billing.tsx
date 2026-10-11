@@ -8,9 +8,9 @@ import { usePoBillingPrices, usePoSubscription } from '@/features/po/hooks';
 import { usePoBillingCheckout, usePoBillingPortal } from '@/features/po/mutations';
 import type { PoSubscription } from '@/features/po/adapters';
 import { isNativeShell } from '@/lib/platform';
-import { useNav } from '../../context';
+import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
-import { Btn, Empty, Label, MiniChip, Note, Scroll, Top, press } from '../../kit';
+import { Btn, Empty, GuideCard, Label, MiniChip, Note, Scroll, Top, press } from '../../kit';
 import { formatPriceAmount, yearlySavingsPercent, type BillingInterval, type BillingPrices } from '@/features/billing/plans';
 import { col, FormError } from './_shared';
 
@@ -33,10 +33,50 @@ const SUB_STATUS: Record<PoSubscription['status'], { label: string; chip: string
   canceled: { label: t.settings.billing.statusCanceled, chip: 'bg-elev2 text-faint' },
 };
 
-export function Billing(): JSX.Element {
+/**
+ * `venueId` comes from a billing mail's link (/app/billing?venue=…,
+ * z8uq9m49k4). When it names ANOTHER company the user is a member of, the
+ * screen explains and offers "Switch to {company}" (never a silent switch:
+ * a switch is a deliberate act, and a platform admin's writes a
+ * platform_access_log row; switchActiveVenueAction re-checks the membership).
+ * Anything else (the active company, a company the user is no member of, a
+ * platform admin's non-membership, junk) shows the active company's billing
+ * as before, so the link never reveals another company.
+ */
+export function Billing({ venueId }: { venueId?: string } = {}): JSX.Element {
   const nav = useNav();
+  const { myVenues, activeVenueId, switchToVenue } = usePo();
   const subQ = usePoSubscription();
   const sub = subQ.data ?? null;
+  const other =
+    venueId && venueId !== activeVenueId ? (myVenues.find((v) => v.venueId === venueId) ?? null) : null;
+  if (other) {
+    const oc = t.settings.billing.otherCompany;
+    const activeName = myVenues.find((v) => v.venueId === activeVenueId)?.venueName ?? '';
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title={t.settings.billing.title} />
+        <Scroll bottom={28}>
+          <div data-testid="billing-other-company" className="md:mx-auto md:max-w-[560px]">
+            <GuideCard
+              icon="swap"
+              title={fmt(oc.title, { company: other.venueName })}
+              body={
+                activeName
+                  ? fmt(oc.body, { active: activeName, company: other.venueName })
+                  : fmt(oc.bodyNoActive, { company: other.venueName })
+              }
+              actions={
+                <Btn kind="primary" sm icon="swap" onClick={() => switchToVenue(other.venueId, '/app/billing')}>
+                  {fmt(oc.cta, { company: other.venueName })}
+                </Btn>
+              }
+            />
+          </div>
+        </Scroll>
+      </div>
+    );
+  }
   return (
     <div className={col}>
       <Top onBack={nav.back} title={t.settings.billing.title} />
