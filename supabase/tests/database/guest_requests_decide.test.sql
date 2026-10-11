@@ -65,7 +65,7 @@ returns text language sql as $fn$
   from public.guest_requests r where r.id = p_id;
 $fn$;
 
-select plan(42);
+select plan(44);
 
 -- ---------------------------------------------------------------------------
 -- A. The grant layer
@@ -161,20 +161,28 @@ select throws_ok(
       where id = 'bb000000-0000-7000-8000-000000000001' $$,
   '42501', null, 'B9 a deny is recorded as the actor, never as someone else');
 
--- The live deny path (denyGuestRequest): exactly these four columns.
-select is(
-  pg_temp.rowcount($$ update public.guest_requests
-                        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
-                            decided_at = now(), decision_reason = 'Lijst zit vol'
-                      where id = 'bb000000-0000-7000-8000-000000000001' and status = 'pending' $$),
-  1, 'B10 admin denies a pending request (the deny path still works)');
+-- z8uq9m2vga (review S2): a decline needs a note to the guest, and a client
+-- write cannot carry one (decision_message has no UPDATE grant), so the RLS
+-- deny path that passes RLS is now refused by the note guard (23514). The live
+-- deny path is decide_guest_request with a note.
+select throws_ok(
+  $$ update public.guest_requests
+        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
+            decided_at = now(), decision_reason = 'Lijst zit vol'
+      where id = 'bb000000-0000-7000-8000-000000000001' and status = 'pending' $$,
+  '23514', 'Add a note when you decline (part of) a request.',
+  'B10 a client deny without a note is refused even when RLS allows it (S2)');
+select lives_ok(
+  $$ select public.decide_guest_request('bb000000-0000-7000-8000-000000000001',
+       '{"approved":[],"declined":2,"note":"Lijst zit vol"}'::jsonb) $$,
+  'B10b the admin declines through decide_guest_request with a note');
 reset role;
 select is(
-  (select status::text || '|' || decided_by::text || '|' || decision_reason || '|' || decided_via::text
+  (select status::text || '|' || decided_by::text || '|' || decision_message || '|' || decided_via::text
           || '|' || full_name
      from public.guest_requests where id = 'bb000000-0000-7000-8000-000000000001'),
   'denied|11111111-1111-4111-8111-111111111111|Lijst zit vol|manual|Robin Castelijns',
-  'B11 the row is denied by the admin, manual, with the submitted name intact');
+  'B11 the row is denied by the admin, manual, with the note and the submitted name intact');
 select is(
   (select count(*)::int from public.audit_log
     where entity_type = 'guest_requests' and action = 'deny'
@@ -217,12 +225,17 @@ select throws_ok(
             decided_at = now()
       where id = 'bb000000-0000-7000-8000-0000000000d1' $$,
   '42501', null, 'C1 the organizer cannot approve by a direct write either');
-select is(
-  pg_temp.rowcount($$ update public.guest_requests
-                        set status = 'denied', decided_by = '44444444-4444-4444-8444-444444444444',
-                            decided_at = now(), decision_reason = 'Niet bekend'
-                      where id = 'bb000000-0000-7000-8000-0000000000d1' and status = 'pending' $$),
-  1, 'C2 ...and can deny');
+select throws_ok(
+  $$ update public.guest_requests
+        set status = 'denied', decided_by = '44444444-4444-4444-8444-444444444444',
+            decided_at = now(), decision_reason = 'Niet bekend'
+      where id = 'bb000000-0000-7000-8000-0000000000d1' and status = 'pending' $$,
+  '23514', 'Add a note when you decline (part of) a request.',
+  'C2 ...and a client deny without a note is refused for the organizer too (S2)');
+select lives_ok(
+  $$ select public.decide_guest_request('bb000000-0000-7000-8000-0000000000d1',
+       '{"approved":[],"declined":1,"note":"Niet bekend"}'::jsonb) $$,
+  'C2b ...the organizer declines through decide_guest_request with a note');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -294,12 +307,12 @@ select is(pg_temp.req_state('bb000000-0000-7000-8000-000000000002'),
   'approved|11111111-1111-4111-8111-111111111111|1',
   'E2 ...the request is approved by the admin AND the guest exists');
 
--- Robin was denied through the client path in B10; re-approval (#12) is the RPC's.
+-- Robin was declined in B10b; re-approval (#12) is the RPC's.
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select lives_ok(
   $$ select public.approve_guest_request('bb000000-0000-7000-8000-000000000001',
        'dd000000-0000-7000-8000-000000000001') $$,
-  'E3 a request denied through the client path can still be re-approved by the RPC');
+  'E3 a declined request can still be re-approved by the RPC');
 reset role;
 select is(pg_temp.req_state('bb000000-0000-7000-8000-000000000001'),
   'approved|11111111-1111-4111-8111-111111111111|1',
@@ -351,7 +364,8 @@ select is(
 -- G. The retention job (SECURITY DEFINER, owner) still anonymizes
 -- ---------------------------------------------------------------------------
 -- A 1-month-retention venue with one event three months old. Max organizes it,
--- so the client deny path is exercised on a row the job later anonymizes.
+-- so the decline path is exercised on a row the job later anonymizes (since
+-- z8uq9m2vga through decide_guest_request: a decline needs a note).
 
 insert into public.venues (id, name, slug, retention_months) values
   ('aa000000-0000-7000-8000-0000000000d0', 'Decide Retentie', 'decide-retentie', 1);
@@ -370,12 +384,10 @@ insert into public.guest_requests (id, event_id, full_name, email, phone, motiva
    now() - interval '3 months' + interval '1 minute');
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
-select is(
-  pg_temp.rowcount($$ update public.guest_requests
-                        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
-                            decided_at = now(), decision_reason = 'Oud Afgewezen kwam niet binnen'
-                      where id = 'bb000000-0000-7000-8000-0000000000d2' and status = 'pending' $$),
-  1, 'G1 the organizer denies an old request through the client path');
+select lives_ok(
+  $$ select public.decide_guest_request('bb000000-0000-7000-8000-0000000000d2',
+       '{"approved":[],"declined":1,"note":"Oud Afgewezen kwam niet binnen"}'::jsonb) $$,
+  'G1 the organizer declines an old request with a note');
 reset role;
 
 create temp table decide_ret as select * from public.run_privacy_retention();
@@ -384,12 +396,13 @@ select ok((select requests_anonymized from decide_ret) >= 2,
   'G2 the retention job runs and anonymizes requests');
 select is(
   (select string_agg(status::text || ':' || full_name || ':' || coalesce(email, '-') || ':'
-                     || coalesce(decision_reason, '-') || ':' || (anonymized_at is not null)::text,
+                     || coalesce(decision_reason, '-') || ':' || coalesce(decision_message, '-') || ':'
+                     || (anonymized_at is not null)::text,
                      ',' order by id)
      from public.guest_requests
     where id in ('bb000000-0000-7000-8000-0000000000d2', 'bb000000-0000-7000-8000-0000000000d3')),
-  'denied:Aanvraag #1:-:-:true,pending:Aanvraag #2:-:-:true',
-  'G3 both old requests are anonymized (name, contact, deny reason); statuses untouched');
+  'denied:Aanvraag #1:-:-:-:true,pending:Aanvraag #2:-:-:-:true',
+  'G3 both old requests are anonymized (name, contact, deny reason, note); statuses untouched');
 
 -- ---------------------------------------------------------------------------
 -- H. An anonymized request is frozen for the client too (#29)
