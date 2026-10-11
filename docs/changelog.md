@@ -19,6 +19,7 @@ Milestone **Now** (audit log readable for the first venues). Copy only: no migra
   - `invites` (roles listed, never the e-mail; crew invites), `influencers`, `event_templates`, `event_template_tiers`, `platform_invites`, `user_profiles` platform admin grant/revoke.
   - `anonymize` on guests and requests; `check_ins` update/delete (a check-out used to read "checked in"); `refusals` update/delete; `events.default_member_quota`.
 - **Fallback:** a plain verb by action ("added a record", "updated a record", "removed a record", "made a change"), so a future table never leaks its name.
+- **Action chips + filter:** every emitted action (`AUDIT_ACTIONS` in `src/features/po/audit-presenter.ts`) has a chip label from `t.audit.actionLabel` (new: Anonymized, Export, Admin granted, Admin revoked); the generic "Action" is only for an action added later. The filter sheet gains Change, Removed, Declined, "List lock" (lock + unlock) and "Privacy" (anonymize + export); a chip can group actions, so the feed query filters with `.in('action', …)` on that small fixed list. Platform-admin actions have no chip (venue_id null, never in a company's log).
 - **Copy:** new `t.audit.line` block in `src/lib/i18n/surfaces/audit.ts`; the older guest/quota/request phrases stay in translate.ts (untouched to keep #466's actor/subject structure intact).
 - **Tests:** translate.test.ts 54 (was 31), incl. a table × action sweep that fails if any line contains a table name, an underscore, or `"<action> on "`. Catalogue snapshot updated for `audit.line.*` only.
 
