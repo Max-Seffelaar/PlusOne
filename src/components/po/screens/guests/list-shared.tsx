@@ -230,17 +230,34 @@ const selectRowHit = "relative before:absolute before:-inset-[14px] before:conte
 /** "Event · Added by Sanne" as ONE truncating caption (kit ActorCaption): a
  *  member's name truncates with the text, PlusOne's own labels are a compact
  *  chip that is never clipped (spec #62a, review #466 V1). */
-function EventAndSource({ g, className }: { g: GuestT; className?: string }): JSX.Element {
+function EventAndSource({
+  g,
+  className,
+  textClassName,
+}: {
+  g: GuestT;
+  className?: string;
+  /** Text-only styling (opacity), never inherited by the chip. */
+  textClassName?: string;
+}): JSX.Element {
   const lead = g.eventName ? `${g.eventName} · ` : '';
   const parts = g.source
     ? guestSourceParts({ source: g.source, addedByName: g.addedByName, addedByKind: g.addedByKind, linkLabel: g.linkLabel })
     : null;
   if (!parts || 'text' in parts) {
     const text = parts ? `${lead}${parts.text}` : g.eventName ?? '';
-    return <span className={cn('block min-w-0 truncate', className)}>{text}</span>;
+    return <span className={cn('block min-w-0 truncate', className, textClassName)}>{text}</span>;
   }
   return (
-    <ActorCaption template={parts.template} slot="name" name={parts.name} kind={parts.kind} lead={lead} className={className} />
+    <ActorCaption
+      template={parts.template}
+      slot="name"
+      name={parts.name}
+      kind={parts.kind}
+      lead={lead}
+      className={className}
+      textClassName={textClassName}
+    />
   );
 }
 
@@ -366,7 +383,11 @@ export function GuestCardList({
                     {/* One subline: event (venue-wide mode only) + where the name
                         came from (item J). Joined so the card keeps its density. */}
                     {(g.eventName || sourceLine(g)) && (
-                      <EventAndSource g={g} className={cn('font-body text-[11px]', isRefused ? 'text-faint' : 'opacity-70')} />
+                      <EventAndSource
+                        g={g}
+                        className={cn('font-body text-[11px]', isRefused && 'text-faint')}
+                        textClassName={isRefused ? undefined : 'opacity-70'}
+                      />
                     )}
                     {!isRefused && (
                       <MailStatusTag status={mailStatus?.get(g.id)} className="truncate font-body text-[11px] opacity-80" />

@@ -152,6 +152,15 @@ describe('the forms STRIP refused invisible characters, then validate (review #4
     expect(stripRefusedInvisible(raw)).toBe(stored);
   });
 
+  it('turns pasted tab / CR / LF into one space instead of gluing the words (review #466 r6)', () => {
+    const tab = cp(9);
+    const crlf = `${cp(13)}${cp(10)}`;
+    expect(stripRefusedInvisible(`Max${tab}Smith`)).toBe('Max Smith');
+    expect(stripRefusedInvisible(`Max ${crlf} Smith`)).toBe('Max Smith');
+    const res = profileNameSchema.safeParse({ fullName: `Anna${tab}${tab}de Vries${cp(10)}` });
+    expect(res.data?.fullName).toBe('Anna de Vries');
+  });
+
   it('keeps ZWNJ / ZWJ / U+FE0F (allowed in names)', () => {
     const name = `Mehr${cp(0x200c)}dad ${cp(0x2764)}${cp(0xfe0f)}`;
     expect(stripRefusedInvisible(name)).toBe(name);

@@ -8,6 +8,8 @@
  * aria-label), which no name text can produce or fake.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { render } from '@testing-library/react';
 import { fmt, t } from '@/lib/i18n';
 import { ActorAvatar, ActorCaption, ActorName, ActorPhrase } from './kit';
@@ -49,9 +51,9 @@ describe('ActorName', () => {
 
   it.each([
     ['support', 'PlusOne support', 'border-acc'],
-    ['system', 'System', 'border-line'],
-    ['unknown', 'Unknown', 'border-line'],
-    ['unnamed', 'Unnamed', 'border-line'],
+    ['system', 'System', 'border-faint'],
+    ['unknown', 'Unknown', 'border-faint'],
+    ['unnamed', 'Unnamed', 'border-faint'],
   ] as const)('renders kind %s as a bordered chip that names itself for screen readers', (kind, text, border) => {
     const { container } = render(<ActorName name={text} kind={kind} />);
     const el = container.querySelector(`[data-actor-kind="${kind}"]`)!;
@@ -64,38 +66,73 @@ describe('ActorName', () => {
     expect(el.getAttribute('role')).toBe('img');
     expect(el.getAttribute('aria-label')).toBe(fmt(t.shared.actor.chipAria, { label: text }));
     expect(container.querySelector('.sr-only')).toBeNull();
+    // The full chip's visible text IS the label: no title (it would be read twice).
+    expect(el.hasAttribute('title')).toBe(false);
   });
 
-  it('the neutral chip uses the visible border-line (not the faint line2) so it shows on hover/elev rows', () => {
-    const { container } = render(<ActorName name="System" kind="system" />);
-    const cls = container.querySelector('[data-actor-kind]')!.className.split(' ');
-    expect(cls).toContain('border-line');
-    expect(cls).not.toContain('border-line2');
+  it('chip contrast: neutral boundary is border-faint (>= 3:1 on elev/elev2), fills are opaque', () => {
+    const neutral = render(<ActorName name="System" kind="system" />).container.querySelector('[data-actor-kind]')!;
+    const ncls = neutral.className.split(' ');
+    expect(ncls).toEqual(expect.arrayContaining(['border-faint', 'bg-elev2']));
+    expect(ncls).not.toContain('border-line2');
+    expect(ncls).not.toContain('border-line');
+    const support = render(<ActorName name="PlusOne support" kind="support" />).container.querySelector('[data-actor-kind]')!;
+    const scls = support.className.split(' ');
+    expect(scls).toEqual(expect.arrayContaining(['border-acc', 'bg-elev', 'text-acc']));
+    expect(scls).not.toContain('bg-acc-dim'); // translucent: unreadable on a tier-coloured row
   });
 
-  it('compact: icon + short label, never shrinks, full label in title and aria-label', () => {
+  it('compact: icon + short label; collapses to "icon + Sup…" then the icon, border intact', () => {
     const { container } = render(<ActorName name="PlusOne support" kind="support" size="compact" />);
     const el = container.querySelector('[data-actor-kind="support"]')!;
     expect(el.textContent).toBe(t.shared.actor.short.support);
     expect(el.getAttribute('title')).toBe('PlusOne support');
+    // The full label stays the accessible name however narrow the chip gets.
     expect(el.getAttribute('aria-label')).toBe(fmt(t.shared.actor.chipAria, { label: 'PlusOne support' }));
-    expect(el.className).toContain('shrink-0');
+    const cls = el.className.split(' ');
+    // May shrink (no shrink-0), never below padding + icon + border, clips inside its own border.
+    expect(cls).toEqual(expect.arrayContaining(['shrink', 'min-w-[22px]', 'max-w-full', 'overflow-hidden', 'rounded-full']));
+    expect(cls).not.toContain('shrink-0');
+    // The icon never shrinks (Icon renders flexShrink 0); the label truncates inside the pill.
+    expect((el.querySelector('svg') as SVGElement).style.flexShrink).toBe('0');
+    expect(el.querySelector('span')!.className.split(' ')).toEqual(expect.arrayContaining(['min-w-0', 'truncate']));
   });
 });
 
 describe('ActorCaption (review #466 V1: never clip the chip mid-pill)', () => {
-  it('a non-member actor: a flex row with min-w-0; the text truncates, the compact chip stays whole', () => {
+  it('a non-member actor: a clipping flex row with min-w-0; the text truncates, the compact chip shrinks inside it', () => {
     const { container } = render(
       <ActorCaption template="Added by {name}" slot="name" name="PlusOne support" kind="support" lead="PLUSONE Launch Night · " />,
     );
     const root = container.querySelector('[data-actor-caption="chip"]')!;
-    expect(root.className.split(' ')).toEqual(expect.arrayContaining(['flex', 'min-w-0']));
+    // overflow-hidden: the chip's right edge can never pass the caption's
+    // right edge (no spill under the door row's check button).
+    expect(root.className.split(' ')).toEqual(expect.arrayContaining(['flex', 'min-w-0', 'overflow-hidden']));
     const [lead] = Array.from(root.children);
     expect(lead!.className.split(' ')).toEqual(expect.arrayContaining(['min-w-0', 'truncate']));
     expect(lead!.textContent).toBe('PLUSONE Launch Night · Added by');
     const chip = root.querySelector('[data-actor-kind="support"]')!;
     expect(chip.getAttribute('data-actor-size')).toBe('compact');
-    expect(chip.className).toContain('shrink-0');
+    expect(chip.className.split(' ')).toContain('min-w-[22px]');
+  });
+
+  it('the door row gives "· by {actor}" a fair share: the caption keeps min-w-[4.5rem] next to the truncating name', () => {
+    // Layout is measured in the browser (orchestrator's 375/390/768 pass);
+    // this pins the structure that makes it hold.
+    const src = readFileSync(join(process.cwd(), 'src/features/door/components/CheckInList.tsx'), 'utf8');
+    expect(src).toMatch(/<span className="min-w-\[4\.5rem\] text-\[11px\]"[^>]*>\s*<ActorCaption/);
+    // …and the row's opacity is on the text, not the chip.
+    expect(src).toMatch(/textClassName="opacity-70"/);
+  });
+
+  it('textClassName (e.g. opacity-70) goes on the text only, never on the chip', () => {
+    const { container } = render(
+      <ActorCaption template="· by {name}" slot="name" name="PlusOne support" kind="support" textClassName="opacity-70" />,
+    );
+    const root = container.querySelector('[data-actor-caption="chip"]')!;
+    expect(root.className).not.toContain('opacity-70');
+    expect(root.firstElementChild?.className).toContain('opacity-70');
+    expect(container.querySelector('[data-actor-kind]')!.className).not.toContain('opacity-70');
   });
 
   it('keeps a tail (door row "· ••1234") as its own truncating text after the chip', () => {
