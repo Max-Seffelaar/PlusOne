@@ -225,6 +225,16 @@ Number them so Max can answer "1 ✅, 2 ❌ — …" as feedback per component.
 16 🖐 the store build on a real iPhone/Android: invite link → wizard → no plan step
 ```
 
+## gstack (optional tooling — decision Max 2026-10-11)
+
+This project uses [gstack](https://github.com/garrytan/gstack) for AI-assisted workflows (`/qa`, `/review`, `/investigate`, `/browse`, `/ship`). Install it on your own machine: `git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack`, then `cd ~/.claude/skills/gstack && ./setup --team`. gstack is a helper. It is never a gate, and it never overrides this file:
+
+- **This file and the repo skills win.** If a gstack skill conflicts with a rule here, this file decides: review gates, the security checklist, the ClickUp lifecycle (`clickup-task`), and model routing.
+- **`/review` and `/qa` do not replace the review gates.** A high-risk PR still gets the fresh-session `/code-review` + `/security-review`, and the flow harness (`tests/flows/`) stays the test evidence in the handoff.
+- **`/ship` never merges, pushes to `main` or touches prod.** Branch protection and the prod-push flow above stay the only path; prod schema goes out only through Max's `Push-PlusOneProd`.
+- **`/browse` is fine for looking at pages.** It is never used to log in to prod with real accounts or to read guest-level data (decision 8 under Platform admins).
+- **Cloud sessions don't install it automatically.** The SessionStart hook doesn't clone third-party code at an unpinned HEAD. A session that wants gstack installs it explicitly and says so.
+
 ## What NOT to do
 
 - Do not add auth providers, password login, or third-party auth services.
