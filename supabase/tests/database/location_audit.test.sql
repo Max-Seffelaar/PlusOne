@@ -7,7 +7,8 @@
 -- and a before/after diff; that a non-location event edit still writes nothing
 -- (the trigger stays WHEN-gated); and that the audit rows are readable by the
 -- venue's admin under RLS, and NOT by staff or the event's organizer (in
--- audit_log and in the audit_feed view). The get_request_status contract (no venue_* keys)
+-- audit_log and in the audit_feed view), and that audit_feed names the saved
+-- location even when the diff does not (D8/D9). The get_request_status contract (no venue_* keys)
 -- is asserted in event_locations.test.sql (C5/C7).
 --
 -- Seed: venue aa..01 (admin 11.., staff 55..); organizer 44.. organizes event
@@ -17,7 +18,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(23);
+select plan(25);
 
 create function pg_temp.login(p_user uuid)
 returns void language plpgsql as $fn$
@@ -254,6 +255,26 @@ select is(
     where entity_type = 'company_locations'
        or (entity_id = 'ee000000-0000-7000-8000-000000000001' and diff -> 'after' ? 'location_name')),
   0, 'D6 ...nor through audit_feed');
+reset role;
+
+-- audit_feed names the location (#467 test 10): an archive diff holds only
+-- archived_at, so the view resolves the location's current name for the admin.
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+insert into public.company_locations (venue_id, name)
+values ('aa000000-0000-7000-8000-000000000001', 'Melkweg');
+update public.company_locations set archived_at = now()
+ where venue_id = 'aa000000-0000-7000-8000-000000000001' and name = 'Melkweg';
+select is(
+  (select array_agg(f.location_name || ':' || f.action order by f.action)
+     from public.audit_feed f
+     join public.company_locations c on c.id = f.entity_id and c.name = 'Melkweg'
+    where f.entity_type = 'company_locations'),
+  array['Melkweg:create', 'Melkweg:update'],
+  'D8 the admin reads the location''s name in audit_feed on every row, also the archive whose diff has none');
+select is(
+  (select count(*)::int from public.audit_feed
+    where entity_id = (select id from loc) and location_name is not null),
+  0, 'D9 a deleted location''s rows resolve to no name (the log line falls back), never an error');
 reset role;
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111');

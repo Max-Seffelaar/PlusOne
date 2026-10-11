@@ -23,6 +23,7 @@ function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
     old_tier_name: null,
     new_tier_name: null,
     request_name: null,
+    location_name: null,
     ...overrides,
   };
 }
@@ -299,6 +300,21 @@ describe('describeAuditEntry — locations', () => {
     );
     expect(loc('update', { before: { city: 'A' }, after: { city: 'B' } }).text).toBe('updated a saved location');
     expect(loc('delete', { before: { name: 'Paradiso' }, after: null }).text).toBe('removed the location Paradiso');
+  });
+
+  it('falls back to the current name audit_feed resolves when the diff has none (#467 test 10)', () => {
+    const named = (diff: AuditFeedRow['diff'], location_name: string | null) =>
+      describeAuditEntry(row({ entity_type: 'company_locations', entity_id: 'l1', action: 'update', event_id: null, event_name: null, guest_name: null, location_name, diff }));
+    const r = named({ before: { archived_at: null }, after: { archived_at: '2026-10-11T10:00:00Z' } }, 'Melkweg');
+    expect(r.text).toBe('archived the location Melkweg');
+    expect(r.entity).toBe('Melkweg');
+    // Company-level: no event, so the Event column renders its "—".
+    expect(r.event).toBe('');
+    expect(named({ before: { city: 'A' }, after: { city: 'B' } }, 'Melkweg').text).toBe('updated the location Melkweg');
+    // The diff's own name wins (the name at the time), not today's.
+    expect(named({ before: { name: 'Paradiso' }, after: { name: 'Paradiso Noord' } }, 'Later Name').text).toBe(
+      'renamed the location Paradiso to Paradiso Noord',
+    );
   });
 
   const ev = (diff: AuditFeedRow['diff']) =>

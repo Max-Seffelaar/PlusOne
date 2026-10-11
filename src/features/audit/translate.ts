@@ -237,8 +237,9 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
 
     case 'company_locations': {
       // Saved locations in Company settings (z8uq9m444c; audited since z8uq9m49k2).
-      // An update diff holds only the changed columns, so the name may be absent.
-      const name = str(after?.name) ?? str(before?.name);
+      // An update diff holds only the changed columns, so the name may be absent:
+      // then the location's current name, which audit_feed resolves.
+      const name = str(after?.name) ?? str(before?.name) ?? str(row.location_name);
       const the = name ? `the location ${name}` : 'a saved location';
       const entity = name ?? 'a saved location';
       if (action === 'create') return { text: `added ${the}`, entity };

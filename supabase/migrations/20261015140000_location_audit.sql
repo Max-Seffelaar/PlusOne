@@ -15,6 +15,15 @@
 --       changed columns, delete = full snapshot (no app role can delete, but
 --       the owner could; never unaudited). The row is venue-scoped through
 --       its venue_id column, which audit_trigger's default branch reads.
+--    c. audit_feed gains one trailing column, location_name: the saved
+--       location's CURRENT name for a company_locations row (joined on
+--       entity_id). An update diff holds only the changed columns, so an
+--       archive (archived_at only) would otherwise read "archived a saved
+--       location" with no way to tell which (#467 test 10). The view stays
+--       security_invoker: the join reads under the caller's RLS
+--       (company_locations_select = venue members, archived rows included),
+--       and only admin/finance read audit rows at all. CREATE OR REPLACE
+--       with the column appended keeps the grants of 20260917100000.
 --    audit_trigger() itself is NOT redefined (canonical body unchanged, K10).
 --    No backfill of history: changes before this migration are not in the
 --    log, as with every audit trigger added later.
@@ -153,3 +162,57 @@ revoke execute on function public.get_request_status(text, text)
 from public, anon, authenticated, service_role;
 grant execute on function public.get_request_status(text, text)
 to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 1c. audit_feed: the saved location's name for company_locations rows
+-- ---------------------------------------------------------------------------
+-- Body = 20260706104000 verbatim plus the last column and its join.
+
+create or replace view public.audit_feed
+with (security_invoker = on)
+as
+with base as (
+  select
+    a.id, a.actor_id, a.venue_id, a.event_id, a.entity_type, a.entity_id,
+    a.action, a.diff, a.device_id, a.created_at,
+    case
+      when a.entity_type = 'guests' then a.entity_id
+      when a.entity_type in ('check_ins', 'refusals')
+        then coalesce(a.diff -> 'after' ->> 'guest_id', a.diff -> 'before' ->> 'guest_id')::uuid
+    end as rel_guest_id,
+    case
+      when a.entity_type in ('quotas', 'event_quotas', 'quota_requests', 'venue_memberships')
+        then coalesce(a.diff -> 'after' ->> 'user_id', a.diff -> 'before' ->> 'user_id')::uuid
+    end as rel_user_id,
+    case
+      when a.entity_type = 'guest_requests' then a.entity_id
+    end as rel_request_id,
+    case
+      when a.entity_type = 'company_locations' then a.entity_id
+    end as rel_location_id,
+    (a.diff -> 'before' ->> 'tier_id')::uuid as old_tier_id,
+    (a.diff -> 'after' ->> 'tier_id')::uuid as new_tier_id
+  from public.audit_log a
+)
+select
+  b.id, b.actor_id, b.venue_id, b.event_id, b.entity_type, b.entity_id,
+  b.action, b.diff, b.device_id, b.created_at,
+  b.rel_guest_id as guest_id,
+  b.rel_user_id as subject_user_id,
+  actor.full_name as actor_name,
+  g.full_name as guest_name,
+  subj.full_name as subject_name,
+  ot.name as old_tier_name,
+  nt.name as new_tier_name,
+  ev.name as event_name,
+  gr.full_name as request_name,
+  cl.name as location_name
+from base b
+left join public.user_profiles actor on actor.id = b.actor_id
+left join public.guests g on g.id = b.rel_guest_id
+left join public.user_profiles subj on subj.id = b.rel_user_id
+left join public.guest_tiers ot on ot.id = b.old_tier_id
+left join public.guest_tiers nt on nt.id = b.new_tier_id
+left join public.events ev on ev.id = b.event_id
+left join public.guest_requests gr on gr.id = b.rel_request_id
+left join public.company_locations cl on cl.id = b.rel_location_id;
