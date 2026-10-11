@@ -146,6 +146,7 @@ export const platform = {
   billingMailSending: '{count} sent',
   billingMailFailed: '{count} failed',
   billingMailBounced: '{count} bounced',
+  billingMailUnknown: '{count} unknown',
   billingMailTrialDay0: 'Welcome, trial started',
   billingMailTrialDay7: 'Trial: 7 days left',
   billingMailTrialDay12: 'Trial: 2 days left',
