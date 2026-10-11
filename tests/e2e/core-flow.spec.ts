@@ -78,6 +78,8 @@ test('core flow: create event → add guest → door check-in, asserted in the d
   const timeField = page.getByLabel('Hour').first();
   await timeField.fill('22:00');
   await timeField.press('Enter');
+  // Guest mail 6c: every event needs its own contact address.
+  await page.getByRole('textbox', { name: 'Contact email' }).fill('guests@clubvesper.test');
   await page.getByRole('button', { name: 'Create event' }).click();
 
   // Success replaces the form with the new event's guided tiers step: save the

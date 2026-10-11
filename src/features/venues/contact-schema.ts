@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { t } from '@/lib/i18n';
+import { EMAIL_ADDRESS_RE, normalizeEmailAddress } from '@/lib/email-address';
 
 export const CONTACT_CHANNELS = ['phone', 'instagram', 'facebook', 'snapchat', 'tiktok'] as const;
 export type ContactChannel = (typeof CONTACT_CHANNELS)[number];
@@ -22,12 +23,8 @@ export const companyContactSchema = z.object({
   contactEmail: z
     .string()
     .trim()
-    .max(254, t.settings.contact.emailInvalid)
-    .transform((v) => (v === '' ? null : v.toLowerCase()))
-    .refine(
-      (v) => v === null || /^[^@\s<>",;:]+@[^@\s<>",;:]+\.[^@\s<>",;:]+$/.test(v),
-      t.settings.contact.emailInvalid,
-    ),
+    .transform((v) => (v === '' ? null : normalizeEmailAddress(v)))
+    .refine((v) => v === null || (v.length <= 254 && EMAIL_ADDRESS_RE.test(v)), t.settings.contact.emailInvalid),
   channels: z.object({
     phone: channelValue,
     instagram: channelValue,

@@ -44,6 +44,7 @@ vi.mock('../../context', () => ({
 }));
 // The guest-contact card (guest mail F) has its own query; not under test here.
 vi.mock('../settings/venue-contact', () => ({ GuestContactCard: () => null }));
+vi.mock('./notification-prefs', () => ({ NotificationPrefsSection: () => null }));
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: ['admin'], venueName: 'Venue A' }) }));
 vi.mock('@/features/po/hooks', () => ({
   usePoIsPlatformAdmin: () => false,

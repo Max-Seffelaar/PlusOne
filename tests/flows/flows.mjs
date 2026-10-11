@@ -106,6 +106,32 @@ export const FLOWS = {
       'src/components/po/screens/events/guest-mail.tsx',
     ],
   },
+  'team-mail': {
+    title: 'Gastcommunicatie F (6b) — Profile → Notifications (per role, saves) → quota request + decision mails → /n unsubscribe',
+    paths: [
+      'src/features/mail/',
+      'src/features/notifications/prefs-',
+      'src/features/po/notification-prefs.ts',
+      'src/features/quotas/actions.ts',
+      'src/features/requests/actions.ts',
+      'src/app/n/',
+      'src/app/api/webhooks/team-mails/',
+      'src/components/po/screens/settings/notification-prefs.tsx',
+      'src/components/po/screens/settings/profile.tsx',
+      'supabase/migrations/20261013180600_notification_prefs.sql',
+    ],
+  },
+  'event-contact': {
+    title: 'Gastcommunicatie F (6c) — event contact email: required, never pre-filled, domain-checked → guest mail reply-to + footer use the event address',
+    paths: [
+      'src/features/events/',
+      'src/features/mail/',
+      'src/features/po/queries.ts',
+      'src/components/po/screens/events/edit.tsx',
+      'src/components/po/screens/events/contact-email-field.tsx',
+      'supabase/migrations/20261013180500_event_contact_email.sql',
+    ],
+  },
   'onboarding-ade-trial': {
     title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
     paths: [
