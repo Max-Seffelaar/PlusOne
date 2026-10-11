@@ -8,13 +8,14 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-10-11 — venue_user_additions: present excludes guests refused after check-in (#44)
+## 2026-10-11 — venue_user_additions: present excludes refused-after-check-in; added includes removed (#44)
 
 Milestone **Now**. Follow-up to 86ey9c5fp (20260811161000), found in review of #461. Migration `20261016130100_venue_user_additions_present_excludes_refused.sql`; it replaces the same function as #461's `20261016130000`, so the two merge and push in that order (#461 first).
 
 - **Bug:** the venue-level per-member breakdown counted a guest refused after checking in as present. `sync_guest_status_from_refusal` flips the status without voiding the check-in, and the `ci` CTE joined every row of `reg` (approved, checked_in, refused). 20260811161000 fixed this in `event_user_additions` only, so the venue column read higher than the sum of its events (Max: 4 at venue level, 3 at event level).
 - **Fix:** `reg` also selects `g.status`; `ci` adds `reg.status in ('approved', 'checked_in')`, the event variant's rule. The rest of the body is #461's: the platform-admin name rule, the `agg` CTE, the order. `added`/`added_headcount` stay the gross ledger (a refused guest still counts as added). Signature, result type, gate and grants are unchanged.
-- **Tests:** pgTAP `venue_user_additions_present.test.sql` (17). It covers a refused-after-check-in guest, a normal check-in, a voided check-in and the hidden-operator name rule. It also checks that venue `present` equals the sum of event `present`, for its own window and venue-wide for every adder. The file pins admin@'s platform-admin flag off, so it passes on a `pnpm dev:mfa` DB too. Without the migration, 3 asserts fail (B3/B7/B8).
+- **Gross ledger includes removed guests** (decision Max 2026-10-11): `reg` now also takes `removed`, like the event variant, so venue `added`/`added_headcount` = Σ event over the venue's events (it read lower after any removal). `present` is unaffected; a guest removed after check-in is present at neither level.
+- **Tests:** pgTAP `venue_user_additions_present.test.sql` (20; review #464 added removed-after-check-in parity for present and the gross ledger). It covers a refused-after-check-in guest, a normal check-in, a voided check-in and the hidden-operator name rule. It also checks that venue `present` equals the sum of event `present`, for its own window and venue-wide for every adder. The file pins admin@'s platform-admin flag off, so it passes on a `pnpm dev:mfa` DB too. Without the migration, 3 asserts fail (B3/B7/B8).
 
 ---
 

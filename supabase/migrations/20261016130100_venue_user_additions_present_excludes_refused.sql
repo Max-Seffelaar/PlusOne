@@ -13,9 +13,15 @@
 --
 -- Fix: the check-in CTE only joins the on-list part of `reg`
 -- (`reg.status in ('approved', 'checked_in')`), mirroring event_user_additions.
--- For the CTE to see the status, `reg` now also selects `g.status`; its row set
--- is unchanged, so `added` / `added_headcount` (the gross ledger: refused guests
--- still count as added) stay exactly as before.
+-- For the CTE to see the status, `reg` now also selects `g.status`.
+--
+-- Second fix, same function (decision Max 2026-10-11): the gross ledger now
+-- includes `removed` guests, like event_user_additions always has. `added` /
+-- `added_headcount` count everything that reached the list — refused AND later
+-- removed — so venue `added` = Σ event `added` over the venue's events (it read
+-- lower after any removal). `present` is unaffected: the check-in CTE still
+-- only joins on-list guests, so a guest removed after checking in is not
+-- present at either level.
 --
 -- Body otherwise copied verbatim from 20261016130000_definer_rpc_profile_scope
 -- (PR #461): the platform-admin name rule (name null when the adder is a
@@ -52,7 +58,8 @@ begin
     select g.id, g.added_by, g.plus_ones, g.status
     from public.guests g
     join ev on ev.id = g.event_id
-    where g.status in ('approved', 'checked_in', 'refused')
+    -- gross list membership, removed included (matches event_user_additions).
+    where g.status in ('approved', 'checked_in', 'refused', 'removed')
   ),
   ci as (
     -- earliest NON-VOIDED check-in per guest, on-list only (#44) — same rule as

@@ -8,6 +8,8 @@
 -- read higher than the sum of its events. Claims:
 --   * a guest refused after checking in is not present at venue level, while
 --     the gross ledger (added / added_headcount) still counts them;
+--   * the gross ledger includes removed guests, so venue added / added_headcount
+--     equal the sum over events (decision Max 2026-10-11);
 --   * venue-level present equals the sum of event-level present over the
 --     venue's events — for the fixture window AND for every adder venue-wide;
 --   * a normal check-in still counts; a voided check-in still does not;
@@ -32,7 +34,7 @@ begin
 end;
 $fn$;
 
-select plan(18);
+select plan(20);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue aa..01 = Club Vesper, Max admin, Tom staff.
@@ -197,8 +199,7 @@ reset role;
 
 -- Removed after check-in (review #464): B1 was checked in, then taken off the
 -- list. Neither level counts her as present any more, so the sums still agree.
--- (The gross ledger does NOT sum across levels for removed guests: the venue
--- variant's reg excludes `removed`, the event variant's includes it — spec #44.)
+-- The gross ledger keeps her at both levels (decision Max 2026-10-11).
 update public.guests set status = 'removed'
  where id = 'c5000000-0000-7000-8000-000000000004';
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
@@ -214,6 +215,26 @@ select is(
     where v.user_id = '55555555-5555-4555-8555-555555555555'),
   row(1, 1)::text,
   'B9 removed after check-in: venue present 1 = sum of event present 1 (only A1 left)');
+select is(
+  (select row(v.added, v.added_headcount)::text
+     from public.venue_user_additions('aa000000-0000-7000-8000-000000000001',
+                                      '2099-01-01'::timestamptz, '2100-01-01'::timestamptz) v
+    where v.user_id = '55555555-5555-4555-8555-555555555555'),
+  row(4, 5)::text,
+  'B10 the removed guest stays in the venue gross ledger: added 4, added_headcount 5');
+select is(
+  (select count(*)::int
+     from (select user_id, added, added_headcount
+             from public.venue_user_additions('aa000000-0000-7000-8000-000000000001', null, null)) v
+     full join (select eua.user_id, sum(eua.added)::int as added, sum(eua.added_headcount)::int as added_headcount
+                  from public.events e
+                  cross join lateral public.event_user_additions(e.id) eua
+                 where e.venue_id = 'aa000000-0000-7000-8000-000000000001'
+                 group by eua.user_id) ev using (user_id)
+    where coalesce(v.added, 0) <> coalesce(ev.added, 0)
+       or coalesce(v.added_headcount, 0) <> coalesce(ev.added_headcount, 0)),
+  0,
+  'B11 venue-wide: added and added_headcount equal the sum over events for every adder');
 
 -- ---------------------------------------------------------------------------
 -- C. Platform-admin name rule (20261016130000) unchanged
