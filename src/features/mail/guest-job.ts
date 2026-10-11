@@ -80,6 +80,9 @@ export interface ClaimedMail {
   };
   company: { name: string; contactEmail: string };
   spot: { plusOnes: number; tierName: string; priceCents: number | null } | null;
+  /** Every part of the spot (z8uq9m2vga): a split request decision lists each
+   *  tier; otherwise the one spot. Null when the claim sent none (older claim). */
+  tiers: { name: string; people: number; priceCents: number | null }[] | null;
   plusOnes: number;
   askedPeople: number | null;
   links: { status: string | null; unsubscribe: string; reply: string };
@@ -124,6 +127,18 @@ export function parseClaimedMail(raw: unknown): ClaimedMail | null {
     spot = { plusOnes, tierName, priceCents: int(sp.price_cents) };
   }
 
+  let tiers: ClaimedMail['tiers'] = null;
+  if (Array.isArray(r.tiers) && r.tiers.length > 0) {
+    tiers = [];
+    for (const item of r.tiers as unknown[]) {
+      const tr = (item ?? {}) as Record<string, unknown>;
+      const name = str(tr.tier_name);
+      const people = int(tr.people);
+      if (!name || people === null || people < 1) return null;
+      tiers.push({ name, people, priceCents: int(tr.price_cents) });
+    }
+  }
+
   return {
     queueId,
     mailLogId,
@@ -142,6 +157,7 @@ export function parseClaimedMail(raw: unknown): ClaimedMail | null {
     },
     company: { name: companyName, contactEmail },
     spot,
+    tiers,
     plusOnes: spot?.plusOnes ?? Math.max(0, int(r.plus_ones) ?? 0),
     askedPeople: int(r.asked_people),
     links: { status, unsubscribe, reply },
@@ -161,7 +177,7 @@ export function buildGuestMail(mail: ClaimedMail, base: string): OutgoingMail {
     contactEmail: mail.company.contactEmail,
     plusOnes: mail.plusOnes,
     tiers: mail.spot
-      ? [{ name: mail.spot.tierName, people: mail.spot.plusOnes + 1, priceCents: mail.spot.priceCents }]
+      ? (mail.tiers ?? [{ name: mail.spot.tierName, people: mail.spot.plusOnes + 1, priceCents: mail.spot.priceCents }])
       : null,
     askedPeople: mail.askedPeople,
     remark: mail.remark,

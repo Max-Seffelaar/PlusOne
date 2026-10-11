@@ -292,16 +292,19 @@ select is(
      from public.guest_requests r where r.dedupe_key = 'auto@f3.test'),
   'approved|auto|1', 'E3b ...approved by the system, with its guest');
 
--- E4. The client deny path (20260919150000) is untouched by this migration.
+-- E4. The client deny path (20260919150000) still passes RLS and the column
+--     grants (no 42501); since z8uq9m2vga a decline needs a note to the guest,
+--     which a client write cannot carry, so the note guard refuses it.
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
-select is(
-  pg_temp.rowcount($$ update public.guest_requests
-                        set status = 'denied',
-                            decided_by = '11111111-1111-4111-8111-111111111111',
-                            decided_at = now(), decision_reason = 'Vol'
-                      where id = 'bb000000-0000-7000-8000-000000000002'
-                        and status = 'pending' $$),
-  1, 'E4 an admin can still deny a pending request through the client path');
+select throws_ok(
+  $$ update public.guest_requests
+        set status = 'denied',
+            decided_by = '11111111-1111-4111-8111-111111111111',
+            decided_at = now(), decision_reason = 'Vol'
+      where id = 'bb000000-0000-7000-8000-000000000002'
+        and status = 'pending' $$,
+  '23514', 'Add a note when you decline (part of) a request.',
+  'E4 an admin''s client deny passes RLS but is refused without a note (z8uq9m2vga)');
 reset role;
 
 -- E5. The retention job (SECURITY DEFINER, owner) still anonymizes.

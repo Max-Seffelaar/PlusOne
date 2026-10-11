@@ -20,7 +20,7 @@ Covered functions:
 
 - `audit_trigger.sql` — newest source: `20260706100000_influencers_request_links.sql`
 - `run_privacy_retention.sql` — newest source: `20261006120000_retention_requests_complete.sql`
-- `submit_guest_request.sql` — newest source: `20260918160000_status_token_mirror_hardening.sql`
+- `submit_guest_request.sql` — newest source: `20261015120000_request_decision_split.sql`
 - `approve_guest_request.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
 - `get_request_status.sql` — newest source: `20261015140000_location_audit.sql`
 - `consume_public_throttle.sql` — newest source: `20261006170000_public_throttle_bind_raw_callers.sql`

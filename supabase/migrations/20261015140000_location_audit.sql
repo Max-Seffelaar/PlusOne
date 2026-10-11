@@ -27,7 +27,8 @@
 --    before this migration parses the new payload unchanged. Every found
 --    payload still has one identical key set. Signature, throttle, mirror
 --    handling, state gating and grants are unchanged; the body is otherwise
---    byte-for-byte the 20261013160000 one (supabase/canonical updated).
+--    byte-for-byte the 20261015120000 one (task 7: the venue note also on a
+--    declined request), supabase/canonical updated.
 
 -- ---------------------------------------------------------------------------
 -- 1a. events: location changes are audited
@@ -132,7 +133,9 @@ begin
     'approved_plus_ones',
       case when v_approved then v_row.approved_plus_ones end,
     'decision_message',
-      case when v_approved then v_row.decision_message end,
+      -- z8uq9m2vga: the venue note on a declined request too (mandatory on
+      -- any decline). Own token only: the mirror branch selects null for it.
+      case when v_row.status in ('approved', 'denied') then v_row.decision_message end,
     'location_name', nullif(btrim(v_row.location_name), ''),
     'location_address', nullif(btrim(v_row.location_address), '')
   );

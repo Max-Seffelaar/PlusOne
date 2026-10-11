@@ -95,6 +95,7 @@ insert into public.guest_requests (id, event_id, full_name, email, phone, plus_o
    'Bare Bram', 'bram@el.test', '+31611800004', 0, 'tok-el-bram');
 
 update public.guest_requests set status = 'denied', decision_reason = 'Full',
+       decision_message = 'Full tonight.',
        decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
  where id = '9a100000-0000-7000-8000-000000000003';
 
