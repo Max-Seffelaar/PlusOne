@@ -6,7 +6,7 @@
  * hid both.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { fetchDoorSnapshot } from './queries';
+import { fetchDoorSnapshot, mergeDoorProfiles, type DoorSnapshot } from './queries';
 
 const tables: Record<string, unknown[]> = {
   events: [{ id: 'e1', name: 'Launch', status: 'open', list_locked: false, allow_uncheck: null, venue_id: 'v1', location_name: null, location_address: null }],
@@ -81,5 +81,31 @@ describe('door snapshot actor labels (#62a)', () => {
     // Never a widened fallback read.
     expect(fromTables).not.toContain('user_profiles');
     warn.mockRestore();
+  });
+});
+
+describe('mergeDoorProfiles (#466 N3): a label-less refetch keeps the names the door had', () => {
+  const snap = (eventId: string, profiles: Record<string, string>): DoorSnapshot =>
+    ({ event: { id: eventId }, guests: [], tiers: [], checkIns: [], refusals: [], profiles, fetchedAt: 'x' }) as unknown as DoorSnapshot;
+
+  it('keeps the previous labels when the new snapshot has none (label RPC down)', () => {
+    const prev = snap('e1', { 'u-former': 'Former Floor', 'u-op': 'PlusOne support' });
+    const next = snap('e1', {});
+    expect(mergeDoorProfiles(prev, next).profiles).toEqual({ 'u-former': 'Former Floor', 'u-op': 'PlusOne support' });
+  });
+
+  it('new labels win, missing ones are kept, nothing else changes', () => {
+    const prev = snap('e1', { a: 'Old A', b: 'Kept B' });
+    const next = snap('e1', { a: 'New A', c: 'New C' });
+    const merged = mergeDoorProfiles(prev, next);
+    expect(merged.profiles).toEqual({ a: 'New A', b: 'Kept B', c: 'New C' });
+    expect(merged.guests).toBe(next.guests);
+    expect(merged.fetchedAt).toBe(next.fetchedAt);
+  });
+
+  it('never carries labels across events, and is a no-op without a previous snapshot', () => {
+    const next = snap('e2', {});
+    expect(mergeDoorProfiles(snap('e1', { a: 'A' }), next)).toBe(next);
+    expect(mergeDoorProfiles(undefined, next)).toBe(next);
   });
 });

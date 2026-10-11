@@ -271,8 +271,10 @@ export function auditPersonIds(rows: readonly AuditFeedRow[]): string[] {
  * One feed row → one log line. `labels` (actor id → label, from
  * fetchActorLabels) applies the who-did-what rule (#62a): a null actor is
  * "System", a resolved id is the member's name or "PlusOne support". Without a
- * label (none passed, or the RPC not deployed yet) the view's RLS-scoped name
- * is the fallback.
+ * label (none passed, the RPC failed, or not deployed yet) the view's
+ * RLS-scoped name is the fallback, and then "Unknown" — never "System": a real
+ * person (a former member, an operator) acted there (review #466 N2). "System"
+ * is ONLY for a null actor_id.
  */
 export function describeAuditEntry(
   row: AuditFeedRow,
@@ -280,7 +282,9 @@ export function describeAuditEntry(
 ): AuditLine {
   const subjectLabel = row.subject_user_id ? labels.get(row.subject_user_id) : undefined;
   const { text, entity } = phrase(subjectLabel ? { ...row, subject_name: subjectLabel } : row);
-  const actor = row.actor_id ? (labels.get(row.actor_id) ?? row.actor_name ?? SYSTEM) : SYSTEM;
+  const actor = row.actor_id
+    ? (labels.get(row.actor_id) ?? row.actor_name ?? t.shared.actor.unknown)
+    : SYSTEM;
   return {
     id: row.id ?? '',
     actor,

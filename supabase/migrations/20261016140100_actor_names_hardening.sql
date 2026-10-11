@@ -25,14 +25,23 @@
 --    therefore replaces a reserved/blank name on a NEW row with 'User' (the
 --    consent screen asks for the real name next). UPDATEs are refused (23514),
 --    never rewritten: that is the user's own edit and gets a proper error.
---    Residual, accepted: look-alikes ("PIusOne support", homoglyphs) pass.
+--    Residual, accepted: look-alike letters ("PIusOne", Cyrillic) pass.
+--    Review round 2 (N1): btrim() strips only ASCII spaces, so NBSP/tab/CR/LF/
+--    zero-width-wrapped "PlusOne support" and invisible-only blanks got past the
+--    first version (CHECK and trigger alike). Now ONE normaliser,
+--    public.profile_name_key(): it deletes control + format characters
+--    (C0/C1, soft hyphen, ZW space/joiners, LRM/RLM, bidi embeddings and
+--    overrides, word joiner + invisible operators, BOM), maps every Unicode
+--    space to one ASCII space, lower-cases and trims. The CHECK refuses any
+--    control/format character outright (no real name has one) AND a blank or
+--    reserved key. The app mirrors the exact classes (src/features/auth/
+--    profile-name.ts) for Zod and for the "blank → Unnamed" display rule.
 --    Caveat of NOT VALID: Postgres re-checks the whole row on ANY update, so a
---    pre-existing row with a reserved/blank name would refuse every later
---    update of that row (terms, MFA snooze) until the name is fixed. Before the
---    push, confirm on prod (aggregate only) that this count is 0:
---      select count(*) from public.user_profiles
---       where btrim(full_name) = '' or regexp_replace(lower(btrim(full_name)),
---             '\s+', ' ', 'g') in ('plusone support', 'system', 'unnamed');
+--    pre-existing offending row would refuse every later update of that row
+--    (terms, MFA snooze) until the name is fixed. Checked on prod before the
+--    push (aggregates only, orchestrator 2026-10-11): 22 profiles, 0 containing
+--    a control/format character, 0 with a Unicode space, 0 blank or reserved
+--    after this normalisation.
 --
 -- 3. Guests branch (P2). `events join guests on added_by` walked every event of
 --    the venue per id. It is now bound to the venue column directly, with a
@@ -46,12 +55,36 @@
 -- Reserved display names
 -- ---------------------------------------------------------------------------
 
+-- The comparison key for a display name. KEEP the two character classes in
+-- sync with src/features/auth/profile-name.ts.
+create or replace function public.profile_name_key(p_name text)
+returns text
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select btrim(lower(regexp_replace(
+           regexp_replace(coalesce(p_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]', '', 'g'),
+           '[[:space:]\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+', ' ', 'g')));
+$$;
+
+comment on function public.profile_name_key(text) is
+  'Display-name comparison key (spec #62a): control/format characters removed, '
+  'Unicode spaces collapsed to one space, lower-cased, trimmed. Used by the '
+  'user_profiles_full_name_not_reserved CHECK and the new-row sanitizer.';
+
+-- The CHECK evaluates the function as the role doing the INSERT/UPDATE, so the
+-- roles that write user_profiles need EXECUTE (it is pure and reveals nothing).
+revoke execute on function public.profile_name_key(text) from public, anon;
+grant execute on function public.profile_name_key(text) to authenticated, service_role;
+
 alter table public.user_profiles
   add constraint user_profiles_full_name_not_reserved
   check (
-    btrim(full_name) <> ''
-    and regexp_replace(lower(btrim(full_name)), '\s+', ' ', 'g')
-          not in ('plusone support', 'system', 'unnamed')
+    full_name !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]'
+    and public.profile_name_key(full_name) <> ''
+    and public.profile_name_key(full_name) not in ('plusone support', 'system', 'unnamed')
   ) not valid;
 
 create or replace function public.user_profiles_sanitize_new_name()
@@ -60,11 +93,12 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  -- Same rule as the CHECK above (inline: no helper function for an app role to call).
-  if new.full_name is null
-     or btrim(new.full_name) = ''
-     or regexp_replace(lower(btrim(new.full_name)), '\s+', ' ', 'g')
-          in ('plusone support', 'system', 'unnamed') then
+  -- Same rule as the CHECK above. Invisible characters are stripped first so an
+  -- invitee whose auth metadata carries one is not locked out of their first
+  -- login; a blank or reserved key then becomes 'User'.
+  new.full_name := regexp_replace(coalesce(new.full_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]', '', 'g');
+  if public.profile_name_key(new.full_name) = ''
+     or public.profile_name_key(new.full_name) in ('plusone support', 'system', 'unnamed') then
     new.full_name := 'User';
   end if;
   return new;

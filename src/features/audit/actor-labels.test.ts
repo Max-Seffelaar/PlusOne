@@ -75,6 +75,15 @@ describe('the label rule', () => {
     expect(labelForActorRow({ user_id: 'u4', display_name: null, is_support: false })).toBe('Unnamed');
   });
 
+  it('treats Unicode-space or invisible-only names as blank, like the DB (review #466 N1)', () => {
+    const c = String.fromCharCode;
+    for (const blank of [c(12288), c(9), c(8203), `${c(160)}${c(8203)}`]) {
+      expect(labelForActorRow({ user_id: 'u5', display_name: blank, is_support: false })).toBe('Unnamed');
+    }
+    // Otherwise the stored name is shown as is (trimmed).
+    expect(labelForActorRow({ user_id: 'u6', display_name: ' Anne Marie ', is_support: false })).toBe('Anne Marie');
+  });
+
   it('says "System" for no actor', () => {
     expect(actorLabel(null, new Map())).toBe('System');
     expect(actorLabel(undefined, new Map([['u1', 'Lisa']]))).toBe(t.shared.actor.system);

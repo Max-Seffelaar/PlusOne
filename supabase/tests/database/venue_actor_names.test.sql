@@ -13,7 +13,9 @@
 --     the result has exactly three columns;
 --   * review round 1 (20261016140100): a forged quota/event_quota is no
 --     footprint; the label words and a blank name cannot be taken as a name;
---     crew of another venue's event and a null venue get nothing.
+--     crew of another venue's event and a null venue get nothing;
+--   * review round 2: Unicode spaces and invisible characters do not get a
+--     label word or a blank past the CHECK or the new-row sanitizer.
 --
 -- Everything rolls back.
 
@@ -38,7 +40,7 @@ returns text language sql as $fn$
 $fn$;
 grant execute on function pg_temp.actor(uuid, uuid) to authenticated;
 
-select plan(46);
+select plan(59);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 aa…01 (Max admin, Tom staff, Lisa
@@ -419,6 +421,80 @@ select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is(pg_temp.actor('aa000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
   row('PIusOne support', false)::text, 'H7 a spoofed look-alike name is just a name: is_support stays false');
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- I. Review round 2 (N1): Unicode whitespace and invisible characters
+-- ---------------------------------------------------------------------------
+-- btrim() strips only ASCII spaces; public.profile_name_key() normalises every
+-- Unicode space and drops control/format characters, and the CHECK refuses
+-- those characters outright. chr() keeps the probes visible in this file:
+-- 9 tab, 10 LF, 13 CR, 160 NBSP, 8203 zero-width space, 12288 ideographic space.
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom, own row
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(160) || 'PlusOne support' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I1 NBSP-prefixed "PlusOne support" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'PlusOne support' || chr(10) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I2 newline-suffixed "PlusOne support" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'System' || chr(13) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I3 CR-suffixed "System" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(9) || 'System' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I4 tab-prefixed "System" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'PlusOne' || chr(8203) || ' support' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I5 a zero-width space inside "PlusOne support" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(8203) || 'System' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I6 zero-width-prefixed "System" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'PlusOne' || chr(160) || 'support' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I7 "PlusOne support" with an inner NBSP is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(12288) || chr(12288) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I8 an ideographic-space-only blank is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(9) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I9 a tab-only blank is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(8203) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'I10 a zero-width-only blank is refused');
+select lives_ok(
+  $$ update public.user_profiles set full_name = 'Anne' || chr(160) || 'Marie' where id = '55555555-5555-4555-8555-555555555555' $$,
+  'I11 a normal name with an inner NBSP ("Anne Marie") is accepted');
+update public.user_profiles set full_name = 'Tom Bakker' where id = '55555555-5555-4555-8555-555555555555';
+reset role;
+
+-- ensure_my_profile builds the first profile row from auth metadata (the
+-- invite seeds it): a spoofed label there becomes 'User'; an invisible
+-- character is stripped instead of locking the invitee out.
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+)
+select '00000000-0000-0000-0000-000000000000', u.id, 'authenticated', 'authenticated', u.email, '', now(),
+       '{"provider": "email", "providers": ["email"]}'::jsonb, jsonb_build_object('full_name', u.name),
+       now(), now(), '', '', '', '', '', '', '', ''
+  from (values
+    ('a9000000-0000-4000-8000-0000000000c1'::uuid, 'van-spoof-meta@plusone.test', chr(160) || 'PlusOne support'),
+    ('a9000000-0000-4000-8000-0000000000c2'::uuid, 'van-zw-meta@plusone.test',    'Mila' || chr(8203) || ' Jansen')
+  ) as u(id, email, name);
+
+select pg_temp.login('a9000000-0000-4000-8000-0000000000c1');
+select public.ensure_my_profile();
+reset role;
+select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000c1'),
+  'User', 'I12 ensure_my_profile with metadata NBSP+"PlusOne support" stores "User"');
+
+select pg_temp.login('a9000000-0000-4000-8000-0000000000c2');
+select public.ensure_my_profile();
+reset role;
+select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000c2'),
+  'Mila Jansen', 'I13 an invisible character in the metadata name is stripped, not a locked-out login');
 
 select * from finish();
 

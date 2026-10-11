@@ -6,16 +6,17 @@ import { z } from 'zod';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { VENUE_ROLES } from './roles';
 import { t } from '@/lib/i18n';
+import { hasInvisibleChars, isBlankOrReservedName } from './profile-name';
 
-/**
- * The who-did-what labels (spec #62a: "PlusOne support", "System", "Unnamed")
- * and a blank name are not a name a user may take — mirror of the DB CHECK
- * user_profiles_full_name_not_reserved (20261016140100): trimmed, lower-cased,
- * inner whitespace collapsed. Look-alikes ("PIusOne support") pass, as in the DB.
- */
-export function isReservedProfileName(name: string): boolean {
-  const n = name.trim().toLowerCase().replace(/\s+/g, ' ');
-  return n === '' || n === 'plusone support' || n === 'system' || n === 'unnamed';
+export { isReservedProfileName } from './profile-name';
+
+/** Why a user may not take this as their own name, or null when they may.
+ *  Mirror of the DB CHECK user_profiles_full_name_not_reserved (20261016140100;
+ *  rule + character classes in ./profile-name.ts). */
+function ownNameIssue(name: string): string | null {
+  if (hasInvisibleChars(name)) return t.shared.actor.invisibleChars;
+  if (isBlankOrReservedName(name)) return t.shared.actor.reservedName;
+  return null;
 }
 
 // E-mail is normalised (trim + lowercase) so invite/lookup matching is
@@ -107,7 +108,10 @@ export const profileNameSchema = z.object({
     .trim()
     .min(1, 'Enter your name')
     .max(120, 'Name is too long')
-    .refine((v) => !isReservedProfileName(v), t.shared.actor.reservedName),
+    .superRefine((v, ctx) => {
+      const issue = ownNameIssue(v);
+      if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+    }),
 });
 
 // Profile is global to the user (decision #24): first/last name + phone. full_name
@@ -123,10 +127,11 @@ export const profileSchema = z.object({
     .refine((v) => v === null || /^[+0-9 ()-]{6,40}$/.test(v), 'Invalid phone number'),
 })
   // The actions store full_name = `${firstName} ${lastName}` — that combination
-  // must not be a reserved label either ("PlusOne" + "support").
-  .refine((v) => !isReservedProfileName(`${v.firstName} ${v.lastName}`), {
-    message: t.shared.actor.reservedName,
-    path: ['lastName'],
+  // must not be a reserved label either ("PlusOne" + "support"), nor carry an
+  // invisible character in either field.
+  .superRefine((v, ctx) => {
+    const issue = ownNameIssue(`${v.firstName} ${v.lastName}`);
+    if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['lastName'] });
   });
 
 export const emailChangeSchema = z.object({

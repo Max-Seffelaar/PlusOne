@@ -264,6 +264,19 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   };
 }
 
+/**
+ * Keep the actor labels the door already had (review #466 N3). A refetch made
+ * while the label RPC fails (or answers for fewer ids) would otherwise replace
+ * every "added by" / "checked in by" with "Unknown". New labels win; labels the
+ * new snapshot lacks are kept from the previous snapshot of the SAME event —
+ * the persisted IndexedDB copy after a cold start. Labels only; the guest
+ * list, check-ins and the outbox are untouched.
+ */
+export function mergeDoorProfiles(prev: DoorSnapshot | undefined, next: DoorSnapshot): DoorSnapshot {
+  if (!prev || prev.event.id !== next.event.id) return next;
+  return { ...next, profiles: { ...prev.profiles, ...next.profiles } };
+}
+
 export async function fetchEventQuota(client: Client, eventId: string): Promise<QuotaStatus | null> {
   const { data } = await client.rpc('event_quota_status', { p_event_id: eventId }).maybeSingle();
   return data ?? null;

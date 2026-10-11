@@ -26,6 +26,8 @@ export const shared = {
     /** A user tried to take one of the labels above (or a blank) as their own
      *  name; the database refuses it too (user_profiles_full_name_not_reserved). */
     reservedName: 'That name is reserved in PlusOne. Please use your own name.',
+    /** A name with a control or zero-width character (refused by the DB too). */
+    invisibleChars: "Names can't contain invisible characters.",
   },
 
   // ── Quiet offline indicator (offline-indicator.tsx, N7 follow-up) ───────

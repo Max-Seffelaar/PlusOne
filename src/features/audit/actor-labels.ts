@@ -21,6 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { chunkIds } from '@/lib/supabase/paging';
 import { t } from '@/lib/i18n';
+import { profileNameKey } from '@/features/auth/profile-name';
 
 type Client = SupabaseClient<Database>;
 
@@ -59,10 +60,12 @@ export class ActorLabels extends Map<string, string> {
 }
 
 /** A person's own name as a label: blank → the neutral "Unnamed" (never
- *  "PlusOne support": that is decided by the flag alone). */
+ *  "PlusOne support": that is decided by the flag alone). "Blank" uses the same
+ *  normalisation as the DB (profileNameKey: invisible characters and Unicode
+ *  spaces don't count); otherwise the stored name is shown as is. */
 export function nameLabel(name: string | null | undefined): string {
-  const trimmed = name?.trim() ?? '';
-  return trimmed === '' ? t.shared.actor.unnamed : trimmed;
+  if (profileNameKey(name) === '') return t.shared.actor.unnamed;
+  return (name ?? '').trim();
 }
 
 /** Rule 1 or 2 for one resolved row. "PlusOne support" comes from is_support

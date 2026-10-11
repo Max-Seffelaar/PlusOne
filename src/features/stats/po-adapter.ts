@@ -1,6 +1,7 @@
 import { fmt, t } from '@/lib/i18n';
 import { absentStage, type EventPhase } from '@/features/po/event-phase';
 import { formatClock, formatPct } from './format';
+import { nameLabel } from '@/features/audit/actor-labels';
 import type { EventSummary, QuarterBucket, TierStat, UserAddition, VenueSummary } from './data';
 
 // Maps the Postgres analytics rows onto the po prototype's mock-data shapes so the
@@ -60,7 +61,7 @@ export function toPerUser(users: UserAddition[]): PerUser[] {
   return users.map((u) => ({
     // Null when the adder is a PlusOne platform admin with no membership or crew tie at the venue
     // (support work outside the company; 20261016130000).
-    who: u.full_name == null ? t.shared.actor.support : u.full_name.trim() || t.shared.actor.unnamed,
+    who: u.full_name == null ? t.shared.actor.support : nameLabel(u.full_name),
     added: u.added_headcount,
     removed: u.removed_headcount,
     in: u.present_headcount,

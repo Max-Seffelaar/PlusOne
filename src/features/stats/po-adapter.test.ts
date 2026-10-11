@@ -120,6 +120,9 @@ describe('toPerUser', () => {
       present_headcount: 0, added_free_headcount: 1, present_free_headcount: 0, user_id: 'u-blank',
     };
     expect(toPerUser([blank])[0]?.who).toBe('Unnamed');
+    // Unicode-space / invisible-only is blank too (review #466 N1).
+    const c = String.fromCharCode;
+    expect(toPerUser([{ ...blank, full_name: `${c(12288)}${c(8203)}` }])[0]?.who).toBe('Unnamed');
   });
 });
 

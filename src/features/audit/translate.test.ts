@@ -256,6 +256,13 @@ describe('describeAuditEntry', () => {
       expect(describeAuditEntry(row({ actor_id: 'u-max' }), new Map()).actor).toBe('Max');
     });
 
+    it('never calls a real actor "System" when labels are missing: "Unknown" (review #466 N2)', () => {
+      // A former member / operator: RLS hides the view name, and the label RPC failed.
+      const line = describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), new Map());
+      expect(line.actor).toBe('Unknown');
+      expect(line.actor).not.toBe('System');
+    });
+
     it('collects actor and subject ids once, skipping nulls', () => {
       expect(
         auditPersonIds([
