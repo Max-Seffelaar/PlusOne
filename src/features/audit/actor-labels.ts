@@ -111,27 +111,12 @@ export function actorRef(id: string | null | undefined, labels: ActorLabels): Ac
   return text === undefined ? { text: t.shared.actor.unknown, kind: 'unknown' } : { text, kind: labels.kindOf(id) };
 }
 
-/**
- * The label for one actor id: rule 3 for a null id, otherwise whatever
- * {@link fetchActorLabels} resolved. Returns `fallback` (default '') for an id
- * the venue has no record of — that cannot happen for an id read from the
- * venue's own rows, but a surface must never print a raw uuid.
- */
-export function actorLabel(
-  id: string | null | undefined,
-  labels: ReadonlyMap<string, string>,
-  fallback = '',
-): string {
-  if (!id) return t.shared.actor.system;
-  return labels.get(id) ?? fallback;
-}
-
 /** PostgREST: function not in the schema cache (bundle live before its migration). */
 const FUNCTION_MISSING = 'PGRST202';
 
 /**
  * Resolve actor ids → labels for one venue, chunked to {@link ACTOR_ID_CHUNK}.
- * Null/empty ids are dropped (rule 3 is {@link actorLabel}'s job). An id without
+ * Null/empty ids are dropped (rule 3 is {@link actorRef}'s job). An id without
  * a footprint in the venue simply has no entry. Throws on any other RPC error.
  */
 export async function fetchActorLabels(

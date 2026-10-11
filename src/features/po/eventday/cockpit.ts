@@ -11,6 +11,7 @@
  */
 import { fuzzyMatch } from '@/features/door/components/fuzzy';
 import type { Guest, GuestStatus, Tier } from '@/lib/po/types';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import {
   arrivedHeadsOf,
   computeHeadcounts,
@@ -254,7 +255,16 @@ export function currentBucketIndex(buckets: { t: string }[], now: Date): number 
 /** A line in the cockpit's live activity feed (check-in/out or an approval note). */
 export type FeedEntry =
   | { kind: 'in' | 'out'; t: string; name: string; plus: number }
-  | { kind: 'msg'; t: string; msg: string; accent: boolean };
+  | {
+      kind: 'msg';
+      t: string;
+      msg: string;
+      accent: boolean;
+      /** A message that names an actor (spec #62a): `template` still holds the
+       *  `{slot}` placeholder so the screen renders the actor through kit
+       *  ActorPhrase; `msg` is the same sentence as plain text. */
+      actor?: { template: string; slot: string; name: string; kind: ActorKind };
+    };
 
 /** The human label for a feed entry (the timestamp is rendered separately). */
 export function liveFeedLabel(e: FeedEntry): string {

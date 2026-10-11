@@ -16,7 +16,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Label, Btn, Card, CountPill, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
+import { ActorAvatar, ActorName, ActorPhrase, Avatar, Label, Btn, Card, CountPill, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
 import { tierInk } from '@/lib/po/tier-colors';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
@@ -24,6 +24,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
 import type { CheckinArrival } from '@/features/po/queries';
 import type { Guest, Tier } from '@/lib/po/types';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import {
   usePoCheckinArrivals,
   usePoDoorCandidates,
@@ -433,19 +434,31 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       onError: (e) => setDeclineErr(e.message),
     });
   }
-  function approveQuota(r: { id: string; who: string; extra: number }): void {
+  function approveQuota(r: { id: string; who: string; whoKind?: ActorKind; extra: number }): void {
     decideQuota.mutate(
       { requestId: r.id, decision: 'approved', eventId },
       { onError: (e) => notify(e.message) }
     );
-    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedQuotaGranted, { who: r.who, n: r.extra }), accent: true });
+    pushFeed({
+      kind: 'msg',
+      t: amsterdamHM(new Date()),
+      msg: fmt(t.cockpit.feedQuotaGranted, { who: r.who, n: r.extra }),
+      accent: true,
+      actor: { template: fmt(t.cockpit.feedQuotaGranted, { n: r.extra }), slot: 'who', name: r.who, kind: r.whoKind ?? 'member' },
+    });
   }
-  function denyQuota(r: { id: string; who: string }): void {
+  function denyQuota(r: { id: string; who: string; whoKind?: ActorKind }): void {
     decideQuota.mutate(
       { requestId: r.id, decision: 'denied', reason: DENY_REASON, eventId },
       { onError: (e) => notify(e.message) }
     );
-    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedQuotaDenied, { who: r.who }), accent: false });
+    pushFeed({
+      kind: 'msg',
+      t: amsterdamHM(new Date()),
+      msg: fmt(t.cockpit.feedQuotaDenied, { who: r.who }),
+      accent: false,
+      actor: { template: t.cockpit.feedQuotaDenied, slot: 'who', name: r.who, kind: r.whoKind ?? 'member' },
+    });
   }
   // ── Refuse / undo-refusal / task ack (G2 door-parity) ─────────────────────
   function confirmRefuse(reason: string): void {
@@ -676,7 +689,18 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                     style={{ background: feedIsAccent(feed[0]) ? '#B5A6FF' : 'rgba(255,255,255,0.26)' }}
                   />
                   <span className="text-[13px] text-dim">
-                    <span className="font-display font-bold text-text">{feed[0].t}</span>. {liveFeedLabel(feed[0])}
+                    <span className="font-display font-bold text-text">{feed[0].t}</span>.{' '}
+                    {feed[0].kind === 'msg' && feed[0].actor ? (
+                      <ActorPhrase
+                        template={feed[0].actor.template}
+                        slot={feed[0].actor.slot}
+                        name={feed[0].actor.name}
+                        kind={feed[0].actor.kind}
+                        size="compact"
+                      />
+                    ) : (
+                      liveFeedLabel(feed[0])
+                    )}
                   </span>
                 </>
               ) : (
@@ -715,9 +739,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                         <div className="flex flex-col gap-[13px]">
                           {evQuotaReqs.map((r) => (
                             <div key={r.id} className="flex items-center gap-[11px]">
-                              <Avatar name={r.who} size={34} />
+                              <ActorAvatar name={r.who} kind={r.whoKind} size={34} />
                               <div className="min-w-0 flex-1">
-                                <div className="truncate text-[13.5px] font-semibold text-text">{r.who}</div>
+                                <div className="truncate text-[13.5px] font-semibold text-text">
+                                  <ActorName name={r.who} kind={r.whoKind} />
+                                </div>
                                 <div className="truncate text-[11.5px] text-faint">
                                   {fmt(t.cockpit.quotaPlus, { n: r.extra })}
                                   {r.reason ? ` · ${r.reason}` : ''}

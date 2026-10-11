@@ -17,7 +17,10 @@
 --   * review round 2: Unicode spaces and invisible characters do not get a
 --     label word or a blank past the CHECK or the new-row sanitizer;
 --   * review round 3: neither does any default-ignorable, control or format
---     code point, the braille blank or a Hangul filler; 'Unknown' is reserved.
+--     code point, the braille blank or a Hangul filler; 'Unknown' is reserved;
+--   * review round 4: NFKC-styled look-alikes and names containing
+--     "plusone support" are refused; ZWJ/ZWNJ/U+FE0F are allowed in names;
+--   * review round 5: "plusone label" (the chip's accessible-name hint) too.
 --
 -- Everything rolls back.
 
@@ -42,7 +45,7 @@ returns text language sql as $fn$
 $fn$;
 grant execute on function pg_temp.actor(uuid, uuid) to authenticated;
 
-select plan(72);
+select plan(84);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 aa…01 (Max admin, Tom staff, Lisa
@@ -563,6 +566,93 @@ select public.ensure_my_profile();
 reset role;
 select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000c3'),
   'User', 'J13 ensure_my_profile with metadata "System" + U+2066 stores "User"');
+
+-- ---------------------------------------------------------------------------
+-- K. Review round 4: styled look-alikes (NFKC), the "plusone support" phrase,
+-- and the joiners a real name may carry
+-- ---------------------------------------------------------------------------
+-- Helpers build the styled forms from ASCII so the probes stay readable:
+-- Mathematical Sans-Serif Italic (U+1D608 A / U+1D622 a), Mathematical Bold
+-- (U+1D400 A / U+1D41A a), fullwidth (U+FF21.., ideographic space U+3000).
+create function pg_temp.styled(p text, p_upper int, p_lower int, p_space int)
+returns text language sql immutable as $fn$
+  select string_agg(
+    case
+      when ascii(c) between 65 and 90 then chr(p_upper + ascii(c) - 65)
+      when ascii(c) between 97 and 122 then chr(p_lower + ascii(c) - 97)
+      when c = ' ' then chr(p_space)
+      else c
+    end, '' order by i)
+  from regexp_split_to_table(p, '') with ordinality as t(c, i);
+$fn$;
+grant execute on function pg_temp.styled(text, int, int, int) to authenticated;
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom, own row
+select throws_ok(
+  $$ update public.user_profiles
+        set full_name = chr(9960) || pg_temp.styled('PlusOne support', 120328, 120354, 10240)
+      where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'K1 shield + Mathematical Sans-Serif Italic "PlusOne" + U+2800 + "support" is refused');
+select throws_ok(
+  $$ update public.user_profiles
+        set full_name = pg_temp.styled('PlusOne support', 65313, 65345, 12288)
+      where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'K2 fullwidth "PlusOne support" is refused');
+select throws_ok(
+  $$ update public.user_profiles
+        set full_name = pg_temp.styled('System', 119808, 119834, 32)
+      where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'K3 Mathematical Bold "System" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(9960) || ' PlusOne support desk' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'K4 a name CONTAINING "plusone support" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'System' || chr(8205) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'K5 "System" + ZWJ is refused (ZWJ is allowed in a name, but stripped from the key)');
+select lives_ok(
+  $$ update public.user_profiles set full_name = 'Systema Smith' where id = '55555555-5555-4555-8555-555555555555' $$,
+  'K6 "Systema Smith" is accepted (single words are token-equal, not contains)');
+select lives_ok(
+  $$ update public.user_profiles set full_name = 'Zo' || chr(235) || ' ' || chr(26446) where id = '55555555-5555-4555-8555-555555555555' $$,
+  'K7 "Zoe (diaeresis) Li (CJK)" is accepted');
+select lives_ok(
+  $$ update public.user_profiles set full_name = 'Family ' || chr(128104) || chr(8205) || chr(128105) where id = '55555555-5555-4555-8555-555555555555' $$,
+  'K8 an emoji ZWJ sequence is accepted');
+select lives_ok(
+  $$ update public.user_profiles set full_name = 'Heart ' || chr(10084) || chr(65039) where id = '55555555-5555-4555-8555-555555555555' $$,
+  'K9 an emoji with U+FE0F is accepted');
+update public.user_profiles set full_name = 'Tom Bakker' where id = '55555555-5555-4555-8555-555555555555';
+reset role;
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+) values (
+  '00000000-0000-0000-0000-000000000000', 'a9000000-0000-4000-8000-0000000000c4',
+  'authenticated', 'authenticated', 'van-styled-meta@plusone.test', '', now(),
+  '{"provider": "email", "providers": ["email"]}'::jsonb,
+  jsonb_build_object('full_name', chr(9960) || pg_temp.styled('PlusOne support', 120328, 120354, 10240)),
+  now(), now(), '', '', '', '', '', '', '', ''
+);
+select pg_temp.login('a9000000-0000-4000-8000-0000000000c4');
+select public.ensure_my_profile();
+reset role;
+select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000c4'),
+  'User', 'K10 ensure_my_profile with the styled look-alike stores "User"');
+
+-- ---------------------------------------------------------------------------
+-- L. Review round 5: the chip's accessible-name hint is reserved too
+-- ---------------------------------------------------------------------------
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom, own row
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'Max (PlusOne label, not a name)' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'L1 a name containing "PlusOne label" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'Syst' || chr(1077) || 'm, PlusOne' || chr(160) || 'label' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'L2 a Cyrillic-e "System" carrying the hint text (NBSP between words) is refused');
+reset role;
 
 select * from finish();
 

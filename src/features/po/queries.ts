@@ -2069,9 +2069,9 @@ export async function fetchSubscription(
 }
 
 // ── Audit log reads (S10 Mobiel Audit-log) ───────────────────────────────────
-// Client-agnostic mirror of the SERVER-only src/features/audit/queries.ts so the
-// mobile po surface can read the same audit_feed over the BROWSER client (same
-// pattern as fetchPoGuests lifting the desktop guests select). RLS
+// The audit_feed reads for the po surface, over the BROWSER client (same
+// pattern as fetchPoGuests; the old server-only mirror had no callers and was
+// removed in #466). RLS
 // (audit_log_select_admin: admin/finance, role-only — the AAL2 requirement
 // this policy carried was dropped in 20260624160000_mfa_scope_sensitive_actions,
 // matching CLAUDE.md's "no AAL2 requirement in RLS anywhere"; the name here is

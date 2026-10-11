@@ -575,14 +575,13 @@ export function ContactProfile({
                     <MiniChip className="border-line2 text-faint">{fmt(cp.plusChip, { n: e.plusOnes })}</MiniChip>
                   )}
                   {/* Item J: where this name came from. */}
-                  <span className="ml-auto max-w-[180px] truncate text-right text-[11px] text-faint">
-                    <GuestSourceCaption
-                      source={e.source}
-                      addedByName={e.addedByName}
-                      addedByKind={e.addedByKind}
-                      linkLabel={e.linkLabel}
-                    />
-                  </span>
+                  <GuestSourceCaption
+                    source={e.source}
+                    addedByName={e.addedByName}
+                    addedByKind={e.addedByKind}
+                    linkLabel={e.linkLabel}
+                    className="ml-auto max-w-[180px] justify-end text-right text-[11px] text-faint"
+                  />
                 </div>
                 {e.note && (
                   <div className={cn('mt-[11px] flex items-start gap-[8px] rounded-[10px] p-[10px]', e.noteFlag === 'high' ? 'bg-acc-dim' : 'bg-elev2')}>

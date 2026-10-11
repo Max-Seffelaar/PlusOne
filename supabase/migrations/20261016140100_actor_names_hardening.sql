@@ -48,17 +48,43 @@
 --    DI/Cc/Cf. Spaces: every Unicode space separator plus U+2800 (braille
 --    blank) are one space; the Hangul fillers are default-ignorable, so they
 --    vanish. 'unknown' joins the reserved words (it is a label too).
---    And this CHECK is no longer the primary guarantee: every surface renders
---    PlusOne's labels as a TYPED label (kit ActorName: muted, italic, icon) and
---    a member's name as plain text, so no name — look-alike or not — can pass
---    for "PlusOne support" or "System". The CHECK is defence in depth.
+--    Review round 4: a STYLED look-alike (a shield symbol + Mathematical
+--    Sans-Serif Italic letters + U+2800 between the words) passed both the key
+--    and the italic label style. Now:
+--      * the key folds Unicode compatibility forms first: normalize(NFKC), so
+--        fullwidth and Mathematical alphanumerics become plain letters;
+--      * a key that CONTAINS "plusone support" is reserved too (a symbol in
+--        front no longer helps); single words stay token-equal, so
+--        "Systema Smith" is fine;
+--      * ZWNJ / ZWJ (U+200C/D, Persian and Indic names, emoji sequences) and
+--        U+FE0F (emoji presentation) are ALLOWED in a stored name: the refused
+--        class below leaves them out, the key class still strips them, so
+--        "System" + ZWJ still keys to "system" and is refused.
+--    Review round 5: "plusone label" (the chip's accessible-name hint, set ON
+--    the chip) is a reserved phrase too, so a member name cannot carry it.
+--    Prod checked (aggregates, orchestrator): 0 names would violate.
+--    What each layer guarantees:
+--      * Layer 1 (primary, app): PlusOne's own labels render as a bordered
+--        chip (kit ActorName) that a name renders never — a member's name is
+--        plain text whatever its characters. The chip is not something a user
+--        can type; the CHECK below is not what keeps support recognisable.
+--      * Layer 2 (this CHECK, defence in depth): no default-ignorable / Cc /
+--        Cf character except the three above, and no name whose NFKC key is
+--        blank, a label word, or contains "plusone support". Look-alike
+--        LETTERS that survive NFKC (Cyrillic U+0420 for P, "I" for "l") are not caught
+--        here; layer 1 is what keeps them from reading as the label.
 --    Caveat of NOT VALID: Postgres re-checks the whole row on ANY update, so a
 --    pre-existing offending row would refuse every later update of that row
 --    (terms, MFA snooze) until the name is fixed. Checked on prod before the
 --    push (aggregates only, orchestrator 2026-10-11): 22 profiles, 0 containing
 --    a control/format/default-ignorable character, 0 with a Unicode space, 0
 --    blank or reserved (incl. 'unknown') after this normalisation, 0 whose
---    first word is reserved.
+--    first word is reserved. The round-4 widening (NFKC folding, the
+--    "contains plusone support" rule, ZWNJ/ZWJ/U+FE0F now allowed) needs the
+--    same aggregate re-check before the push:
+--      select count(*) from public.user_profiles
+--       where not (full_name !~ <refused class> and <key> <> ''
+--                  and not public.profile_name_key_reserved(<key>));
 --
 -- 3. Guests branch (P2). `events join guests on added_by` walked every event of
 --    the venue per id. It is now bound to the venue column directly, with a
@@ -72,8 +98,8 @@
 -- Reserved display names
 -- ---------------------------------------------------------------------------
 
--- The comparison key for a display name. KEEP the two character classes in
--- sync with src/features/auth/profile-name.ts.
+-- The comparison key for a display name. KEEP the character classes in sync
+-- with src/features/auth/profile-name.ts (INVISIBLE_RANGES / SPACE_RANGES).
 create or replace function public.profile_name_key(p_name text)
 returns text
 language sql
@@ -82,26 +108,45 @@ parallel safe
 set search_path = ''
 as $$
   select btrim(lower(regexp_replace(
-           regexp_replace(coalesce(p_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]', '', 'g'),
+           regexp_replace(normalize(coalesce(p_name, ''), NFKC), '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]', '', 'g'),
            '[ \u00A0\u1680\u2000-\u200A\u2028-\u2029\u202F\u205F\u2800\u3000]+', ' ', 'g')));
 $$;
 
 comment on function public.profile_name_key(text) is
-  'Display-name comparison key (spec #62a): control/format characters removed, '
-  'Unicode spaces collapsed to one space, lower-cased, trimmed. Used by the '
-  'user_profiles_full_name_not_reserved CHECK and the new-row sanitizer.';
+  'Display-name comparison key (spec #62a): NFKC, every default-ignorable / '
+  'control / format character removed, Unicode spaces (and U+2800) collapsed to '
+  'one space, lower-cased, trimmed. Used by user_profiles_full_name_not_reserved '
+  'and the new-row sanitizer.';
 
--- The CHECK evaluates the function as the role doing the INSERT/UPDATE, so the
--- roles that write user_profiles need EXECUTE (it is pure and reveals nothing).
+-- Reserved: a label word, or anything containing "plusone support" or
+-- "plusone label" (the chip's accessible-name hint, review #466 r5).
+create or replace function public.profile_name_key_reserved(p_key text)
+returns boolean
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select p_key in ('plusone support', 'system', 'unnamed', 'unknown')
+      or position('plusone support' in p_key) > 0
+      or position('plusone label' in p_key) > 0;
+$$;
+
+-- The CHECK evaluates these as the role doing the INSERT/UPDATE, so the roles
+-- that write user_profiles need EXECUTE (pure functions; they reveal nothing).
 revoke execute on function public.profile_name_key(text) from public, anon;
 grant execute on function public.profile_name_key(text) to authenticated, service_role;
+revoke execute on function public.profile_name_key_reserved(text) from public, anon;
+grant execute on function public.profile_name_key_reserved(text) to authenticated, service_role;
 
+-- The REFUSED class = the key class minus U+200C, U+200D, U+FE0F (allowed in a
+-- stored name, see the header).
 alter table public.user_profiles
   add constraint user_profiles_full_name_not_reserved
   check (
-    full_name !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]'
+    full_name !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B\u200E-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0E\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]'
     and public.profile_name_key(full_name) <> ''
-    and public.profile_name_key(full_name) not in ('plusone support', 'system', 'unnamed', 'unknown')
+    and not public.profile_name_key_reserved(public.profile_name_key(full_name))
   ) not valid;
 
 create or replace function public.user_profiles_sanitize_new_name()
@@ -110,12 +155,12 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  -- Same rule as the CHECK above. Invisible characters are stripped first so an
-  -- invitee whose auth metadata carries one is not locked out of their first
-  -- login; a blank or reserved key then becomes 'User'.
-  new.full_name := regexp_replace(coalesce(new.full_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]', '', 'g');
+  -- Same rule as the CHECK above. Refused invisible characters are stripped
+  -- first so an invitee whose auth metadata carries one is not locked out of
+  -- their first login; a blank or reserved key then becomes 'User'.
+  new.full_name := regexp_replace(coalesce(new.full_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B\u200E-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0E\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]', '', 'g');
   if public.profile_name_key(new.full_name) = ''
-     or public.profile_name_key(new.full_name) in ('plusone support', 'system', 'unnamed', 'unknown') then
+     or public.profile_name_key_reserved(public.profile_name_key(new.full_name)) then
     new.full_name := 'User';
   end if;
   return new;

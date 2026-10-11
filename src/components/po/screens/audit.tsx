@@ -23,7 +23,7 @@ import {
 } from '@/features/po/audit-presenter';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { ActorName, Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, hitArea44, press } from '../kit';
+import { ActorAvatar, ActorName, Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, hitArea44, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -158,7 +158,7 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
                       >
                         <td className="!pl-4">
                           <div className="flex items-center gap-[10px]">
-                            <Avatar name={l.actor} size={30} />
+                            <ActorAvatar name={l.actor} kind={l.actorKind} size={30} />
                             <span className="font-display text-[13.5px] font-bold text-text">
                               <ActorName name={l.actor} kind={l.actorKind} />
                             </span>
@@ -174,7 +174,9 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
                             >
                               <Icon name={meta.icon} size={15} />
                             </span>
-                            <span className="text-[13.5px] leading-[1.4] text-dim">{l.text}</span>
+                            <span className="text-[13.5px] leading-[1.4] text-dim">
+                              <LineText line={l} />
+                            </span>
                             {onHistory && <Icon name="history" size={14} className="shrink-0 text-ghost" />}
                           </div>
                         </td>
@@ -233,7 +235,7 @@ function AuditRow({ line, onHistory }: { line: AuditLine; onHistory?: () => void
           <span className="font-semibold text-text">
             <ActorName name={line.actor} kind={line.actorKind} />
           </span>{' '}
-          {line.text}
+          <LineText line={line} />
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-faint">
           {line.event && (
@@ -458,15 +460,36 @@ function TimelineRow({ line, last }: { line: AuditLine; last: boolean }): JSX.El
           <span className="font-semibold text-text">
             <ActorName name={line.actor} kind={line.actorKind} />
           </span>{' '}
-          {line.text}
+          <LineText line={line} />
         </p>
         <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-faint">
-          <Avatar name={line.actor} size={18} />
-          <ActorName name={line.actor} kind={line.actorKind} />
+          <ActorAvatar name={line.actor} kind={line.actorKind} size={18} />
+          {/* Second, visual-only mention: the sentence above already names the
+              actor for screen readers (review #466 r5). */}
+          <span aria-hidden="true">
+            <ActorName name={line.actor} kind={line.actorKind} />
+          </span>
           <span className="text-ghost">·</span>
           <span className={cn(door && 'text-acc')}>{line.device}</span>
         </div>
       </div>
     </li>
   );
+}
+
+
+/** The line's phrase, with the subject (quota / membership target) rendered
+ *  through ActorName so a PlusOne label is a chip there too (spec #62a). The
+ *  sentence comes pre-split (subjectParts): no template a name could inject. */
+function LineText({ line }: { line: AuditLine }): JSX.Element {
+  if (line.subject && line.subjectParts) {
+    return (
+      <>
+        {line.subjectParts.before}
+        <ActorName name={line.subject.text} kind={line.subject.kind} />
+        {line.subjectParts.after}
+      </>
+    );
+  }
+  return <>{line.text}</>;
 }

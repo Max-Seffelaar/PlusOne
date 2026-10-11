@@ -271,8 +271,6 @@ export interface GuestExtras {
   tierName?: string;
   /** The tier's color (guest_tiers.color) — drives the door-style tier pill. */
   tierColor?: string;
-  /** Display name of who added the guest (profiles join); '' when unknown. */
-  addedBy?: string;
   /** Owning event id/name — set only on the venue-wide ("all guests") read so a
    *  row can badge + deep-link to its event; omitted in single-event mode. */
   eventId?: string;
@@ -297,7 +295,6 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     note: row.note ?? '',
     flag: notePriorityToFlag(row.note_priority),
     noteAcknowledged: row.note_acknowledged_at != null,
-    by: extras.addedBy ?? '',
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
     contactId: row.contact_id,
@@ -402,7 +399,6 @@ export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Dat
     plus: args.plusOnes ?? 0,
     note: '',
     flag: null,
-    by: '',
     addedAt: fmt(now.toISOString(), { day: 'numeric', month: 'short' }).replace('.', ''),
     status: 'wait',
   };
@@ -1427,6 +1423,8 @@ export interface PlatformBillingMail {
   delivered: number;
   failed: number;
   bounced: number;
+  /** Resend 409 on the reused key: maybe delivered, never retried (review #446 D1). */
+  unknown: number;
 }
 
 export interface PlatformBillingMails {
@@ -1471,6 +1469,7 @@ export function toPlatformBillingMails(raw: unknown): PlatformBillingMails {
       delivered: n(m.delivered),
       failed: n(m.failed),
       bounced: n(m.bounced),
+      unknown: n(m.unknown),
     });
   }
   return { paused, subscription, mails };
