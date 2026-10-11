@@ -6,7 +6,8 @@
 -- (CLAUDE.md rule 4), with the right actor, entity, action, venue/event scope
 -- and a before/after diff; that a non-location event edit still writes nothing
 -- (the trigger stays WHEN-gated); and that the audit rows are readable by the
--- venue's admin under RLS. The get_request_status contract (no venue_* keys)
+-- venue's admin under RLS, and NOT by staff or the event's organizer (in
+-- audit_log and in the audit_feed view). The get_request_status contract (no venue_* keys)
 -- is asserted in event_locations.test.sql (C5/C7).
 --
 -- Seed: venue aa..01 (admin 11.., staff 55..); organizer 44.. organizes event
@@ -16,7 +17,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(19);
+select plan(23);
 
 create function pg_temp.login(p_user uuid)
 returns void language plpgsql as $fn$
@@ -228,12 +229,39 @@ select ok(
   'D2 ...and the event location rows');
 reset role;
 
+-- Denied (DoD #3): staff of the venue and the event's organizer read none of
+-- these rows, neither in audit_log nor through the audit_feed view.
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select is(
+  (select count(*)::int from public.audit_log
+    where entity_type = 'company_locations'
+       or (entity_id = 'ee000000-0000-7000-8000-000000000001' and diff -> 'after' ? 'location_name')),
+  0, 'D3 staff reads no location audit rows in audit_log');
+select is(
+  (select count(*)::int from public.audit_feed
+    where entity_type = 'company_locations'
+       or (entity_id = 'ee000000-0000-7000-8000-000000000001' and diff -> 'after' ? 'location_name')),
+  0, 'D4 ...nor through audit_feed');
+reset role;
+select pg_temp.login('44444444-4444-4444-8444-444444444444');
+select is(
+  (select count(*)::int from public.audit_log
+    where entity_type = 'company_locations'
+       or (entity_id = 'ee000000-0000-7000-8000-000000000001' and diff -> 'after' ? 'location_name')),
+  0, 'D5 the event''s organizer (no membership) reads no location audit rows in audit_log, not even their own edit');
+select is(
+  (select count(*)::int from public.audit_feed
+    where entity_type = 'company_locations'
+       or (entity_id = 'ee000000-0000-7000-8000-000000000001' and diff -> 'after' ? 'location_name')),
+  0, 'D6 ...nor through audit_feed');
+reset role;
+
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select throws_ok(
   $$ insert into public.audit_log (actor_id, venue_id, entity_type, entity_id, action, diff)
      values ('11111111-1111-4111-8111-111111111111', 'aa000000-0000-7000-8000-000000000001',
              'company_locations', gen_random_uuid(), 'create', '{}'::jsonb) $$,
-  '42501', null, 'D3 no app role can forge a location audit row directly');
+  '42501', null, 'D7 no app role can forge a location audit row directly');
 reset role;
 
 select * from finish();

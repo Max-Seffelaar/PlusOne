@@ -938,7 +938,10 @@ const rpcs = {
       starts_at: e.starts_at,
       ends_at: e.ends_at,
       approved_plus_ones: own ? (f.approved_plus_ones ?? f.plus_ones) : null,
-      decision_message: own ? (f.decision_message ?? null) : null,
+      // Like the real RPC since task 7 (z8uq9m2vga): the venue note on the own
+      // token of an approved OR a declined request; never for a mirror.
+      decision_message:
+        (f.status === 'approved' || f.status === 'denied') && !f.mirror ? (f.decision_message ?? null) : null,
       // The event's own location in every state, never the company address
       // (z8uq9m444c; the venue_* keys are gone since z8uq9m49k2).
       location_name: e.location_name ?? null,
