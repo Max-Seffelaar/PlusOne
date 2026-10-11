@@ -40,6 +40,9 @@ export const analytics = {
   tierLabel: 'Inside vs. on the list, by tier',
   noTierData: 'No tier data.',
   addedByLabel: 'Added by',
+  // A PlusOne platform admin who added guests as support, outside this company:
+  // the stats RPC withholds their name (20261016130000).
+  addedBySupport: 'PlusOne support',
   // The unit is locked to heads (guest + plus-ones), labelled so rows vs. heads
   // is never ambiguous (T9).
   addedByUnit: 'In heads (guest + plus-ones)',

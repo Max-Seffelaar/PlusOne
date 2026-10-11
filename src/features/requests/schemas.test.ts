@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   submitGuestRequestSchema,
   approveGuestRequestSchema,
-  denyGuestRequestSchema,
   submitGuestRequestResultSchema,
 } from './schemas';
 
@@ -147,15 +146,6 @@ describe('approveGuestRequestSchema', () => {
   it('allows an optional eventId for revalidation', () => {
     const r = approveGuestRequestSchema.safeParse({ requestId: REQ, tierId: TIER, eventId: EVENT });
     expect(r.success).toBe(true);
-  });
-});
-
-describe('denyGuestRequestSchema', () => {
-  it('requires a non-empty reason', () => {
-    expect(
-      denyGuestRequestSchema.safeParse({ requestId: REQ, reason: 'Lijst vol' }).success
-    ).toBe(true);
-    expect(denyGuestRequestSchema.safeParse({ requestId: REQ, reason: '   ' }).success).toBe(false);
   });
 });
 

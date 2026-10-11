@@ -18,6 +18,58 @@ Milestone **Now**. Follow-up to 86ey9c5fp (20260811161000), found in review of #
 
 ---
 
+## 2026-10-11 — SECURITY DEFINER read paths: profile scope (audit follow-up)
+
+Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` column-SELECT audit (#459/#460). High-risk surface (definer functions): fresh-session `/code-review` + `/security-review` before merge.
+
+- **Audit (2026-10-11):** I read all 16 definer functions that read `user_profiles` and the 8 that read `auth.*` and are callable by an app role. I then tested them in a rolled-back transaction with a support operator who belongs to no venue.
+  - No private column (`is_platform_admin`, `mfa_snooze_until`, `phone`, first/last name, `terms_version`) reaches a caller who is not a platform admin.
+  - Two leaks fixed here.
+  - Side channels judged negligible:
+    - `create_venue_with_owner`'s trial end reveals whether the inviter is still a platform admin.
+    - `user_is_quota_exempt` reads only the caller's own flag.
+- **Migration `20261016130000_definer_rpc_profile_scope`:**
+  - `event_user_additions` / `venue_user_additions` named every `added_by`, including a platform admin doing support outside the venue. RLS and `audit_feed` hide that name, and the venue never sees `platform_access_log` (legal v0.3).
+    - The name is now null when the adder is a platform admin the caller cannot see (`can_view_profile`).
+    - Counts and `user_id` stay; the venue already sees that actor id on its `audit_log`.
+    - Former members keep their name (#24).
+    - Sorting uses the displayed name, so a hidden name can't be placed alphabetically.
+    - The app shows the null as "PlusOne support" (`t.analytics.addedBySupport`).
+  - `admin_list_user_sessions` returned each member session's `aal` (whether that member uses MFA) and raw IP.
+    - Both now always return null (decision Max 2026-10-11). Remote logout needs device + last active, not location. An IP is personal data (GDPR data minimisation), and sessions are account-wide, so admin A also saw the IPs of sessions used for company B.
+    - The admin screen drops the location line; `user_agent` stays so sessions can be told apart. The columns stay for the deployed app (expand–contract); a later migration drops them.
+    - `list_own_sessions` keeps `aal` and `ip`, since they are the caller's own data.
+- **Same signatures, result types, gates and grants.** CREATE OR REPLACE is used throughout, with grants re-asserted. The app keeps working against both the old and the new function.
+- **Tests:**
+  - pgTAP `definer_profile_scope.test.sql` (20): operator hidden but counted; named for themselves, as a real member, and for a former member; `aal` null for admins and kept for yourself; existing gates and anon grants unchanged.
+  - Unit test for the "PlusOne support" label.
+
+---
+
+## 2026-10-10 — Requests E: split over tiers, trim, decline with a note, one status mail (z8uq9m2vga)
+
+Milestone **Now** (golf F, task 7). Spec #60 (amends #43(f), #48, #12). Design: onboarding orchestration §9.3 (spike 3). Decisions: Max 2026-10-06 (approver picks from every tier of the event; the note is mandatory on any decline and always goes in the mail), orchestrator 2026-10-10 (option a: this migration redefines `guest_mails_claim` with a `tiers` array; renderer rule for an approved split). Draft PR; merges after 6b.
+
+- **Migration** `20261015120000_request_decision_split`:
+  - `decide_guest_request(p_request_id, p_decision jsonb)` → `{outcome, guest_ids, replay}`. `{approved: [{tier_id, plus_ones}], declined, note}`; parts + declined must equal the request; one part per tier, tiers of this event only; a note (≤ 280) whenever anyone is declined. One guest per part through every cap trigger (45005/45006/45002), so one failing part rolls the whole decision back. Admin or event organizer. Same decision again = replay (no change, no second mail); another decision on a decided request = 45003, except approving a declined one (#12).
+  - `guests.guest_request_id` (guarded: client roles can neither set nor change it). The part with the requester's address comes first and carries the mail.
+  - `decision_message` CHECK allows `denied`; `get_request_status` returns the note on a declined request (own token only).
+  - `request_decision_counts(venue, event?)`: people asked / on the list / declined / waiting, the declined part of a partly approved request counted as declined (SECURITY INVOKER, GROUP BY).
+  - `submit_guest_request`: the auto-approve branch links the guest to its request and queues the approval mail itself (no guest id back to the anon caller: that would split fresh and repeat submitters again, #28).
+  - `guest_mails_claim`: the 6a body word for word plus a `tiers` array (every live part of a split request decision; otherwise the one spot). Deterministic order (address part first, then tier name): every part shares `now()` and `uuid_generate_v7` is not monotonic within a millisecond.
+- **App**: `decideGuestRequest` action (Zod mirror of the RPC rules) queues exactly one mail for a first decision: approved/partly on the first part, declined on the request; never `guest_on_list`. The Requests sheet is the whole decision: people per tier with a compact `CountStepper` (new kit primitive), whoever is left over is declined, the note required from the first declined person; the landing Decline sheet's note goes to the guest. Totals line in Requests. `guest-job.ts` passes `tiers`; the renderer lists every tier with the group total for an approved split too (existing strings only).
+- **Tests**: pgTAP `guest_requests_decide_split.test.sql` (82: grants, guard, split/trim, validation, rollback on 45005 and 45002, roles allowed/denied, audit, idempotency, whole decline + status page, counts, one queue row per decision, auto-approve mail, claim payload). Vitest: action (`decide.test.ts`), builder, schema, status view, adapters, claim parsing, split rendering. Flow `tests/flows/requests-split.flow.ts` (12 checks, the cockpit two on desktop; green locally).
+- **Outside the fence, agreed**: one fixture line in `src/features/door/queries.test.ts` (the test lists every guests column; it now also proves the door projection drops `guest_request_id`).
+- **Review round (fresh reviewer, verdict clean, 0 blocking, 3 should-fix, 5 nits), all in this PR:**
+  - **S1:** an invisible note (zero-width, control, bidi, NBSP only) is no note: `request_note_is_blank()` in the RPC and in a `NOT VALID` CHECK on `decision_message`.
+  - **S2:** the note is mandatory in the database on every path: an AFTER UPDATE trigger refuses a transition to declined or a trimmed approval without a visible note (23514); only the transition is checked, so old declined rows stay valid. AFTER, so RLS still answers a forged write with 42501. The cockpit's one-tap decline now opens the same note sheet and goes through the RPC; `denyGuestRequest`, `usePoDenyRequest` and the unused `GuestRequestsInbox` are gone. Six existing pgTAP files asserted the old client deny path; they now assert its refusal and decline through the RPC with a note, the retention assertions keep scrubbing the reason and now the note too.
+  - **S3:** reminder and event-changed mails to a split guest list every part too (claim `tiers` by the guest's own request).
+  - **Nits:** header numbering fixed; the rest stay (see the PR thread).
+- **CI fix**: `event-locations` (3b) clicked a tier button in the old approve sheet; it now asserts the event's only tier already holds the request.
+- **Not in this PR**: the door does not group split parts (two rows with the same name); the +N-changed mail names only its own part; `approve_guest_request` stays for the cockpit's plain approve; dropping the RLS deny policy is the contract step.
+
+---
+
 ## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.
