@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { auditPersonIds, describeAuditEntry, formatWhen, type AuditFeedRow } from './translate';
+import { ActorLabels } from './actor-labels';
 
 // Minimal audit_feed row factory — only the fields the translator reads.
 function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
@@ -219,10 +220,9 @@ describe('describeAuditEntry', () => {
   // former member or a PlusOne operator comes back null there; the labels from
   // venue_actor_names win.
   describe('actor labels (#62a)', () => {
-    const labels = new Map([
-      ['u-former', 'Lisa van den Berg'],
-      ['u-op', 'PlusOne support'],
-    ]);
+    const labels = new ActorLabels()
+      .setActor('u-former', 'Lisa van den Berg', 'member')
+      .setActor('u-op', 'PlusOne support', 'support');
 
     it('names a former member the view could no longer resolve', () => {
       const line = describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), labels);
@@ -254,6 +254,29 @@ describe('describeAuditEntry', () => {
 
     it('falls back to the view name without a label (RPC not deployed yet)', () => {
       expect(describeAuditEntry(row({ actor_id: 'u-max' }), new Map()).actor).toBe('Max');
+    });
+
+    it('carries the actor KIND so the screen renders labels typed (review #466 r3)', () => {
+      expect(describeAuditEntry(row({ actor_id: 'u-op', actor_name: null }), labels).actorKind).toBe('support');
+      expect(describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), labels).actorKind).toBe('member');
+      expect(describeAuditEntry(row({ actor_id: null, actor_name: null }), labels).actorKind).toBe('system');
+      expect(describeAuditEntry(row({ actor_id: 'u-x', actor_name: null }), labels).actorKind).toBe('unknown');
+    });
+
+    it('a member NAMED "System" (with an invisible suffix) is kind member, never system', () => {
+      const lri = String.fromCodePoint(0x2066);
+      const named = new ActorLabels().setActor('u-sys', `System${lri}`, 'member');
+      const line = describeAuditEntry(row({ actor_id: 'u-sys', actor_name: null }), named);
+      expect(line.actor).toBe(`System${lri}`);
+      expect(line.actorKind).toBe('member');
+    });
+
+    it('the RLS-name fallback goes through the same blank → "Unnamed" rule', () => {
+      const blank = String.fromCodePoint(0x3164);
+      const line = describeAuditEntry(row({ actor_id: 'u-max', actor_name: blank }), new ActorLabels());
+      expect(line.actor).toBe('Unnamed');
+      expect(line.actorKind).toBe('unnamed');
+      expect(describeAuditEntry(row({ actor_id: 'u-max' }), new ActorLabels()).actorKind).toBe('member');
     });
 
     it('never calls a real actor "System" when labels are missing: "Unknown" (review #466 N2)', () => {

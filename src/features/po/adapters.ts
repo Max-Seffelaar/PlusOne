@@ -36,6 +36,7 @@ import type { BillingPrices } from '@/features/billing/plans';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatInTz as fmt, formatClock, toDateInput } from './format';
 import { tierRole } from '@/lib/po/tier';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { effectiveTrialEndsAt, isBillingInterval, PLAN_NAME, type BillingInterval } from '@/features/billing/plans';
@@ -305,7 +306,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     // flatten the same two embeds, so no caller has to resolve it a second time.
     source: row.source,
     addedByName: row.addedByName,
-    addedBySupport: row.addedBySupport,
+    addedByKind: row.addedByKind,
     linkLabel: row.linkLabel,
     eventId: extras.eventId,
     eventName: extras.eventName,
@@ -323,6 +324,7 @@ export function toRecapGuest(g: RecapGuestRow): RecapGuest {
     tierColor: g.tierColor ?? undefined,
     at: g.checkedAt ? formatClock(g.checkedAt) : undefined,
     by: g.addedByName ?? undefined,
+    byKind: g.addedByKind ?? undefined,
   };
 }
 
@@ -539,8 +541,8 @@ export interface PoProfileEvent {
   /** Provenance for this appearance (item J) — feed straight to `guestSourceLabel`. */
   source: GuestSource;
   addedByName: string | null;
-  /** The adder is "PlusOne support" (is_support) — feed to `guestSourceLabel`. */
-  addedBySupport: boolean;
+  /** What the adder is (spec #62a) — feed to `guestSourceLabel`. */
+  addedByKind: ActorKind | null;
   linkLabel: string | null;
 }
 
@@ -553,6 +555,8 @@ export interface PoProfileTimelineItem {
   event: string;
   /** Resolved actor name; '' when unknown (the screen renders a fallback). */
   who: string;
+  /** What `who` is (spec #62a): 'unknown' when '', 'system' without an actor. */
+  whoKind: ActorKind;
   /** kind='added' with no actor: the system added them through a request link
    *  (guests.added_by NULL) — the screen names the link, not a person. */
   viaSignUpLink: boolean;
@@ -625,14 +629,17 @@ export function toPoContactProfile(
     promoteGuestId?: string | null;
     originEventId?: string | null;
     restricted?: boolean;
-    /** Actor ids that are "PlusOne support" (venue_actor_names is_support). */
-    supportActorIds?: readonly string[];
+    /** Each actor id's kind (spec #62a) — only 'member' is a person's own text. */
+    actorKinds?: Readonly<Record<string, ActorKind>>;
     /** Injected clock for the per-event phase (deterministic tests). */
     nowMs?: number;
   } = {}
 ): PoContactProfile {
   const isContact = opts.isContact ?? true;
-  const supportActors = new Set(opts.supportActorIds ?? []);
+  const actorKinds = opts.actorKinds ?? {};
+  // An id with a label but no kind (an older payload) is a member's name; one
+  // without a label is unknown (spec #62a).
+  const kindOf = (id: string): ActorKind => actorKinds[id] ?? (actorNames[id] != null ? 'member' : 'unknown');
   const originEventId = opts.originEventId ?? null;
   const nowMs = opts.nowMs ?? Date.now();
   const events: PoProfileEvent[] = appearances
@@ -671,7 +678,7 @@ export function toPoContactProfile(
         // The profile already resolved every actor id to a name in one read —
         // reuse that map instead of a second per-appearance profile embed.
         addedByName: a.addedBy ? actorNames[a.addedBy] ?? null : null,
-        addedBySupport: a.addedBy != null && supportActors.has(a.addedBy),
+        addedByKind: a.addedBy ? kindOf(a.addedBy) : null,
         linkLabel: a.linkLabel,
       };
     })
@@ -682,12 +689,14 @@ export function toPoContactProfile(
     });
 
   const timeline: PoProfileTimelineItem[] = [];
+  const whoKindOf = (id: string | null): ActorKind => (id ? kindOf(id) : 'system');
   for (const a of appearances) {
     timeline.push({
       key: `add-${a.guestId}`,
       kind: 'added',
       event: a.eventName,
       who: a.addedBy ? actorNames[a.addedBy] ?? '' : '',
+      whoKind: whoKindOf(a.addedBy),
       viaSignUpLink: a.addedBy == null,
       when: timelineWhen(a.addedAt),
       arrived: 0,
@@ -700,6 +709,7 @@ export function toPoContactProfile(
         kind: 'checkin',
         event: a.eventName,
         who: actorNames[c.checkedBy] ?? '',
+        whoKind: whoKindOf(c.checkedBy),
         when: timelineWhen(c.checkedAt),
         arrived: c.arrived,
         viaSignUpLink: false,
@@ -712,6 +722,7 @@ export function toPoContactProfile(
           kind: 'void',
           event: a.eventName,
           who: c.voidedBy ? actorNames[c.voidedBy] ?? '' : '',
+          whoKind: whoKindOf(c.voidedBy),
           when: timelineWhen(c.voidedAt),
           arrived: 0,
           viaSignUpLink: false,
@@ -726,6 +737,7 @@ export function toPoContactProfile(
         kind: 'refusal',
         event: a.eventName,
         who: actorNames[r.refusedBy] ?? '',
+        whoKind: whoKindOf(r.refusedBy),
         when: timelineWhen(r.refusedAt),
         arrived: 0,
         viaSignUpLink: false,
@@ -883,6 +895,8 @@ export interface PoQuotaRequest {
   /** Event this request belongs to (for grouping + per-event invalidation). */
   eventId: string;
   who: string;
+  /** What `who` is (spec #62a) — render through kit ActorName. */
+  whoKind: ActorKind;
   /** Extra slots requested (#5) — shown as "+N". */
   extra: number;
   reason: string;
@@ -894,6 +908,7 @@ export function toPoQuotaRequest(row: PoQuotaRequestRow, now?: Date): PoQuotaReq
     id: row.id,
     eventId: row.eventId,
     who: row.requesterName,
+    whoKind: row.requesterKind,
     extra: row.requestedExtra,
     reason: row.motivation ?? '',
     at: relativeTime(row.created_at, now),

@@ -255,8 +255,12 @@ describe('exportVenueData — content', () => {
     expect(requests).toContain('Instagram');
 
     const door = files.get('door.csv')!.split('\r\n');
-    expect(door[1]).toContain('check_in,3,,Max de Vries,dev-1');
-    expect(door[2]).toContain('refusal,,dress code,Max de Vries,dev-2');
+    expect(door[1]).toContain('check_in,3,,Max de Vries,member,dev-1');
+    expect(door[2]).toContain('refusal,,dress code,Max de Vries,member,dev-2');
+    // Every actor column has a type column beside it (spec #62a, review #466 r3).
+    expect(guests).toContain(',created_by,created_by_type,checked_in_at');
+    expect(requests).toContain(',decided_by,decided_by_type,created_at,');
+    expect(door[0]).toContain(',acted_by,acted_by_type,device_id,');
 
     expect(res.counts).toEqual({ guests: 3, contacts: 2, requests: 1, door: 2 });
     expect(auditCalls()).toEqual([
@@ -294,8 +298,8 @@ describe('exportVenueData — who did it (spec #62a)', () => {
     const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
     if (!res.ok) throw new Error(res.error);
     const files = readZip(Buffer.from(res.zipBase64, 'base64'));
-    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,Max de Vries,dev-1');
-    expect(files.get('requests.csv')).toContain('approved,,Max de Vries');
+    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,Max de Vries,member,dev-1');
+    expect(files.get('requests.csv')).toContain('approved,,Max de Vries,member');
     // One venue-scoped lookup for every actor id, no user_profiles read at all.
     expect(H.rpcCalls.filter((c) => c.name === 'venue_actor_names')).toEqual([
       { name: 'venue_actor_names', args: { p_venue_id: VENUE, p_ids: [ADMIN] } },
@@ -309,7 +313,7 @@ describe('exportVenueData — who did it (spec #62a)', () => {
     const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
     if (!res.ok) throw new Error(res.error);
     const files = readZip(Buffer.from(res.zipBase64, 'base64'));
-    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,PlusOne support,dev-1');
+    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,PlusOne support,plusone_support,dev-1');
     for (const csv of files.values()) expect(csv).not.toContain(OPERATOR);
   });
 
@@ -323,9 +327,9 @@ describe('exportVenueData — who did it (spec #62a)', () => {
     const files = readZip(Buffer.from(res.zipBase64, 'base64'));
     // g2 came in through a request link: no adder.
     const g2 = files.get('guests.csv')!.split('\r\n').find((l) => l.includes('HYPERLINK'))!;
-    expect(g2).toContain(',landing,2026-10-01T11:00:00+00:00,System,');
+    expect(g2).toContain(',landing,2026-10-01T11:00:00+00:00,System,system,');
     const r2 = files.get('requests.csv')!.split('\r\n').find((l) => l.includes('Still Waiting'))!;
-    expect(r2).toContain(',pending,,,');
+    expect(r2).toContain(',pending,,,,');
   });
 
   it('leaves the cell empty for an id the venue has no record of (never a raw uuid)', async () => {
@@ -334,7 +338,16 @@ describe('exportVenueData — who did it (spec #62a)', () => {
     if (!res.ok) throw new Error(res.error);
     const files = readZip(Buffer.from(res.zipBase64, 'base64'));
     for (const csv of files.values()) expect(csv).not.toContain(ADMIN);
-    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,,dev-1');
+    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,,unknown,dev-1');
+  });
+
+  it('a member NAMED like a label is still type member: the export is unambiguous (review #466 r3)', async () => {
+    const lri = String.fromCodePoint(0x2066);
+    H.actors = [{ user_id: ADMIN, display_name: `System${lri}`, is_support: false }];
+    const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
+    if (!res.ok) throw new Error(res.error);
+    const files = readZip(Buffer.from(res.zipBase64, 'base64'));
+    expect(files.get('door.csv')!.split('\r\n')[1]).toContain(`check_in,3,,System${lri},member,dev-1`);
   });
 });
 

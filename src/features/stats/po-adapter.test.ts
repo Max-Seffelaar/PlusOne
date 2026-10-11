@@ -86,6 +86,7 @@ describe('toPerUser', () => {
     expect(toPerUser(users)).toEqual([
       {
         who: 'Max Seffelaar',
+        whoKind: 'member',
         added: 50, // heads, gross incl. removed — not the 42 rows
         removed: 4,
         in: 38,
@@ -111,6 +112,7 @@ describe('toPerUser', () => {
     }; // the RPC returns a null name here since 20261016130000
     const [row] = toPerUser([hidden]);
     expect(row?.who).toBe('PlusOne support');
+    expect(row?.whoKind).toBe('support');
     expect(row?.added).toBe(3);
   });
 
@@ -120,6 +122,9 @@ describe('toPerUser', () => {
       present_headcount: 0, added_free_headcount: 1, present_free_headcount: 0, user_id: 'u-blank',
     };
     expect(toPerUser([blank])[0]?.who).toBe('Unnamed');
+    expect(toPerUser([blank])[0]?.whoKind).toBe('unnamed');
+    // A member NAMED "PlusOne support" is a member (rendered plain), not support.
+    expect(toPerUser([{ ...blank, full_name: 'PlusOne support' }])[0]?.whoKind).toBe('member');
     // Unicode-space / invisible-only is blank too (review #466 N1).
     const c = String.fromCharCode;
     expect(toPerUser([{ ...blank, full_name: `${c(12288)}${c(8203)}` }])[0]?.who).toBe('Unnamed');

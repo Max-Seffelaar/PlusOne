@@ -1,7 +1,8 @@
 import { fmt, t } from '@/lib/i18n';
 import { absentStage, type EventPhase } from '@/features/po/event-phase';
 import { formatClock, formatPct } from './format';
-import { nameLabel } from '@/features/audit/actor-labels';
+import { nameRef } from '@/features/audit/actor-labels';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import type { EventSummary, QuarterBucket, TierStat, UserAddition, VenueSummary } from './data';
 
 // Maps the Postgres analytics rows onto the po prototype's mock-data shapes so the
@@ -22,6 +23,9 @@ export interface PerTier {
 }
 export interface PerUser {
   who: string;
+  /** What `who` is (spec #62a): a null name from the RPC is PlusOne support,
+   *  a blank one "Unnamed", anything else a member's own text. */
+  whoKind: ActorKind;
   /** Heads added (gross, INCLUDING later-removed): the unit is heads (1 + plus-ones). */
   added: number;
   /** Heads later removed (a subset of `added`). */
@@ -58,18 +62,22 @@ export function toPerTier(tiers: TierStat[]): PerTier[] {
  * Paid is derived from free (paid = total − free) so a NULL never leaks negative.
  */
 export function toPerUser(users: UserAddition[]): PerUser[] {
-  return users.map((u) => ({
+  return users.map((u) => {
     // Null when the adder is a PlusOne platform admin with no membership or crew tie at the venue
     // (support work outside the company; 20261016130000).
-    who: u.full_name == null ? t.shared.actor.support : nameLabel(u.full_name),
-    added: u.added_headcount,
-    removed: u.removed_headcount,
-    in: u.present_headcount,
-    addedFree: u.added_free_headcount,
-    addedPaid: u.added_headcount - u.added_free_headcount,
-    inFree: u.present_free_headcount,
-    inPaid: u.present_headcount - u.present_free_headcount,
-  }));
+    const who = u.full_name == null ? { text: t.shared.actor.support, kind: 'support' as const } : nameRef(u.full_name);
+    return {
+      who: who.text,
+      whoKind: who.kind,
+      added: u.added_headcount,
+      removed: u.removed_headcount,
+      in: u.present_headcount,
+      addedFree: u.added_free_headcount,
+      addedPaid: u.added_headcount - u.added_free_headcount,
+      inFree: u.present_free_headcount,
+      inPaid: u.present_headcount - u.present_free_headcount,
+    };
+  });
 }
 
 export interface EventKpis {

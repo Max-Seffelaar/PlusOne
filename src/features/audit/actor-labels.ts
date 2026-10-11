@@ -22,6 +22,16 @@ import type { Database } from '@/lib/database.types';
 import { chunkIds } from '@/lib/supabase/paging';
 import { t } from '@/lib/i18n';
 import { profileNameKey } from '@/features/auth/profile-name';
+import type { ActorKind } from '@/lib/po/actor-kind';
+
+export type { ActorKind } from '@/lib/po/actor-kind';
+
+/** One actor as a surface shows it: the text and WHAT it is. Only `member`
+ *  text is user-controlled; render through kit `ActorName` (review #466 r3). */
+export interface ActorRef {
+  text: string;
+  kind: ActorKind;
+}
 
 type Client = SupabaseClient<Database>;
 
@@ -37,41 +47,68 @@ export interface ActorNameRow {
 }
 
 /**
- * Actor id → label for one venue, plus WHICH ids are "PlusOne support". A Map
- * of plain strings, so a surface that only prints a label just reads it; the
- * support flag rides beside it. A surface that treats support differently
- * (e.g. never cuts it to a first name) asks {@link ActorLabels.isSupport} —
- * never compares label text, which a user could imitate.
+ * Actor id → label for one venue, plus each actor's KIND. A Map of plain
+ * strings, so a surface that only prints text just reads it; the kind rides
+ * beside it and decides HOW it is shown (kit `ActorName`): only `member` is a
+ * person's own text, everything else is PlusOne's typed label. Never compare
+ * label text — a user could imitate it.
  */
 export class ActorLabels extends Map<string, string> {
-  readonly support = new Set<string>();
+  readonly kinds = new Map<string, ActorKind>();
 
   /** Record one resolved actor. */
-  setActor(id: string, label: string, isSupport: boolean): this {
+  setActor(id: string, label: string, kind: ActorKind): this {
     this.set(id, label);
-    if (isSupport) this.support.add(id);
-    else this.support.delete(id);
+    this.kinds.set(id, kind);
     return this;
   }
 
+  /** null id → system; an id without an entry → unknown. */
+  kindOf(id: string | null | undefined): ActorKind {
+    if (!id) return 'system';
+    return this.kinds.get(id) ?? 'unknown';
+  }
+
   isSupport(id: string | null | undefined): boolean {
-    return !!id && this.support.has(id);
+    return this.kindOf(id) === 'support';
+  }
+
+  /** Every id of the given kind (e.g. the support ids for a JSON payload). */
+  idsOfKind(kind: ActorKind): string[] {
+    return [...this.kinds].filter(([, k]) => k === kind).map(([id]) => id);
   }
 }
 
-/** A person's own name as a label: blank → the neutral "Unnamed" (never
- *  "PlusOne support": that is decided by the flag alone). "Blank" uses the same
- *  normalisation as the DB (profileNameKey: invisible characters and Unicode
- *  spaces don't count); otherwise the stored name is shown as is. */
-export function nameLabel(name: string | null | undefined): string {
-  if (profileNameKey(name) === '') return t.shared.actor.unnamed;
-  return (name ?? '').trim();
+/** A person's own name as a reference: blank (same normalisation as the DB:
+ *  invisible characters and Unicode spaces don't count) → the typed "Unnamed";
+ *  otherwise the stored name, kind `member`. Never "PlusOne support". */
+export function nameRef(name: string | null | undefined): ActorRef {
+  if (profileNameKey(name) === '') return { text: t.shared.actor.unnamed, kind: 'unnamed' };
+  return { text: (name ?? '').trim(), kind: 'member' };
 }
 
-/** Rule 1 or 2 for one resolved row. "PlusOne support" comes from is_support
- *  ONLY: an empty or spoofed name never turns into it. */
+/** {@link nameRef}'s text. */
+export function nameLabel(name: string | null | undefined): string {
+  return nameRef(name).text;
+}
+
+/** One RPC row as a reference. "PlusOne support" comes from is_support ONLY:
+ *  an empty or spoofed name never turns into it. */
+export function refForActorRow(row: ActorNameRow): ActorRef {
+  return row.is_support ? { text: t.shared.actor.support, kind: 'support' } : nameRef(row.display_name);
+}
+
+/** {@link refForActorRow}'s text. */
 export function labelForActorRow(row: ActorNameRow): string {
-  return row.is_support ? t.shared.actor.support : nameLabel(row.display_name);
+  return refForActorRow(row).text;
+}
+
+/** One actor id as a reference: system for a null id, the resolved label, or
+ *  the typed "Unknown" for an id without one (never a raw uuid). */
+export function actorRef(id: string | null | undefined, labels: ActorLabels): ActorRef {
+  if (!id) return { text: t.shared.actor.system, kind: 'system' };
+  const text = labels.get(id);
+  return text === undefined ? { text: t.shared.actor.unknown, kind: 'unknown' } : { text, kind: labels.kindOf(id) };
 }
 
 /**
@@ -117,11 +154,15 @@ export async function fetchActorLabels(
       // RLS-scoped user_profiles read, so screens keep their previous labels.
       const fallback = await client.from('user_profiles').select('id, full_name').in('id', chunk);
       if (fallback.error) throw fallback.error;
-      for (const p of fallback.data ?? []) labels.setActor(p.id, nameLabel(p.full_name), false);
+      for (const p of fallback.data ?? []) {
+        const ref = nameRef(p.full_name);
+        labels.setActor(p.id, ref.text, ref.kind);
+      }
       continue;
     }
     for (const row of (data ?? []) as ActorNameRow[]) {
-      labels.setActor(row.user_id, labelForActorRow(row), row.is_support);
+      const ref = refForActorRow(row);
+      labels.setActor(row.user_id, ref.text, ref.kind);
     }
   }
   return labels;

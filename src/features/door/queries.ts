@@ -17,6 +17,7 @@ import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { formatCompanyAddress, resolveEventLocation } from '@/features/po/adapters';
 import { fetchAllRanged } from '@/lib/supabase/paging';
 import { fetchActorLabelsSafe } from '@/features/audit/actor-labels';
+import type { ActorKind } from '@/lib/po/actor-kind';
 
 /** FULL guests row — the shape a realtime payload or a server row arrives in,
  *  before it is projected to the narrow snapshot shape below (P-IDB7). */
@@ -131,6 +132,10 @@ export interface DoorSnapshot {
    *  who-did-what rule (#62a): a current or former member's name, or
    *  "PlusOne support" for an operator without a tie to the company. */
   profiles: Record<string, string>;
+  /** What each `profiles` label is (spec #62a): only 'member' is a person's
+   *  own text; render through kit ActorName. Optional: a snapshot persisted by
+   *  an older bundle has none (its labels then read as members). */
+  profileKinds?: Record<string, ActorKind>;
   fetchedAt: string;
 }
 
@@ -260,6 +265,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
     checkIns,
     refusals,
     profiles: Object.fromEntries(labels),
+    profileKinds: Object.fromEntries(labels.kinds),
     fetchedAt: new Date().toISOString(),
   };
 }
@@ -274,7 +280,11 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
  */
 export function mergeDoorProfiles(prev: DoorSnapshot | undefined, next: DoorSnapshot): DoorSnapshot {
   if (!prev || prev.event.id !== next.event.id) return next;
-  return { ...next, profiles: { ...prev.profiles, ...next.profiles } };
+  return {
+    ...next,
+    profiles: { ...prev.profiles, ...next.profiles },
+    profileKinds: { ...(prev.profileKinds ?? {}), ...(next.profileKinds ?? {}) },
+  };
 }
 
 export async function fetchEventQuota(client: Client, eventId: string): Promise<QuotaStatus | null> {

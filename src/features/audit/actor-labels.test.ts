@@ -10,8 +10,10 @@ import {
   ActorLabels,
   actorLabel,
   fetchActorLabels,
+  actorRef,
   fetchActorLabelsSafe,
   labelForActorRow,
+  refForActorRow,
 } from './actor-labels';
 import { t } from '@/lib/i18n';
 
@@ -94,6 +96,39 @@ describe('the label rule', () => {
     expect(actorLabel('u1', labels)).toBe('Lisa');
     expect(actorLabel('u-unknown', labels)).toBe('');
     expect(actorLabel('u-unknown', labels, 'Door')).toBe('Door');
+  });
+});
+
+describe('typed labels (review #466 round 3): only a member carries user text', () => {
+  const lri = String.fromCodePoint(0x2066);
+
+  it.each([`System${lri}`, 'PlusOne support', 'PIusOne support', 'Unknown'])(
+    'a member named %j is kind member, never system/support',
+    (name) => {
+      expect(refForActorRow({ user_id: 'u', display_name: name, is_support: false })).toEqual({
+        text: name,
+        kind: 'member',
+      });
+    },
+  );
+
+  it('support comes from the flag; blank is unnamed', () => {
+    expect(refForActorRow({ user_id: 'u', display_name: null, is_support: true })).toEqual({
+      text: 'PlusOne support',
+      kind: 'support',
+    });
+    expect(refForActorRow({ user_id: 'u', display_name: String.fromCodePoint(0x3164), is_support: false }).kind).toBe(
+      'unnamed',
+    );
+  });
+
+  it('actorRef: null → system, missing → unknown, resolved → its kind', () => {
+    const labels = new ActorLabels().setActor('u1', `System${lri}`, 'member').setActor('u2', 'PlusOne support', 'support');
+    expect(actorRef(null, labels)).toEqual({ text: 'System', kind: 'system' });
+    expect(actorRef('u-x', labels)).toEqual({ text: 'Unknown', kind: 'unknown' });
+    expect(actorRef('u1', labels)).toEqual({ text: `System${lri}`, kind: 'member' });
+    expect(actorRef('u2', labels)).toEqual({ text: 'PlusOne support', kind: 'support' });
+    expect(labels.idsOfKind('support')).toEqual(['u2']);
   });
 });
 

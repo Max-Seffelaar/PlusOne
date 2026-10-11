@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
 import { DEFAULT_TIER_COLOR, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { guestSourceLabel } from '@/features/po/format';
+import { GuestSourceCaption } from './source-caption';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
 import { Avatar, Btn, PayChip, StatusDot, hitRingY6 } from '../../kit';
@@ -225,6 +226,26 @@ const GUEST_ROW_EST = 58;
 const selectAllHit = "relative before:absolute before:-inset-[15px] before:content-['']";
 const selectRowHit = "relative before:absolute before:-inset-[14px] before:content-['']";
 
+/** "Event · Added by Sanne" — the actor through GuestSourceCaption, so PlusOne's
+ *  own labels render as typed labels (spec #62a). */
+function EventAndSource({ g }: { g: GuestT }): JSX.Element {
+  const hasSource = sourceLine(g) !== '';
+  return (
+    <>
+      {g.eventName}
+      {g.eventName && hasSource ? ' · ' : null}
+      {hasSource && g.source ? (
+        <GuestSourceCaption
+          source={g.source}
+          addedByName={g.addedByName}
+          addedByKind={g.addedByKind}
+          linkLabel={g.linkLabel}
+        />
+      ) : null}
+    </>
+  );
+}
+
 /** The row's provenance caption ("Added by Sanne", "Sign-up link · Joeri") —
  *  empty for a row that predates the field (mock/optimistic) so nothing renders. */
 function sourceLine(g: GuestT): string {
@@ -232,7 +253,7 @@ function sourceLine(g: GuestT): string {
     ? guestSourceLabel({
         source: g.source,
         addedByName: g.addedByName,
-        addedBySupport: g.addedBySupport,
+        addedByKind: g.addedByKind,
         linkLabel: g.linkLabel,
       })
     : '';
@@ -345,7 +366,7 @@ export function GuestCardList({
                         came from (item J). Joined so the card keeps its density. */}
                     {(g.eventName || sourceLine(g)) && (
                       <span className={cn('truncate font-body text-[11px]', isRefused ? 'text-faint' : 'opacity-70')}>
-                        {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
+                        <EventAndSource g={g} />
                       </span>
                     )}
                   </span>
@@ -510,7 +531,7 @@ export function GuestTable({
                         </span>
                         {(g.eventName || sourceLine(g)) && (
                           <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-faint">
-                            {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
+                            <EventAndSource g={g} />
                           </span>
                         )}
                         {g.note && (

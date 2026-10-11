@@ -11,7 +11,7 @@ import { fmt, t } from '@/lib/i18n';
 import { usePoEventActivity } from '@/features/po/hooks';
 import type { EventPhase } from '@/features/po/event-phase';
 import { absentKpi } from '@/features/stats/po-adapter';
-import { Avatar, Empty, Label, press } from '../../kit';
+import { ActorName, Avatar, Empty, Label, press } from '../../kit';
 
 export function EventStatsPanel({
   eventId,
@@ -135,7 +135,9 @@ export function EventStatsPanel({
               >
                 <Avatar name={u.who} size={36} />
                 <div className="min-w-0 flex-1">
-                  <div className="font-display text-[14.5px] font-bold text-text">{u.who}</div>
+                  <div className="font-display text-[14.5px] font-bold text-text">
+                    <ActorName name={u.who} kind={u.whoKind} />
+                  </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-faint">
                     <span>{fmt(t.analytics.memberCheckedIn, { in: u.in })}</span>
                     {u.removed > 0 && (

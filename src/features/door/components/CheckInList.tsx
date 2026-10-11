@@ -31,7 +31,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { hasFinePointer } from '@/lib/platform';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Label, StatusDot, Top, Seg, cardPress, hitRingY6 } from '@/components/po/kit';
+import { ActorName, Avatar, Label, StatusDot, Top, Seg, cardPress, hitRingY6 } from '@/components/po/kit';
 import { useDoor, useDoorFilters } from '../DoorProvider';
 import type { DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
@@ -359,7 +359,7 @@ function guestRow(
           </span>
         ) : (
           <span className="min-w-0 truncate text-[11px] opacity-70" style={{ flexShrink: 3 }}>
-            · {t.door.logBy} {g.addedByName}
+            · {t.door.logBy} <ActorName name={g.addedByName} kind={g.addedByKind} />
             {g.last4 && ` · ••${g.last4}`}
           </span>
         )}

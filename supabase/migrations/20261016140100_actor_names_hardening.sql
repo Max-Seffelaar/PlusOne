@@ -25,7 +25,8 @@
 --    therefore replaces a reserved/blank name on a NEW row with 'User' (the
 --    consent screen asks for the real name next). UPDATEs are refused (23514),
 --    never rewritten: that is the user's own edit and gets a proper error.
---    Residual, accepted: look-alike letters ("PIusOne", Cyrillic) pass.
+--    Look-alike letters ("PIusOne", Cyrillic) pass this CHECK; they are
+--    covered by the typed-label rule below, not by the CHECK.
 --    Review round 2 (N1): btrim() strips only ASCII spaces, so NBSP/tab/CR/LF/
 --    zero-width-wrapped "PlusOne support" and invisible-only blanks got past the
 --    first version (CHECK and trigger alike). Now ONE normaliser,
@@ -36,12 +37,28 @@
 --    control/format character outright (no real name has one) AND a blank or
 --    reserved key. The app mirrors the exact classes (src/features/auth/
 --    profile-name.ts) for Zod and for the "blank → Unnamed" display rule.
+--    Review round 3: a hand-picked class is whack-a-mole (U+2066, U+034F,
+--    U+FE0F, U+3164, U+E0001 still passed). The class is now EVERY
+--    Default_Ignorable_Code_Point plus Cc and Cf (from U+0001; Postgres text
+--    cannot hold U+0000), listed as explicit ranges because Postgres regex has
+--    no \p{}. The identical list is INVISIBLE_RANGES in
+--    src/features/auth/profile-name.ts, and profile-name.cross-check.test.ts
+--    walks U+0000..U+10FFFF to prove (a) this migration's class equals that
+--    list and (b) the list covers everything the runtime's Unicode tables call
+--    DI/Cc/Cf. Spaces: every Unicode space separator plus U+2800 (braille
+--    blank) are one space; the Hangul fillers are default-ignorable, so they
+--    vanish. 'unknown' joins the reserved words (it is a label too).
+--    And this CHECK is no longer the primary guarantee: every surface renders
+--    PlusOne's labels as a TYPED label (kit ActorName: muted, italic, icon) and
+--    a member's name as plain text, so no name — look-alike or not — can pass
+--    for "PlusOne support" or "System". The CHECK is defence in depth.
 --    Caveat of NOT VALID: Postgres re-checks the whole row on ANY update, so a
 --    pre-existing offending row would refuse every later update of that row
 --    (terms, MFA snooze) until the name is fixed. Checked on prod before the
 --    push (aggregates only, orchestrator 2026-10-11): 22 profiles, 0 containing
---    a control/format character, 0 with a Unicode space, 0 blank or reserved
---    after this normalisation.
+--    a control/format/default-ignorable character, 0 with a Unicode space, 0
+--    blank or reserved (incl. 'unknown') after this normalisation, 0 whose
+--    first word is reserved.
 --
 -- 3. Guests branch (P2). `events join guests on added_by` walked every event of
 --    the venue per id. It is now bound to the venue column directly, with a
@@ -65,8 +82,8 @@ parallel safe
 set search_path = ''
 as $$
   select btrim(lower(regexp_replace(
-           regexp_replace(coalesce(p_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]', '', 'g'),
-           '[[:space:]\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+', ' ', 'g')));
+           regexp_replace(coalesce(p_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]', '', 'g'),
+           '[ \u00A0\u1680\u2000-\u200A\u2028-\u2029\u202F\u205F\u2800\u3000]+', ' ', 'g')));
 $$;
 
 comment on function public.profile_name_key(text) is
@@ -82,9 +99,9 @@ grant execute on function public.profile_name_key(text) to authenticated, servic
 alter table public.user_profiles
   add constraint user_profiles_full_name_not_reserved
   check (
-    full_name !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]'
+    full_name !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]'
     and public.profile_name_key(full_name) <> ''
-    and public.profile_name_key(full_name) not in ('plusone support', 'system', 'unnamed')
+    and public.profile_name_key(full_name) not in ('plusone support', 'system', 'unnamed', 'unknown')
   ) not valid;
 
 create or replace function public.user_profiles_sanitize_new_name()
@@ -96,9 +113,9 @@ begin
   -- Same rule as the CHECK above. Invisible characters are stripped first so an
   -- invitee whose auth metadata carries one is not locked out of their first
   -- login; a blank or reserved key then becomes 'User'.
-  new.full_name := regexp_replace(coalesce(new.full_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]', '', 'g');
+  new.full_name := regexp_replace(coalesce(new.full_name, ''), '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]', '', 'g');
   if public.profile_name_key(new.full_name) = ''
-     or public.profile_name_key(new.full_name) in ('plusone support', 'system', 'unnamed') then
+     or public.profile_name_key(new.full_name) in ('plusone support', 'system', 'unnamed', 'unknown') then
     new.full_name := 'User';
   end if;
   return new;

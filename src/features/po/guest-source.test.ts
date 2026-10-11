@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { flattenGuestSource, fetchVenueGuestsWindow, VENUE_GUESTS_WINDOW } from './queries';
-import { guestSourceLabel } from './format';
+import { guestSourceLabel, guestSourceParts, firstName } from './format';
 import { t } from '@/lib/i18n';
 import { ActorLabels } from '@/features/audit/actor-labels';
 
@@ -19,25 +19,30 @@ const s = t.guests.source;
 
 // added_by → label comes from the venue's actor labels (venue_actor_names, #62a).
 const labels = new ActorLabels()
-  .setActor('u-sanne', 'Sanne de Vries', false)
-  .setActor('u-op', t.shared.actor.support, true)
-  // A member who NAMED themselves like the label: just a name, no flag (P1-2).
-  .setActor('u-spoof', 'PlusOne support', false);
+  .setActor('u-sanne', 'Sanne de Vries', 'member')
+  .setActor('u-op', t.shared.actor.support, 'support')
+  // A member who NAMED themselves like the label: just a name, kind member.
+  .setActor('u-spoof', 'PlusOne support', 'member');
 
 describe('flattenGuestSource', () => {
   it('labels the adder through the venue actor labels', () => {
     const out = flattenGuestSource({ added_by: 'u-sanne', request_links: null }, labels);
-    expect(out).toEqual({ addedByName: 'Sanne de Vries', addedBySupport: false, linkLabel: null });
+    expect(out).toEqual({ addedByName: 'Sanne de Vries', addedByKind: 'member', linkLabel: null });
   });
 
-  it('carries "PlusOne support" for an operator, never a name, and flags it', () => {
+  it('carries "PlusOne support" for an operator as kind support', () => {
     const out = flattenGuestSource({ added_by: 'u-op', request_links: null }, labels);
     expect(out.addedByName).toBe('PlusOne support');
-    expect(out.addedBySupport).toBe(true);
+    expect(out.addedByKind).toBe('support');
   });
 
-  it('never flags a member whose name merely reads "PlusOne support"', () => {
-    expect(flattenGuestSource({ added_by: 'u-spoof', request_links: null }, labels).addedBySupport).toBe(false);
+  it('a member whose name merely reads "PlusOne support" stays kind member', () => {
+    expect(flattenGuestSource({ added_by: 'u-spoof', request_links: null }, labels).addedByKind).toBe('member');
+  });
+
+  it('an adder without a label is kind unknown; no adder is no kind', () => {
+    expect(flattenGuestSource({ added_by: 'u-unknown', request_links: null }, labels).addedByKind).toBe('unknown');
+    expect(flattenGuestSource({ added_by: null, request_links: null }, labels).addedByKind).toBeNull();
   });
 
   it('yields null for an adder the venue has no label for, and without labels', () => {
@@ -53,7 +58,7 @@ describe('flattenGuestSource', () => {
       },
       labels,
     );
-    expect(out).toEqual({ addedByName: 'Sanne de Vries', addedBySupport: false, linkLabel: 'Backstage crew' });
+    expect(out).toEqual({ addedByName: 'Sanne de Vries', addedByKind: 'member', linkLabel: 'Backstage crew' });
   });
 
   it('keeps the other row fields untouched', () => {
@@ -86,7 +91,17 @@ describe('flattenGuestSource', () => {
 
   it('yields nulls when RLS hides both embeds (staff reading a landing guest)', () => {
     const out = flattenGuestSource({ added_by: null, request_links: null });
-    expect(out).toEqual({ addedByName: null, addedBySupport: false, linkLabel: null });
+    expect(out).toEqual({ addedByName: null, addedByKind: null, linkLabel: null });
+  });
+});
+
+describe('firstName (label-like first words keep the full name)', () => {
+  it('cuts an ordinary name to the first name', () => {
+    expect(firstName('Max Seffelaar')).toBe('Max');
+  });
+
+  it.each(['System Smith', 'unknown Person', 'Unnamed X', 'PlusOne Fan'])('keeps %j whole', (name) => {
+    expect(firstName(name)).toBe(name);
   });
 });
 
@@ -95,18 +110,29 @@ describe('guestSourceLabel', () => {
     expect(guestSourceLabel({ source: 'app', addedByName: 'Max Seffelaar' })).toBe('Added by Max');
   });
 
-  it('keeps "PlusOne support" whole when the FLAG says so (it is not a person to shorten)', () => {
-    expect(guestSourceLabel({ source: 'app', addedByName: t.shared.actor.support, addedBySupport: true })).toBe(
+  it('keeps "PlusOne support" whole and typed when the KIND says so', () => {
+    expect(guestSourceLabel({ source: 'app', addedByName: t.shared.actor.support, addedByKind: 'support' })).toBe(
       'Added by PlusOne support',
     );
-    expect(guestSourceLabel({ source: 'door', addedByName: t.shared.actor.support, addedBySupport: true })).toBe(
+    expect(guestSourceLabel({ source: 'door', addedByName: t.shared.actor.support, addedByKind: 'support' })).toBe(
       'At the door by PlusOne support',
     );
+    expect(guestSourceParts({ source: 'app', addedByName: t.shared.actor.support, addedByKind: 'support' })).toEqual({
+      template: s.addedBy,
+      name: 'PlusOne support',
+      kind: 'support',
+    });
   });
 
-  it('treats a name that merely reads "PlusOne support" as a person (no flag → first name)', () => {
-    expect(guestSourceLabel({ source: 'app', addedByName: 'PlusOne support', addedBySupport: false })).toBe(
-      'Added by PlusOne',
+  it('a member NAMED like a label stays kind member (rendered plain), never support/system (review #466 r3)', () => {
+    const lri = String.fromCodePoint(0x2066);
+    for (const name of ['PlusOne support', `System${lri}`, 'System Smith']) {
+      const parts = guestSourceParts({ source: 'app', addedByName: name, addedByKind: 'member' });
+      expect(parts).toMatchObject({ kind: 'member' });
+    }
+    // …and a label-like first word keeps the full name, so it can't read as a bare label.
+    expect(guestSourceLabel({ source: 'app', addedByName: 'System Smith', addedByKind: 'member' })).toBe(
+      'Added by System Smith',
     );
   });
 

@@ -17,7 +17,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import { actorLabel, fetchActorLabels } from '@/features/audit/actor-labels';
+import { actorRef, fetchActorLabels } from '@/features/audit/actor-labels';
+import { actorKindCsv } from '@/lib/po/actor-kind';
 import { toCsv, type CsvValue } from './csv';
 import { EXPORT_MAX_ROWS, EXPORT_PAGE_SIZE } from './schemas';
 
@@ -92,7 +93,7 @@ function one<T>(v: T | T[] | null | undefined): T | null {
 export const GUEST_HEADERS = [
   'event_name', 'event_date', 'full_name', 'email', 'phone', 'plus_ones', 'tier', 'door_price',
   'currency', 'status',
-  'note', 'source', 'created_at', 'created_by', 'checked_in_at',
+  'note', 'source', 'created_at', 'created_by', 'created_by_type', 'checked_in_at',
 ] as const;
 export const CONTACT_HEADERS = [
   'full_name', 'email', 'phone', 'birthdate', 'preferred_role', 'note', 'marketing_opt_in',
@@ -100,10 +101,10 @@ export const CONTACT_HEADERS = [
 ] as const;
 export const REQUEST_HEADERS = [
   'event_name', 'full_name', 'email', 'phone', 'plus_ones', 'motivation', 'marketing_opt_in',
-  'status', 'decision_reason', 'decided_by', 'created_at', 'request_link_name',
+  'status', 'decision_reason', 'decided_by', 'decided_by_type', 'created_at', 'request_link_name',
 ] as const;
 export const DOOR_HEADERS = [
-  'event_name', 'guest_name', 'type', 'party_size', 'reason', 'acted_by', 'device_id',
+  'event_name', 'guest_name', 'type', 'party_size', 'reason', 'acted_by', 'acted_by_type', 'device_id',
   'created_at', 'voided_at',
 ] as const;
 
@@ -220,7 +221,14 @@ export async function collectVenueExport(
   for (const c of checkIns) actorIds.add(c.checked_by);
   for (const r of refusals) actorIds.add(r.refused_by);
   const labels = await fetchActorLabels(client, venueId, actorIds);
-  const actor = (id: string | null): string => actorLabel(id, labels);
+  // Two cells per actor: the label, and its TYPE (member | plusone_support |
+  // system | unknown; spec #62a, review #466 r3). The type column keeps the
+  // export unambiguous whatever someone's name is — a member called "System"
+  // is `member`. An id the venue has no record of: empty name, `unknown`.
+  const actor = (id: string | null): [string, string] => {
+    const ref = actorRef(id, labels);
+    return ref.kind === 'unknown' ? ['', 'unknown'] : [ref.text, actorKindCsv(ref.kind)];
+  };
 
   // ── Build rows ──────────────────────────────────────────────────────────────
   const lastSeen = new Map<string, { at: string; name: string }>();
@@ -239,7 +247,7 @@ export async function collectVenueExport(
       .pop();
     return [
       ev?.name ?? '', ev?.starts_at ?? '', g.full_name, g.email, g.phone, g.plus_ones,
-      tierName.get(g.tier_id) ?? '', ...doorPrice(tierPrice.get(g.tier_id)), g.status, g.note, g.source, g.created_at, actor(g.added_by),
+      tierName.get(g.tier_id) ?? '', ...doorPrice(tierPrice.get(g.tier_id)), g.status, g.note, g.source, g.created_at, ...actor(g.added_by),
       active ?? null,
     ];
   });
@@ -251,7 +259,7 @@ export async function collectVenueExport(
 
   const requestRows: CsvValue[][] = requests.map((r) => [
     eventName(r.event_id), r.full_name, r.email, r.phone, r.plus_ones, r.motivation, r.marketing_opt_in,
-    r.status, r.decision_reason, r.status === 'pending' ? '' : actor(r.decided_by), r.created_at,
+    r.status, r.decision_reason, ...(r.status === 'pending' ? ['', ''] : actor(r.decided_by)), r.created_at,
     r.request_link_id ? (linkName.get(r.request_link_id) ?? '') : '',
   ]);
 
@@ -260,14 +268,14 @@ export async function collectVenueExport(
       at: c.checked_at,
       row: [
         eventName(c.event_id), one(c.guests)?.full_name ?? '', 'check_in', 1 + c.plus_ones_arrived, null,
-        actor(c.checked_by), c.device_id, c.checked_at, c.voided_at,
+        ...actor(c.checked_by), c.device_id, c.checked_at, c.voided_at,
       ] as CsvValue[],
     })),
     ...refusals.map((r) => ({
       at: r.refused_at,
       row: [
         eventName(r.event_id), one(r.guests)?.full_name ?? '', 'refusal', null, r.reason,
-        actor(r.refused_by), r.device_id, r.refused_at, null,
+        ...actor(r.refused_by), r.device_id, r.refused_at, null,
       ] as CsvValue[],
     })),
   ].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));

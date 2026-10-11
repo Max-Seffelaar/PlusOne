@@ -14,6 +14,7 @@ import { TERMS_URL, PRIVACY_URL, DPA_URL } from '@/lib/legal';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
 
@@ -1605,6 +1606,67 @@ export function DpaCheck({
         </ExternalLink>
       </div>
     </div>
+  );
+}
+
+// ── Who did it (spec #62a, review #466 round 3) ─────────────────────────────
+// A member's name is user-controlled text and renders PLAIN. PlusOne's own
+// labels ("PlusOne support", "System", "Unknown", "Unnamed") render as a typed
+// label — muted, italic, with an icon — so no name can pass for one of them,
+// whatever characters it contains. Every surface that names an actor uses this.
+
+const ACTOR_KIND_ICON: Record<Exclude<ActorKind, 'member'>, IconName> = {
+  support: 'shield',
+  system: 'cog',
+  unknown: 'user',
+  unnamed: 'user',
+};
+
+/** One actor: plain name for a member, the typed label for anything else. */
+export function ActorName({
+  name,
+  kind = 'member',
+  className,
+}: {
+  name: string;
+  /** Omitted = member (plain), so existing call sites keep their rendering. */
+  kind?: ActorKind;
+  className?: string;
+}): JSX.Element {
+  if (kind === 'member') return className ? <span className={className}>{name}</span> : <>{name}</>;
+  return (
+    <span
+      data-actor-kind={kind}
+      className={cn('inline-flex items-center gap-[3px] align-baseline font-normal italic text-faint', className)}
+    >
+      <Icon name={ACTOR_KIND_ICON[kind]} size={11} sw={2} />
+      {name}
+    </span>
+  );
+}
+
+/** A catalogue sentence with the actor dropped into its `{slot}` placeholder,
+ *  rendered through {@link ActorName} (e.g. "added by {by}"). */
+export function ActorPhrase({
+  template,
+  slot,
+  name,
+  kind,
+}: {
+  template: string;
+  slot: string;
+  name: string;
+  kind?: ActorKind;
+}): JSX.Element {
+  const marker = `{${slot}}`;
+  const at = template.indexOf(marker);
+  if (at < 0) return <>{template}</>;
+  return (
+    <>
+      {template.slice(0, at)}
+      <ActorName name={name} kind={kind} />
+      {template.slice(at + marker.length)}
+    </>
   );
 }
 

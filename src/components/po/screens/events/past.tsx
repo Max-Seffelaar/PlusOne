@@ -11,7 +11,7 @@ import { venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, IconBtn, Label, Scroll, Top, press } from '../../kit';
+import { ActorPhrase, Avatar, Btn, Empty, IconBtn, Label, Scroll, Top, press } from '../../kit';
 import { TierPill } from '../guests/_shared';
 import { col, ScreenState } from './shared';
 import { EventStatsPanel } from './stats-panel';
@@ -137,7 +137,11 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
                       {g.name}
                       {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
                     </div>
-                    {g.by && <div className="mt-[3px] text-[12px] text-faint">{fmt(t.events.addedBy, { by: g.by })}</div>}
+                    {g.by && (
+                      <div className="mt-[3px] text-[12px] text-faint">
+                        <ActorPhrase template={t.events.addedBy} slot="by" name={g.by} kind={g.byKind} />
+                      </div>
+                    )}
                   </div>
                   <span className="text-[12px] font-bold text-faint">{absent.tag}</span>
                 </div>

@@ -80,7 +80,7 @@ function event(over: Partial<PoProfileEvent> = {}): PoProfileEvent {
     anonymized: false,
     source: 'app',
     addedByName: 'Max',
-    addedBySupport: false,
+    addedByKind: 'member',
     linkLabel: null,
     ...over,
   };

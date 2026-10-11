@@ -18,7 +18,8 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Btn, CountPill, IconBtn, Label, PayChip, Scroll, Top, press } from '@/components/po/kit';
+import { ActorName, ActorPhrase, Avatar, Btn, CountPill, IconBtn, Label, PayChip, Scroll, Top, press } from '@/components/po/kit';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import { BottomBar, Sheet } from '@/components/po/shell';
 import { PlusOnesSheet } from '@/components/po/screens/guests/profile-sheets';
 import { useDoor, useDoorSyncStatus } from '../DoorProvider';
@@ -28,6 +29,7 @@ function LogRow({
   icon,
   label,
   who,
+  whoKind,
   when,
   accent,
   last,
@@ -35,6 +37,8 @@ function LogRow({
   icon: IconName;
   label: string;
   who: string;
+  /** What `who` is (spec #62a); omitted = a member's name. */
+  whoKind?: ActorKind;
   when?: string;
   accent?: boolean;
   last?: boolean;
@@ -46,7 +50,9 @@ function LogRow({
       </span>
       <span className="flex-1 text-[13.5px] text-faint">{label}</span>
       <span className="text-right">
-        <span className={cn('text-[13.5px] font-semibold', accent ? 'text-acc' : 'text-text')}>{who}</span>
+        <span className={cn('text-[13.5px] font-semibold', accent ? 'text-acc' : 'text-text')}>
+          <ActorName name={who} kind={whoKind} />
+        </span>
         {when && <span className="ml-[7px] font-display text-[12px] text-faint">{when}</span>}
       </span>
     </div>
@@ -159,7 +165,11 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
               {done ? (
                 <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
                   <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
-                  {g.ackByName ? fmt(t.door.taskDoneBy, { name: g.ackByName }) : t.door.taskStatusDone}
+                  {g.ackByName ? (
+                    <ActorPhrase template={t.door.taskDoneBy} slot="name" name={g.ackByName} kind={g.ackByKind} />
+                  ) : (
+                    t.door.taskStatusDone
+                  )}
                 </span>
               ) : (
                 <span className="font-body text-[11px] font-bold text-faint">{t.door.taskStatusOpen}</span>
@@ -181,10 +191,10 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
 
         <Label className="mx-0.5 mb-[10px] mt-1.5">{t.door.logTitle}</Label>
         <div className="mb-4 rounded-[14px] border border-line bg-elev px-[14px] py-1">
-          <LogRow icon="user" label={t.door.logAdded} who={g.addedByName} when={g.addedAt} />
+          <LogRow icon="user" label={t.door.logAdded} who={g.addedByName} whoKind={g.addedByKind} when={g.addedAt} />
           {g.plus > 0 && <LogRow icon="users" label={t.door.logPlusOnes} who={fmt(t.door.logPlusOnesTickets, { n: g.plus })} />}
           {g.inside ? (
-            <LogRow icon="check2" label={g.arrived && g.arrived > 0 ? fmt(t.door.logCheckedInPlus, { n: g.arrived }) : t.door.logCheckedIn} who={g.inByName ?? t.door.logActorFallback} when={g.inAt} accent last />
+            <LogRow icon="check2" label={g.arrived && g.arrived > 0 ? fmt(t.door.logCheckedInPlus, { n: g.arrived }) : t.door.logCheckedIn} who={g.inByName ?? t.door.logActorFallback} whoKind={g.inByName ? g.inByKind : 'unknown'} when={g.inAt} accent last />
           ) : g.voided ? (
             <LogRow icon="history" label={t.door.logReversed} who={t.door.statusOnTheWay} last />
           ) : (
@@ -224,7 +234,11 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           <div className="flex items-center justify-center gap-[8px] py-[6px] font-display text-[15px] font-bold text-acc">
             <Icon name="check2" size={18} stroke="#B5A6FF" sw={2.4} />
             {g.inAt ? fmt(t.door.inAt, { time: g.inAt }) : t.door.inside}
-            {g.inByName ? <span className="font-body text-[12.5px] font-semibold text-faint">· {fmt(t.door.inBy, { name: g.inByName })}</span> : null}
+            {g.inByName ? (
+              <span className="font-body text-[12.5px] font-semibold text-faint">
+                · <ActorPhrase template={t.door.inBy} slot="name" name={g.inByName} kind={g.inByKind} />
+              </span>
+            ) : null}
           </div>
         ) : (
           <>

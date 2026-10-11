@@ -15,7 +15,9 @@
 --     footprint; the label words and a blank name cannot be taken as a name;
 --     crew of another venue's event and a null venue get nothing;
 --   * review round 2: Unicode spaces and invisible characters do not get a
---     label word or a blank past the CHECK or the new-row sanitizer.
+--     label word or a blank past the CHECK or the new-row sanitizer;
+--   * review round 3: neither does any default-ignorable, control or format
+--     code point, the braille blank or a Hangul filler; 'Unknown' is reserved.
 --
 -- Everything rolls back.
 
@@ -40,7 +42,7 @@ returns text language sql as $fn$
 $fn$;
 grant execute on function pg_temp.actor(uuid, uuid) to authenticated;
 
-select plan(59);
+select plan(72);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 aa…01 (Max admin, Tom staff, Lisa
@@ -495,6 +497,72 @@ select public.ensure_my_profile();
 reset role;
 select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000c2'),
   'Mila Jansen', 'I13 an invisible character in the metadata name is stripped, not a locked-out login');
+
+-- ---------------------------------------------------------------------------
+-- J. Review round 3 (N1 widened): every default-ignorable / control / format
+-- code point, the braille blank, the Hangul fillers and 'Unknown'
+-- ---------------------------------------------------------------------------
+-- chr(): 8294 U+2066 LRI, 847 U+034F CGJ, 65039 U+FE0F VS16, 12644 U+3164 Hangul
+-- filler, 10240 U+2800 braille blank, 917505 U+E0001 language tag, 6158 U+180E
+-- Mongolian vowel separator, 1564 U+061C Arabic letter mark, 4447 U+115F Hangul
+-- choseong filler, 65440 U+FFA0 halfwidth Hangul filler.
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom, own row
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'System' || chr(8294) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J1 "System" + U+2066 is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'PlusOne support' || chr(847) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J2 "PlusOne support" + U+034F (combining grapheme joiner) is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'Unnamed' || chr(65039) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J3 "Unnamed" + U+FE0F (variation selector) is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(12644) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J4 a U+3164 (Hangul filler) only name is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(10240) || chr(10240) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J5 a U+2800 (braille blank) only name is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'Tom' || chr(917505) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J6 a U+E0001 (tag) character is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = ' Unknown ' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J7 "Unknown" is reserved too');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'Tom' || chr(6158) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J8 a U+180E character is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(1564) || 'System' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J9 a U+061C character is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(4447) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J10 a U+115F-only name is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = chr(65440) where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'J11 a U+FFA0-only name is refused');
+select lives_ok(
+  $$ update public.user_profiles set full_name = 'Jos' || chr(233) || ' M' || chr(252) || 'ller' where id = '55555555-5555-4555-8555-555555555555' $$,
+  'J12 an ordinary accented name ("Jose Muller" with e-acute / u-umlaut) is accepted');
+update public.user_profiles set full_name = 'Tom Bakker' where id = '55555555-5555-4555-8555-555555555555';
+reset role;
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+) values (
+  '00000000-0000-0000-0000-000000000000', 'a9000000-0000-4000-8000-0000000000c3',
+  'authenticated', 'authenticated', 'van-lri-meta@plusone.test', '', now(),
+  '{"provider": "email", "providers": ["email"]}'::jsonb, jsonb_build_object('full_name', 'System' || chr(8294)),
+  now(), now(), '', '', '', '', '', '', '', ''
+);
+select pg_temp.login('a9000000-0000-4000-8000-0000000000c3');
+select public.ensure_my_profile();
+reset role;
+select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000c3'),
+  'User', 'J13 ensure_my_profile with metadata "System" + U+2066 stores "User"');
 
 select * from finish();
 

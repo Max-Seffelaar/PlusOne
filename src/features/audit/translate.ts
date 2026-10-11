@@ -14,12 +14,17 @@
 import type { Database } from '@/lib/database.types';
 import { t } from '@/lib/i18n';
 import { formatShortDate, formatTime, toDateInput } from '@/features/po/format';
+import type { ActorKind } from '@/lib/po/actor-kind';
+import { ActorLabels, nameRef } from './actor-labels';
 
 export type AuditFeedRow = Database['public']['Views']['audit_feed']['Row'];
 
 export interface AuditLine {
   id: string;
   actor: string;
+  /** What `actor` is (spec #62a): only 'member' is a person's own text; the
+   *  rest render as a typed label (kit ActorName). */
+  actorKind: ActorKind;
   action: string;
   entity: string;
   /** Past-tense phrase WITHOUT the actor (rendered after the bold actor name). */
@@ -278,16 +283,26 @@ export function auditPersonIds(rows: readonly AuditFeedRow[]): string[] {
  */
 export function describeAuditEntry(
   row: AuditFeedRow,
-  labels: ReadonlyMap<string, string> = new Map(),
+  labels: ReadonlyMap<string, string> = new ActorLabels(),
 ): AuditLine {
   const subjectLabel = row.subject_user_id ? labels.get(row.subject_user_id) : undefined;
   const { text, entity } = phrase(subjectLabel ? { ...row, subject_name: subjectLabel } : row);
-  const actor = row.actor_id
-    ? (labels.get(row.actor_id) ?? row.actor_name ?? t.shared.actor.unknown)
-    : SYSTEM;
+  const resolved = row.actor_id ? labels.get(row.actor_id) : undefined;
+  const actorRef: { text: string; kind: ActorKind } = !row.actor_id
+    ? { text: SYSTEM, kind: 'system' }
+    : resolved !== undefined
+      ? {
+          text: resolved,
+          kind: labels instanceof ActorLabels ? labels.kindOf(row.actor_id) : 'member',
+        }
+      : row.actor_name != null
+        ? // The view's RLS-scoped name: a person's own text, blank → "Unnamed".
+          nameRef(row.actor_name)
+        : { text: t.shared.actor.unknown, kind: 'unknown' };
   return {
     id: row.id ?? '',
-    actor,
+    actor: actorRef.text,
+    actorKind: actorRef.kind,
     action: row.action ?? 'update',
     entity,
     text,

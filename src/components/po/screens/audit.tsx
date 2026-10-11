@@ -23,7 +23,7 @@ import {
 } from '@/features/po/audit-presenter';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, hitArea44, press } from '../kit';
+import { ActorName, Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, hitArea44, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -159,7 +159,9 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
                         <td className="!pl-4">
                           <div className="flex items-center gap-[10px]">
                             <Avatar name={l.actor} size={30} />
-                            <span className="font-display text-[13.5px] font-bold text-text">{l.actor}</span>
+                            <span className="font-display text-[13.5px] font-bold text-text">
+                              <ActorName name={l.actor} kind={l.actorKind} />
+                            </span>
                           </div>
                         </td>
                         <td>
@@ -228,7 +230,10 @@ function AuditRow({ line, onHistory }: { line: AuditLine; onHistory?: () => void
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[14px] leading-[1.4] text-dim">
-          <span className="font-semibold text-text">{line.actor}</span> {line.text}
+          <span className="font-semibold text-text">
+            <ActorName name={line.actor} kind={line.actorKind} />
+          </span>{' '}
+          {line.text}
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-faint">
           {line.event && (
@@ -450,11 +455,14 @@ function TimelineRow({ line, last }: { line: AuditLine; last: boolean }): JSX.El
           <span className="text-[12px] text-faint">{formatWhen(line.iso)}</span>
         </div>
         <p className="mt-1.5 text-[14px] leading-[1.45] text-dim">
-          <span className="font-semibold text-text">{line.actor}</span> {line.text}
+          <span className="font-semibold text-text">
+            <ActorName name={line.actor} kind={line.actorKind} />
+          </span>{' '}
+          {line.text}
         </p>
         <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-faint">
           <Avatar name={line.actor} size={18} />
-          <span>{line.actor}</span>
+          <ActorName name={line.actor} kind={line.actorKind} />
           <span className="text-ghost">·</span>
           <span className={cn(door && 'text-acc')}>{line.device}</span>
         </div>

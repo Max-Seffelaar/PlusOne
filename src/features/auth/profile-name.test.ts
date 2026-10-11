@@ -57,6 +57,33 @@ describe('isReservedProfileName (same cases as pgTAP I1–I11)', () => {
   });
 });
 
+describe('round 3: every default-ignorable / control / format code point (same cases as pgTAP J1-J13)', () => {
+  const cp = String.fromCodePoint;
+  it.each([
+    ['System + U+2066', `System${cp(0x2066)}`],
+    ['PlusOne support + U+034F', `PlusOne support${cp(0x034f)}`],
+    ['Unnamed + U+FE0F', `Unnamed${cp(0xfe0f)}`],
+    ['U+3164 only', cp(0x3164)],
+    ['U+2800 only', `${cp(0x2800)}${cp(0x2800)}`],
+    ['Tom + U+E0001', `Tom${cp(0xe0001)}`],
+    ['Unknown', ' Unknown '],
+    ['Tom + U+180E', `Tom${cp(0x180e)}`],
+    ['U+061C + System', `${cp(0x061c)}System`],
+    ['U+115F only', cp(0x115f)],
+    ['U+FFA0 only', cp(0xffa0)],
+  ])('refuses %s', (_label, name) => {
+    expect(isReservedProfileName(name)).toBe(true);
+  });
+
+  it('accepts an ordinary accented name ("José Müller")', () => {
+    expect(isReservedProfileName(`Jos${cp(0xe9)} M${cp(0xfc)}ller`)).toBe(false);
+  });
+
+  it('the Hangul fillers and the braille blank make a name blank', () => {
+    expect(profileNameKey(`${cp(0x3164)}${cp(0x2800)}${cp(0x115f)}`)).toBe('');
+  });
+});
+
 describe('Zod refuses them with the catalogue messages', () => {
   it('profileSchema: invisible character → invisibleChars message', () => {
     const res = profileSchema.safeParse({ firstName: 'Tom', lastName: `Bakker${ZWSP}`, phone: '' });
