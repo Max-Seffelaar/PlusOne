@@ -20,7 +20,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(17);
+select plan(18);
 
 -- ---------------------------------------------------------------------------
 -- 1. anon holds no table privilege in public, bar one documented exception
@@ -161,6 +161,26 @@ select is_empty($$
       'terms_accepted_at'  -- crew list "joined" state
     ])
 $$, 'authenticated SELECTs no user_profiles column beyond the cross-user allowlist');
+
+-- A view runs with its OWNER's privileges unless it is security_invoker, so a
+-- `create view … as select * from user_profiles` granted to authenticated would
+-- walk straight past the column grant above (and past RLS on any table). Every
+-- view or materialized view an app role can read must be security_invoker.
+-- Today that is audit_feed alone. (Materialized views cannot be invoker: an
+-- app-readable one is always an offender here.)
+select is_empty($$
+  select c.relname as offender
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relkind in ('v', 'm')
+    and (has_table_privilege('authenticated', c.oid, 'SELECT')
+         or has_table_privilege('anon', c.oid, 'SELECT')
+         or has_any_column_privilege('authenticated', c.oid, 'SELECT')
+         or has_any_column_privilege('anon', c.oid, 'SELECT'))
+    and not (c.relkind = 'v' and coalesce(
+          c.reloptions && array['security_invoker=on', 'security_invoker=true', 'security_invoker=1'], false))
+$$, 'every app-readable view in public is security_invoker (an owner-rights view would bypass grants and RLS)');
 
 -- ---------------------------------------------------------------------------
 -- 5. The default ACLs that caused this cannot cause it again

@@ -48,7 +48,7 @@ begin
 end;
 $fn$;
 
-select plan(29);
+select plan(30);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: Max (admin) and Tom (staff) share venue 1.
@@ -77,7 +77,8 @@ update public.user_profiles set is_platform_admin = true
 select set_config('plusone.platform_admin_write', 'off', true);
 
 update public.user_profiles
-   set phone = '+31600000011', mfa_snooze_until = '2030-01-01 00:00:00+00'
+   set phone = '+31600000011', mfa_snooze_until = '2030-01-01 00:00:00+00',
+       terms_accepted_at = '2026-06-24 12:00:00+00'
  where id = '11111111-1111-4111-8111-111111111111';
 
 -- ---------------------------------------------------------------------------
@@ -116,9 +117,10 @@ select is(
     where id = '11111111-1111-4111-8111-111111111111'),
   row('11111111-1111-4111-8111-111111111111'::uuid, 'Max de Vries', 'admin@plusone.test')::text,
   'B1 a colleague still reads id, full_name, email');
-select lives_ok($$ select terms_accepted_at from public.user_profiles
-                    where id = '11111111-1111-4111-8111-111111111111' $$,
-  'B2 …and terms_accepted_at (crew "joined" state)');
+select is((select terms_accepted_at from public.user_profiles
+            where id = '11111111-1111-4111-8111-111111111111'),
+  '2026-06-24 12:00:00+00'::timestamptz,
+  'B2 …and terms_accepted_at (crew "joined" state), with its value');
 select lives_ok($$ select count(*) from public.user_profiles $$,
   'B3 count(*) still works');
 select is((select count(*)::int from public.venue_memberships m
@@ -174,6 +176,9 @@ select is(pg_temp.rowcount($$ update public.user_profiles set phone = '+31600000
 select is(pg_temp.rowcount($$ update public.user_profiles set full_name = 'Hijacked'
                                where id = '55555555-5555-4555-8555-555555555555' $$), 0,
   'C6 a colleague''s row is still not updatable (RLS filters it to 0 rows)');
+select throws_ok($$ update public.user_profiles set phone = '+31600000013'
+                    where id = '11111111-1111-4111-8111-111111111111' returning phone $$, '42501', null,
+  'C7 own-row UPDATE … RETURNING a private column is denied (no .select() after an update)');
 reset role;
 
 -- ---------------------------------------------------------------------------
