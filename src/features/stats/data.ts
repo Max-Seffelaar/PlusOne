@@ -16,7 +16,11 @@ type Client = SupabaseClient<Database>;
 export type EventSummary = Fn['event_stats_summary']['Returns'][number];
 export type QuarterBucket = Fn['event_checkins_per_quarter']['Returns'][number];
 export type TierStat = Fn['event_tier_stats']['Returns'][number];
-export type UserAddition = Fn['event_user_additions']['Returns'][number];
+// full_name is null for a PlusOne platform admin the caller cannot see (support
+// work outside the company, 20261014130000); the generated type cannot say so.
+export type UserAddition = Omit<Fn['event_user_additions']['Returns'][number], 'full_name'> & {
+  full_name: string | null;
+};
 export type RefusalReason = Fn['event_refusal_reasons']['Returns'][number];
 
 export interface EventStats {
@@ -56,7 +60,9 @@ export async function fetchEventStats(client: Client, eventId: string): Promise<
 
 export type VenueSummary = Fn['venue_stats_summary']['Returns'][number];
 export type EventRollup = Fn['venue_event_rollup']['Returns'][number];
-export type VenueUserAddition = Fn['venue_user_additions']['Returns'][number];
+export type VenueUserAddition = Omit<Fn['venue_user_additions']['Returns'][number], 'full_name'> & {
+  full_name: string | null; // see UserAddition
+};
 
 export interface VenueStats {
   summary: VenueSummary | null;

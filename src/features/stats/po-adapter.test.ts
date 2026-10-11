@@ -98,7 +98,7 @@ describe('toPerUser', () => {
   });
 
   it('labels a withheld name as PlusOne support (support work outside the company)', () => {
-    const hidden = {
+    const hidden: UserAddition = {
       added: 1,
       added_headcount: 3,
       removed_headcount: 0,
@@ -108,7 +108,7 @@ describe('toPerUser', () => {
       added_free_headcount: 3,
       present_free_headcount: 0,
       user_id: 'op',
-    } as unknown as UserAddition; // the RPC returns null here since 20261014130000
+    }; // the RPC returns a null name here since 20261014130000
     const [row] = toPerUser([hidden]);
     expect(row?.who).toBe('PlusOne support');
     expect(row?.added).toBe(3);

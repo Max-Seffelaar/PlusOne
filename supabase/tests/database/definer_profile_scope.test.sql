@@ -28,7 +28,7 @@ begin
 end;
 $fn$;
 
-select plan(15);
+select plan(19);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 = Club Vesper, Max admin, Tom staff,
@@ -111,7 +111,42 @@ select is(
     where user_id = '66666666-6666-4666-8666-666666666666'),
   'Lisa van den Berg',
   'A6 a former member (not a platform admin) keeps their name');
+-- The date-windowed call hides the operator too.
+select is(
+  (select full_name from public.venue_user_additions('aa000000-0000-7000-8000-000000000001',
+                                                       '2000-01-01'::timestamptz, '2100-01-01'::timestamptz)
+    where user_id = 'a9000000-0000-4000-8000-0000000000a1'),
+  null,
+  'A7 venue_user_additions with a date window hides the operator too');
 reset role;
+
+select pg_temp.login('33333333-3333-4333-8333-333333333333'); -- Femke, finance
+select is(
+  (select row(full_name, added_headcount)::text
+     from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+    where user_id = 'a9000000-0000-4000-8000-0000000000a1'),
+  row(null::text, 3)::text,
+  'A8 finance (also admitted by can_read_event_stats) sees the same hidden row');
+reset role;
+
+-- A former member who is (now) a platform admin: no membership left, so the
+-- venue cannot see the profile and the name is withheld like any operator's.
+-- Pinned on purpose (review #461 finding 1): the venue sees "PlusOne support".
+select set_config('plusone.platform_admin_write', 'on', true);
+update public.user_profiles set is_platform_admin = true
+ where id = '66666666-6666-4666-8666-666666666666';
+select set_config('plusone.platform_admin_write', 'off', true);
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is(
+  (select full_name from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+    where user_id = '66666666-6666-4666-8666-666666666666'),
+  null,
+  'A9 a former member who is now a platform admin is withheld too');
+reset role;
+select set_config('plusone.platform_admin_write', 'on', true);
+update public.user_profiles set is_platform_admin = false
+ where id = '66666666-6666-4666-8666-666666666666';
+select set_config('plusone.platform_admin_write', 'off', true);
 
 -- ---------------------------------------------------------------------------
 -- B. When the operator may be seen, they are named
@@ -140,18 +175,21 @@ reset role;
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- Max, admin of Tom's venue
-select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')), 2,
+-- Filtered on the fixture session ids: a used dev DB has Tom's real sessions too.
+select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
+            where session_id in ('5e000000-0000-4000-8000-0000000000a1', '5e000000-0000-4000-8000-0000000000a2')), 2,
   'C1 the admin still lists the member''s sessions (remote logout works)');
 select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
             where aal is not null), 0,
   'C2 …but every aal is null');
 select is((select ip from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
-            order by updated_at desc limit 1), '203.0.113.7',
+            where session_id = '5e000000-0000-4000-8000-0000000000a1'), '203.0.113.7',
   'C3 ip is unchanged (open product decision, not part of this fix)');
 reset role;
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom himself
-select is((select array_agg(aal order by updated_at desc) from public.list_own_sessions()),
+select is((select array_agg(aal order by updated_at desc) from public.list_own_sessions()
+            where session_id in ('5e000000-0000-4000-8000-0000000000a1', '5e000000-0000-4000-8000-0000000000a2')),
   array['aal2', 'aal1'],
   'C4 list_own_sessions still shows the caller their own aal');
 select throws_ok($$ select * from public.admin_list_user_sessions('11111111-1111-4111-8111-111111111111') $$,
@@ -170,7 +208,11 @@ select ok(
   and not has_function_privilege('anon', 'public.venue_user_additions(uuid, timestamptz, timestamptz)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.admin_list_user_sessions(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.admin_list_user_sessions(uuid)', 'EXECUTE'),
-  'D1 anon executes none of the three; authenticated keeps EXECUTE');
+  'D1 anon executes none of the three; authenticated keeps EXECUTE on the sessions RPC');
+select ok(
+  has_function_privilege('authenticated', 'public.event_user_additions(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.venue_user_additions(uuid, timestamptz, timestamptz)', 'EXECUTE'),
+  'D2 authenticated keeps EXECUTE on both stats RPCs');
 
 select * from finish();
 
