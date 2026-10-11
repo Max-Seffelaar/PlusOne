@@ -32,7 +32,7 @@ begin
 end;
 $fn$;
 
-select plan(17);
+select plan(18);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue aa..01 = Club Vesper, Max admin, Tom staff.
@@ -193,6 +193,27 @@ select is(
     where coalesce(v.present, 0) <> coalesce(ev.present, 0)),
   0,
   'B8 venue-wide: no adder whose venue present differs from the sum of their event present');
+reset role;
+
+-- Removed after check-in (review #464): B1 was checked in, then taken off the
+-- list. Neither level counts her as present any more, so the sums still agree.
+-- (The gross ledger does NOT sum across levels for removed guests: the venue
+-- variant's reg excludes `removed`, the event variant's includes it — spec #44.)
+update public.guests set status = 'removed'
+ where id = 'c5000000-0000-7000-8000-000000000004';
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is(
+  (select row(v.present, (select sum(eua.present)::int
+                            from public.events e
+                            cross join lateral public.event_user_additions(e.id) eua
+                           where e.venue_id = 'aa000000-0000-7000-8000-000000000001'
+                             and e.starts_at >= '2099-01-01' and e.starts_at < '2100-01-01'
+                             and eua.user_id = '55555555-5555-4555-8555-555555555555'))::text
+     from public.venue_user_additions('aa000000-0000-7000-8000-000000000001',
+                                      '2099-01-01'::timestamptz, '2100-01-01'::timestamptz) v
+    where v.user_id = '55555555-5555-4555-8555-555555555555'),
+  row(1, 1)::text,
+  'B9 removed after check-in: venue present 1 = sum of event present 1 (only A1 left)');
 
 -- ---------------------------------------------------------------------------
 -- C. Platform-admin name rule (20261016130000) unchanged
@@ -217,7 +238,8 @@ select is(
      from public.venue_user_additions('aa000000-0000-7000-8000-000000000001',
                                       '2099-01-01'::timestamptz, '2100-01-01'::timestamptz)
     where user_id = '55555555-5555-4555-8555-555555555555'),
-  'Tom Bakker',
+  (select p.full_name from public.user_profiles p
+    where p.id = '55555555-5555-4555-8555-555555555555'),  -- not a literal: robust to a renamed dev profile
   'C4 a venue member keeps their name');
 reset role;
 
