@@ -261,6 +261,32 @@ describe('runBillingMails: time budget (review #446, S2)', () => {
   });
 });
 
+describe('runBillingMails: follow-ups (z8uq9m49k4)', () => {
+  it('Stripe mails go before trial mails (review #446 D3)', async () => {
+    const { deps, sent } = makeDeps({
+      billing_mails_begin: begin(
+        [trialEndingIn(V1, 7)],
+        [{ stripe_event_id: 'evt_9', venue_id: V2, type: 'billing_payment_failed' }]
+      ),
+    });
+    await runBillingMails(TOKEN, deps);
+    expect(sent.map((m) => m.type)).toEqual([
+      'billing_payment_failed',
+      'billing_payment_failed',
+      'billing_trial_day7',
+      'billing_trial_day7',
+    ]);
+  });
+
+  it('a Billing button names the company it is about (?venue=)', async () => {
+    const { deps, sent } = makeDeps({
+      billing_mails_begin: begin([], [{ stripe_event_id: 'evt_9', venue_id: V2, type: 'billing_payment_failed' }]),
+    });
+    await runBillingMails(TOKEN, deps);
+    expect(sent[0].text).toContain(`https://app.plus-one.io/app/billing?venue=${V2}`);
+  });
+});
+
 describe('parseBegin', () => {
   it('rejects an unknown event type', () => {
     expect(

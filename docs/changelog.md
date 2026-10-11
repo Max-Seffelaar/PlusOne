@@ -21,6 +21,17 @@ Milestone **Now** (privacy/legal hygiene before more venues sign). High-risk sur
 
 ---
 
+## 2026-10-11 — Billing mails follow-ups: 409 = outcome unknown, Stripe mails first, Billing ?venue= deep link (z8uq9m49k4)
+
+Follow-up of 2c (#446), review nits D1/D3 and an open point. Milestone **Now**.
+
+- **D1, Resend 409 has its own code.** `resend-adapter.ts` maps a 409 (an Idempotency-Key Resend already holds: first request still in flight, or a retry with a different body) to `idempotency_conflict` instead of `provider_rejected`. `log_billing_mail` already never retries it (not in its transient list), so no second mail can follow. Migration `20261015135000_billing_mail_unknown_outcome.sql` re-creates `platform_billing_mail_timeline` with one extra count, `unknown`; the Platform timeline shows "N unknown" instead of "failed". Guest and team mail treat the new code like the old one (no retry); only the name in `mail_log.error_code` changes.
+- **D3, Stripe mails first.** A run builds its list with the payment-failed/canceled mails before the trial mails, so a run that hits its 45 s budget never makes a failed payment wait an hour.
+- **Billing deep link.** Every Billing button in a billing mail is `/app/billing?venue=<company>` (uuid-checked; the welcome mail's "Create your first event" is unchanged). For another company the user is a member of, Billing shows "Billing for {company}" + "Switch to {company}" (the event deep link's pattern: never a silent switch). The switch goes through `switchToVenue` → `switchActiveVenueAction` (membership check, platform_access_log rules unchanged) and lands on `/app/billing`. The active company, a company the user is no member of, or junk show the active company's billing: the link never reveals another company.
+- **Tests.** vitest: adapter 409 mapping, job order + `?venue=` in the sent mail, template CTA (uuid only, plain URL otherwise), routes round-trip, Billing deep-link screen (incl. native: no purchase copy). pgTAP `billing_mail_followups.test.sql` (8): a 409 is never retried, the timeline counts it as unknown, grants unchanged. Flow `billing-mails` Q12/Q13: the deep link on all four variants.
+
+---
+
 ## 2026-10-11 — Resend confirmation visible on the guest page (z8uq9m49k1 follow-up)
 
 Milestone **Now**. UI only, no migration. Max's local test of #463: nobody found "Resend confirmation" behind the event card's "Edit". The confirmation line, the bounce/complaint hint and the button now sit on the guest profile's event card itself (`EventCardConfirmation` in `screens/guests/mail-status.tsx`), and are gone from the Edit sheet (never twice on one screen). Who sees the button is unchanged: `canResend` from the database and `editPlusOnes` from `profileRowActions`; the server action checks RLS again. Tests: vitest `mail-status.test.tsx`; flow `mail-status` Q2/Q4/Q5/Q12 now act on the card.
