@@ -1,5 +1,5 @@
 -- pgTAP — billing-mail follow-ups (z8uq9m49k4, review #446 nit D1),
--- 20261015150000_billing_mail_unknown_outcome.sql.
+-- 20261015135000_billing_mail_unknown_outcome.sql.
 --
 --   A. A mail whose send ended in a Resend 409 (error_code
 --      'idempotency_conflict') is never retried: log_billing_mail returns NULL,

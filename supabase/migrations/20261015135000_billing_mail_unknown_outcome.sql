@@ -74,7 +74,7 @@ $$;
 comment on function public.platform_billing_mail_timeline(uuid) is
   'Platform tab (is_platform_admin, 42501 otherwise): the billing mails a '
   'company got, grouped per mail (counts per delivery status, a Resend '
-  'idempotency conflict counted as unknown, 20261015150000), whether billing '
+  'idempotency conflict counted as unknown, 20261015135000), whether billing '
   'mail is paused, and the subscription facts the next-mail line needs.';
 
 revoke execute on function public.platform_billing_mail_timeline(uuid) from public, anon, service_role;
