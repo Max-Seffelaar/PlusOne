@@ -69,6 +69,14 @@ describe('sendTeamMail', () => {
     expect(recipientHash('a@b.c')).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('agrees with guest_mail_email_hash on tab, CR/LF and no-break-space variants (review #463)', () => {
+    // The hex is what the database returns for the same inputs (20261015130000).
+    const db = '8a1de69eecf14b8378ad2761869fae529fe1c16d17b29ece74c6e9c7fd607713';
+    expect(recipientHash('a@x.nl')).toBe(db);
+    expect(recipientHash('\ta@x.nl\n')).toBe(db);
+    expect(recipientHash('\r\n\tA@X.nl  ')).toBe(db);
+  });
+
   it('a daily-quota 429 settles the row failed once and does not retry', async () => {
     H.send.mockResolvedValue({ ok: false, errorCode: 'daily_quota_exceeded' });
     expect(await sendTeamMail(MAIL)).toEqual({ ok: false, reason: 'failed' });

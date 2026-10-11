@@ -161,7 +161,7 @@ function AccessRow({ entry }: { entry: PlatformAccessLogEntry }): JSX.Element {
         </span>
         <span className="text-[12px] text-faint">→</span>
         <span className="min-w-0 truncate text-[13px] text-dim">
-          {entry.venueName ?? t.platform.accessLogUnknownVenue}
+          {entry.venueName ?? (entry.venueId ? t.platform.accessLogUnknownVenue : t.platform.accessLogNoVenue)}
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-faint">
@@ -183,7 +183,7 @@ function AccessTableRow({ entry }: { entry: PlatformAccessLogEntry }): JSX.Eleme
       </td>
       <td>
         <span className="block max-w-[220px] truncate text-[13px] text-dim">
-          {entry.venueName ?? t.platform.accessLogUnknownVenue}
+          {entry.venueName ?? (entry.venueId ? t.platform.accessLogUnknownVenue : t.platform.accessLogNoVenue)}
         </span>
       </td>
       <td>
