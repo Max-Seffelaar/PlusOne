@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Quota grants only for people tied to the company (follow-up to #466 review)
+
+Milestone **Now** (fraud resistance + privacy). Last step of the privacy merge train (#459 → #460 → #461 → #464 → #466 → this). High-risk surface (RLS policies + trigger): fresh-session `/code-review` + `/security-review` before merge.
+
+- **Hole:** `quotas_insert_admin` / `event_quotas_insert_admin` only checked that the caller is an admin of the venue, not that `user_id` is tied to it; the update policies also allowed repointing `user_id` (and `venue_id` / `event_id`). Anyone can create a company, so any self-made admin could grant a quota to an arbitrary uuid: the FK error vs success was an account-existence oracle, and the audit trigger wrote a quota row about a stranger into the company's trail (before #466 round 1 also a name oracle via `venue_actor_names`).
+- **Migration `20261016150000_quota_rls_tied_to_venue`:**
+  - Insert and update (USING and WITH CHECK) now also require `is_platform_admin() or is_tied_to_venue(<venue>, user_id)`, the same rule as `event_organizers_insert_admin` (`20261007150200`). A made-up uuid and an untied real account get the same 42501, so the oracle is gone.
+  - BEFORE UPDATE trigger `refuse_key_column_change` on both tables: `id`, `venue_id` / `event_id` and `user_id` are immutable for every role (42501). Not a column-level UPDATE grant: both app writers are PostgREST upserts, which `SET` every payload column (the unchanged keys too) and would fail on a column grant.
+  - Delete policies unchanged, so an admin can still remove a quota row forged before this migration. No grant change.
+- **Legit writers checked:** `setDefaultQuotaAction` (Team screen, members), `upsertCrewQuota` via `assignOrganizer` (runs after the `event_organizers` insert) and `setEventUserQuota` (crew sheet), all tied; `accept_invite_for_caller`, `accept_invites_for_caller` and `approve_quota_request` are SECURITY DEFINER (RLS bypassed, keys never changed). Templates write no quota rows; seed/e2e/promo scripts use the service role.
+- **Tests:** new pgTAP `quota_tied_to_venue.test.sql` (31: member and crew allowed, both upsert shapes, untied/made-up uuid refused with the identical error, no audit row, repointing refused incl. for the owner, USING hides a forged row but delete works, platform-admin exception). `venue_actor_names.test.sql` F1–F3 now forge their rows as the table owner, plus F0a/F0b proving the admin insert is refused (61). Run in rolled-back transactions on the shared stack; the full `supabase db reset` + `pnpm db:test` is owed at prod-push time.
+
 ## 2026-10-11 — Who did it: one label, one rule (spec #62a)
 
 Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes the "Open" item of spec #62(a). Builds on #461 (must merge after it). High-risk surface (new SECURITY DEFINER function): fresh-session `/code-review` + `/security-review` before merge.
