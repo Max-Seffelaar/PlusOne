@@ -24,7 +24,7 @@
 -- 2. admin_list_user_sessions — a venue admin's view of a member's sessions.
 --    It returned, per session, `aal` (whether that member signed in with MFA,
 --    the same class of information as user_profiles.mfa_snooze_until, closed
---    in 20261014120100) and the raw `ip`. Both are now always null (decision
+--    in 20261016120100) and the raw `ip`. Both are now always null (decision
 --    Max 2026-10-11, spec #61b):
 --      * the remote-logout list needs which session (device + last active),
 --        not where it came from or how it was secured — data minimisation,

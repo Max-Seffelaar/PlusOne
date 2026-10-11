@@ -18,7 +18,7 @@ Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` colu
   - Side channels judged negligible:
     - `create_venue_with_owner`'s trial end reveals whether the inviter is still a platform admin.
     - `user_is_quota_exempt` reads only the caller's own flag.
-- **Migration `20261014130000_definer_rpc_profile_scope`:**
+- **Migration `20261016130000_definer_rpc_profile_scope`:**
   - `event_user_additions` / `venue_user_additions` named every `added_by`, including a platform admin doing support outside the venue. RLS and `audit_feed` hide that name, and the venue never sees `platform_access_log` (legal v0.3).
     - The name is now null when the adder is a platform admin the caller cannot see (`can_view_profile`).
     - Counts and `user_id` stay; the venue already sees that actor id on its `audit_log`.
