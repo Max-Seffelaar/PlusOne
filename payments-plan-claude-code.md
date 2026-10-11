@@ -174,6 +174,8 @@ Effort in Claude Code-sessies (één ClickUp-taak → één PR). Dezelfde orches
 
 **Volgorde (besluit 13):** P1 → P2 op het web (geen store-cyclus, de goedkoopste methode, ook iPad) → P4 (zonder P4 geen uitbetaling, dus P4 vóór de eerste live betaling) → P3a/P3b zodra P1 gemerged is en de dev-entitlement binnen is. **Totaal ≈ 9–11 sessies** plus de Apple-wachttijd. Eerste live betaling pas als P1, P2 én P4 live zijn en de machtiging in de voorwaarden staat.
 
+**ClickUp (aangemaakt 2026-10-11, lijst `901818739469`):** P0 `z8uq9m4a7h` · P1 `z8uq9m4a7j` · P2 `z8uq9m4a7m` · P3a `z8uq9m4a7e` · P3b `z8uq9m4a7g` · P4 `z8uq9m4a7n` · P5 `z8uq9m4a7p` · P6 `z8uq9m4a7q` · P7 `z8uq9m4a7r`; afhankelijkheden P0 → P1 → {P2 → P5, P7; P4 → P6}, P1 + S6 + S1b → P3a → P3b. De oude Fase 14-taken `86exxuuu7` en `86exyp8rc` staan nog op ≥25 (hertag is aan Max).
+
 ## 7. Store-, legal- en finance-checklist
 
 - [ ] Accountant: type-3-constructie (verkoop in eigen naam, 9 % op C, self-billing B per week), vrijstellingen op de whitelist, de consumentenverplichting van PlusOne als verkoper, de behandeling van cash (omzet van PlusOne, inkoop van de company) — **vóór P4**.

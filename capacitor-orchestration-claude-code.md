@@ -165,15 +165,15 @@ GOLF 5 — S1b (z8uq9m0gvn, Opus + Max) → S5-iOS. Wacht op M1 (Apple org) + M3
 ```
 GOLF 6 — share sheet + de native laag van Tap to Pay. Wacht op: S5 eerste store-goedkeuring op beide stores (S6); betaalplan P1 (payments-plan-claude-code.md §6) gemerged op origin/main + Apple development-entitlement toegekend (P3a). S6, P3a en P3b raken alle drie ios/App, codemagic.yaml en de iOS-guard-tests → strikt sequentieel: S6 eerst (klein), dan P3a, dan P3b; nooit tegelijk.
 
-S6  <taak-id>  Share sheet (iOS Share Extension + Android ACTION_SEND)   Opus   branch claude/<taskid>-share-sheet
+S6  z8uq9m4a7d  Share sheet (iOS Share Extension + Android ACTION_SEND)   Opus   branch claude/<taskid>-share-sheet
     Raakt: android/app/src/main/AndroidManifest.xml (ACTION_SEND-filter), android/.../MainActivity.java + nieuwe plugin, ios/App (nieuw Share Extension-target, App Group in App.entitlements), codemagic.yaml (ios_signing.bundle_identifier + IPA-check op de .appex), src/components/ (listener naast native-app-links.tsx), tests/unit/codemagic-ios-release.test.ts + tests/unit/app-links.test.ts (bijwerken, nooit verzwakken), plandoc beslissing 16.
     Verboden: src/features/guests/share-inbox.ts wijzigen (alleen putSharedText aanroepen), het /app/share-scherm, public/service-worker.js, alles onder src/features/door.
     Max: App Group-capability op beide App IDs, provisioning profile voor app.plusone.guestlist.share.
-P3a <taak-id>  Tap to Pay-plugin (native + web-seam)                     Opus   branch claude/<taskid>-tap-to-pay
+P3a z8uq9m4a7e  Tap to Pay-plugin (native + web-seam)                     Opus   branch claude/<taskid>-tap-to-pay
     Raakt: package.json (@capacitor-community/stripe-terminal), android/ (minSdk 26, MODIFY_AUDIO_SETTINGS, plugin), ios/App (entitlement, How-to-Tap-overlay), src/features/payments/ (web-seam + connection-token-route — alleen wat payments-plan §4 beschrijft), de betaalknop in de deur, codemagic.yaml, tests.
     Verboden: migraties (P1/P2 van het betaalplan), src/features/billing/** behalve de confinement-allowlist, DoorProvider/outbox-internals, de store-declaraties (P3b).
     High-risk (Stripe-secret-route, geld) → reviewer-sessie verplicht; security-research-prompt in de PR-body.
-P3b <taak-id>  Tap to Pay store-kant                                     Opus + Max   branch claude/<taskid>-tap-to-pay-store
+P3b z8uq9m4a7g  Tap to Pay store-kant                                     Opus + Max   branch claude/<taskid>-tap-to-pay-store
     Wacht op P3a gemerged + distribution-entitlement (Max). Raakt: App.entitlements, codemagic.yaml (IPA-check), docs/store/*, de carve-out op de store-tax-guards + een eigen deur-guard. De CLAUDE.md-regel is al aangepast (2026-10-11); verdere plandoc-wijzigingen in een eigen docs-PR van de orchestrator.
 
 Exit: S6 werkt op een iPhone (TestFlight) én Android (Play internal): delen vanuit WhatsApp/Mail/Notes → Paste a list; P3a int een testbetaling op een Android release-build (Developer options uit) en op een iPhone; P3b ingediend.
