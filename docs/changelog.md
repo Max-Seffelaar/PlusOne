@@ -8,6 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — venue_user_additions: present excludes guests refused after check-in (#44)
+
+Milestone **Now**. Follow-up to 86ey9c5fp (20260811161000), found in review of #461. Migration `20261015130000_venue_user_additions_present_excludes_refused.sql`; it replaces the same function as #461's `20261014130000`, so the two merge and push in that order (#461 first).
+
+- **Bug:** the venue-level per-member breakdown counted a guest refused after checking in as present. `sync_guest_status_from_refusal` flips the status without voiding the check-in, and the `ci` CTE joined every row of `reg` (approved, checked_in, refused). 20260811161000 fixed this in `event_user_additions` only, so the venue column read higher than the sum of its events (Max: 4 at venue level, 3 at event level).
+- **Fix:** `reg` also selects `g.status`; `ci` adds `reg.status in ('approved', 'checked_in')`, the event variant's rule. The rest of the body is #461's: the platform-admin name rule, the `agg` CTE, the order. `added`/`added_headcount` stay the gross ledger (a refused guest still counts as added). Signature, result type, gate and grants are unchanged.
+- **Tests:** pgTAP `venue_user_additions_present.test.sql` (17). It covers a refused-after-check-in guest, a normal check-in, a voided check-in and the hidden-operator name rule. It also checks that venue `present` equals the sum of event `present`, for its own window and venue-wide for every adder. The file pins admin@'s platform-admin flag off, so it passes on a `pnpm dev:mfa` DB too. Without the migration, 3 asserts fail (B3/B7/B8).
+
+---
+
 ## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.
