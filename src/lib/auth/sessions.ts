@@ -44,7 +44,8 @@ export async function adminListSessions(targetUserId: string): Promise<SessionRo
     notAfter: s.not_after,
     userAgent: s.user_agent,
     ip: s.ip,
-    aal: s.aal,
+    // Null since 20261014130000: a member's MFA level stays with them.
+    aal: null,
     isCurrent: false,
   }));
 }

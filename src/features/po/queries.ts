@@ -1875,7 +1875,9 @@ export async function fetchUserSessions(client: Client, targetUserId: string): P
     not_after: s.not_after,
     user_agent: s.user_agent,
     ip: s.ip,
-    aal: s.aal,
+    // Another member's MFA level is not the admin's business: the RPC returns
+    // null here since 20261014130000 (only list_own_sessions carries it).
+    aal: null,
     is_current: false,
   }));
 }

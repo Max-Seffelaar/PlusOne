@@ -8,6 +8,34 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — SECURITY DEFINER read paths: profile scope (audit follow-up)
+
+Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` column-SELECT audit (#459/#460). High-risk surface (definer functions): fresh-session `/code-review` + `/security-review` before merge.
+
+- **Audit (2026-10-11):** I read all 16 definer functions that read `user_profiles` and the 8 that read `auth.*` and are callable by an app role. I then tested them in a rolled-back transaction with a support operator who belongs to no venue.
+  - No private column (`is_platform_admin`, `mfa_snooze_until`, `phone`, first/last name, `terms_version`) reaches a caller who is not a platform admin.
+  - Two leaks fixed here.
+  - Side channels judged negligible:
+    - `create_venue_with_owner`'s trial end reveals whether the inviter is still a platform admin.
+    - `user_is_quota_exempt` reads only the caller's own flag.
+- **Migration `20261014130000_definer_rpc_profile_scope`:**
+  - `event_user_additions` / `venue_user_additions` named every `added_by`, including a platform admin doing support outside the venue. RLS and `audit_feed` hide that name, and the venue never sees `platform_access_log` (legal v0.3).
+    - The name is now null when the adder is a platform admin the caller cannot see (`can_view_profile`).
+    - Counts and `user_id` stay; the venue already sees that actor id on its `audit_log`.
+    - Former members keep their name (#24).
+    - Sorting uses the displayed name, so a hidden name can't be placed alphabetically.
+    - The app shows the null as "PlusOne support" (`t.analytics.addedBySupport`).
+  - `admin_list_user_sessions` returned each member session's `aal`, which shows whether that member uses MFA. The screen never rendered it.
+    - It now always returns null. The column stays for the deployed app (expand–contract); a later migration drops it.
+    - `list_own_sessions` keeps `aal`, since it is the caller's own data.
+    - Still open: whether a venue admin should see a member's raw IP. The screen shows it as "where", and sessions are account-wide, not per venue.
+- **Same signatures, result types, gates and grants.** CREATE OR REPLACE is used throughout, with grants re-asserted. The app keeps working against both the old and the new function.
+- **Tests:**
+  - pgTAP `definer_profile_scope.test.sql` (15): operator hidden but counted; named for themselves, as a real member, and for a former member; `aal` null for admins and kept for yourself; existing gates and anon grants unchanged.
+  - Unit test for the "PlusOne support" label.
+
+---
+
 ## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.

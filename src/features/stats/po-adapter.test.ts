@@ -96,6 +96,23 @@ describe('toPerUser', () => {
       },
     ]);
   });
+
+  it('labels a withheld name as PlusOne support (support work outside the company)', () => {
+    const hidden = {
+      added: 1,
+      added_headcount: 3,
+      removed_headcount: 0,
+      full_name: null,
+      present: 0,
+      present_headcount: 0,
+      added_free_headcount: 3,
+      present_free_headcount: 0,
+      user_id: 'op',
+    } as unknown as UserAddition; // the RPC returns null here since 20261014130000
+    const [row] = toPerUser([hidden]);
+    expect(row?.who).toBe('PlusOne support');
+    expect(row?.added).toBe(3);
+  });
 });
 
 describe('eventKpis', () => {
