@@ -76,7 +76,7 @@ interface Offence {
 
 function scan(file: string): Offence[] {
   const src = readFileSync(file, 'utf8');
-  const rel = path.relative(ROOT, file).replaceAll('\\', '/');
+  const rel = path.relative(ROOT, file).split(path.sep).join('/');
   const out: Offence[] = [];
 
   for (const chain of src.matchAll(FROM_CHAIN)) {
