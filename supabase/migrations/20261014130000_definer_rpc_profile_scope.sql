@@ -22,14 +22,20 @@
 --    count are unchanged (CREATE OR REPLACE keeps the ACL).
 --
 -- 2. admin_list_user_sessions — a venue admin's view of a member's sessions.
---    It returned `aal` for each session: whether that member signed in with
---    MFA, the same class of information as user_profiles.mfa_snooze_until
---    (closed in 20261014120100). The admin screen never renders it; only the
---    remote-logout list needs the session rows. `aal` is now always null.
---    The column stays in the result type so the deployed app keeps working
---    (expand–contract); a later migration drops it. list_own_sessions keeps
---    `aal` — that is the caller's own data. ip / user_agent are unchanged and
---    remain an open product decision (the screen shows the IP as "where").
+--    It returned, per session, `aal` (whether that member signed in with MFA,
+--    the same class of information as user_profiles.mfa_snooze_until, closed
+--    in 20261014120100) and the raw `ip`. Both are now always null (decision
+--    Max 2026-10-11, spec #61b):
+--      * the remote-logout list needs which session (device + last active),
+--        not where it came from or how it was secured — data minimisation,
+--        GDPR art. 5(1)(c); an IP address is personal data;
+--      * sessions belong to the ACCOUNT, not the company (#24: users exist
+--        independently of venues), so the admin of company A also saw the IPs
+--        of sessions the member uses for company B.
+--    user_agent stays: it is how the admin tells the sessions apart ("iPhone,
+--    Safari"). Both columns stay in the result type so the deployed app keeps
+--    working (expand–contract); a later migration drops them.
+--    list_own_sessions is unchanged — your own IP and aal are your own data.
 
 -- ---------------------------------------------------------------------------
 -- 1a. event_user_additions
@@ -156,7 +162,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 2. admin_list_user_sessions: aal always null (column kept for the deployed app)
+-- 2. admin_list_user_sessions: ip and aal always null (columns kept for the deployed app)
 -- ---------------------------------------------------------------------------
 
 create or replace function public.admin_list_user_sessions(p_target uuid)
@@ -184,7 +190,7 @@ begin
   return query
     select
       s.id, s.created_at, s.updated_at, s.not_after,
-      s.user_agent, host(s.ip), null::text
+      s.user_agent, null::text, null::text
     from auth.sessions s
     where s.user_id = p_target
     order by s.updated_at desc;

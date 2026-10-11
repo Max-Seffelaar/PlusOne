@@ -8,8 +8,8 @@
 --     member of), while their counts still add up;
 --   * everyone else keeps their name — the operator once they are a real
 --     member, the operator reading their own stats, and a former member;
---   * admin_list_user_sessions never reveals another member's MFA level (aal),
---     while list_own_sessions still shows the caller their own;
+--   * admin_list_user_sessions never reveals another member's MFA level (aal)
+--     or IP address, while list_own_sessions still shows the caller their own;
 --   * the existing gates are unchanged (staff gets no stats rows, cannot list
 --     a colleague's sessions; anon executes none of it).
 --
@@ -28,7 +28,7 @@ begin
 end;
 $fn$;
 
-select plan(19);
+select plan(20);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 = Club Vesper, Max admin, Tom staff,
@@ -182,16 +182,19 @@ select is((select count(*)::int from public.admin_list_user_sessions('55555555-5
 select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
             where aal is not null), 0,
   'C2 …but every aal is null');
-select is((select ip from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
-            where session_id = '5e000000-0000-4000-8000-0000000000a1'), '203.0.113.7',
-  'C3 ip is unchanged (open product decision, not part of this fix)');
+select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
+            where ip is not null), 0,
+  'C3 …and every ip is null (minimisation; sessions are account-wide, not per company)');
+select is((select user_agent from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
+            where session_id = '5e000000-0000-4000-8000-0000000000a1'), 'probe-agent',
+  'C3b user_agent stays, so the admin can tell sessions apart');
 reset role;
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom himself
-select is((select array_agg(aal order by updated_at desc) from public.list_own_sessions()
+select is((select array_agg(aal || '@' || ip order by updated_at desc) from public.list_own_sessions()
             where session_id in ('5e000000-0000-4000-8000-0000000000a1', '5e000000-0000-4000-8000-0000000000a2')),
-  array['aal2', 'aal1'],
-  'C4 list_own_sessions still shows the caller their own aal');
+  array['aal2@203.0.113.7', 'aal1@203.0.113.8'],
+  'C4 list_own_sessions still shows the caller their own aal and ip');
 select throws_ok($$ select * from public.admin_list_user_sessions('11111111-1111-4111-8111-111111111111') $$,
   '42501', null,
   'C5 staff still cannot list a colleague''s sessions');

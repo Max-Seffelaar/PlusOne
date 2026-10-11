@@ -25,10 +25,10 @@ Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` colu
     - Former members keep their name (#24).
     - Sorting uses the displayed name, so a hidden name can't be placed alphabetically.
     - The app shows the null as "PlusOne support" (`t.analytics.addedBySupport`).
-  - `admin_list_user_sessions` returned each member session's `aal`, which shows whether that member uses MFA. The screen never rendered it.
-    - It now always returns null. The column stays for the deployed app (expand–contract); a later migration drops it.
-    - `list_own_sessions` keeps `aal`, since it is the caller's own data.
-    - Still open: whether a venue admin should see a member's raw IP. The screen shows it as "where", and sessions are account-wide, not per venue.
+  - `admin_list_user_sessions` returned each member session's `aal` (whether that member uses MFA) and raw IP.
+    - Both now always return null (decision Max 2026-10-11). Remote logout needs device + last active, not location. An IP is personal data (GDPR data minimisation), and sessions are account-wide, so admin A also saw the IPs of sessions used for company B.
+    - The admin screen drops the location line; `user_agent` stays so sessions can be told apart. The columns stay for the deployed app (expand–contract); a later migration drops them.
+    - `list_own_sessions` keeps `aal` and `ip`, since they are the caller's own data.
 - **Same signatures, result types, gates and grants.** CREATE OR REPLACE is used throughout, with grants re-asserted. The app keeps working against both the old and the new function.
 - **Tests:**
   - pgTAP `definer_profile_scope.test.sql` (15): operator hidden but counted; named for themselves, as a real member, and for a former member; `aal` null for admins and kept for yourself; existing gates and anon grants unchanged.
