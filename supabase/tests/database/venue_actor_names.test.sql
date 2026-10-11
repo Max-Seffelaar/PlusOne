@@ -40,7 +40,7 @@ returns text language sql as $fn$
 $fn$;
 grant execute on function pg_temp.actor(uuid, uuid) to authenticated;
 
-select plan(59);
+select plan(61);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 aa…01 (Max admin, Tom staff, Lisa
@@ -274,9 +274,12 @@ reset role;
 -- ---------------------------------------------------------------------------
 -- F. Review round 1 (P1-1): a forged quota is no footprint
 -- ---------------------------------------------------------------------------
--- Any company admin can grant a quota to an arbitrary uuid (quotas_insert_admin
--- checks the caller, not the target). That must not turn venue_actor_names into
--- a name directory, nor reveal that a uuid is a PlusOne operator.
+-- Before 20261016150000 any company admin could grant a quota to an arbitrary
+-- uuid (quotas_insert_admin checked the caller, not the target). That must not
+-- turn venue_actor_names into a name directory, nor reveal that a uuid is a
+-- PlusOne operator. The quota RLS now refuses the admin's insert (F0a/F0b), so
+-- the forged rows below are written as the table owner: the only way left to
+-- produce one, and the shape of any such row already sitting in prod.
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -298,15 +301,28 @@ values
   ('a9000000-0000-4000-8000-0000000000b7', 'Venue Two Crew', 'van-v2crew@plusone.test'),
   ('a9000000-0000-4000-8000-0000000000b8', 'Former Two',     'van-former2@plusone.test');
 
--- Max (admin of venue 2) forges a venue quota and an event quota for the victim
--- and for the operator, who have no tie to venue 2 at all.
+-- Max (admin of venue 2) tries to forge a venue quota and an event quota for
+-- the victim, who has no tie to venue 2 at all: refused since 20261016150000.
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok($$
+  insert into public.quotas (venue_id, user_id, default_count)
+  values ('aa000000-0000-7000-8000-000000000002', 'a9000000-0000-4000-8000-0000000000b6', 3)
+$$, '42501', null, 'F0a an admin can no longer grant a venue quota to an untied uuid');
+select throws_ok($$
+  insert into public.event_quotas (event_id, user_id, quota_override)
+  values ('ee000000-0000-7000-8000-0000000000a3', 'a9000000-0000-4000-8000-0000000000b6', 4)
+$$, '42501', null, 'F0b …nor an event quota');
+reset role;
+
+-- The same forged rows (victim + operator), written as the owner. The JWT claims
+-- still say Max, so the audit trigger records him as the actor, as it would have.
 insert into public.quotas (venue_id, user_id, default_count) values
   ('aa000000-0000-7000-8000-000000000002', 'a9000000-0000-4000-8000-0000000000b6', 3),
   ('aa000000-0000-7000-8000-000000000002', 'a9000000-0000-4000-8000-0000000000b1', 3);
 insert into public.event_quotas (event_id, user_id, quota_override) values
   ('ee000000-0000-7000-8000-0000000000a3', 'a9000000-0000-4000-8000-0000000000b6', 4),
   ('ee000000-0000-7000-8000-0000000000a3', 'a9000000-0000-4000-8000-0000000000b1', 4);
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is((select count(*)::int from public.audit_log
             where venue_id = 'aa000000-0000-7000-8000-000000000002'
               and entity_type in ('quotas', 'event_quotas')
