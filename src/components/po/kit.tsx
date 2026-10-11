@@ -1637,8 +1637,11 @@ const ACTOR_KIND_ICON: Record<Exclude<ActorKind, 'member'>, IconName> = {
   unnamed: 'user',
 };
 
+// OPAQUE fills (never a translucent tint): the chip must stay readable on any
+// row colour, e.g. a tier-coloured door row. Neutral boundary = `faint` (40%
+// white): >= 3:1 against bg-elev, bg-elev2 and their hover (WCAG 1.4.11).
 function actorChipTone(kind: Exclude<ActorKind, 'member'>): string {
-  return kind === 'support' ? 'border-acc bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim';
+  return kind === 'support' ? 'border-acc bg-elev text-acc' : 'border-faint bg-elev2 text-dim';
 }
 
 /** The chip's accessible name: the full label plus the hint, on the element. */
@@ -1648,7 +1651,8 @@ function actorChipLabel(name: string): string {
 
 /** One actor: plain name for a member, the typed chip for anything else. The
  *  full chip shrinks and truncates its own text (min-w-0 + truncate); the
- *  compact chip (icon + short label) never shrinks, for tight captions. */
+ *  compact chip (icon + short label) shrinks to "icon + Sup…" and then to the
+ *  icon alone, border intact — never past its container (review #466 V1b). */
 export function ActorName({
   name,
   kind = 'member',
@@ -1671,17 +1675,21 @@ export function ActorName({
       data-actor-size={size}
       role="img"
       aria-label={actorChipLabel(name)}
-      title={name}
+      // title only where the visible text differs from the label (compact):
+      // with aria-label set, a title becomes the description and is read twice.
+      title={compact ? name : undefined}
       className={cn(
         'inline-flex items-center gap-[3px] rounded-full border align-middle',
         'text-[0.9em] font-semibold not-italic leading-[1.35]',
-        compact ? 'shrink-0 px-[5px]' : 'min-w-0 max-w-full px-[6px]',
+        // compact: may shrink down to icon-only (min-w = padding + icon +
+        // border) but its border stays intact; the label truncates inside.
+        compact ? 'min-w-[22px] max-w-full shrink overflow-hidden px-[5px]' : 'min-w-0 max-w-full px-[6px]',
         actorChipTone(kind),
         className,
       )}
     >
       <Icon name={ACTOR_KIND_ICON[kind]} size={10} sw={2.2} />
-      <span className={compact ? 'whitespace-nowrap' : 'min-w-0 truncate'}>{compact ? t.shared.actor.short[kind] : name}</span>
+      <span className="min-w-0 truncate">{compact ? t.shared.actor.short[kind] : name}</span>
     </span>
   );
 }
@@ -1717,10 +1725,12 @@ export function ActorPhrase({
 /**
  * A one-line caption that names an actor and truncates: "Launch · Added by
  * {name}", "· by {name} · ••1234". A member's name is part of the truncating
- * text; any other kind is a COMPACT chip that never shrinks, while the text
- * before and after it truncates with an ellipsis (review #466 V1: a chip
- * inside a plain `truncate` block was clipped mid-pill). `lead`/`tail` are
- * plain text around the catalogue `template`.
+ * text; any other kind is a COMPACT chip. Text before and after it truncates
+ * with an ellipsis; when even that is not enough the chip collapses to its
+ * icon, border intact; the caption clips (overflow-hidden) rather than spill
+ * under a neighbour (review #466 V1). `lead`/`tail` are plain text around the
+ * catalogue `template`. Give the caption a fair min-width where it sits next to
+ * a truncating name (the door row does).
  */
 export function ActorCaption({
   template,
@@ -1730,6 +1740,7 @@ export function ActorCaption({
   lead = '',
   tail = '',
   className,
+  textClassName,
 }: {
   template: string;
   slot: string;
@@ -1738,13 +1749,16 @@ export function ActorCaption({
   lead?: string;
   tail?: string;
   className?: string;
+  /** Applied to the TEXT only (e.g. `opacity-70`), never to the chip — an
+   *  inherited opacity would wash the chip out on a coloured row. */
+  textClassName?: string;
 }): JSX.Element {
   const marker = `{${slot}}`;
   const at = template.indexOf(marker);
   if (at < 0 || kind === 'member') {
     const text = at < 0 ? `${lead}${template}${tail}` : `${lead}${template.slice(0, at)}${name}${template.slice(at + marker.length)}${tail}`;
     return (
-      <span data-actor-caption="text" className={cn('block min-w-0 truncate', className)}>
+      <span data-actor-caption="text" className={cn('block min-w-0 truncate', className, textClassName)}>
         {text}
       </span>
     );
@@ -1752,10 +1766,10 @@ export function ActorCaption({
   const before = `${lead}${template.slice(0, at)}`.trimEnd();
   const after = `${template.slice(at + marker.length)}${tail}`.trimStart();
   return (
-    <span data-actor-caption="chip" className={cn('flex min-w-0 items-center gap-[0.3em]', className)}>
-      {before ? <span className="min-w-0 truncate">{before}</span> : null}
+    <span data-actor-caption="chip" className={cn('flex min-w-0 items-center gap-[0.3em] overflow-hidden', className)}>
+      {before ? <span className={cn('min-w-0 truncate', textClassName)}>{before}</span> : null}
       <ActorName name={name} kind={kind} size="compact" />
-      {after ? <span className="min-w-0 truncate">{after}</span> : null}
+      {after ? <span className={cn('min-w-0 truncate', textClassName)}>{after}</span> : null}
     </span>
   );
 }

@@ -358,13 +358,17 @@ function guestRow(
             {fmt(t.door.partlyInside, { arrived: 1 + (g.arrived ?? 0), total: 1 + g.plus, n: remaining })}
           </span>
         ) : (
-          <span className="min-w-0 text-[11px] opacity-70" style={{ flexShrink: 3 }}>
+          // A fair share for "· by {actor}" (review #466 V1b): the name truncates
+          // first; the caption keeps >= 4.5rem so "· by" + the compact chip
+          // ("⬡ Sup…", at worst "⬡") stay readable at 375px.
+          <span className="min-w-[4.5rem] text-[11px]" style={{ flexShrink: 3 }}>
             <ActorCaption
               template={`· ${t.door.logBy} {name}`}
               slot="name"
               name={g.addedByName}
               kind={g.addedByKind}
               tail={g.last4 ? ` · ••${g.last4}` : ''}
+              textClassName="opacity-70"
             />
           </span>
         )}
