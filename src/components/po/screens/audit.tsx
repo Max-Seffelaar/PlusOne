@@ -23,7 +23,7 @@ import {
 } from '@/features/po/audit-presenter';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { ActorName, Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, hitArea44, press } from '../kit';
+import { ActorName, ActorPhrase, Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, hitArea44, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -174,7 +174,9 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
                             >
                               <Icon name={meta.icon} size={15} />
                             </span>
-                            <span className="text-[13.5px] leading-[1.4] text-dim">{l.text}</span>
+                            <span className="text-[13.5px] leading-[1.4] text-dim">
+                              <LineText line={l} />
+                            </span>
                             {onHistory && <Icon name="history" size={14} className="shrink-0 text-ghost" />}
                           </div>
                         </td>
@@ -233,7 +235,7 @@ function AuditRow({ line, onHistory }: { line: AuditLine; onHistory?: () => void
           <span className="font-semibold text-text">
             <ActorName name={line.actor} kind={line.actorKind} />
           </span>{' '}
-          {line.text}
+          <LineText line={line} />
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-faint">
           {line.event && (
@@ -458,7 +460,7 @@ function TimelineRow({ line, last }: { line: AuditLine; last: boolean }): JSX.El
           <span className="font-semibold text-text">
             <ActorName name={line.actor} kind={line.actorKind} />
           </span>{' '}
-          {line.text}
+          <LineText line={line} />
         </p>
         <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-faint">
           <Avatar name={line.actor} size={18} />
@@ -469,4 +471,14 @@ function TimelineRow({ line, last }: { line: AuditLine; last: boolean }): JSX.El
       </div>
     </li>
   );
+}
+
+
+/** The line's phrase, with the subject (quota / membership target) rendered
+ *  through ActorPhrase so a PlusOne label is a chip there too (spec #62a). */
+function LineText({ line }: { line: AuditLine }): JSX.Element {
+  if (line.subject && line.textTemplate) {
+    return <ActorPhrase template={line.textTemplate} slot="subject" name={line.subject.text} kind={line.subject.kind} />;
+  }
+  return <>{line.text}</>;
 }

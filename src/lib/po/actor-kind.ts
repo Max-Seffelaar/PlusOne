@@ -1,12 +1,14 @@
 /**
- * Who did it, as a TYPE — not as text (spec #62(a), review #466 round 3).
+ * Who did it, as a TYPE — not as text (spec #62(a), review #466 rounds 3–4).
  *
  * Only `member` carries user-controlled text (a person's own full_name). The
- * other kinds are PlusOne's own labels and every surface renders them
- * distinctly from a name (kit `ActorName`: muted, italic, an icon), so no
- * name — "System", "PlusOne support", a look-alike, or a name padded with an
- * invisible character — can ever pass for one of them. That structural rule is
- * the primary guarantee; the reserved-name CHECK is defence in depth.
+ * other kinds are PlusOne's own labels and every surface renders them as a
+ * CHIP (kit `ActorName`: bordered pill, icon, screen-reader hint); a member's
+ * name is always plain text. What that guarantees: the label is always in a
+ * chip and a name never is. A name can still LOOK like the label text (a
+ * styled look-alike); it then reads as plain text next to the real chip. That
+ * structural rule is the primary guarantee; the reserved-name CHECK
+ * (20261016140100) is defence in depth.
  *
  *   member   a current or former member/crew (their name)
  *   support  a PlusOne platform admin without a tie to the company

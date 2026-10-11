@@ -1612,11 +1612,13 @@ export function DpaCheck({
   );
 }
 
-// ── Who did it (spec #62a, review #466 round 3) ─────────────────────────────
-// A member's name is user-controlled text and renders PLAIN. PlusOne's own
-// labels ("PlusOne support", "System", "Unknown", "Unnamed") render as a typed
-// label — muted, italic, with an icon — so no name can pass for one of them,
-// whatever characters it contains. Every surface that names an actor uses this.
+// ── Who did it (spec #62a, review #466 rounds 3–4) ──────────────────────────
+// A member's name is user-controlled text and renders PLAIN — never with a
+// border, background or icon. PlusOne's own labels ("PlusOne support",
+// "System", "Unknown", "Unnamed") render as a CHIP: a bordered pill (lavender
+// outline for support, neutral for the rest) with an icon and a screen-reader
+// hint. Text alone cannot produce a chip, so a styled look-alike name still
+// reads as a plain name next to the real label. Every actor surface uses this.
 
 const ACTOR_KIND_ICON: Record<Exclude<ActorKind, 'member'>, IconName> = {
   support: 'shield',
@@ -1625,7 +1627,9 @@ const ACTOR_KIND_ICON: Record<Exclude<ActorKind, 'member'>, IconName> = {
   unnamed: 'user',
 };
 
-/** One actor: plain name for a member, the typed label for anything else. */
+/** One actor: plain name for a member, the typed chip for anything else. The
+ *  chip shrinks and truncates its own text (min-w-0 + truncate), so it stays
+ *  inside a `truncate` caption at 390px with an ellipsis of its own. */
 export function ActorName({
   name,
   kind = 'member',
@@ -1640,10 +1644,16 @@ export function ActorName({
   return (
     <span
       data-actor-kind={kind}
-      className={cn('inline-flex items-center gap-[3px] align-baseline font-normal italic text-faint', className)}
+      className={cn(
+        'inline-flex min-w-0 max-w-full items-center gap-[3px] rounded-full border px-[6px] align-middle',
+        'text-[0.9em] font-semibold not-italic leading-[1.35]',
+        kind === 'support' ? 'border-acc bg-acc-dim text-acc' : 'border-line2 bg-elev2 text-dim',
+        className,
+      )}
     >
-      <Icon name={ACTOR_KIND_ICON[kind]} size={11} sw={2} />
-      {name}
+      <Icon name={ACTOR_KIND_ICON[kind]} size={10} sw={2.2} />
+      <span className="min-w-0 truncate">{name}</span>
+      <span className="sr-only"> {t.shared.actor.labelHint}</span>
     </span>
   );
 }

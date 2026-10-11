@@ -18,7 +18,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { INVISIBLE_RANGES, SPACE_RANGES } from './profile-name';
+import {
+  ALLOWED_IN_NAME,
+  INVISIBLE_RANGES,
+  INVISIBLE_RANGES_UNICODE_VERSION,
+  SPACE_RANGES,
+} from './profile-name';
 
 type Range = [number, number];
 
@@ -87,29 +92,68 @@ function inRanges(cp: number, ranges: Range[]): boolean {
   return false;
 }
 
-// The CHECK's "no invisible character" clause: full_name !~ '[...]'
+// The KEY class: profile_name_key strips it after NFKC.
+const keyBody = /NFKC\), '\[([^\]]+)\]', '', 'g'/.exec(MIGRATION)?.[1];
+// The REFUSED class: the CHECK's full_name !~ '[...]' (and the sanitizer).
 const invisibleBody = /full_name !~ '\[([^\]]+)\]'/.exec(MIGRATION)?.[1];
+const sanitizerBody = /new\.full_name := regexp_replace\(coalesce\(new\.full_name, ''\), '\[([^\]]+)\]'/.exec(MIGRATION)?.[1];
+
+/** INVISIBLE_RANGES minus the code points a stored name may keep. */
+function minusAllowed(ranges: ReadonlyArray<readonly [number, number]>): Range[] {
+  const out: Range[] = [];
+  for (const [a, b] of ranges) {
+    let start = -1;
+    for (let cp = a; cp <= b; cp++) {
+      const keep = !ALLOWED_IN_NAME.has(cp);
+      if (keep && start < 0) start = cp;
+      if (!keep && start >= 0) {
+        out.push([start, cp - 1]);
+        start = -1;
+      }
+    }
+    if (start >= 0) out.push([start, b]);
+  }
+  return merge(out);
+}
+
+/** a.b version compare: true when runtime <= stamp. */
+function unicodeAtOrBelow(runtime: string, stamp: string): boolean {
+  const [ra = 0, rb = 0] = runtime.split('.').map(Number);
+  const [sa = 0, sb = 0] = stamp.split('.').map(Number);
+  return ra < sa || (ra === sa && rb <= sb);
+}
 // profile_name_key's space class: the second regexp_replace, '[...]+', ' '
 const spaceBody = /'\[([^\]]+)\]\+', ' ', 'g'/.exec(MIGRATION)?.[1];
 
 describe('profile name: the migration and the app agree on every code point', () => {
-  it('finds both classes in the migration', () => {
+  it('finds the key, refused, sanitizer and space classes in the migration', () => {
+    expect(keyBody).toBeTruthy();
     expect(invisibleBody).toBeTruthy();
+    expect(sanitizerBody).toBeTruthy();
     expect(spaceBody).toBeTruthy();
   });
 
-  it('every occurrence of the invisible class in the migration is the same class', () => {
-    const all = [...MIGRATION.matchAll(/'\[(\\u0001[^\]]+)\]'/g)].map((m) => m[1]);
-    expect(all.length).toBeGreaterThanOrEqual(3); // key function, CHECK, sanitizer
-    for (const body of all) expect(body).toBe(invisibleBody);
-  });
-
-  it('1. the migration class equals INVISIBLE_RANGES and SPACE_RANGES', () => {
-    expect(parseClass(invisibleBody!)).toEqual(merge(INVISIBLE_RANGES));
+  it('1. SQL == app, unconditionally: key class = INVISIBLE_RANGES, refused class = minus the allowed joiners', () => {
+    expect(parseClass(keyBody!)).toEqual(merge(INVISIBLE_RANGES));
+    // The CHECK and the sanitizer refuse the same set, and that set is the key
+    // set minus U+200C / U+200D / U+FE0F (allowed in a stored name, round 4).
+    expect(sanitizerBody).toBe(invisibleBody);
+    expect(parseClass(invisibleBody!)).toEqual(minusAllowed(INVISIBLE_RANGES));
+    for (const cp of ALLOWED_IN_NAME) expect(parseClass(keyBody!).some(([a, b]) => cp >= a && cp <= b)).toBe(true);
     expect(parseClass(spaceBody!)).toEqual(merge(SPACE_RANGES));
   });
 
   it('2 + 3. the list covers every DI/Cc/Cf code point of this runtime, and nothing assigned besides', () => {
+    const runtime = process.versions.unicode ?? '0.0';
+    if (!unicodeAtOrBelow(runtime, INVISIBLE_RANGES_UNICODE_VERSION)) {
+      // A runtime NEWER than the list may know DI/Cf code points we have not
+      // listed yet. Not a CI failure: regenerate INVISIBLE_RANGES (+ the
+      // migration's class, + the stamp) when you move to it.
+      console.info(
+        `profile-name cross-check: runtime Unicode ${runtime} > list ${INVISIBLE_RANGES_UNICODE_VERSION}; coverage direction skipped`,
+      );
+      return;
+    }
     const listed = merge(INVISIBLE_RANGES);
     const invisible = /^[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Cf}]$/u;
     const unassigned = /^\p{Cn}$/u;

@@ -8,7 +8,6 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   ACTOR_ID_CHUNK,
   ActorLabels,
-  actorLabel,
   fetchActorLabels,
   actorRef,
   fetchActorLabelsSafe,
@@ -86,16 +85,11 @@ describe('the label rule', () => {
     expect(labelForActorRow({ user_id: 'u6', display_name: ' Anne Marie ', is_support: false })).toBe('Anne Marie');
   });
 
-  it('says "System" for no actor', () => {
-    expect(actorLabel(null, new Map())).toBe('System');
-    expect(actorLabel(undefined, new Map([['u1', 'Lisa']]))).toBe(t.shared.actor.system);
-  });
-
-  it('uses the resolved label, else the caller fallback (never a raw uuid)', () => {
-    const labels = new Map([['u1', 'Lisa']]);
-    expect(actorLabel('u1', labels)).toBe('Lisa');
-    expect(actorLabel('u-unknown', labels)).toBe('');
-    expect(actorLabel('u-unknown', labels, 'Door')).toBe('Door');
+  it('says "System" for no actor, "Unknown" for an unresolved id (never a raw uuid)', () => {
+    const labels = new ActorLabels().setActor('u1', 'Lisa', 'member');
+    expect(actorRef(null, labels)).toEqual({ text: t.shared.actor.system, kind: 'system' });
+    expect(actorRef('u1', labels)).toEqual({ text: 'Lisa', kind: 'member' });
+    expect(actorRef('u-unknown', labels)).toEqual({ text: t.shared.actor.unknown, kind: 'unknown' });
   });
 });
 

@@ -103,6 +103,15 @@ describe('firstName (label-like first words keep the full name)', () => {
   it.each(['System Smith', 'unknown Person', 'Unnamed X', 'PlusOne Fan'])('keeps %j whole', (name) => {
     expect(firstName(name)).toBe(name);
   });
+
+  it('splits on U+2800 too, and a styled label-like first word keeps the full name (review #466 r4)', () => {
+    const braille = String.fromCodePoint(0x2800);
+    expect(firstName(`Anna${braille}Bakker`)).toBe('Anna');
+    const mathBoldSystem = [...'System']
+      .map((ch) => String.fromCodePoint((ch === 'S' ? 0x1d400 + 18 : 0x1d41a + ch.charCodeAt(0) - 97)))
+      .join('');
+    expect(firstName(`${mathBoldSystem} Smith`)).toBe(`${mathBoldSystem} Smith`);
+  });
 });
 
 describe('guestSourceLabel', () => {

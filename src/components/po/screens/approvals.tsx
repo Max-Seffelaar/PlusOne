@@ -591,7 +591,7 @@ export function Aanvragen({
                   {r.reason && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.reason}”</div>}
                   {canDecide ? (
                     <div className="flex gap-2">
-                      <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, eventId: r.eventId })}>
+                      <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, nameKind: r.whoKind, eventId: r.eventId })}>
                         {t.requests.deny}
                       </Btn>
                       <Btn sm kind="primary" full icon="check2" disabled={quotaBusy} onClick={() => void approveQuota(r)}>

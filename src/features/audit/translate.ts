@@ -25,6 +25,12 @@ export interface AuditLine {
   /** What `actor` is (spec #62a): only 'member' is a person's own text; the
    *  rest render as a typed label (kit ActorName). */
   actorKind: ActorKind;
+  /** The person the line is ABOUT (quota / membership target), when there is
+   *  one. `textTemplate` then holds `{subject}` where it goes, so the screen
+   *  renders it through kit ActorPhrase; `text` is the same sentence as plain
+   *  text (search, tests). */
+  subject?: { text: string; kind: ActorKind };
+  textTemplate?: string;
   action: string;
   entity: string;
   /** Past-tense phrase WITHOUT the actor (rendered after the bold actor name). */
@@ -59,6 +65,8 @@ function roleList(v: unknown): string | null {
 }
 
 const SYSTEM = t.shared.actor.system;
+/** Where the subject goes in a composed sentence (replaced once). */
+const SUBJECT_SLOT = '{subject}';
 const SOMEONE = 'a guest';
 
 /** Compose the phrase after the actor for one audit row. */
@@ -66,7 +74,7 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
   const after = side(row.diff, 'after');
   const before = side(row.diff, 'before');
   const guest = row.guest_name ?? SOMEONE;
-  const subject = row.subject_name ?? 'a user';
+  const subject = row.subject_name ?? t.shared.actor.someUser;
   const action = row.action ?? 'update';
   const entityType = row.entity_type ?? '';
 
@@ -285,8 +293,22 @@ export function describeAuditEntry(
   row: AuditFeedRow,
   labels: ReadonlyMap<string, string> = new ActorLabels(),
 ): AuditLine {
+  // The subject (quota / membership target) is a person too: resolve it like
+  // the actor (label + kind) and keep its slot in the sentence.
   const subjectLabel = row.subject_user_id ? labels.get(row.subject_user_id) : undefined;
-  const { text, entity } = phrase(subjectLabel ? { ...row, subject_name: subjectLabel } : row);
+  const subjectRef: { text: string; kind: ActorKind } =
+    subjectLabel !== undefined && row.subject_user_id
+      ? {
+          text: subjectLabel,
+          kind: labels instanceof ActorLabels ? labels.kindOf(row.subject_user_id) : 'member',
+        }
+      : row.subject_name != null
+        ? nameRef(row.subject_name)
+        : { text: t.shared.actor.someUser, kind: 'unknown' };
+  const slotted = phrase({ ...row, subject_name: SUBJECT_SLOT });
+  const hasSubject = slotted.text.includes(SUBJECT_SLOT);
+  const text = slotted.text.replace(SUBJECT_SLOT, subjectRef.text);
+  const entity = slotted.entity.replace(SUBJECT_SLOT, subjectRef.text);
   const resolved = row.actor_id ? labels.get(row.actor_id) : undefined;
   const actorRef: { text: string; kind: ActorKind } = !row.actor_id
     ? { text: SYSTEM, kind: 'system' }
@@ -303,6 +325,7 @@ export function describeAuditEntry(
     id: row.id ?? '',
     actor: actorRef.text,
     actorKind: actorRef.kind,
+    ...(hasSubject ? { subject: subjectRef, textTemplate: slotted.text } : {}),
     action: row.action ?? 'update',
     entity,
     text,

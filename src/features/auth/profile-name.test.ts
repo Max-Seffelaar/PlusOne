@@ -84,6 +84,47 @@ describe('round 3: every default-ignorable / control / format code point (same c
   });
 });
 
+describe('round 4: styled look-alikes, the phrase, and joiners real names use (same cases as pgTAP K1-K9)', () => {
+  const cp = String.fromCodePoint;
+  /** ASCII letters to a styled alphabet (upper/lower base code points). */
+  const styled = (s: string, upper: number, lower: number, space: number): string =>
+    [...s]
+      .map((ch) => {
+        const c = ch.charCodeAt(0);
+        if (c >= 65 && c <= 90) return cp(upper + c - 65);
+        if (c >= 97 && c <= 122) return cp(lower + c - 97);
+        if (ch === ' ') return cp(space);
+        return ch;
+      })
+      .join('');
+
+  it.each([
+    ['shield + Math Sans-Serif Italic + U+2800', cp(0x26e8) + styled('PlusOne support', 0x1d608, 0x1d622, 0x2800)],
+    ['fullwidth', styled('PlusOne support', 0xff21, 0xff41, 0x3000)],
+    ['Mathematical Bold "System"', styled('System', 0x1d400, 0x1d41a, 0x20)],
+    ['a name containing the phrase', `${cp(0x26e8)} PlusOne support desk`],
+    ['"System" + ZWJ', `System${cp(0x200d)}`],
+  ])('refuses %s', (_label, name) => {
+    expect(isReservedProfileName(name)).toBe(true);
+  });
+
+  it.each([
+    ['Systema Smith', 'Systema Smith'],
+    ['Zoe + CJK', `Zo${cp(0xeb)} ${cp(0x674e)}`],
+    ['accented', `Jos${cp(0xe9)} M${cp(0xfc)}ller`],
+    ['emoji ZWJ sequence', `Family ${cp(0x1f468)}${cp(0x200d)}${cp(0x1f469)}`],
+    ['emoji + U+FE0F', `Heart ${cp(0x2764)}${cp(0xfe0f)}`],
+    ['ZWNJ in a Persian-style name', `Mehr${cp(0x200c)}dad`],
+  ])('accepts %s', (_label, name) => {
+    expect(isReservedProfileName(name)).toBe(false);
+  });
+
+  it('NFKC folds the styled forms into the key', () => {
+    expect(profileNameKey(styled('PlusOne support', 0x1d608, 0x1d622, 0x2800))).toBe('plusone support');
+    expect(profileNameKey(styled('System', 0x1d400, 0x1d41a, 0x20))).toBe('system');
+  });
+});
+
 describe('Zod refuses them with the catalogue messages', () => {
   it('profileSchema: invisible character → invisibleChars message', () => {
     const res = profileSchema.safeParse({ firstName: 'Tom', lastName: `Bakker${ZWSP}`, phone: '' });

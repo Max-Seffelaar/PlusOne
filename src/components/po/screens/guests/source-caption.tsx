@@ -7,8 +7,8 @@ import { ActorPhrase } from '../../kit';
 /**
  * Where a guest came from ("Added by Sanne", "At the door by PlusOne support",
  * "Sign-up link · Joeri"). The actor goes through the kit's ActorPhrase, so a
- * member's name renders plain and PlusOne's own labels as a typed label
- * (spec #62a, review #466 round 3) — no name can pass for one of them.
+ * member's name renders as plain text and PlusOne's own labels as the chip
+ * (spec #62a, review #466 rounds 3–4).
  */
 export function GuestSourceCaption(props: GuestSourceInput): JSX.Element {
   const p = guestSourceParts(props);

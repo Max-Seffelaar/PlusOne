@@ -8,7 +8,7 @@
 import type { GuestSource } from '@/lib/po/types';
 import { t, fmt } from '@/lib/i18n';
 import type { ActorKind } from '@/lib/po/actor-kind';
-import { profileNameKey } from '@/features/auth/profile-name';
+import { nameWords, profileNameKey } from '@/features/auth/profile-name';
 import { absentStage, type EventPhase } from './event-phase';
 
 export const TZ = 'Europe/Amsterdam';
@@ -107,7 +107,8 @@ const LABEL_LIKE_FIRST_WORDS = new Set(['system', 'unnamed', 'unknown', 'plusone
  *  Seffelaar" — unless the first word reads like a label: then the full name. */
 export function firstName(full: string): string {
   const trimmed = full.trim();
-  const first = trimmed.split(/\s+/)[0] ?? '';
+  // Split on EVERY Unicode space incl. U+2800 (braille blank), not just \s.
+  const first = nameWords(trimmed)[0] ?? '';
   return LABEL_LIKE_FIRST_WORDS.has(profileNameKey(first)) ? trimmed : first;
 }
 

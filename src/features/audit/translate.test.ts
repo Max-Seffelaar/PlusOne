@@ -271,6 +271,27 @@ describe('describeAuditEntry', () => {
       expect(line.actorKind).toBe('member');
     });
 
+    it('carries the SUBJECT as a ref with its kind, slotted in the template (review #466 r4)', () => {
+      const line = describeAuditEntry(
+        row({ entity_type: 'venue_memberships', action: 'delete', subject_user_id: 'u-op', subject_name: null, guest_name: null }),
+        labels,
+      );
+      expect(line.subject).toEqual({ text: 'PlusOne support', kind: 'support' });
+      expect(line.textTemplate).toBe("removed {subject}'s access");
+      expect(line.text).toBe("removed PlusOne support's access");
+    });
+
+    it('an unresolved subject is the i18n "a user", kind unknown; no subject → no template', () => {
+      const line = describeAuditEntry(
+        row({ entity_type: 'quotas', action: 'quota_grant', subject_user_id: 'u-x', subject_name: null, guest_name: null,
+              diff: { before: null, after: { default_count: 5 } } }),
+        new ActorLabels(),
+      );
+      expect(line.subject).toEqual({ text: 'a user', kind: 'unknown' });
+      expect(line.text).toBe('granted a user an venue quota of 5');
+      expect(describeAuditEntry(row({ action: 'delete' }), labels).subject).toBeUndefined();
+    });
+
     it('the RLS-name fallback goes through the same blank → "Unnamed" rule', () => {
       const blank = String.fromCodePoint(0x3164);
       const line = describeAuditEntry(row({ actor_id: 'u-max', actor_name: blank }), new ActorLabels());
