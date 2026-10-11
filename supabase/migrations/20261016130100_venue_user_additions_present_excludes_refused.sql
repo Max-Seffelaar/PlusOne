@@ -17,11 +17,11 @@
 -- is unchanged, so `added` / `added_headcount` (the gross ledger: refused guests
 -- still count as added) stay exactly as before.
 --
--- Body otherwise copied verbatim from 20261014130000_definer_rpc_profile_scope
+-- Body otherwise copied verbatim from 20261016130000_definer_rpc_profile_scope
 -- (PR #461): the platform-admin name rule (name null when the adder is a
 -- platform admin the caller cannot see via can_view_profile), the `agg` CTE,
 -- the sort on the displayed name, the can_read_venue_stats gate. This migration
--- MUST be applied after 20261014130000 — it replaces the same function; the
+-- MUST be applied after 20261016130000 — it replaces the same function; the
 -- timestamp order guarantees that on `db reset` / `db push`.
 --
 -- Signature, result type and grants are unchanged (CREATE OR REPLACE keeps the

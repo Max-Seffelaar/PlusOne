@@ -1,5 +1,5 @@
 -- pgTAP — venue_user_additions.present follows the on-list rule (#44)
--- (20261015130000, the venue half of 20260811161000 / 86ey9c5fp).
+-- (20261016130100, the venue half of 20260811161000 / 86ey9c5fp).
 --
 -- `sync_guest_status_from_refusal` flips a checked-in guest to `refused`
 -- without voiding the check-in, so the check_ins row survives the refusal.
@@ -11,7 +11,7 @@
 --   * venue-level present equals the sum of event-level present over the
 --     venue's events — for the fixture window AND for every adder venue-wide;
 --   * a normal check-in still counts; a voided check-in still does not;
---   * the platform-admin name rule (20261014130000) is unchanged: a hidden
+--   * the platform-admin name rule (20261016130000) is unchanged: a hidden
 --     operator's row has counts but no name; the operator sees their own name;
 --   * the gate and grants are unchanged.
 --
@@ -195,7 +195,7 @@ select is(
   'B8 venue-wide: no adder whose venue present differs from the sum of their event present');
 
 -- ---------------------------------------------------------------------------
--- C. Platform-admin name rule (20261014130000) unchanged
+-- C. Platform-admin name rule (20261016130000) unchanged
 -- ---------------------------------------------------------------------------
 
 select is((select count(*)::int from public.user_profiles

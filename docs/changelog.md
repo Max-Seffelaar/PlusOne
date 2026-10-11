@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-10-11 — venue_user_additions: present excludes guests refused after check-in (#44)
 
-Milestone **Now**. Follow-up to 86ey9c5fp (20260811161000), found in review of #461. Migration `20261015130000_venue_user_additions_present_excludes_refused.sql`; it replaces the same function as #461's `20261014130000`, so the two merge and push in that order (#461 first).
+Milestone **Now**. Follow-up to 86ey9c5fp (20260811161000), found in review of #461. Migration `20261016130100_venue_user_additions_present_excludes_refused.sql`; it replaces the same function as #461's `20261016130000`, so the two merge and push in that order (#461 first).
 
 - **Bug:** the venue-level per-member breakdown counted a guest refused after checking in as present. `sync_guest_status_from_refusal` flips the status without voiding the check-in, and the `ci` CTE joined every row of `reg` (approved, checked_in, refused). 20260811161000 fixed this in `event_user_additions` only, so the venue column read higher than the sum of its events (Max: 4 at venue level, 3 at event level).
 - **Fix:** `reg` also selects `g.status`; `ci` adds `reg.status in ('approved', 'checked_in')`, the event variant's rule. The rest of the body is #461's: the platform-admin name rule, the `agg` CTE, the order. `added`/`added_headcount` stay the gross ledger (a refused guest still counts as added). Signature, result type, gate and grants are unchanged.
