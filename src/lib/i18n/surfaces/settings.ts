@@ -402,6 +402,9 @@ export const settings = {
     otherCompany: {
       title: 'Billing for {company}',
       body: "You're working in {active} right now. Switch to see the billing for {company}.",
+      /** When the active company has no name in the user's own memberships
+       *  (a platform admin who entered a company without being a member). */
+      bodyNoActive: 'Switch to see the billing for {company}.',
       cta: 'Switch to {company}',
     },
     loading: 'Loading…',

@@ -20,6 +20,7 @@ const STRANGER = 'aa000000-0000-7000-8000-0000000000ff';
 const H = vi.hoisted(() => ({
   switchToVenue: vi.fn(),
   native: false,
+  activeVenueId: 'aa000000-0000-7000-8000-000000000001',
 }));
 
 vi.mock('@/lib/platform', () => ({ isNativeShell: () => H.native }));
@@ -48,7 +49,7 @@ vi.mock('@/features/po/mutations', () => ({
 vi.mock('../../context', () => ({
   useNav: () => ({ back: vi.fn(), push: vi.fn() }),
   usePo: () => ({
-    activeVenueId: VESPER,
+    activeVenueId: H.activeVenueId,
     myVenues: [
       { venueId: VESPER, venueName: 'Club Vesper', roles: ['admin'] },
       { venueId: MARKTZAAL, venueName: 'De Marktzaal', roles: ['admin'] },
@@ -63,6 +64,7 @@ afterEach(() => {
   cleanup();
   H.switchToVenue.mockReset();
   H.native = false;
+  H.activeVenueId = VESPER;
 });
 
 describe('Billing ?venue= deep link', () => {
@@ -92,6 +94,14 @@ describe('Billing ?venue= deep link', () => {
     expect(screen.queryByTestId('billing-other-company')).toBeNull();
     expect(screen.queryByText(/De Marktzaal/)).toBeNull();
     expect(screen.getByText('Pro')).toBeInTheDocument();
+  });
+
+  it('active company not among my memberships (a platform admin who entered it): no empty "working in  right now"', () => {
+    H.activeVenueId = STRANGER;
+    render(<Billing venueId={MARKTZAAL} />);
+    expect(screen.getByText('Switch to see the billing for De Marktzaal.')).toBeInTheDocument();
+    expect(screen.queryByText(/working in/)).toBeNull();
+    expect(screen.getByRole('button', { name: /Switch to De Marktzaal/ })).toBeInTheDocument();
   });
 
   it('native shell: the switch card carries no purchase copy', () => {

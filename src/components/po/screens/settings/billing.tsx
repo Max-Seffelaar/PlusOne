@@ -61,7 +61,11 @@ export function Billing({ venueId }: { venueId?: string } = {}): JSX.Element {
             <GuideCard
               icon="swap"
               title={fmt(oc.title, { company: other.venueName })}
-              body={fmt(oc.body, { active: activeName, company: other.venueName })}
+              body={
+                activeName
+                  ? fmt(oc.body, { active: activeName, company: other.venueName })
+                  : fmt(oc.bodyNoActive, { company: other.venueName })
+              }
               actions={
                 <Btn kind="primary" sm icon="swap" onClick={() => switchToVenue(other.venueId, '/app/billing')}>
                   {fmt(oc.cta, { company: other.venueName })}
