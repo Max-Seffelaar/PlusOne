@@ -47,6 +47,7 @@ vi.mock('@/features/po/platform-mail-log', () => ({
   },
   usePoRevealMailRecipient: () => ({ mutate: H.reveal, isPending: false, isSuccess: false, isError: false, data: undefined }),
   usePoSendTestMail: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isSuccess: false, isError: false }),
+  usePoTestMailRecipients: () => ({ data: [{ userId: 'u-max', email: 'max@plus-one.io', name: 'Max' }] }),
 }));
 
 const { PlatformMailLog } = await import('./platform-mail-log');
@@ -75,6 +76,9 @@ describe('Platform > Mail log', () => {
     expect(row).toHaveTextContent(t.platform.mailLogStatusBounced);
     expect(screen.getByTestId('mail-log-recipient')).toHaveTextContent('l***@e***.com');
     expect(screen.getByTestId('test-mail')).toBeInTheDocument();
+    // The recipient is a picker of platform admins, never a free address field.
+    expect(screen.getByTestId('test-mail').querySelector('input[type="email"]')).toBeNull();
+    expect(screen.getByRole('combobox', { name: t.platform.testMailTo })).toBeInTheDocument();
   });
 
   it('"Show address" needs a ticket before it asks the server', () => {

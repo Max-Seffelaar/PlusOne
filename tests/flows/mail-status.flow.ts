@@ -59,6 +59,14 @@ async function mailTo(email: string, subject: RegExp): Promise<{ subject: string
   return null;
 }
 
+/** How many Mailpit mails to `email` have a matching subject. */
+async function countMails(email: string, subject: RegExp): Promise<number> {
+  const res = await fetch(`${MAILPIT}/api/v1/messages?limit=500`);
+  const list =
+    ((await res.json()) as { messages?: Array<{ Subject: string; To?: Array<{ Address: string }> }> }).messages ?? [];
+  return list.filter((m) => subject.test(m.Subject) && (m.To ?? []).some((x) => x.Address.toLowerCase() === email)).length;
+}
+
 test.beforeAll(async () => {
   await acceptConsent(ADMIN);
   const id = await getUserIdByEmail(ADMIN);
@@ -183,16 +191,18 @@ test('mail status: guest list states, resend, bounce rule, platform mail log, te
   await page.getByRole('button', { name: 'Cancel' }).last().click();
 
   // ── Test mail ──────────────────────────────────────────────────────────────
-  const testTo = `test-${run}@example.test`;
+  // Only to a platform admin (review #463): admin@ is one for this flow.
+  const before = await countMails(ADMIN, /^\[Test\] /);
   const card = page.getByTestId('test-mail');
-  await card.getByLabel('Send to').fill(testTo);
+  await card.getByLabel('Send to').selectOption({ label: `Max de Vries · ${ADMIN}` });
+  await flow.shot('test-mail');
   await card.getByRole('button', { name: 'Send test' }).click();
-  await flow.check(9, 'A test mail sends: "Test mail sent."', async () => {
+  await flow.check(9, 'A test mail goes to a platform admin picked from the list: "Test mail sent."', async () => {
     await expect(card.getByText(/Test mail sent/)).toBeVisible();
+    await expect(card.locator('input[type="email"]')).toHaveCount(0);
   });
   await flow.check(10, 'It lands in Mailpit with "[Test]" in the subject, and the log marks it as a test', async () => {
-    const m = await mailTo(testTo, /^\[Test\] /);
-    expect(m).not.toBeNull();
+    await expect.poll(() => countMails(ADMIN, /^\[Test\] /), { timeout: 20_000 }).toBeGreaterThan(before);
     await page.reload();
     await expect(page.getByTestId('mail-log').getByText('Test').first()).toBeVisible();
   });

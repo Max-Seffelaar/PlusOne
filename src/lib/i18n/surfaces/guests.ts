@@ -532,6 +532,7 @@ export const guests = {
     complainedHint: 'The guest marked this as spam. Change the email first, then resend.',
     errBounced: 'This address bounced. Change the email first.',
     errNothing: 'Nothing to resend for this guest.',
+    errLimit: 'Resent three times today already. Try again tomorrow.',
     errNoRights: "You can't change this guest.",
     errFailed: "Couldn't resend the confirmation. Try again.",
   },

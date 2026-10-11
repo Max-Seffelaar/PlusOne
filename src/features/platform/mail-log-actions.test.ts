@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const H = vi.hoisted(() => ({
   userResult: { data: 'log-1' as unknown, error: null as null | { code: string } },
+  recipients: [{ user_id: '00000000-0000-7000-8000-0000000000b1', email: 'max@plus-one.io', name: 'Max' }],
   userRpc: vi.fn(),
   serviceRpc: vi.fn(),
   send: vi.fn(async () => ({ ok: true as const, providerMessageId: 're_1' })),
@@ -16,7 +17,12 @@ const H = vi.hoisted(() => ({
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/auth/context', () => ({ getAuthContext: vi.fn(async () => ({ user: { id: 'u1' } })) }));
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ rpc: (...a: unknown[]) => (H.userRpc(...a), Promise.resolve(H.userResult)) }),
+  createClient: async () => ({
+    rpc: (...a: unknown[]) => {
+      H.userRpc(...a);
+      return Promise.resolve(a[0] === 'platform_test_mail_recipients' ? { data: H.recipients, error: null } : H.userResult);
+    },
+  }),
 }));
 vi.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({ rpc: (...a: unknown[]) => (H.serviceRpc(...a), Promise.resolve({ data: 1, error: null })) }),
@@ -33,6 +39,7 @@ import { recipientHash } from '@/features/mail/send';
 import { t } from '@/lib/i18n';
 
 const LOG = '00000000-0000-7000-8000-0000000000a1';
+const MAX = '00000000-0000-7000-8000-0000000000b1';
 
 beforeEach(() => {
   H.userResult = { data: 'log-1', error: null };
@@ -60,8 +67,8 @@ describe('revealMailRecipient', () => {
 });
 
 describe('sendPlatformTestMail', () => {
-  it('logs as a test, sends the template, records the result on that row', async () => {
-    expect(await sendPlatformTestMail({ type: 'guest_on_list', to: ' Max@Plus-One.io ' })).toEqual({ ok: true });
+  it('to a platform admin: logs as a test, sends the template, records the result on that row', async () => {
+    expect(await sendPlatformTestMail({ type: 'guest_on_list', toUserId: MAX })).toEqual({ ok: true });
     expect(H.userRpc).toHaveBeenCalledWith('log_platform_test_mail', {
       p_type: 'guest_on_list',
       p_recipient_hash: recipientHash('max@plus-one.io'),
@@ -76,16 +83,24 @@ describe('sendPlatformTestMail', () => {
 
   it('over the limit: nothing is sent', async () => {
     H.userResult = { data: null, error: { code: 'PM429' } };
-    expect(await sendPlatformTestMail({ type: 'team_join', to: 'max@plus-one.io' })).toMatchObject({
+    expect(await sendPlatformTestMail({ type: 'team_join', toUserId: MAX })).toMatchObject({
       ok: false,
       message: t.platform.testMailLimit,
     });
     expect(H.send).not.toHaveBeenCalled();
   });
 
-  it('refuses an unknown type or a bad address before anything', async () => {
-    expect((await sendPlatformTestMail({ type: 'auth_invite', to: 'max@plus-one.io' })).ok).toBe(false);
-    expect((await sendPlatformTestMail({ type: 'team_join', to: 'a@b.c>, x@y.z' })).ok).toBe(false);
+  it('refuses an unknown type or a malformed id before anything', async () => {
+    expect((await sendPlatformTestMail({ type: 'auth_invite', toUserId: MAX })).ok).toBe(false);
+    expect((await sendPlatformTestMail({ type: 'team_join', toUserId: 'max@plus-one.io' })).ok).toBe(false);
     expect(H.userRpc).not.toHaveBeenCalled();
+  });
+
+  it('someone who is no platform admin is no recipient: nothing logged, nothing sent', async () => {
+    expect(
+      (await sendPlatformTestMail({ type: 'team_join', toUserId: '00000000-0000-7000-8000-0000000000c9' })).ok,
+    ).toBe(false);
+    expect(H.userRpc).not.toHaveBeenCalledWith('log_platform_test_mail', expect.anything());
+    expect(H.send).not.toHaveBeenCalled();
   });
 });

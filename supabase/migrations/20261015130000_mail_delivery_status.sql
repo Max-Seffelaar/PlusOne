@@ -8,15 +8,17 @@
 --   2. guest_confirmation_state(guest): per guest the state of the
 --      confirmation ("You're on the list" or the approval mail): not sent,
 --      queued, sent, delivered, bounced, complained, failed, opted out; and
---      whether a resend is allowed. Bounced or complained to the address the
---      guest still has: no resend until the address is changed (decision 3,
+--      whether a resend is allowed. Any bounce or complaint at the address
+--      the guest has now: no resend until the address is changed (decision 3,
 --      a database rule).
 --      event_guest_mail_status(event) (20261013180000, no app caller yet) is
---      redefined on top of it: one row per guest with a spot and an address.
+--      redefined on top of it: one row per guest with a spot and an address,
+--      only the guests the caller may see (the guests_select predicate).
 --   3. resend_guest_confirmation(guest, actor) (service_role, after the
---      action proved through RLS that the caller may edit the guest): queue a
---      new confirmation through enqueue_guest_mail. Same queue, same budgets;
---      a second click while one is queued returns that row.
+--      action proved through RLS that the caller may edit the guest): queue
+--      the original confirmation type again through enqueue_guest_mail. Same
+--      queue, same budgets; a second click while one is queued returns that
+--      row; at most 3 resends per guest per UTC day (guest_confirmation_resends).
 --   4. Platform mail log (is_platform_admin() only): platform_mail_log() lists
 --      every outgoing mail with type, company, event (where known), time,
 --      status, test flag and a MASKED address; platform_reveal_mail_recipient()
@@ -24,8 +26,10 @@
 --      platform_access_log row (CLAUDE.md decision 8). platform_access_log
 --      .venue_id becomes nullable (a digest or a platform invite has no
 --      company); expand-only.
---   5. log_platform_test_mail(): the test mail's mail_log row, within its own
---      small limit (10 per platform admin, 30 overall per UTC day).
+--   5. log_platform_test_mail(): the test mail's mail_log row, only to a
+--      current platform admin's sign-in address (platform_test_mail_recipients),
+--      within its own small limit (10 per platform admin, 30 overall per UTC
+--      day).
 --
 -- guest_mails_claim is not touched (task 7 redefines it).
 
@@ -141,7 +145,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 2. The confirmation state per guest
 -- ---------------------------------------------------------------------------
--- state:
+-- state (the newest confirmation: "You're on the list" or the approval mail):
 --   not_sent    an address, but no confirmation went out (never queued, the
 --               "Send confirmation" switch was off, skipped or canceled)
 --   queued      waiting in the queue or being sent
@@ -151,14 +155,43 @@ $$;
 --   complained  the guest marked it as spam
 --   failed      the provider refused it, or the outcome is unknown
 --   opted_out   the guest stopped this company's mail (never resent)
+-- needs_new_address: ANY confirmation to this guest bounced or was marked as
+-- spam at the address the guest has now (same normalised hash), whatever the
+-- newest state is (review #463: bounce, change to a bad address that fails,
+-- change back must not reopen the resend).
 -- can_resend: the event is still ahead and not cancelled, the guest holds a
--- spot, has an address, has not opted out, and the state is not_sent or
--- failed; or bounced/complained AND the address changed since (the hash of
--- the current address differs from the one the mail went to).
--- needs_new_address: bounced/complained to the address the guest still has.
+-- spot, has an address, has not opted out, no bounce at this address, fewer
+-- than guest_confirmation_resend_daily_cap() resends today, and the state is
+-- not_sent, failed, or bounced/complained at an address since changed.
+
+-- Resends per guest (review #463: at most 3 a day, in the database).
+create table public.guest_confirmation_resends (
+  id uuid primary key default public.uuid_generate_v7(),
+  guest_id uuid not null references public.guests (id) on delete cascade,
+  queue_id uuid references public.guest_mail_queue (id) on delete set null,
+  actor uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+comment on table public.guest_confirmation_resends is
+  'One row per "Resend confirmation" (20261015130000): the daily cap per '
+  'guest. Written only by resend_guest_confirmation. No app-role grants.';
+create index guest_confirmation_resends_guest_idx
+  on public.guest_confirmation_resends (guest_id, created_at desc);
+alter table public.guest_confirmation_resends enable row level security;
+-- No policies: RLS on + no grants = closed.
+
+create or replace function public.guest_confirmation_resend_daily_cap()
+returns integer language sql immutable set search_path = '' as $$ select 3 $$;
 
 create or replace function public.guest_confirmation_state(p_guest_id uuid)
-returns table (state text, mail_type text, can_resend boolean, needs_new_address boolean)
+returns table (
+  state text,
+  mail_type text,
+  can_resend boolean,
+  needs_new_address boolean,
+  source_request_id uuid,
+  remark text
+)
 language plpgsql
 stable
 security definer
@@ -170,7 +203,8 @@ declare
   v_hash text;
   v_state text;
   v_open boolean;
-  v_changed boolean := false;
+  v_bounced_here boolean;
+  v_resends integer;
 begin
   select g.id, g.venue_id, g.status, g.email, g.anonymized_at,
          e.cancelled_at, coalesce(e.ends_at, e.starts_at + interval '12 hours') as ends_at
@@ -184,7 +218,7 @@ begin
   end if;
   v_hash := public.guest_mail_email_hash(v_g.email);
 
-  select q.type, q.status, q.reason, m.status as log_status, m.recipient_hash
+  select q.type, q.status, q.reason, q.source_request_id, q.remark, m.status as log_status
     into v_q
     from public.guest_mail_queue q
     left join public.mail_log m on m.id = q.mail_log_id
@@ -192,6 +226,15 @@ begin
      and q.type in ('guest_on_list', 'guest_request_approved', 'guest_request_partly')
    order by q.created_at desc, q.id desc
    limit 1;
+
+  v_bounced_here := exists (
+    select 1
+      from public.guest_mail_queue q
+      join public.mail_log m on m.id = q.mail_log_id
+     where q.guest_id = p_guest_id
+       and q.type in ('guest_on_list', 'guest_request_approved', 'guest_request_partly')
+       and m.status in ('bounced', 'complained')
+       and m.recipient_hash = v_hash);
 
   if exists (select 1 from public.guest_mail_optouts o
               where o.venue_id = v_g.venue_id and o.email_hash = v_hash) then
@@ -207,7 +250,6 @@ begin
                  when 'complained' then 'complained'
                  when 'failed' then 'failed'
                  else 'sent' end;
-    v_changed := v_q.recipient_hash is distinct from v_hash;
   elsif v_q.status = 'failed' then
     v_state := 'failed';
   elsif v_q.status = 'skipped' and v_q.reason = 'opted_out' then
@@ -216,27 +258,39 @@ begin
     v_state := 'not_sent';
   end if;
 
+  select count(*)::int into v_resends
+    from public.guest_confirmation_resends r
+   where r.guest_id = p_guest_id
+     and r.created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC';
+
   v_open := v_g.cancelled_at is null
             and v_g.ends_at > now()
             and public.guest_mail_has_spot(v_g.status);
 
   state := v_state;
   mail_type := v_q.type;
-  needs_new_address := v_state in ('bounced', 'complained') and not v_changed;
-  can_resend := v_open and (
-    v_state in ('not_sent', 'failed')
-    or (v_state in ('bounced', 'complained') and v_changed));
+  source_request_id := v_q.source_request_id;
+  remark := v_q.remark;
+  needs_new_address := v_bounced_here;
+  can_resend := v_open
+    and not v_bounced_here
+    and v_resends < public.guest_confirmation_resend_daily_cap()
+    and v_state in ('not_sent', 'failed', 'bounced', 'complained');
   return next;
 end;
 $$;
 
 comment on function public.guest_confirmation_state(uuid) is
   'Owner-only helper (20261015130000): the state of a guest''s confirmation '
-  'mail and whether it may be sent again. Bounced or complained to the '
-  'address the guest still has: no resend until the address changes.';
+  'mail and whether it may be sent again. Any bounce or complaint at the '
+  'address the guest has now blocks a resend until the address changes; at '
+  'most guest_confirmation_resend_daily_cap() resends per guest per UTC day.';
 
--- The guest list read (members and organizers of the event). Redefined: the
--- 20261013180000 version (newest mail of any type) had no app caller.
+-- The guest list read. Redefined: the 20261013180000 version (newest mail of
+-- any type) had no app caller. SECURITY DEFINER for the queue and mail_log
+-- reads, so it repeats the guests_select policy (20260708120000) as its row
+-- filter: a caller gets exactly the guests RLS shows them (review #463;
+-- mail_delivery_status.test.sql compares the two for every seed role).
 drop function public.event_guest_mail_status(uuid);
 
 create function public.event_guest_mail_status(p_event_id uuid)
@@ -260,22 +314,38 @@ begin
     from public.guests g
     cross join lateral public.guest_confirmation_state(g.id) s
    where g.event_id = p_event_id
-     and public.guest_mail_has_spot(g.status);
+     and public.guest_mail_has_spot(g.status)
+     -- = guests_select
+     and (
+       public.has_venue_role(g.venue_id, '{admin,finance,doorhost}'::public.venue_role[])
+       or public.is_event_organizer(g.event_id)
+       or (
+         public.has_venue_role(g.venue_id, '{staff}'::public.venue_role[])
+         and g.added_by = (select auth.uid())
+       )
+     );
 end;
 $$;
 
 comment on function public.event_guest_mail_status(uuid) is
   'Guest list (members/organizers of the event, 42501 otherwise): per guest '
-  'with a spot and an address, the state of their confirmation mail and '
-  'whether it may be sent again (20261015130000). Ids and states only.';
+  'the caller may see (the guests_select predicate) with a spot and an '
+  'address, the state of their confirmation mail and whether it may be sent '
+  'again (20261015130000). Ids and states only.';
 
 -- ---------------------------------------------------------------------------
 -- 3. Resend
 -- ---------------------------------------------------------------------------
 -- The server action first proves through the caller's own session that they
--- may edit this guest (RLS on guests decides: can_edit_guest below), then
--- calls this with the service client. Errors:
---   PMB01  bounced or complained to the address the guest still has
+-- may edit this guest (can_edit_guest below: RLS decides), then calls this
+-- with the service client. It re-queues the ORIGINAL confirmation type: an
+-- approval mail keeps its request (split tiers, "you asked for N"); its note
+-- is only there while the original row has not settled (the queue NULLs a
+-- remark the moment a row settles), so a resend usually goes without it. An
+-- approval whose request is no longer approved falls back to "You're on the
+-- list". Errors:
+--   PMB01  bounced or complained at the address the guest has now
+--   PM429  the daily resend cap for this guest is reached
 --   22023  nothing to resend (sent or delivered, opted out, no spot, the
 --          event is over or cancelled, no address)
 
@@ -311,23 +381,37 @@ begin
   if v_s.needs_new_address then
     raise exception 'the address bounced: change it first' using errcode = 'PMB01';
   end if;
+  if (select count(*) from public.guest_confirmation_resends r
+       where r.guest_id = p_guest_id
+         and r.created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC')
+     >= public.guest_confirmation_resend_daily_cap() then
+    raise exception 'resend limit reached' using errcode = 'PM429';
+  end if;
   if not v_s.can_resend then
     raise exception 'nothing to resend' using errcode = '22023';
   end if;
 
-  v_id := public.enqueue_guest_mail(p_guest_id, 'guest_on_list', null, p_actor, 0, null);
+  if v_s.mail_type in ('guest_request_approved', 'guest_request_partly') and v_s.source_request_id is not null then
+    v_id := public.enqueue_guest_mail(p_guest_id, v_s.mail_type, v_s.remark, p_actor, 0, v_s.source_request_id);
+  end if;
+  if v_id is null then
+    v_id := public.enqueue_guest_mail(p_guest_id, 'guest_on_list', null, p_actor, 0, null);
+  end if;
   if v_id is null then
     raise exception 'nothing to resend' using errcode = '22023';
   end if;
+
+  insert into public.guest_confirmation_resends (guest_id, queue_id, actor)
+  values (p_guest_id, v_id, p_actor);
   return v_id;
 end;
 $$;
 
 comment on function public.resend_guest_confirmation(uuid, uuid) is
   'Server action (service_role), after can_edit_guest() held for the caller: '
-  'queue the confirmation again (same queue, same budgets). PMB01 while it '
-  'bounced to the address the guest still has; 22023 when there is nothing '
-  'to resend.';
+  'queue the original confirmation again (same queue, same budgets). PMB01 '
+  'while it bounced at the address the guest has now; PM429 past 3 resends '
+  'per guest per day; 22023 when there is nothing to resend.';
 
 -- Can the caller edit this guest? The answer of RLS itself (guests_update and
 -- every guard trigger on it, list lock included), not a copy of the policy:
@@ -550,7 +634,36 @@ returns integer language sql immutable set search_path = '' as $$ select 10 $$;
 create or replace function public.platform_test_mail_daily_cap()
 returns integer language sql immutable set search_path = '' as $$ select 30 $$;
 
+-- Who a test mail may go to (review #463, decision orchestrator 2026-10-11):
+-- the sign-in address of a current platform admin, nobody else, so a test
+-- can never be used to mail an outsider from our domain. Platform admins only.
+create or replace function public.platform_test_mail_recipients()
+returns table (user_id uuid, email text, name text)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_platform_admin() then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  return query
+  select p.id, lower(btrim(u.email::text)), p.full_name
+    from public.user_profiles p
+    join auth.users u on u.id = p.id
+   where p.is_platform_admin
+     and nullif(btrim(coalesce(u.email::text, '')), '') is not null
+   order by p.full_name nulls last, u.email;
+end;
+$$;
+
+comment on function public.platform_test_mail_recipients() is
+  'Platform admin: the sign-in addresses a test mail may go to (every current '
+  'platform admin). 20261015130000.';
+
 -- The test mail's log row (the caller's own session, platform admins only),
+-- only to a current platform admin's sign-in address (22023 otherwise),
 -- within 10 per admin and 30 overall per UTC day. PM429 over the limit.
 create or replace function public.log_platform_test_mail(p_type text, p_recipient_hash text)
 returns uuid
@@ -565,6 +678,15 @@ declare
 begin
   if v_uid is null or not public.is_platform_admin() then
     raise exception 'not allowed' using errcode = '42501';
+  end if;
+  if not exists (
+    select 1
+      from public.user_profiles p
+      join auth.users u on u.id = p.id
+     where p.is_platform_admin
+       and public.guest_mail_email_hash(u.email::text) = p_recipient_hash
+  ) then
+    raise exception 'a test mail goes to a platform admin only' using errcode = '22023';
   end if;
   perform pg_advisory_xact_lock(hashtextextended('platform_test_mail', 0));
   if (select count(*) from public.mail_log m
@@ -583,15 +705,20 @@ end;
 $$;
 
 comment on function public.log_platform_test_mail(text, text) is
-  'Platform admin: log a test mail (is_test, no company) before it is sent; '
-  'its own limit (10 per admin, 30 overall per UTC day), outside every '
-  'company and overall budget (20261015130000).';
+  'Platform admin: log a test mail (is_test, no company) before it is sent, '
+  'to a platform admin''s sign-in address only; its own limit (10 per admin, '
+  '30 overall per UTC day), outside every company and overall budget '
+  '(20261015130000).';
 
 -- ---------------------------------------------------------------------------
 -- Grant matrix (functions; no new tables)
 -- ---------------------------------------------------------------------------
 
+revoke all on table public.guest_confirmation_resends from anon, authenticated, service_role;
+
 revoke execute on function
+  public.guest_confirmation_resend_daily_cap(),
+  public.platform_test_mail_recipients(),
   public.guest_confirmation_state(uuid),
   public.mail_log_recipient(uuid),
   public.mask_email(text),
@@ -611,5 +738,6 @@ grant execute on function
   public.can_edit_guest(uuid),
   public.platform_mail_log(integer, integer, uuid, text, text),
   public.platform_reveal_mail_recipient(uuid, text),
+  public.platform_test_mail_recipients(),
   public.log_platform_test_mail(text, text)
   to authenticated;

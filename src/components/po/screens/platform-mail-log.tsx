@@ -25,6 +25,7 @@ import {
   usePoPlatformMailLog,
   usePoRevealMailRecipient,
   usePoSendTestMail,
+  usePoTestMailRecipients,
 } from '@/features/po/platform-mail-log';
 import { LOG_ONLY_MAIL_TYPES, MAIL_LOG_STATUSES, MAIL_TYPE_GROUPS } from '@/lib/mail-type-groups';
 import { formatWhen } from '@/features/audit/translate';
@@ -251,7 +252,8 @@ function RevealSheet({ entry, onClose }: { entry: PlatformMailLogEntry; onClose:
 function TestMailCard(): JSX.Element {
   const p = t.platform;
   const [type, setType] = useState<string>(MAIL_TYPE_GROUPS.guest[0]);
-  const [to, setTo] = useState('');
+  const [toUserId, setToUserId] = useState('');
+  const recipientsQ = usePoTestMailRecipients(true);
   const send = usePoSendTestMail();
   const groups: Array<[string, readonly string[]]> = [
     [p.testMailGroupGuest, MAIL_TYPE_GROUPS.guest],
@@ -278,20 +280,22 @@ function TestMailCard(): JSX.Element {
         </div>
         <div>
           <Label className="mb-1">{p.testMailTo}</Label>
-          <Field
-            value={to}
+          {/* Platform admins only, enforced by log_platform_test_mail (review #463). */}
+          <Select
+            value={toUserId}
             onChange={(v) => {
-              setTo(v);
+              setToUserId(v);
               send.reset();
             }}
-            type="email"
-            inputMode="email"
-            placeholder={p.testMailToPlaceholder}
             ariaLabel={p.testMailTo}
-            maxLength={254}
+            placeholder={p.testMailTo}
+            options={(recipientsQ.data ?? []).map((r) => ({
+              value: r.userId,
+              label: r.name ? `${r.name} · ${r.email}` : r.email,
+            }))}
           />
         </div>
-        <Btn disabled={!to.trim() || send.isPending} onClick={() => send.mutate({ type, to })}>
+        <Btn disabled={!toUserId || send.isPending} onClick={() => send.mutate({ type, toUserId })}>
           {send.isPending ? p.testMailSending : p.testMailSend}
         </Btn>
       </div>

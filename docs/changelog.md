@@ -16,9 +16,10 @@ Milestone **Now** (ADE). Spec #61 (new). Migration `20261015130000_mail_delivery
 - **Resend:** "Resend confirmation" in the guest's event sheet when nothing went out or it failed. RLS decides who may: `can_edit_guest()` runs the real `guests_update` policy as a rolled-back probe (nothing written, no audit row), then the service client queues through the same queue and budgets.
 - **Bounce rule in the database:** bounced or marked as spam to the address the guest still has → `PMB01`, no resend until the address changes (a case or spacing change is not a change).
 - **Platform → Mail log:** every outgoing mail with type, company, event where known, status and a test flag; addresses masked. "Show address" needs a ticket and writes a `platform_access_log` row; that table's `venue_id` became nullable for mails without a company.
-- **Test mail:** any of 26 templates with made-up data to a chosen address, "[Test]" in the subject, no one-time links, `mail_log.is_test`; outside every budget and the invite recipient window, with its own limit (10 per admin, 30 overall per day).
+- **Test mail:** any of 26 templates with made-up data to a platform admin, "[Test]" in the subject, no one-time links, `mail_log.is_test`; outside every budget and the invite recipient window, with its own limit (10 per admin, 30 overall per day).
+- **Review #463 (changes, 2 blocking):** the bounce rule is now "any bounce or complaint at the current address" (a bounce, a failed detour to another address and a switch back no longer reopens the resend), and `event_guest_mail_status` filters with the `guests_select` predicate (staff saw the state of guests they can't see; pgTAP compares the RPC with RLS for every seed role). Also: at most 3 resends per guest per day, a resend re-queues the original type (approval mails keep their request), test mails go only to a current platform admin's sign-in address (SQL-enforced, a picker in the UI), and pgTAP for `can_edit_guest` on a locked list.
 - **Gotchas:** the seed event predates 6c and has no contact address, so guest mail for it waits by design; the flow gives it one. The first "Edit" on a guest profile is the contact editor; the per-event one is named "Edit <event>".
-- **Tests:** pgTAP `mail_delivery_status.test.sql` (42), vitest for the test-mail renderer (all 26 types), the actions, the Platform screen; flow `mail-status` (Q1–Q11).
+- **Tests:** pgTAP `mail_delivery_status.test.sql` (61), vitest for the test-mail renderer (all 26 types), the actions, the Platform screen; flow `mail-status` (Q1–Q11).
 
 ---
 

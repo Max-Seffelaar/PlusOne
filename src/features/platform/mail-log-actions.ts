@@ -7,18 +7,20 @@
 //   revealMailRecipient  the full address of one mail, for a support ticket;
 //                        platform_reveal_mail_recipient writes the
 //                        platform_access_log row (CLAUDE.md decision 8).
-//   sendPlatformTestMail one template with made-up data to an address the
-//                        admin picks: log_platform_test_mail (its own limit,
-//                        marked as a test), the real provider, the result on
-//                        the row through the service client (mail_log grants
-//                        no write to app roles; the documented exception).
+//   sendPlatformTestMail one template with made-up data to a current platform
+//                        admin's sign-in address (picked by user id; the
+//                        address comes from platform_test_mail_recipients,
+//                        and log_platform_test_mail refuses any other):
+//                        its own limit, marked as a test, the real provider,
+//                        the result on the row through the service client
+//                        (mail_log grants no write to app roles; the
+//                        documented exception).
 
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getAuthContext } from '@/lib/auth/context';
 import { invalidInput, unauthorized, type MutationError } from '@/lib/db-errors';
-import { EMAIL_ADDRESS_RE, normalizeEmailAddress } from '@/lib/email-address';
 import { mailProvider } from '@/features/mail/provider';
 import { teamMailActive } from '@/features/mail/config';
 import { appUrl, recipientHash } from '@/features/mail/send';
@@ -57,12 +59,7 @@ export async function revealMailRecipient(input: z.input<typeof revealSchema>): 
 const testSchema = z
   .object({
     type: z.string().refine(isTestMailType),
-    to: z
-      .string()
-      .trim()
-      .min(3)
-      .transform(normalizeEmailAddress)
-      .refine((v) => v.length <= 254 && EMAIL_ADDRESS_RE.test(v)),
+    toUserId: z.string().uuid(),
   })
   .strict();
 
@@ -76,8 +73,18 @@ export async function sendPlatformTestMail(input: z.input<typeof testSchema>): P
   if (!ctx) return unauthorized();
   if (!teamMailActive()) return { ok: false, code: 'not_configured', message: p.testMailError };
 
-  const { type, to } = parsed.data;
+  const { type, toUserId } = parsed.data;
   const supabase = await createClient();
+  // Only a current platform admin's sign-in address (review #463); the RPC
+  // refuses anyone else too, this only turns the id into the address.
+  const { data: recipients, error: listError } = await supabase.rpc('platform_test_mail_recipients');
+  if (listError) {
+    if (listError.code === '42501') return unauthorized();
+    return { ok: false, code: 'error', message: p.testMailError };
+  }
+  const to = (recipients ?? []).find((r) => r.user_id === toUserId)?.email;
+  if (!to) return invalidInput(p.testMailInvalidTo);
+
   const { data: logId, error } = await supabase.rpc('log_platform_test_mail', {
     p_type: type,
     p_recipient_hash: recipientHash(to),

@@ -93,10 +93,30 @@ export function usePoRevealMailRecipient() {
   });
 }
 
+export interface TestMailRecipient {
+  userId: string;
+  email: string;
+  name: string | null;
+}
+
+/** Who a test mail may go to: the current platform admins' sign-in addresses. */
+export function usePoTestMailRecipients(enabled: boolean) {
+  return useQuery({
+    queryKey: [...poKeys.all, 'platform-test-mail-recipients'],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<TestMailRecipient[]> => {
+      const { data, error } = await createClient().rpc('platform_test_mail_recipients');
+      if (error) throw error;
+      return (data ?? []).map((r) => ({ userId: r.user_id, email: r.email, name: r.name ?? null }));
+    },
+  });
+}
+
 export function usePoSendTestMail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { type: string; to: string }) => {
+    mutationFn: async (input: { type: string; toUserId: string }) => {
       const res = await sendPlatformTestMail(input);
       if (!res.ok) throw new Error(res.message);
     },

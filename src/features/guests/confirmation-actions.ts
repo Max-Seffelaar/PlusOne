@@ -44,6 +44,7 @@ export async function resendGuestConfirmation(input: z.input<typeof schema>): Pr
   });
   if (error) {
     if (error.code === 'PMB01') return { ok: false, code: 'PMB01', message: m.errBounced };
+    if (error.code === 'PM429') return { ok: false, code: 'PM429', message: m.errLimit };
     if (error.code === '22023') return { ok: false, code: '22023', message: m.errNothing };
     console.error('resendGuestConfirmation: resend_guest_confirmation failed', { code: error.code });
     return { ok: false, code: 'error', message: m.errFailed };
