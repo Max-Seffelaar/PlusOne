@@ -15,11 +15,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { formatCompanyAddress, resolveEventLocation } from '@/features/po/adapters';
-import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
-
-/** Max ids per `.in()` chunk (CLAUDE.md scale rule) — keeps the profiles lookup
- *  below well under Kong's URI length even at a 1500-guest event. */
-const PROFILE_ID_CHUNK_SIZE = 120;
+import { fetchAllRanged } from '@/lib/supabase/paging';
+import { fetchActorLabels } from '@/features/audit/actor-labels';
 
 /** FULL guests row — the shape a realtime payload or a server row arrives in,
  *  before it is projected to the narrow snapshot shape below (P-IDB7). */
@@ -130,7 +127,9 @@ export interface DoorSnapshot {
   tiers: TierRow[];
   checkIns: CheckInRow[];
   refusals: RefusalRow[];
-  /** user_id → full_name, for "toegevoegd door" / "ingecheckt door". */
+  /** user_id → label, for "toegevoegd door" / "ingecheckt door", by the
+   *  who-did-what rule (#61a): a current or former member's name, or
+   *  "PlusOne support" for an operator without a tie to the company. */
   profiles: Record<string, string>;
   fetchedAt: string;
 }
@@ -233,15 +232,11 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   } = await client.auth.getUser();
   if (user) ids.add(user.id);
 
-  // Chunked (CLAUDE.md scale rule): a busy event's added_by/checked_by/acknowledged_by
-  // set can exceed the ≤120-id budget for a single `.in()` well before it exceeds
-  // PostgREST's 1000-row cap, so this chunks rather than ranges.
-  const profileRows: { id: string; full_name: string }[] = [];
-  for (const chunk of chunkIds([...ids], PROFILE_ID_CHUNK_SIZE)) {
-    const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', chunk);
-    if (error) throw error;
-    profileRows.push(...(data ?? []));
-  }
+  // venue_actor_names via fetchActorLabels (#61a): a former member who worked
+  // this door stays named, an operator reads "PlusOne support". Chunked to
+  // <=120 ids per call (CLAUDE.md scale rule): a busy event's added_by/
+  // checked_by/acknowledged_by set can exceed that well before 1000 rows.
+  const labels = await fetchActorLabels(client, event.venue_id, ids);
 
   return {
     event: {
@@ -263,7 +258,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
     tiers: tiers ?? [],
     checkIns,
     refusals,
-    profiles: Object.fromEntries(profileRows.map((p) => [p.id, p.full_name])),
+    profiles: Object.fromEntries(labels),
     fetchedAt: new Date().toISOString(),
   };
 }

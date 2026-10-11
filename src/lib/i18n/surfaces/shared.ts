@@ -10,6 +10,17 @@
  * `t.shared.<key>` and fill {placeholders} with `fmt`.
  */
 export const shared = {
+  // ── Who did it (spec #61a): ONE label set for every company-facing surface
+  // that names an actor (audit feed, export, door, guest list, stats). A current
+  // or former member/crew is named; these two cover everyone else.
+  actor: {
+    /** A PlusOne platform admin who acted without a membership/crew tie to the
+     *  company. Never their name. */
+    support: 'PlusOne support',
+    /** No actor at all: a database/system action. */
+    system: 'System',
+  },
+
   // ── Quiet offline indicator (offline-indicator.tsx, N7 follow-up) ───────
   // Driven by navigator.onLine only. The door's own SyncBar already says
   // "Offline · {age}" and "{n} queued", so the door copy explains what that

@@ -16,20 +16,36 @@ import { t } from '@/lib/i18n';
 
 const s = t.guests.source;
 
+// added_by → label comes from the venue's actor labels (venue_actor_names, #61a).
+const labels = new Map([
+  ['u-sanne', 'Sanne de Vries'],
+  ['u-op', t.shared.actor.support],
+]);
+
 describe('flattenGuestSource', () => {
-  it('flattens the to-ONE embed shape', () => {
-    const out = flattenGuestSource({
-      added_by_profile: { full_name: 'Sanne de Vries' },
-      request_links: null,
-    });
+  it('labels the adder through the venue actor labels', () => {
+    const out = flattenGuestSource({ added_by: 'u-sanne', request_links: null }, labels);
     expect(out).toEqual({ addedByName: 'Sanne de Vries', linkLabel: null });
   });
 
-  it('flattens the to-MANY embed shape (the generated client types it either way)', () => {
-    const out = flattenGuestSource({
-      added_by_profile: [{ full_name: 'Sanne de Vries' }],
-      request_links: [{ label: 'Backstage crew', is_default: false, influencers: null }],
-    });
+  it('carries "PlusOne support" for an operator, never a name', () => {
+    const out = flattenGuestSource({ added_by: 'u-op', request_links: null }, labels);
+    expect(out.addedByName).toBe('PlusOne support');
+  });
+
+  it('yields null for an adder the venue has no label for, and without labels', () => {
+    expect(flattenGuestSource({ added_by: 'u-unknown', request_links: null }, labels).addedByName).toBeNull();
+    expect(flattenGuestSource({ added_by: 'u-sanne', request_links: null }).addedByName).toBeNull();
+  });
+
+  it('flattens the to-MANY link embed shape (the generated client types it either way)', () => {
+    const out = flattenGuestSource(
+      {
+        added_by: 'u-sanne',
+        request_links: [{ label: 'Backstage crew', is_default: false, influencers: null }],
+      },
+      labels,
+    );
     expect(out).toEqual({ addedByName: 'Sanne de Vries', linkLabel: 'Backstage crew' });
   });
 
@@ -37,17 +53,17 @@ describe('flattenGuestSource', () => {
     const out = flattenGuestSource({
       id: 'g1',
       full_name: 'Noor de Wit',
-      added_by_profile: null,
+      added_by: null,
       request_links: null,
     });
     expect(out).toMatchObject({ id: 'g1', full_name: 'Noor de Wit' });
-    expect('added_by_profile' in out).toBe(false);
+    expect('added_by' in out).toBe(false);
     expect('request_links' in out).toBe(false);
   });
 
   it('gives the DEFAULT link no label (it is just "the sign-up link")', () => {
     const out = flattenGuestSource({
-      added_by_profile: null,
+      added_by: null,
       request_links: { label: 'Default link', is_default: true, influencers: null },
     });
     expect(out.linkLabel).toBeNull();
@@ -55,14 +71,14 @@ describe('flattenGuestSource', () => {
 
   it('falls back to the influencer name when a non-default link has no label', () => {
     const out = flattenGuestSource({
-      added_by_profile: null,
+      added_by: null,
       request_links: { label: null, is_default: false, influencers: [{ name: 'Joeri' }] },
     });
     expect(out.linkLabel).toBe('Joeri');
   });
 
   it('yields nulls when RLS hides both embeds (staff reading a landing guest)', () => {
-    const out = flattenGuestSource({ added_by_profile: null, request_links: null });
+    const out = flattenGuestSource({ added_by: null, request_links: null });
     expect(out).toEqual({ addedByName: null, linkLabel: null });
   });
 });
@@ -70,6 +86,13 @@ describe('flattenGuestSource', () => {
 describe('guestSourceLabel', () => {
   it('names the person who put the guest on the list, first name only', () => {
     expect(guestSourceLabel({ source: 'app', addedByName: 'Max Seffelaar' })).toBe('Added by Max');
+  });
+
+  it('keeps "PlusOne support" whole (it is not a person to shorten)', () => {
+    expect(guestSourceLabel({ source: 'app', addedByName: t.shared.actor.support })).toBe('Added by PlusOne support');
+    expect(guestSourceLabel({ source: 'door', addedByName: t.shared.actor.support })).toBe(
+      'At the door by PlusOne support',
+    );
   });
 
   it('says the door added them', () => {
@@ -156,17 +179,20 @@ describe('the venue-wide guest read carries provenance', () => {
     event_id: 'e1',
     guest_tiers: { name: 'Guest', color: '#9DE0C0' },
     source: 'landing',
-    added_by_profile: null,
+    added_by: null,
     request_links: { label: 'Joeri', is_default: false, influencers: null },
   };
 
-  it('selects source + both provenance embeds', async () => {
+  it('selects source + added_by + the request-link embed', async () => {
     const capture: { select?: string } = {};
     const client = clientReturning({ data: [row], error: null, count: 1 }, capture);
     await fetchVenueGuestsWindow(client, { venueId: 'v1' });
 
     expect(capture.select).toContain('source');
-    expect(capture.select).toContain('user_profiles!guests_added_by_fkey(full_name)');
+    expect(capture.select).toContain('added_by');
+    // The adder is labelled via venue_actor_names (#61a), never an RLS-scoped
+    // user_profiles embed (it hid former members and named operators).
+    expect(capture.select).not.toContain('user_profiles');
     expect(capture.select).toContain('request_links(label, is_default, influencers(name))');
     // Still ONE bounded page — the embeds must not turn this into a venue dump.
     expect(VENUE_GUESTS_WINDOW).toBe(200);

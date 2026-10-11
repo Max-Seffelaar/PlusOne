@@ -23,6 +23,7 @@ const OTHER = '018f3a2e-0000-7000-8000-00000000000b';
 const EVENT = '018f3a2e-0000-7000-8000-0000000000e1';
 const OTHER_EVENT = '018f3a2e-0000-7000-8000-0000000000e2';
 const ADMIN = '018f3a2e-0000-7000-8000-0000000000a1';
+const OPERATOR = '018f3a2e-0000-7000-8000-0000000000a2';
 
 const H = vi.hoisted(() => ({
   user: null as { id: string } | null,
@@ -30,6 +31,9 @@ const H = vi.hoisted(() => ({
   auditError: null as { code: string } | null,
   store: {} as Record<string, Record<string, unknown>[]>,
   optIns: [] as { contact_id: string; opted_in_at: string }[],
+  // What venue_actor_names answers (the RPC applies the footprint rule; the fake
+  // just returns the rows it knows for the asked ids).
+  actors: [] as { user_id: string; display_name: string | null; is_support: boolean }[],
   rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
   reads: [] as { table: string; eqs: [string, unknown][]; ins: string[]; ranged: boolean }[],
 }));
@@ -76,6 +80,10 @@ vi.mock('@/lib/supabase/server', () => ({
       if (name === 'has_venue_role') return Promise.resolve({ data: H.isAdmin, error: null });
       if (name === 'log_venue_export') return Promise.resolve({ data: 'audit-id', error: H.auditError });
       if (name === 'contact_marketing_opt_ins') return builder('rpc:opt_ins', () => H.optIns);
+      if (name === 'venue_actor_names') {
+        const ids = args.p_ids as string[];
+        return Promise.resolve({ data: H.actors.filter((a) => ids.includes(a.user_id)), error: null });
+      }
       throw new Error(`unexpected rpc ${name}`);
     },
   }),
@@ -158,6 +166,7 @@ function seed(): void {
     user_profiles: [{ id: ADMIN, full_name: 'Max de Vries' }],
   };
   H.optIns = [{ contact_id: 'c1', opted_in_at: '2026-09-30T10:00:00+00:00' }];
+  H.actors = [{ user_id: ADMIN, display_name: 'Max de Vries', is_support: false }];
 }
 
 beforeEach(() => {
@@ -279,9 +288,48 @@ describe('exportVenueData — content', () => {
   });
 });
 
-describe('exportVenueData — former team members', () => {
-  it('leaves the actor cell empty instead of leaking a raw user id', async () => {
+describe('exportVenueData — who did it (spec #61a)', () => {
+  it('names a former team member: the label comes from venue_actor_names, not RLS', async () => {
     H.store.user_profiles = []; // can_view_profile denies: membership gone (#24)
+    const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
+    if (!res.ok) throw new Error(res.error);
+    const files = readZip(Buffer.from(res.zipBase64, 'base64'));
+    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,Max de Vries,dev-1');
+    expect(files.get('requests.csv')).toContain('approved,,Max de Vries');
+    // One venue-scoped lookup for every actor id, no user_profiles read at all.
+    expect(H.rpcCalls.filter((c) => c.name === 'venue_actor_names')).toEqual([
+      { name: 'venue_actor_names', args: { p_venue_id: VENUE, p_ids: [ADMIN] } },
+    ]);
+    expect(H.reads.filter((r) => r.table === 'user_profiles')).toEqual([]);
+  });
+
+  it('labels a PlusOne operator without a tie "PlusOne support", never by name', async () => {
+    H.actors.push({ user_id: OPERATOR, display_name: null, is_support: true });
+    H.store.check_ins![0]!.checked_by = OPERATOR;
+    const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
+    if (!res.ok) throw new Error(res.error);
+    const files = readZip(Buffer.from(res.zipBase64, 'base64'));
+    expect(files.get('door.csv')!.split('\r\n')[1]).toContain('check_in,3,,PlusOne support,dev-1');
+    for (const csv of files.values()) expect(csv).not.toContain(OPERATOR);
+  });
+
+  it('says "System" for an action without an actor, and leaves an undecided request blank', async () => {
+    H.store.guest_requests!.push({
+      ...H.store.guest_requests![0]!,
+      id: 'r2', full_name: 'Still Waiting', status: 'pending', decided_by: null,
+    });
+    const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
+    if (!res.ok) throw new Error(res.error);
+    const files = readZip(Buffer.from(res.zipBase64, 'base64'));
+    // g2 came in through a request link: no adder.
+    const g2 = files.get('guests.csv')!.split('\r\n').find((l) => l.includes('HYPERLINK'))!;
+    expect(g2).toContain(',landing,2026-10-01T11:00:00+00:00,System,');
+    const r2 = files.get('requests.csv')!.split('\r\n').find((l) => l.includes('Still Waiting'))!;
+    expect(r2).toContain(',pending,,,');
+  });
+
+  it('leaves the cell empty for an id the venue has no record of (never a raw uuid)', async () => {
+    H.actors = [];
     const res = await exportVenueData({ venueId: VENUE, scope: 'venue' });
     if (!res.ok) throw new Error(res.error);
     const files = readZip(Buffer.from(res.zipBase64, 'base64'));

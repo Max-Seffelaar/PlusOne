@@ -2,13 +2,17 @@
 // log line — "Max moved Juri Braakman from Regular to VIP".
 //
 // Pure, no I/O, so it is trivially unit-testable and runs on server and client
-// alike. The DB (audit_feed view) already resolved actor/guest/subject/tier
-// names; here we only compose the sentence and read the small JSONB diff for
-// numbers (plus_ones, quota, reason). Output matches the mock AuditEntry API
+// alike. The DB (audit_feed view) already resolved guest/tier names; the
+// actor and subject (people) labels come from `venue_actor_names` via
+// fetchActorLabels (spec #61a — the view's RLS-scoped actor_name/subject_name
+// hide former members and PlusOne support, so they are only a fallback here).
+// We compose the sentence and read the small JSONB diff for numbers
+// (plus_ones, quota, reason). Output matches the mock AuditEntry API
 // (src/lib/po/types.ts) so the desktop kit renders it unchanged: the actor is
 // shown bold separately, `text` is the past-tense phrase after it.
 
 import type { Database } from '@/lib/database.types';
+import { t } from '@/lib/i18n';
 import { formatShortDate, formatTime, toDateInput } from '@/features/po/format';
 
 export type AuditFeedRow = Database['public']['Views']['audit_feed']['Row'];
@@ -49,7 +53,7 @@ function roleList(v: unknown): string | null {
   return Array.isArray(v) && v.length > 0 ? v.join(', ') : null;
 }
 
-const SYSTEM = 'System';
+const SYSTEM = t.shared.actor.system;
 const SOMEONE = 'a guest';
 
 /** Compose the phrase after the actor for one audit row. */
@@ -252,11 +256,34 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
   }
 }
 
-export function describeAuditEntry(row: AuditFeedRow): AuditLine {
-  const { text, entity } = phrase(row);
+/** The person ids a feed row names (actor + subject) — what fetchActorLabels
+ *  needs to resolve for {@link describeAuditEntry}. */
+export function auditPersonIds(rows: readonly AuditFeedRow[]): string[] {
+  const ids = new Set<string>();
+  for (const r of rows) {
+    if (r.actor_id) ids.add(r.actor_id);
+    if (r.subject_user_id) ids.add(r.subject_user_id);
+  }
+  return [...ids];
+}
+
+/**
+ * One feed row → one log line. `labels` (actor id → label, from
+ * fetchActorLabels) applies the who-did-what rule (#61a): a null actor is
+ * "System", a resolved id is the member's name or "PlusOne support". Without a
+ * label (none passed, or the RPC not deployed yet) the view's RLS-scoped name
+ * is the fallback.
+ */
+export function describeAuditEntry(
+  row: AuditFeedRow,
+  labels: ReadonlyMap<string, string> = new Map(),
+): AuditLine {
+  const subjectLabel = row.subject_user_id ? labels.get(row.subject_user_id) : undefined;
+  const { text, entity } = phrase(subjectLabel ? { ...row, subject_name: subjectLabel } : row);
+  const actor = row.actor_id ? (labels.get(row.actor_id) ?? row.actor_name ?? SYSTEM) : SYSTEM;
   return {
     id: row.id ?? '',
-    actor: row.actor_name ?? SYSTEM,
+    actor,
     action: row.action ?? 'update',
     entity,
     text,

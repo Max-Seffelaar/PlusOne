@@ -86,7 +86,8 @@ export function toDateInput(iso: string): string {
 /** Just the projection `guestSourceLabel` reads — any Guest/appearance fits. */
 export interface GuestSourceInput {
   source: GuestSource;
-  /** Display name of who added them; null when the actor row isn't readable. */
+  /** Who added them, by the one who-did-what rule (#61a): a member's name or
+   *  "PlusOne support"; null when unknown. */
   addedByName?: string | null;
   /** Non-default request link label (or its influencer); null for the default
    *  link and whenever `request_links` isn't readable for this role (RLS). */
@@ -106,7 +107,10 @@ function firstName(full: string): string {
  */
 export function guestSourceLabel(g: GuestSourceInput): string {
   const s = t.guests.source;
-  const who = g.addedByName ? firstName(g.addedByName) : '';
+  // The who-did-what placeholders (#61a: "PlusOne support", "System") are not
+  // a person: never cut them down to a first name.
+  const placeholder = g.addedByName === t.shared.actor.support || g.addedByName === t.shared.actor.system;
+  const who = g.addedByName ? (placeholder ? g.addedByName : firstName(g.addedByName)) : '';
   switch (g.source) {
     case 'permanent':
       return s.regular;

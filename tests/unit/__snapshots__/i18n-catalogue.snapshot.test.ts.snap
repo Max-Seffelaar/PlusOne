@@ -2,7 +2,6 @@
 
 exports[`i18n catalogue > matches the reviewed snapshot 1`] = `
 "analytics.addedByLabel = "Added by"
-analytics.addedBySupport = "PlusOne support"
 analytics.addedByUnit = "In heads (guest + plus-ones)"
 analytics.addedWord = "added"
 analytics.arrivalsLabel = "Arrivals by 15 min"
@@ -2413,6 +2412,8 @@ settings.venueSwitch.switch = "Switch"
 settings.venueSwitch.thisVenueFallback = "this company"
 settings.venueSwitch.title = "Companies"
 settings.venueSwitch.yourVenues = "Your companies · {n}"
+shared.actor.support = "PlusOne support"
+shared.actor.system = "System"
 shared.checkinFilters.all = "All"
 shared.checkinFilters.inside = "Inside"
 shared.checkinFilters.onTheWay = "On the way"

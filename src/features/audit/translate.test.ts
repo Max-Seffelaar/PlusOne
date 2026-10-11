@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { describeAuditEntry, formatWhen, type AuditFeedRow } from './translate';
+import { auditPersonIds, describeAuditEntry, formatWhen, type AuditFeedRow } from './translate';
 
 // Minimal audit_feed row factory — only the fields the translator reads.
 function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
   return {
     id: 'a1',
-    actor_id: null,
+    actor_id: 'u-max',
     actor_name: 'Max',
     venue_id: 'v1',
     event_id: 'e1',
@@ -187,6 +187,7 @@ describe('describeAuditEntry', () => {
       row({
         entity_type: 'guest_requests',
         action: 'approve',
+        actor_id: null,
         actor_name: null,
         guest_name: null,
         request_name: 'Demo Autogast',
@@ -210,7 +211,60 @@ describe('describeAuditEntry', () => {
   });
 
   it('falls back to "System" for a null actor', () => {
-    expect(describeAuditEntry(row({ actor_name: null })).actor).toBe('System');
+    expect(describeAuditEntry(row({ actor_id: null, actor_name: null })).actor).toBe('System');
+  });
+
+  // ── Who did it: one rule (spec #61a) ──────────────────────────────────────
+  // The view's actor_name/subject_name are RLS-scoped (can_view_profile), so a
+  // former member or a PlusOne operator comes back null there; the labels from
+  // venue_actor_names win.
+  describe('actor labels (#61a)', () => {
+    const labels = new Map([
+      ['u-former', 'Lisa van den Berg'],
+      ['u-op', 'PlusOne support'],
+    ]);
+
+    it('names a former member the view could no longer resolve', () => {
+      const line = describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), labels);
+      expect(line.actor).toBe('Lisa van den Berg');
+    });
+
+    it('shows an operator without a tie as PlusOne support, even if the view named them', () => {
+      const line = describeAuditEntry(row({ actor_id: 'u-op', actor_name: 'Secret Operator' }), labels);
+      expect(line.actor).toBe('PlusOne support');
+    });
+
+    it('keeps "System" for no actor, whatever the labels', () => {
+      expect(describeAuditEntry(row({ actor_id: null, actor_name: null }), labels).actor).toBe('System');
+    });
+
+    it('labels the subject of a membership change the same way', () => {
+      const line = describeAuditEntry(
+        row({
+          entity_type: 'venue_memberships',
+          action: 'delete',
+          subject_user_id: 'u-former',
+          subject_name: null,
+          guest_name: null,
+        }),
+        labels,
+      );
+      expect(line.text).toBe("removed Lisa van den Berg's access");
+    });
+
+    it('falls back to the view name without a label (RPC not deployed yet)', () => {
+      expect(describeAuditEntry(row({ actor_id: 'u-max' }), new Map()).actor).toBe('Max');
+    });
+
+    it('collects actor and subject ids once, skipping nulls', () => {
+      expect(
+        auditPersonIds([
+          row({ actor_id: 'u-max', subject_user_id: 'u-former' }),
+          row({ actor_id: 'u-max', subject_user_id: null }),
+          row({ actor_id: null }),
+        ]),
+      ).toEqual(['u-max', 'u-former']);
+    });
   });
 
   it('describes request_links actions (W3)', () => {

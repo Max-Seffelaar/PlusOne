@@ -8,16 +8,16 @@
 //   * reads are paged per 1 000 rows via `.range()` with a unique `id` order;
 //   * above EXPORT_MAX_ROWS rows in one table the export stops with
 //     ExportTooLargeError ("export per event") instead of a half file.
-// The only `.in()` is the actor-name lookup: the distinct user ids that added a
-// guest / decided a request / worked the door — a team-sized list, chunked to
-// ≤120 ids anyway.
+// Actor names (who added a guest / decided a request / worked the door) come
+// from venue_actor_names via fetchActorLabels — a team-sized id list, chunked
+// to ≤120 ids per call anyway.
 //
 // Anonymised rows (#29) are exported as they are ("Guest #n", contact fields
 // null): the venue sees they existed, but gets no PII back.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import { chunkIds } from '@/lib/supabase/paging';
+import { actorLabel, fetchActorLabels } from '@/features/audit/actor-labels';
 import { toCsv, type CsvValue } from './csv';
 import { EXPORT_MAX_ROWS, EXPORT_PAGE_SIZE } from './schemas';
 
@@ -208,21 +208,19 @@ export async function collectVenueExport(
   if (checkIns.length + refusals.length > EXPORT_MAX_ROWS) throw new ExportTooLargeError('door');
 
   // ── Actor names (team-sized id list, chunked) ───────────────────────────────
+  // The who-did-what rule (spec #61a, decision Max 2026-10-11): a current OR
+  // former member/crew is named — the export is the venue's own record of who
+  // did what, and that must survive someone leaving (#24); a PlusOne platform
+  // admin without a tie to the venue is "PlusOne support"; an action without an
+  // actor is "System". Never a raw uuid: an id the venue has no record of (not
+  // possible for its own rows) stays an empty cell.
   const actorIds = new Set<string>();
   for (const g of guests) if (g.added_by) actorIds.add(g.added_by);
   for (const r of requests) if (r.decided_by) actorIds.add(r.decided_by);
   for (const c of checkIns) actorIds.add(c.checked_by);
   for (const r of refusals) actorIds.add(r.refused_by);
-  const actorName = new Map<string, string>();
-  for (const chunk of chunkIds([...actorIds], 120)) {
-    const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', chunk);
-    if (error) throw error;
-    for (const p of data ?? []) actorName.set(p.id, p.full_name);
-  }
-  // No uuid fallback: an id whose profile is unreadable (a former team member,
-  // can_view_profile denies after their membership went, #24) is still a
-  // personal identifier and tells the venue nothing. Leave the cell empty.
-  const actor = (id: string | null): string => (id ? (actorName.get(id) ?? '') : '');
+  const labels = await fetchActorLabels(client, venueId, actorIds);
+  const actor = (id: string | null): string => actorLabel(id, labels);
 
   // ── Build rows ──────────────────────────────────────────────────────────────
   const lastSeen = new Map<string, { at: string; name: string }>();
@@ -253,7 +251,7 @@ export async function collectVenueExport(
 
   const requestRows: CsvValue[][] = requests.map((r) => [
     eventName(r.event_id), r.full_name, r.email, r.phone, r.plus_ones, r.motivation, r.marketing_opt_in,
-    r.status, r.decision_reason, actor(r.decided_by), r.created_at,
+    r.status, r.decision_reason, r.status === 'pending' ? '' : actor(r.decided_by), r.created_at,
     r.request_link_id ? (linkName.get(r.request_link_id) ?? '') : '',
   ]);
 

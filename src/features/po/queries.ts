@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type { EventSummary, TierStat } from '@/features/stats/data';
-import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
+import { auditPersonIds, describeAuditEntry, type AuditLine } from '@/features/audit/translate';
+import { actorLabel, fetchActorLabels } from '@/features/audit/actor-labels';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
@@ -55,25 +56,26 @@ export type PoGuestRow = Pick<
 > &
   GuestSourceEmbedFlat;
 
-// ── Guest provenance embeds (ADE round, item J) ──────────────────────────────
+// ── Guest provenance (ADE round, item J) ─────────────────────────────────────
 // `guests.source` alone can't say "Added by Sanne" or "Sign-up link · Joeri", so
-// both guest reads embed the actor profile and the request link. Both embeds are
-// RLS-scoped: `request_links` is admin/finance/organizer only, so staff simply
-// get null and the label degrades to the plain "Sign-up link" / "a colleague"
-// wording — never a widened policy for a caption.
-const GUEST_SOURCE_SELECT =
-  'source, added_by_profile:user_profiles!guests_added_by_fkey(full_name), request_links(label, is_default, influencers(name))';
+// both guest reads carry `added_by` and embed the request link. The adder's
+// label comes from venue_actor_names (fetchActorLabels, spec #61a): a former
+// member stays named, an operator reads "PlusOne support" — an RLS-scoped
+// user_profiles embed hid both. `request_links` stays an RLS-scoped embed:
+// admin/finance/organizer only, so staff simply get null and the label degrades
+// to the plain "Sign-up link" wording — never a widened policy for a caption.
+const GUEST_SOURCE_SELECT = 'source, added_by, request_links(label, is_default, influencers(name))';
 
 /** The flattened provenance every guest row carries once the embeds are folded in. */
 export interface GuestSourceEmbedFlat {
-  /** Display name of who added the guest; null when RLS hides the profile. */
+  /** Who added the guest, by the who-did-what rule (#61a); null for a
+   *  request-link guest (no adder) or an id the venue has no record of. */
   addedByName: string | null;
   /** Label of a NON-default request link (its own label, else the influencer's
    *  name); null for the event's default link or an unreadable link row. */
   linkLabel: string | null;
 }
 
-type ProfileNameEmbed = { full_name: string };
 type InfluencerEmbed = { name: string };
 type RequestLinkEmbed = {
   label: string | null;
@@ -82,24 +84,25 @@ type RequestLinkEmbed = {
 };
 /** The raw embed shape — to-one OR to-many depending on the generated client. */
 export interface GuestSourceEmbedRaw {
-  added_by_profile: ProfileNameEmbed | ProfileNameEmbed[] | null;
+  added_by: string | null;
   request_links: RequestLinkEmbed | RequestLinkEmbed[] | null;
 }
 
-/** Fold the two provenance embeds into flat `addedByName` / `linkLabel` fields.
- *  Pure + exported so the mapping is unit-tested rather than inferred from a query. */
+/** Fold `added_by` (through the venue's actor labels) and the request-link embed
+ *  into flat `addedByName` / `linkLabel` fields. Pure + exported so the mapping
+ *  is unit-tested rather than inferred from a query. */
 export function flattenGuestSource<T extends GuestSourceEmbedRaw>(
   row: T,
+  labels: ReadonlyMap<string, string> = new Map(),
 ): Omit<T, keyof GuestSourceEmbedRaw> & GuestSourceEmbedFlat {
-  const { added_by_profile, request_links, ...rest } = row;
-  const profile = [added_by_profile].flat().filter(Boolean)[0] as ProfileNameEmbed | undefined;
+  const { added_by, request_links, ...rest } = row;
   const link = [request_links].flat().filter(Boolean)[0] as RequestLinkEmbed | undefined;
   const influencer = link
     ? ([link.influencers].flat().filter(Boolean)[0] as InfluencerEmbed | undefined)
     : undefined;
   return {
     ...rest,
-    addedByName: profile?.full_name ?? null,
+    addedByName: added_by ? (labels.get(added_by) ?? null) : null,
     // The default link IS "the sign-up link" — only a named or influencer link
     // earns the extra "· {label}" on the row.
     linkLabel: link && !link.is_default ? link.label ?? influencer?.name ?? null : null,
@@ -179,11 +182,11 @@ export async function fetchEvents(
  * windowed + server-searched {@link fetchVenueGuestsWindow} for that (86ey9e8hz).
  */
 export async function fetchGuests(client: Client, eventId: string): Promise<PoVenueGuestRow[]> {
-  const raw = await fetchAllRanged<PoVenueGuestRaw>((from, to) =>
+  const raw = await fetchAllRanged<PoVenueGuestRaw & { venue_id: string }>((from, to) =>
     client
       .from('guests')
       .select(
-        `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, ${GUEST_SOURCE_SELECT}`,
+        `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, venue_id, ${GUEST_SOURCE_SELECT}`,
       )
       .eq('event_id', eventId)
       .in('status', [...ON_LIST, 'refused'])
@@ -191,7 +194,12 @@ export async function fetchGuests(client: Client, eventId: string): Promise<PoVe
       .order('id')
       .range(from, to),
   );
-  return raw.map(flattenGuestSource);
+  // One event = one venue; the adders are a team-sized set (chunked anyway).
+  const venueId = raw[0]?.venue_id;
+  const labels = venueId
+    ? await fetchActorLabels(client, venueId, raw.map((g) => g.added_by))
+    : new Map<string, string>();
+  return raw.map(({ venue_id: _venueId, ...g }) => flattenGuestSource(g, labels));
 }
 
 /** Rows the venue-wide "all guests" list pulls at once (86ey9e8hz). The tab is a
@@ -271,12 +279,13 @@ export async function fetchVenueGuestsWindow(
   const { data, error, count } = await query;
   if (error) throw error;
 
-  const rows: PoVenueGuestWithTier[] = ((data ?? []) as PoVenueGuestTierRaw[]).map(
-    ({ guest_tiers, ...g }) => {
-      const tier = [guest_tiers].flat().filter(Boolean)[0] as VenueGuestTierEmbed | undefined;
-      return { ...flattenGuestSource(g), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
-    },
-  );
+  const raw = (data ?? []) as PoVenueGuestTierRaw[];
+  // The window is <= VENUE_GUESTS_WINDOW rows, so its adders are a small set.
+  const labels = await fetchActorLabels(client, args.venueId, raw.map((g) => g.added_by));
+  const rows: PoVenueGuestWithTier[] = raw.map(({ guest_tiers, ...g }) => {
+    const tier = [guest_tiers].flat().filter(Boolean)[0] as VenueGuestTierEmbed | undefined;
+    return { ...flattenGuestSource(g, labels), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
+  });
   return { rows, total: count ?? rows.length };
 }
 
@@ -462,7 +471,7 @@ export async function fetchRecentCheckins(
 ): Promise<RecentCheckinRow[]> {
   const { data, error } = await client
     .from('check_ins')
-    .select('checked_at, plus_ones_arrived, checked_by, guests!inner(id, full_name)')
+    .select('checked_at, plus_ones_arrived, checked_by, venue_id, guests!inner(id, full_name)')
     .eq('event_id', eventId)
     .is('voided_at', null)
     .order('checked_at', { ascending: false })
@@ -470,21 +479,18 @@ export async function fetchRecentCheckins(
   if (error) throw error;
 
   const rows = data ?? [];
-  // Resolve the checker names in one round-trip (RLS: door roles read profiles).
-  const ids = [...new Set(rows.map((r) => r.checked_by))];
-  const profilesRes = ids.length
-    ? await client.from('user_profiles').select('id, full_name').in('id', ids)
-    : { data: [] as { id: string; full_name: string }[], error: null };
-  if (profilesRes.error) throw profilesRes.error;
-  const profiles = profilesRes.data ?? [];
-  const nameById = new Map(profiles.map((p) => [p.id, p.full_name]));
+  // Who let them in, by the who-did-what rule (#61a) — one round-trip.
+  const venueId = rows[0]?.venue_id;
+  const labels = venueId
+    ? await fetchActorLabels(client, venueId, rows.map((r) => r.checked_by))
+    : new Map<string, string>();
 
   return rows.map((r) => ({
     guestId: r.guests.id,
     name: r.guests.full_name,
     plus: r.plus_ones_arrived,
     at: r.checked_at,
-    by: nameById.get(r.checked_by) ?? 'Deur',
+    by: actorLabel(r.checked_by, labels, 'Deur'),
   }));
 }
 
@@ -677,7 +683,7 @@ export interface PoQuotaRequestRow {
   requestedExtra: number;
   motivation: string | null;
   created_at: string;
-  /** Resolved requester display name (RLS-scoped user_profiles join). */
+  /** Requester label by the who-did-what rule (#61a, venue_actor_names). */
   requesterName: string;
 }
 
@@ -700,13 +706,7 @@ export async function fetchQuotaRequests(
   if (error) throw error;
 
   const rows = reqs ?? [];
-  const ids = [...new Set(rows.map((r) => r.user_id))];
-  const profilesRes = ids.length
-    ? await client.from('user_profiles').select('id, full_name').in('id', ids)
-    : { data: [] as { id: string; full_name: string }[], error: null };
-  if (profilesRes.error) throw profilesRes.error;
-  const profiles = profilesRes.data ?? [];
-  const nameById = new Map(profiles.map((p) => [p.id, p.full_name]));
+  const labels = await fetchActorLabels(client, venueId, rows.map((r) => r.user_id));
 
   return rows.map((r) => ({
     id: r.id,
@@ -714,7 +714,7 @@ export async function fetchQuotaRequests(
     requestedExtra: r.requested_extra,
     motivation: r.motivation,
     created_at: r.created_at,
-    requesterName: nameById.get(r.user_id) ?? 'Unknown',
+    requesterName: actorLabel(r.user_id, labels, 'Unknown'),
   }));
 }
 
@@ -740,7 +740,8 @@ type RecapGuestRaw = {
   plus_ones: number;
   status: GuestRowStatus;
   guest_tiers: { name: string; color: string | null } | { name: string; color: string | null }[] | null;
-  added_by_profile: { full_name: string } | { full_name: string }[] | null;
+  added_by: string | null;
+  venue_id: string;
   check_ins: { checked_at: string; voided_at: string | null }[] | { checked_at: string; voided_at: string | null } | null;
 };
 
@@ -755,13 +756,18 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
     client
       .from('guests')
       .select(
-        'id, full_name, plus_ones, status, guest_tiers(name, color), added_by_profile:user_profiles!guests_added_by_fkey(full_name), check_ins(checked_at, voided_at)'
+        'id, full_name, plus_ones, status, venue_id, added_by, guest_tiers(name, color), check_ins(checked_at, voided_at)'
       )
       .eq('event_id', eventId)
       .in('status', ON_LIST)
       .order('id')
       .range(from, to),
   );
+  // Who added them, by the who-did-what rule (#61a). One event = one venue.
+  const venueId = data[0]?.venue_id;
+  const labels = venueId
+    ? await fetchActorLabels(client, venueId, data.map((g) => g.added_by))
+    : new Map<string, string>();
 
   return data.map((g) => {
     // The generated client can type the embed as to-one OR to-many; normalize to
@@ -776,7 +782,6 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
       .sort()
       .at(-1);
     const tier = [g.guest_tiers].flat().filter(Boolean)[0] as { name: string; color: string | null } | undefined;
-    const addedBy = [g.added_by_profile].flat().filter(Boolean)[0] as { full_name: string } | undefined;
     return {
       id: g.id,
       full_name: g.full_name,
@@ -784,7 +789,7 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
       status: g.status,
       tierName: tier?.name ?? null,
       tierColor: tier?.color ?? null,
-      addedByName: addedBy?.full_name ?? null,
+      addedByName: g.added_by ? (labels.get(g.added_by) ?? null) : null,
       checkedAt: checkedAt ?? null,
     };
   });
@@ -1476,7 +1481,8 @@ export interface ContactProfileData {
   /** null when the contact isn't visible to the caller (RLS) or doesn't exist. */
   header: ContactProfileHeader | null;
   appearances: ContactAppearance[];
-  /** Resolved actor display names by user id (for the timeline). */
+  /** Actor labels by user id for the timeline, by the who-did-what rule (#61a):
+   *  a current or former member's name, or "PlusOne support". */
   actorNames: Record<string, string>;
 }
 
@@ -1521,6 +1527,7 @@ type ProfileEmbedRefusal = { refused_at: string; refused_by: string; reason: str
 type ProfileAppearanceRaw = {
   id: string;
   event_id: string;
+  venue_id: string;
   plus_ones: number;
   status: GuestRowStatus;
   tier_id: string | null;
@@ -1538,7 +1545,7 @@ type ProfileAppearanceRaw = {
 };
 
 const PROFILE_APPEARANCE_SELECT =
-  'id, event_id, plus_ones, status, tier_id, anonymized_at, created_at, added_by, note, note_priority, source, request_links(label, is_default, influencers(name)), events(name, starts_at, ends_at, list_locked, auto_lock_at, cancelled_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
+  'id, event_id, venue_id, plus_ones, status, tier_id, anonymized_at, created_at, added_by, note, note_priority, source, request_links(label, is_default, influencers(name)), events(name, starts_at, ends_at, list_locked, auto_lock_at, cancelled_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
 
 /** Normalize one embedded guest row (the embeds come back to-one OR to-many). */
 function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
@@ -1577,7 +1584,7 @@ function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
     source: g.source,
     // Reuse the ONE provenance flattener; the actor name is resolved separately
     // here (the profile already fetches every actor id in one round-trip).
-    linkLabel: flattenGuestSource({ added_by_profile: null, request_links: g.request_links }).linkLabel,
+    linkLabel: flattenGuestSource({ added_by: null, request_links: g.request_links }).linkLabel,
     addedAt: g.created_at,
     checkIns,
     refusals,
@@ -1605,7 +1612,7 @@ function actorIds(appearances: ContactAppearance[]): string[] {
  *  history (check-ins, refusals) embedded. RLS scopes both the rows and the embeds.
  *  A single contact's appearances are bounded (events-per-venue × attendance), well
  *  under PostgREST's 1000-row cap, so no ranged paging is needed here. */
-async function fetchContactAppearances(client: Client, contactId: string): Promise<ContactAppearance[]> {
+async function fetchContactAppearances(client: Client, contactId: string): Promise<RawAppearances> {
   const { data, error } = await client
     .from('guests')
     .select(PROFILE_APPEARANCE_SELECT)
@@ -1613,40 +1620,50 @@ async function fetchContactAppearances(client: Client, contactId: string): Promi
     .neq('status', 'removed')
     .order('created_at', { ascending: false });
   if (error) throw error;
+  return toRawAppearances(data);
+}
 
-  return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
+/** Appearances + the venue they belong to (a contact and a guest are each one
+ *  venue's), which the actor-label lookup is scoped to. */
+interface RawAppearances {
+  appearances: ContactAppearance[];
+  venueId: string | null;
+}
+
+function toRawAppearances(data: unknown[] | null): RawAppearances {
+  const raw = (data ?? []) as ProfileAppearanceRaw[];
+  return { appearances: raw.map(mapAppearance), venueId: raw[0]?.venue_id ?? null };
 }
 
 /** A single guest row as one appearance — the name-only / guest-keyed path.
  *  A removed row is not an appearance (the contact path above has the same
  *  rule): it used to render as "On the way" on a list it had dropped off. */
-async function fetchGuestAppearance(client: Client, guestId: string): Promise<ContactAppearance[]> {
+async function fetchGuestAppearance(client: Client, guestId: string): Promise<RawAppearances> {
   const { data, error } = await client
     .from('guests')
     .select(PROFILE_APPEARANCE_SELECT)
     .eq('id', guestId)
     .neq('status', 'removed');
   if (error) throw error;
-  return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
+  return toRawAppearances(data);
 }
 
-/** Resolve a set of actor ids → display names in one round-trip (RLS-scoped;
- *  an unreadable actor simply drops out and the screen shows a fallback). */
-async function fetchActorNames(client: Client, ids: readonly (string | null | undefined)[]): Promise<Record<string, string>> {
-  // Defensive: drop empty/null ids so one system-added row can't 400 the read.
-  const clean = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))];
-  if (clean.length === 0) return {};
-  const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', clean);
-  if (error) throw error;
-  const names: Record<string, string> = {};
-  for (const p of data ?? []) names[p.id] = p.full_name;
-  return names;
+/** Resolve the profile's actor ids → labels by the who-did-what rule (#61a,
+ *  venue_actor_names). fetchActorLabels drops null ids, so a system-added row
+ *  never reaches the RPC as the literal "null". */
+async function fetchActorNames(
+  client: Client,
+  { appearances, venueId }: RawAppearances,
+): Promise<Record<string, string>> {
+  if (!venueId) return {};
+  const labels = await fetchActorLabels(client, venueId, actorIds(appearances));
+  return Object.fromEntries(labels);
 }
 
 /** The contact header + all appearances + resolved actor names for the profile.
  *  header is null when the caller can't read the contact (RLS) or it doesn't exist. */
 export async function fetchContactProfile(client: Client, contactId: string): Promise<ContactProfileData> {
-  const [{ data: c, error: cErr }, appearances] = await Promise.all([
+  const [{ data: c, error: cErr }, raw] = await Promise.all([
     client
       .from('contacts')
       .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent, source, created_at, anonymized_at')
@@ -1658,7 +1675,8 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
 
   if (!c) return { header: null, appearances: [], actorNames: {} };
 
-  const actorNames = await fetchActorNames(client, actorIds(appearances));
+  const actorNames = await fetchActorNames(client, raw);
+  const { appearances } = raw;
 
   return {
     header: {
@@ -1723,8 +1741,9 @@ export async function fetchPersonProfile(
     // Name-only guest, OR a linked guest whose contact record RLS hides from this
     // caller → a one-appearance profile synthesised from the guest row (readable
     // via the guests RLS, which is far more permissive than contacts).
-    const appearances = await fetchGuestAppearance(client, g.id);
-    const actorNames = await fetchActorNames(client, actorIds(appearances));
+    const raw = await fetchGuestAppearance(client, g.id);
+    const actorNames = await fetchActorNames(client, raw);
+    const { appearances } = raw;
     return {
       header: {
         id: g.id,
@@ -2083,7 +2102,11 @@ export async function fetchPoAuditFeed(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []).map(describeAuditEntry);
+  const rows = data ?? [];
+  // Who-did-what (#61a): actor + subject labels from venue_actor_names, so a
+  // former member stays named and an operator reads "PlusOne support".
+  const labels = await fetchActorLabels(client, filters.venueId, auditPersonIds(rows));
+  return rows.map((r) => describeAuditEntry(r, labels));
 }
 
 export interface PoGuestHistory {
@@ -2118,6 +2141,10 @@ export async function fetchPoGuestHistory(
   ]);
   if (rowsErr) throw rowsErr;
   if (guestErr) throw guestErr;
+  // One guest = one venue: its log rows all carry that venue_id.
+  const feed = rows ?? [];
+  const venueId = feed.find((r) => r.venue_id)?.venue_id ?? null;
+  const labels = venueId ? await fetchActorLabels(client, venueId, auditPersonIds(feed)) : new Map<string, string>();
 
   return {
     guest: guest
@@ -2130,7 +2157,7 @@ export async function fetchPoGuestHistory(
           eventName: guest.events?.name ?? null,
         }
       : null,
-    lines: (rows ?? []).map(describeAuditEntry),
+    lines: feed.map((r) => describeAuditEntry(r, labels)),
   };
 }
 
