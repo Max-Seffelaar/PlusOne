@@ -39,6 +39,7 @@
 | 3 | N4, N5, S2, S4, S1a | N3 gemerged; S1a ook M2 | N5 push werkt op Android; S1a-build op Play internal; N4-besluit in het plandoc |
 | 4 | S5-Android | golf 3 + T1 + L1 | Play-submissie ingediend |
 | 5 | S1b → S5-iOS | M1 + M3 | TestFlight-build getest op iPhone én iPad; App Store-submissie ingediend |
+| 6 | S6 → P3a → P3b (sequentieel) | S6: eerste store-goedkeuring op beide stores; P3a: betaalplan P1 gemerged + Apple development-entitlement; P3b: P3a + distribution-entitlement | share werkt op iPhone én Android; Tap to Pay-testbetaling op een Android release-build én een iPhone; P3b ingediend |
 
 Golf 1 heeft vijf workers; drie tegelijk is het realistische maximum als Max ze ook moet testen. Aanbevolen start: **N1 + N2 + S3** direct, T1 en L1 zodra er ruimte is (ze blokkeren pas golf 4).
 
@@ -157,6 +158,25 @@ Exit: N5 push werkt end-to-end op Max' Android (alle drie use-cases); S1a-build 
 GOLF 4 — S5-Android (86ey6bfyj, Opus + Max). Wacht op golf 3 + T1 + L1 gemerged. Deliverable: Play data-safety-form, review-notes, staged rollout ingediend. Exit: submissie ingediend; review-iteraties lopen door in dezelfde orchestrator.
 
 GOLF 5 — S1b (z8uq9m0gvn, Opus + Max) → S5-iOS. Wacht op M1 (Apple org) + M3 (APNs-key). Deliverable: iOS-workflow in codemagic.yaml, TestFlight, push geverifieerd op iPhone én iPad, App Store-submissie met de 4.2-verdediging. Exit: ingediend; iteraties in dezelfde orchestrator.
+```
+
+### Golf 6 (toegevoegd 2026-10-11)
+
+```
+GOLF 6 — share sheet + de native laag van Tap to Pay. Wacht op: S5 eerste store-goedkeuring op beide stores (S6); betaalplan P1 (payments-plan-claude-code.md §6) gemerged op origin/main + Apple development-entitlement toegekend (P3a). S6, P3a en P3b raken alle drie ios/App, codemagic.yaml en de iOS-guard-tests → strikt sequentieel: S6 eerst (klein), dan P3a, dan P3b; nooit tegelijk.
+
+S6  <taak-id>  Share sheet (iOS Share Extension + Android ACTION_SEND)   Opus   branch claude/<taskid>-share-sheet
+    Raakt: android/app/src/main/AndroidManifest.xml (ACTION_SEND-filter), android/.../MainActivity.java + nieuwe plugin, ios/App (nieuw Share Extension-target, App Group in App.entitlements), codemagic.yaml (ios_signing.bundle_identifier + IPA-check op de .appex), src/components/ (listener naast native-app-links.tsx), tests/unit/codemagic-ios-release.test.ts + tests/unit/app-links.test.ts (bijwerken, nooit verzwakken), plandoc beslissing 16.
+    Verboden: src/features/guests/share-inbox.ts wijzigen (alleen putSharedText aanroepen), het /app/share-scherm, public/service-worker.js, alles onder src/features/door.
+    Max: App Group-capability op beide App IDs, provisioning profile voor app.plusone.guestlist.share.
+P3a <taak-id>  Tap to Pay-plugin (native + web-seam)                     Opus   branch claude/<taskid>-tap-to-pay
+    Raakt: package.json (@capacitor-community/stripe-terminal), android/ (minSdk 26, MODIFY_AUDIO_SETTINGS, plugin), ios/App (entitlement, How-to-Tap-overlay), src/features/payments/ (web-seam + connection-token-route — alleen wat payments-plan §4 beschrijft), de betaalknop in de deur, codemagic.yaml, tests.
+    Verboden: migraties (P1/P2 van het betaalplan), src/features/billing/** behalve de confinement-allowlist, DoorProvider/outbox-internals, de store-declaraties (P3b).
+    High-risk (Stripe-secret-route, geld) → reviewer-sessie verplicht; security-research-prompt in de PR-body.
+P3b <taak-id>  Tap to Pay store-kant                                     Opus + Max   branch claude/<taskid>-tap-to-pay-store
+    Wacht op P3a gemerged + distribution-entitlement (Max). Raakt: App.entitlements, codemagic.yaml (IPA-check), docs/store/*, de carve-out op de store-tax-guards + een eigen deur-guard. De CLAUDE.md-regel is al aangepast (2026-10-11); verdere plandoc-wijzigingen in een eigen docs-PR van de orchestrator.
+
+Exit: S6 werkt op een iPhone (TestFlight) én Android (Play internal): delen vanuit WhatsApp/Mail/Notes → Paste a list; P3a int een testbetaling op een Android release-build (Developer options uit) en op een iPhone; P3b ingediend.
 ```
 
 ## 5. Worker-brief (template — de orchestrator vult in)

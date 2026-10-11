@@ -8,6 +8,19 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Fase 17 + Fase 14: plan review for the share sheet (S6) and door payments / Tap to Pay (86exxuvye, 86exxuuu7)
+
+Docs only, branch `claude/serene-hawking-cyxjlc`, milestone **Now** (proposal; Max confirms in `payments-plan-claude-code.md` §9). Max wants the native app built with Tap to Pay at the door and the OS share sheet (iOS has no Web Share Target). Question: does the Capacitor plan cover it?
+
+- **Verdict:** waves 1–5 are built and current; both store submissions wait only on the first Codemagic builds. S6 was one row with five gaps; Tap to Pay sat in §5 "not now" and the money side existed nowhere (only `door_price_cents`/`vat_percent` and the inert door `pay` flag).
+- **Capacitor plan:** decision 16 (S6: after store approval, consume-once on mount + `appStateChange`/`onNewIntent`, root-layout listener + Next router, App Group **file** with backup exclusion + TTL instead of `UserDefaults`, text only, Codemagic second bundle id + the two guard tests) and decision 17 (Tap to Pay native layer: `@capacitor-community/stripe-terminal`, Apple entitlement development → distribution, How-to-Tap overlay, iPhone-only so the iPad door keeps QR, Android 13+ with Developer options off, online-only, Apple 3.1.3(e) carve-out on the store-tax guards). §4: S6 rewritten, P3a/P3b added, wave 6; stale rows fixed (S1b iOS push switch shipped 2026-10-05, review-login link #367, L1 live since 2026-10-06, store-tax guards). §9 review table.
+- **New `payments-plan-claude-code.md`** (Fase 14): Max's decisions (merchant of record, Stripe Connect destination charges, no PSD2 surcharge, service fee at the ticket's VAT rate, multi-PSP, per-method company tariffs); flow of funds checked against the Stripe docs (`on_behalf_of` omitted → platform is business of record; fees, refunds and disputes debited from the platform balance; `reverse_transfer`; Terminal Locations and connection tokens on the platform account). Stripe NL prices checked 2026-10-11: Terminal 1.4 % + €0.10 (EEA), **Tap to Pay +€0.10 per authorization**, iDEAL €0.29, Connect €2/active account/month + 0.25 % + €0.10/payout, chargeback €20. Margin table: Max's €0.25 + 2 % alone leaves €0.05–0.21 per Tap to Pay ticket and is loss-making on non-EEA cards; iDEAL/QR is cheaper at every ticket price → two-layer fee proposed (guest service fee + per-method company fee netted from the payout). VAT construction (agent vs. commissionaire) flagged for the accountant before statements are built. `PaymentProvider` seam with the split-settlement rule; tables (`company_payment_accounts`, `payment_fee_rules`, `entry_payments` in the audit set, `payment_ledger`, `payment_statements`); door flow online-only, check-in stays outbox; phases P0–P6; eight open decisions.
+- **Spec:** #34 refined, **#61** new (money flow + fee model). **CLAUDE.md:** Billing bullet (door payments, seam, store-tax carve-out), checklist line, wave 6 in the Fase 17 paragraph, open work, decision range #1–#61.
+- **Orchestration doc:** wave 6 block (S6 → P3a → P3b, sequential because all three touch `ios/App`, `codemagic.yaml` and the iOS guard tests).
+- Not done here: ClickUp tasks for S6/P3a/P3b and the Fase 14 milestone retag (Max decides, plan §9); no code; the pasted third-party margin advice was corrected, not adopted.
+
+---
+
 ## 2026-10-10 — Requests E: split over tiers, trim, decline with a note, one status mail (z8uq9m2vga)
 
 Milestone **Now** (golf F, task 7). Spec #60 (amends #43(f), #48, #12). Design: onboarding orchestration §9.3 (spike 3). Decisions: Max 2026-10-06 (approver picks from every tier of the event; the note is mandatory on any decline and always goes in the mail), orchestrator 2026-10-10 (option a: this migration redefines `guest_mails_claim` with a `tiers` array; renderer rule for an approved split). Draft PR; merges after 6b.
