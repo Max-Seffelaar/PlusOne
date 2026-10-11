@@ -3,8 +3,8 @@
  * view the page renders (#28, #43(f), amended z8uq9m0hw6).
  *
  * The RPC is the boundary for what a token holder may see: it returns the
- * approved count and the venue message for an APPROVED request only, never to
- * a mirror token, and `{found:false}` for everything it does not recognise.
+ * approved count for an APPROVED request only and the venue note for an
+ * approved or declined one (z8uq9m2vga), never to a mirror token, and `{found:false}` for everything it does not recognise.
  * This adapter re-applies the same state gate anyway, so a payload that ever
  * carries more than it should still renders no more than the state allows.
  * Anything that does not parse is the neutral not-found.
@@ -39,7 +39,7 @@ export type RequestStatusData = {
   /** The event's own location, "Paradiso, Weteringschans 6, 1017 SG Amsterdam";
    *  every state. Null when the event has none. Never the company address. */
   location: string | null;
-  /** The venue's plain-text message; approved requests only. */
+  /** The venue's plain-text note; approved or declined requests (z8uq9m2vga), never pending. */
   message: string | null;
 };
 
@@ -98,7 +98,9 @@ export function toRequestStatusView(data: unknown, now: Date = new Date()): Requ
   }
   // Plain text, rendered as a React text node here. Any other consumer (the
   // 86ey6bn05 transactional mail) must HTML-escape it: it is venue-typed text.
-  const message = approved ? (p.decision_message ?? '').trim() : '';
+  // z8uq9m2vga: a declined request carries the venue's note too (mandatory on
+  // any decline); a pending one never does.
+  const message = p.status === 'pending' ? '' : (p.decision_message ?? '').trim();
 
   return {
     status: p.status,

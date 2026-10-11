@@ -4,24 +4,26 @@
  * Bottom sheets of the Requests inbox (approvals.tsx) — the event / link scope
  * pickers, the approve sheet and the decline/deny sheet. Split out of
  * approvals.tsx (z8uq9m0hw4) to keep the screen file under the ~800 LOC rule.
- * The approve sheet also takes a partial approval (people stepper, never above
- * the request) and an optional note for the requester's status page
- * (z8uq9m0hw6); approvals.tsx turns its decision into the action input via
- * `buildApproveInput` (src/features/requests/approval.ts).
+ * The approve sheet is the whole decision (Requests E, z8uq9m2vga): people per
+ * tier (a split, a trim, or nobody), whoever is left over is declined, and a
+ * note to the guest that is mandatory as soon as anyone is declined.
+ * approvals.tsx turns it into the action input via `buildDecideInput`
+ * (src/features/requests/approval.ts).
  */
 import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoGuestRequest } from '@/features/po/adapters';
-import { clampApprovedPlusOnes, type ApprovalDecision } from '@/features/requests/approval';
+import { placedPeople, type SplitDecision } from '@/features/requests/approval';
 import { DECISION_MESSAGE_MAX } from '@/features/requests/schemas';
 import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { Icon } from '../icon';
-import { Avatar, Btn, Label, Note, Stepper, TextArea, TierPicker, press } from '../kit';
+import { Avatar, Btn, CountStepper, Label, Note, TextArea, press } from '../kit';
 import { Sheet } from '../shell';
 
-export type DenyTarget = { kind: 'landing' | 'quota'; id: string; name: string; eventId: string };
+/** `plus` (landing only): the request's plus-ones, so a whole decline names everyone. */
+export type DenyTarget = { kind: 'landing' | 'quota'; id: string; name: string; eventId: string; plus?: number };
 
 export function ErrLine({ msg }: { msg: string }): JSX.Element {
   return <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
@@ -137,24 +139,34 @@ export function AssignSheet({
   pending: boolean;
   error: string | null;
   onClose: () => void;
-  onConfirm: (decision: ApprovalDecision) => void;
+  onConfirm: (decision: SplitDecision) => void;
   onCreateTier: () => void;
 }): JSX.Element {
-  const [tierId, setTierId] = useState('');
-  // Starts at what they asked for; the stepper only goes down from there.
-  const [plus, setPlus] = useState(req.plus);
-  const [message, setMessage] = useState('');
-  // Default to the first tier once they load (the event's tiers fetch on open).
-  useEffect(() => {
-    if (tierId === '' && tiers.length > 0) setTierId(tiers[0].id);
-  }, [tiers, tierId]);
-
-  const tier = tiers.find((row) => row.id === tierId);
   const requestedHeads = 1 + req.plus;
-  const heads = 1 + plus;
-  const reduced = plus < req.plus;
+  // People per tier (Requests E, z8uq9m2vga). Starts with the whole request on
+  // the first tier, so a plain approval stays one tap; every other tier at 0.
+  const [people, setPeople] = useState<Record<string, number>>({});
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    if (Object.keys(people).length === 0 && tiers.length > 0) setPeople({ [tiers[0].id]: requestedHeads });
+  }, [tiers, people, requestedHeads]);
+
+  const parts = tiers.map((row) => ({ tierId: row.id, people: people[row.id] ?? 0 }));
+  const placed = placedPeople(parts, requestedHeads);
+  const declined = requestedHeads - placed;
+  const noteMissing = declined > 0 && note.trim().length === 0;
   const noTiers = !tiersLoading && tiers.length === 0;
-  const blocked = pending || tiersLoading || !tierId;
+  const blocked = pending || tiersLoading || noteMissing;
+  const setTier = (tierId: string, value: number): void => {
+    const others = placed - (people[tierId] ?? 0);
+    setPeople((prev) => ({ ...prev, [tierId]: Math.min(Math.max(0, value), requestedHeads - others) }));
+  };
+  const confirmLabel =
+    placed === 0
+      ? t.requests.decideConfirmDecline
+      : declined > 0
+        ? fmt(t.requests.decideConfirmPartly, { approved: placed, declined })
+        : t.requests.assignConfirm;
   return (
     <Sheet onClose={onClose} center={false}>
       <div className="mb-4 flex items-center gap-[12px]">
@@ -192,17 +204,10 @@ export function AssignSheet({
           </span>
         </div>
       </div>
-      {/* Partial approval: a solo request has nothing to reduce, so no stepper. */}
-      {req.plus > 0 && (
-        <div className="mb-[16px]">
-          <Label className="mb-[10px]">{t.requests.assignPeopleQuestion}</Label>
-          <Stepper value={heads} max={requestedHeads} onChange={(v) => setPlus(clampApprovedPlusOnes(v - 1, req.plus))} />
-          <div className="mt-[8px] px-0.5 text-[12.5px] leading-[1.4] text-faint">
-            {fmt(t.requests.assignPeopleHint, { n: requestedHeads })}
-          </div>
-        </div>
-      )}
-      <Label className="mb-[10px]">{t.requests.assignTierQuestion}</Label>
+      <Label className="mb-[6px]">{t.requests.decideSplitQuestion}</Label>
+      <div className="mb-[10px] px-0.5 text-[12.5px] leading-[1.4] text-faint">
+        {fmt(t.requests.decideSplitHint, { n: requestedHeads })}
+      </div>
       {tiersLoading ? (
         <div className="mb-[14px] py-[18px] text-center text-[13px] text-faint">{t.requests.assignLoadingTiers}</div>
       ) : noTiers ? (
@@ -213,23 +218,45 @@ export function AssignSheet({
           </Btn>
         </div>
       ) : (
-        <TierPicker
-          className="mb-[14px]"
-          tiers={tiers}
-          value={tierId}
-          onChange={setTierId}
-          hint={(row) => (row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax)}
-        />
+        <div className="mb-[14px] flex flex-col gap-[7px]" data-testid="decide-tiers">
+          {tiers.map((row) => {
+            const value = people[row.id] ?? 0;
+            return (
+              <div
+                key={row.id}
+                data-testid={`decide-tier-${row.id}`}
+                className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[10px]', value > 0 ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}
+              >
+                <span className="h-[10px] w-[10px] shrink-0 rounded-full" style={{ background: row.color }} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-display text-[14.5px] font-bold text-text">{row.name}</div>
+                  <div className="text-[11.5px] text-faint">
+                    {row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax}
+                  </div>
+                </div>
+                <CountStepper
+                  value={value}
+                  max={value + declined}
+                  onChange={(v) => setTier(row.id, v)}
+                  lessLabel={fmt(t.requests.decideTierLess, { tier: row.name })}
+                  moreLabel={fmt(t.requests.decideTierMore, { tier: row.name })}
+                />
+              </div>
+            );
+          })}
+        </div>
       )}
       {!noTiers && (
         <div className="mb-[14px]">
           <Label className="mb-[10px]">
             {t.requests.assignMessageLabel}{' '}
-            <span className="font-normal normal-case text-faint">{t.requests.assignMessageOptional}</span>
+            <span className="font-normal normal-case text-faint">
+              {declined > 0 ? t.requests.decideNoteRequired : t.requests.assignMessageOptional}
+            </span>
           </Label>
           <TextArea
-            value={message}
-            onChange={setMessage}
+            value={note}
+            onChange={setNote}
             maxLength={DECISION_MESSAGE_MAX}
             rows={2}
             placeholder={t.requests.assignMessagePlaceholder}
@@ -237,26 +264,35 @@ export function AssignSheet({
             className="min-h-[72px]"
           />
           <div className="mt-[6px] flex items-center justify-between gap-3 px-0.5 text-[12px] text-faint">
-            <span>{t.requests.assignMessageHint}</span>
-            <span className="tabular-nums">{fmt(t.requests.assignMessageCount, { n: message.length, max: DECISION_MESSAGE_MAX })}</span>
+            <span>{t.requests.decideNoteHint}</span>
+            <span className="tabular-nums">{fmt(t.requests.assignMessageCount, { n: note.length, max: DECISION_MESSAGE_MAX })}</span>
           </div>
         </div>
       )}
       {!noTiers && !tiersLoading && (
-        <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]">
-          <Icon name="check2" size={18} stroke="#B5A6FF" sw={2.4} />
+        <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]" data-testid="decide-summary">
+          <Icon name={placed > 0 ? 'check2' : 'close'} size={18} stroke="#B5A6FF" sw={2.4} />
           <span className="text-[13.5px] leading-[1.4] text-text">
-            {reduced
-              ? fmt(t.requests.assignSummaryReduced, { n: heads, requested: requestedHeads })
-              : fmt(t.requests.assignSummary, { n: heads })}
-            {tier && <>{t.requests.assignSummaryTierConnector}<b>{tier.short}</b></>}.
+            {placed === 0
+              ? t.requests.decideSummaryNone
+              : declined > 0
+                ? fmt(t.requests.decideSummaryDeclined, { approved: placed, requested: requestedHeads, declined })
+                : fmt(t.requests.decideSummary, { approved: placed, requested: requestedHeads })}
           </span>
         </div>
       )}
+      {noteMissing && !tiersLoading && !noTiers && <div className="mb-3 text-[12.5px] text-faint">{t.requests.decideNoteMissing}</div>}
       {error && <ErrLine msg={error} />}
       {!noTiers && (
-        <Btn kind="primary" full icon="check" disabled={blocked} onClick={() => onConfirm({ tierId, plusOnes: plus, message })} className={blocked ? 'opacity-50' : ''}>
-          {pending ? t.requests.assignBusy : t.requests.assignConfirm}
+        <Btn
+          kind="primary"
+          full
+          icon={placed > 0 ? 'check' : 'close'}
+          disabled={blocked}
+          onClick={() => onConfirm({ parts, note })}
+          className={blocked ? 'opacity-50' : ''}
+        >
+          {pending ? t.requests.assignBusy : confirmLabel}
         </Btn>
       )}
       <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
@@ -293,16 +329,20 @@ export function DenySheet({
           : fmt(t.requests.denyFromQuota, { name: target.name })}
       </div>
       <Label className="mb-[10px]">
-        {t.requests.reasonLabel} <span className="font-normal normal-case text-faint">{t.requests.reasonRequired}</span>
+        {isLanding ? t.requests.declineNoteLabel : t.requests.reasonLabel}{' '}
+        <span className="font-normal normal-case text-faint">{isLanding ? t.requests.declineNoteRequired : t.requests.reasonRequired}</span>
       </Label>
       <TextArea
         autoFocus
         value={reason}
         onChange={setReason}
-        maxLength={500}
+        maxLength={isLanding ? DECISION_MESSAGE_MAX : 500}
         placeholder={t.requests.reasonPlaceholder}
-        className="mb-4 min-h-[88px]"
+        ariaLabel={isLanding ? t.requests.declineNoteLabel : t.requests.reasonLabel}
+        className={cn('min-h-[88px]', isLanding ? 'mb-[6px]' : 'mb-4')}
       />
+      {/* z8uq9m2vga: a landing decline's note is the decline mail's text. */}
+      {isLanding && <div className="mb-4 px-0.5 text-[12px] text-faint">{t.requests.decideNoteHint}</div>}
       {error && <ErrLine msg={error} />}
       <Btn kind="primary" full icon="close" disabled={pending || !trimmed} onClick={() => onConfirm(trimmed)} className={pending || !trimmed ? 'opacity-50' : ''}>
         {pending ? t.requests.declineBusy : isLanding ? t.requests.declineConfirm : t.requests.denyConfirm}

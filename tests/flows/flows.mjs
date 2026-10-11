@@ -85,6 +85,22 @@ export const FLOWS = {
       'src/lib/legal.ts',
     ],
   },
+  'requests-split': {
+    title: 'Requests E — Requests → split +3 over two tiers, one declined with a note → one partly mail; whole decline → one decline mail',
+    paths: [
+      'src/features/requests/',
+      'src/features/mail/guest-queue.ts',
+      'src/features/po/mutations.ts',
+      'src/features/po/hooks.ts',
+      'src/features/po/queries.ts',
+      'src/features/po/adapters.ts',
+      'src/components/po/screens/approvals',
+      'src/features/po/eventday/EventDayCockpit.tsx',
+      'src/components/po/request-status.tsx',
+      'src/app/r/',
+      'supabase/tests/database/guest_requests_decide',
+    ],
+  },
   'guest-mail': {
     title: 'Gastcommunicatie F (6a) — Guest contact → add with "Send confirmation" → "You\'re on the list" mail → /s status page + .ics → /u opt-out',
     paths: [

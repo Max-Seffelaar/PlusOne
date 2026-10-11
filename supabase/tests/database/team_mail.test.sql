@@ -216,7 +216,9 @@ select is(
 -- A request decided before its mail goes: skipped, no mail.
 insert into public.guest_requests (id, event_id, full_name)
 values ('9e000000-0000-7000-8000-000000000003', 'ee000000-0000-7000-8000-000000000001', 'Robin');
-update public.guest_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
+-- A decline needs a visible note (z8uq9m2vga, spec #60).
+update public.guest_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
+       decision_message = 'Full tonight.'
  where id = '9e000000-0000-7000-8000-000000000003';
 select pg_temp.login_service();
 select is(jsonb_array_length(public.team_mails_claim(50) -> 'mails'), 0, 'D8 a request decided in the meantime: no mail');
@@ -454,7 +456,8 @@ values ('11111111-1111-4111-8111-111111111111', current_date);
 select ok(
   not exists (select 1 from public.team_digest_due(current_date, 100) d where d.user_id = '11111111-1111-4111-8111-111111111111'),
   'F5 once a day: after a delivery the admin is no longer due');
-update public.guest_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
+update public.guest_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
+       decision_message = 'Full tonight.'
  where status = 'pending';
 update public.quota_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
  where status = 'pending';
