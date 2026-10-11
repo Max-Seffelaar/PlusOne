@@ -39,11 +39,29 @@ async function provision(variant: string): Promise<{ eventId: string; name: stri
     .select('id')
     .single();
   if (tErr || !tier) throw new Error(`flow setup: tier (${tErr?.message})`);
+  // A landing guest without an adder must come through a request link
+  // (CHECK guests_added_by_check). Creating the event already made its default
+  // link (slug = landing_slug), so use that one.
+  const { data: link, error: lErr } = await a
+    .from('request_links')
+    .select('id')
+    .eq('event_id', ev.id)
+    .eq('is_default', true)
+    .single();
+  if (lErr || !link) throw new Error(`flow setup: request link (${lErr?.message})`);
   const name = `Maximiliaan van Oldenbarnevelt-Spaarndam ${tag}`;
   const { error: gErr } = await a
     .from('guests')
     // added_by null = a request-link guest → the door names it with a typed chip.
-    .insert({ event_id: ev.id, tier_id: tier.id, full_name: name, plus_ones: 2, added_by: null, source: 'landing' });
+    .insert({
+      event_id: ev.id,
+      tier_id: tier.id,
+      full_name: name,
+      plus_ones: 2,
+      added_by: null,
+      source: 'landing',
+      request_link_id: link.id,
+    });
   if (gErr) throw new Error(`flow setup: guest (${gErr.message})`);
   return { eventId: ev.id, name };
 }
