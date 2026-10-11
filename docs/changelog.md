@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Guest mail delivery status, resend, bounce rule, platform mail log, test mails (z8uq9m49k1)
+
+Milestone **Now** (ADE). Spec #60 (new). Migration `20261015130000_mail_delivery_status.sql`, merges after task 7 (#457, `…120000`); it does not touch `guest_mails_claim`.
+
+- **Guest list:** every guest with an address shows "Confirmation: Not sent / Sending / Sent / Delivered / Bounced / Marked as spam / Didn't send / Unsubscribed", read through the redefined `event_guest_mail_status` (it had no app caller yet).
+- **Resend:** "Resend confirmation" in the guest's event sheet when nothing went out or it failed. RLS decides who may: `can_edit_guest()` runs the real `guests_update` policy as a rolled-back probe (nothing written, no audit row), then the service client queues through the same queue and budgets.
+- **Bounce rule in the database:** bounced or marked as spam to the address the guest still has → `PMB01`, no resend until the address changes (a case or spacing change is not a change).
+- **Platform → Mail log:** every outgoing mail with type, company, event where known, status and a test flag; addresses masked. "Show address" needs a ticket and writes a `platform_access_log` row; that table's `venue_id` became nullable for mails without a company.
+- **Test mail:** any of 26 templates with made-up data to a chosen address, "[Test]" in the subject, no one-time links, `mail_log.is_test`; outside every budget and the invite recipient window, with its own limit (10 per admin, 30 overall per day).
+- **Gotchas:** the seed event predates 6c and has no contact address, so guest mail for it waits by design; the flow gives it one. The first "Edit" on a guest profile is the contact editor; the per-event one is named "Edit <event>".
+- **Tests:** pgTAP `mail_delivery_status.test.sql` (42), vitest for the test-mail renderer (all 26 types), the actions, the Platform screen; flow `mail-status` (Q1–Q11).
+
+---
+
 ## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.

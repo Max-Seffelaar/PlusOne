@@ -1438,9 +1438,11 @@ export type Database = {
           created_at: string
           error_code: string | null
           id: string
+          is_test: boolean
           provider_message_id: string | null
           recipient_hash: string
           status: string
+          test_by: string | null
           type: string
           updated_at: string
           venue_id: string | null
@@ -1449,9 +1451,11 @@ export type Database = {
           created_at?: string
           error_code?: string | null
           id?: string
+          is_test?: boolean
           provider_message_id?: string | null
           recipient_hash: string
           status?: string
+          test_by?: string | null
           type: string
           updated_at?: string
           venue_id?: string | null
@@ -1460,9 +1464,11 @@ export type Database = {
           created_at?: string
           error_code?: string | null
           id?: string
+          is_test?: boolean
           provider_message_id?: string | null
           recipient_hash?: string
           status?: string
+          test_by?: string | null
           type?: string
           updated_at?: string
           venue_id?: string | null
@@ -1583,21 +1589,21 @@ export type Database = {
           created_at: string
           id: string
           reason: string | null
-          venue_id: string
+          venue_id: string | null
         }
         Insert: {
           admin_id?: string
           created_at?: string
           id?: string
           reason?: string | null
-          venue_id: string
+          venue_id?: string | null
         }
         Update: {
           admin_id?: string
           created_at?: string
           id?: string
           reason?: string | null
-          venue_id?: string
+          venue_id?: string | null
         }
         Relationships: [
           {
@@ -2631,6 +2637,7 @@ export type Database = {
       billing_mails_setting: { Args: { p_name: string }; Returns: string }
       billing_mails_tick: { Args: never; Returns: boolean }
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
+      can_edit_guest: { Args: { p_guest_id: string }; Returns: boolean }
       can_read_event_stats: { Args: { p_event_id: string }; Returns: boolean }
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
       can_record_check_in_for: {
@@ -2804,7 +2811,9 @@ export type Database = {
       event_guest_mail_status: {
         Args: { p_event_id: string }
         Returns: {
+          can_resend: boolean
           guest_id: string
+          needs_new_address: boolean
           status: string
           type: string
         }[]
@@ -2951,6 +2960,15 @@ export type Database = {
         }
         Returns: number
       }
+      guest_confirmation_state: {
+        Args: { p_guest_id: string }
+        Returns: {
+          can_resend: boolean
+          mail_type: string
+          needs_new_address: boolean
+          state: string
+        }[]
+      }
       guest_event: { Args: { p_guest_id: string }; Returns: string }
       guest_mail_daily_cap: { Args: never; Returns: number }
       guest_mail_email_hash: { Args: { p_email: string }; Returns: string }
@@ -3051,6 +3069,10 @@ export type Database = {
         Args: { p_recipient_id: string }
         Returns: string
       }
+      log_platform_test_mail: {
+        Args: { p_recipient_hash: string; p_type: string }
+        Returns: string
+      }
       log_venue_export: {
         Args: {
           p_contacts: number
@@ -3062,6 +3084,7 @@ export type Database = {
         }
         Returns: string
       }
+      mail_log_recipient: { Args: { p_mail_log_id: string }; Returns: string }
       mail_recipient_window: { Args: never; Returns: string }
       mail_venue_cap_reached: { Args: { p_venue_id: string }; Returns: boolean }
       mail_venue_daily_cap: { Args: never; Returns: number }
@@ -3070,6 +3093,7 @@ export type Database = {
         Args: { p_venue_id: string }
         Returns: undefined
       }
+      mask_email: { Args: { p_email: string }; Returns: string }
       my_notification_prefs: { Args: never; Returns: Json }
       my_pending_invites: {
         Args: never
@@ -3221,6 +3245,20 @@ export type Database = {
           venue_count: number
         }[]
       }
+      platform_mail_log: {
+        Args: {
+          p_limit?: number
+          p_offset?: number
+          p_status?: string
+          p_type?: string
+          p_venue_id?: string
+        }
+        Returns: Json
+      }
+      platform_reveal_mail_recipient: {
+        Args: { p_mail_log_id: string; p_ticket: string }
+        Returns: string
+      }
       platform_subscription_counts: {
         Args: never
         Returns: {
@@ -3237,6 +3275,8 @@ export type Database = {
           trialing_payment_set_up: number
         }[]
       }
+      platform_test_mail_daily_cap: { Args: never; Returns: number }
+      platform_test_mail_limit: { Args: never; Returns: number }
       platform_trial_funnel: {
         Args: never
         Returns: {
@@ -3335,6 +3375,10 @@ export type Database = {
       request_link_open: {
         Args: { l: Database["public"]["Tables"]["request_links"]["Row"] }
         Returns: boolean
+      }
+      resend_guest_confirmation: {
+        Args: { p_actor: string; p_guest_id: string }
+        Returns: string
       }
       resolve_guest_mail_reply: { Args: { p_reply_key: string }; Returns: Json }
       resolve_tier_for_contact: {

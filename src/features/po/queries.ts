@@ -2714,7 +2714,8 @@ export interface PlatformAccessLogRow {
   id: string;
   admin_id: string;
   admin_name: string | null;
-  venue_id: string;
+  /** Null for an access that belongs to no company (a digest's mail address). */
+  venue_id: string | null;
   venue_name: string | null;
   reason: string | null;
   created_at: string;
