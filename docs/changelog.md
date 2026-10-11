@@ -8,6 +8,28 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Who did it: one label, one rule (spec #61a)
+
+Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes the "Open" item of spec #61(a). Builds on #461 (must merge after it). High-risk surface (new SECURITY DEFINER function): fresh-session `/code-review` + `/security-review` before merge.
+
+- **Rule, on every company-facing surface** (audit feed, export, door, guest lists, recap, recent check-ins, quota requests, person profile, stats):
+  - current and former members/crew by name (full_name only);
+  - a platform admin without a membership/crew tie to the company is "PlusOne support";
+  - no actor is "System".
+  - One i18n key set, `t.shared.actor` (replaces `t.analytics.addedBySupport`).
+- **Migration `20261016140000_venue_actor_names`:** `venue_actor_names(p_venue_id, p_ids)` → `(user_id, display_name, is_support)`.
+  - SECURITY DEFINER, STABLE, empty search_path; EXECUTE for `authenticated` only; max 500 ids (22023).
+  - Gate: members (and platform admins) get the venue, crew only their own events plus current members, anyone else zero rows.
+  - Footprint rule: only ids with history in that venue (membership now or before, crew tie, an audited action, a guest they added). A random uuid or another venue's people return nothing.
+  - Two partial `audit_log` indexes keep the per-id probes index-bound.
+- **App:** `fetchActorLabels` / `actorLabel` (`src/features/audit/actor-labels.ts`), chunked to 120 ids. Every surface above switched from RLS `user_profiles` reads or embeds to it; component APIs unchanged. Falls back to the old read only on `PGRST202` (bundle live before the migration).
+  - Export: former members are named now (the old "leave the cell empty" rule is gone); an undecided request keeps an empty `decided_by`.
+  - `guestSourceLabel` keeps "PlusOne support" whole instead of cutting it to a first name.
+- **Not changed:** the `audit_feed` view (its free-text search still only matches RLS-visible names), the stats RPCs (#461 owns them; they stay caller-relative), the door's "Via request link" caption.
+- **Tests:** pgTAP `venue_actor_names.test.sql` (30, run in a rolled-back transaction on the shared stack; full reset + `pnpm db:test` is the orchestrator's); Vitest for the helper, the audit translator, export, door snapshot, guest source and the person profile.
+
+---
+
 ## 2026-10-11 — SECURITY DEFINER read paths: profile scope (audit follow-up)
 
 Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` column-SELECT audit (#459/#460). High-risk surface (definer functions): fresh-session `/code-review` + `/security-review` before merge.
