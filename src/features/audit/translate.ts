@@ -12,8 +12,8 @@
 // shown bold separately, `text` is the past-tense phrase after it.
 
 import type { Database } from '@/lib/database.types';
-import { t } from '@/lib/i18n';
-import { formatShortDate, formatTime, toDateInput } from '@/features/po/format';
+import { fmt, t } from '@/lib/i18n';
+import { formatLongDate, formatShortDate, formatTime, toDateInput } from '@/features/po/format';
 import type { ActorKind } from '@/lib/po/actor-kind';
 import { ActorLabels, nameRef } from './actor-labels';
 
@@ -61,6 +61,182 @@ function roleList(v: unknown): string | null {
 const SYSTEM = t.shared.actor.system;
 const SOMEONE = 'a guest';
 
+// ── Phrases from the catalogue (t.audit.line) ────────────────────────────────
+// Every table audited since the first phases, plus the generic fallback. Names
+// slotted in here are data (a contact, influencer, template, or tier name),
+// never a person who acted: actors and subjects stay typed refs (#62a).
+
+type Phrase = { text: string; entity: string };
+const L = t.audit.line;
+
+/** `template` with {name}, or the unnamed variant when there is no name. */
+function named(template: string, unnamed: string, name: string | null): string {
+  return name ? fmt(template, { name }) : unnamed;
+}
+
+/** A diff timestamp as "27 Oct 2026" (Amsterdam), or null when absent/invalid. */
+function longDate(v: unknown): string | null {
+  const s = str(v);
+  if (!s || Number.isNaN(new Date(s).getTime())) return null;
+  return formatLongDate(s);
+}
+
+/** A top-level (non before/after) key of the diff, e.g. `source`. */
+function diffMeta(diff: AuditFeedRow['diff'], key: string): unknown {
+  if (diff && typeof diff === 'object' && !Array.isArray(diff)) {
+    return (diff as Record<string, unknown>)[key];
+  }
+  return undefined;
+}
+
+const SUBSCRIPTION_STATUS: Record<string, string> = {
+  trialing: L.subscriptionStatusTrialing,
+  active: L.subscriptionStatusActive,
+  past_due: L.subscriptionStatusPastDue,
+  canceled: L.subscriptionStatusCanceled,
+  comped: L.subscriptionStatusComped,
+};
+
+const BILLING_INTERVAL: Record<string, string> = {
+  month: L.intervalMonth,
+  year: L.intervalYear,
+};
+
+/**
+ * subscriptions: the onboarding insert (create_venue_with_owner), Stripe
+ * webhooks (actor null = System), the Platform tab's set_venue_trial_end /
+ * set_venue_comped, and the ADE invite's trial end (an 'update' row the RPC
+ * writes on the inviter's name, diff.source = 'platform_invite_ade').
+ */
+function subscriptionPhrase(row: AuditFeedRow, action: string, before: DiffSide, after: DiffSide): Phrase {
+  const entity = L.subscriptionEntity;
+  const status = str(after?.status);
+  const trialEnd = longDate(after?.trial_ends_at);
+
+  if (action === 'create') {
+    if (status === 'comped') return { text: L.subscriptionComped, entity };
+    if (status === 'trialing') {
+      return {
+        text: trialEnd ? fmt(L.subscriptionTrialStartedUntil, { date: trialEnd }) : L.subscriptionTrialStarted,
+        entity,
+      };
+    }
+    return { text: L.subscriptionStarted, entity };
+  }
+
+  if (diffMeta(row.diff, 'source') === 'platform_invite_ade' && trialEnd) {
+    return { text: fmt(L.subscriptionAdeTrial, { date: trialEnd }), entity };
+  }
+  if (status === 'comped') return { text: L.subscriptionComped, entity };
+  if (str(before?.status) === 'comped' && trialEnd) {
+    return { text: fmt(L.subscriptionCompedOff, { date: trialEnd }), entity };
+  }
+  if (trialEnd) return { text: fmt(L.subscriptionTrialEnd, { date: trialEnd }), entity };
+  if (status && SUBSCRIPTION_STATUS[status]) {
+    return { text: fmt(L.subscriptionStatus, { status: SUBSCRIPTION_STATUS[status] }), entity };
+  }
+  const interval = str(after?.billing_interval);
+  if (interval && BILLING_INTERVAL[interval]) {
+    return { text: fmt(L.subscriptionInterval, { interval: BILLING_INTERVAL[interval] }), entity };
+  }
+  return { text: L.subscriptionUpdated, entity };
+}
+
+/** contacts: the company's guest book. An anonymized contact is never named
+ *  (its pre-anonymization diff still holds the real name). */
+function contactPhrase(action: string, before: DiffSide, after: DiffSide): Phrase {
+  const entity = L.contactEntity;
+  if (action === 'anonymize' || str(after?.anonymized_at)) return { text: L.contactAnonymized, entity };
+  if (action === 'create') {
+    const name = str(after?.full_name);
+    return { text: named(L.contactCreated, L.contactCreatedUnnamed, name), entity: name ?? entity };
+  }
+  if (action === 'delete') {
+    const name = str(before?.full_name);
+    return { text: named(L.contactRemoved, L.contactRemovedUnnamed, name), entity: name ?? entity };
+  }
+  // An update diff carries only the changed fields: a name only when it changed.
+  const name = str(after?.full_name);
+  return { text: named(L.contactUpdated, L.contactUpdatedUnnamed, name), entity: name ?? entity };
+}
+
+/** invites: team invites (roles) and external-crew invites (no roles). */
+function invitePhrase(action: string, after: DiffSide): Phrase {
+  const entity = L.inviteEntity;
+  if (action === 'create') {
+    const roles = roleList(after?.roles);
+    return { text: roles ? fmt(L.inviteTeam, { roles }) : L.inviteCrew, entity };
+  }
+  if (action === 'delete') return { text: L.inviteCanceled, entity };
+  if (str(after?.accepted_at)) return { text: L.inviteAccepted, entity };
+  if (str(after?.declined_at)) return { text: L.inviteDeclined, entity };
+  if (after && 'expires_at' in after) return { text: L.inviteResent, entity };
+  return { text: L.inviteUpdated, entity };
+}
+
+/** The diff's `name` (after wins), for tables whose rows carry one. */
+function rowName(before: DiffSide, after: DiffSide): string | null {
+  return str(after?.name) ?? str(before?.name);
+}
+
+/** create / delete / anything else → one of three templates. */
+function byAction(action: string, created: string, removed: string, updated: string): string {
+  return action === 'create' ? created : action === 'delete' ? removed : updated;
+}
+
+function influencerPhrase(action: string, before: DiffSide, after: DiffSide): Phrase {
+  const name = rowName(before, after);
+  const influencer = named(L.influencerNamed, L.influencerUnnamed, name);
+  const entity = name ?? L.influencerUnnamed;
+  if (action === 'create') return { text: fmt(L.influencerCreated, { influencer }), entity };
+  if (after && 'archived_at' in after) {
+    const template = str(after.archived_at) ? L.influencerArchived : L.influencerRestored;
+    return { text: fmt(template, { influencer }), entity };
+  }
+  return { text: fmt(L.influencerUpdated, { influencer }), entity };
+}
+
+function templatePhrase(action: string, before: DiffSide, after: DiffSide): Phrase {
+  const name = rowName(before, after);
+  const template = named(L.templateNamed, L.templateUnnamed, name);
+  const text = byAction(action, L.templateCreated, L.templateRemoved, L.templateUpdated);
+  return { text: fmt(text, { template }), entity: name ?? L.templateUnnamed };
+}
+
+function templateTierPhrase(action: string, before: DiffSide, after: DiffSide): Phrase {
+  const name = rowName(before, after);
+  const tier = named(L.templateTierNamed, L.templateTierUnnamed, name);
+  const text = byAction(action, L.templateTierCreated, L.templateTierRemoved, L.templateTierUpdated);
+  return { text: fmt(text, { tier }), entity: name ?? L.templateTierUnnamed };
+}
+
+/** platform_invites: PlusOne's outreach record. Never the invitee's e-mail. */
+function platformInvitePhrase(action: string, after: DiffSide): Phrase {
+  const entity = L.platformInviteEntity;
+  if (action === 'create') {
+    return { text: after?.free_until_ade === true ? L.platformInviteSentAde : L.platformInviteSent, entity };
+  }
+  if (str(after?.anonymized_at)) return { text: L.platformInviteAnonymized, entity };
+  if (str(after?.revoked_at)) return { text: L.platformInviteRevoked, entity };
+  if (str(after?.ade_trial_venue_id)) return { text: L.platformInviteUsed, entity };
+  if (str(after?.last_sent_at)) return { text: L.platformInviteResent, entity };
+  return { text: L.platformInviteUpdated, entity };
+}
+
+/** Any table or action without its own case: a plain verb, never the raw
+ *  action or table name ("create on subscriptions"). */
+function fallbackPhrase(row: AuditFeedRow, action: string): Phrase {
+  const text =
+    action === 'create'
+      ? L.fallbackCreated
+      : action === 'update'
+        ? L.fallbackUpdated
+        : action === 'delete'
+          ? L.fallbackRemoved
+          : L.fallbackOther;
+  return { text, entity: row.guest_name ?? L.fallbackEntity };
+}
+
 /** Compose the phrase after the actor for one audit row. */
 function phrase(row: AuditFeedRow): { text: string; entity: string } {
   const after = side(row.diff, 'after');
@@ -88,6 +264,9 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
           return { text: `refused ${guest}`, entity: guest };
         case 'delete':
           return { text: `removed ${guest} (soft delete)`, entity: guest };
+        case 'anonymize':
+          // Data retention (#29): the name here is the live, redacted one.
+          return { text: fmt(L.guestAnonymized, { name: guest }), entity: guest };
         case 'update': {
           // Note "Heads up!"-acknowledgement (#39).
           if (after && 'note_acknowledged_at' in after && str(after.note_acknowledged_at)) {
@@ -106,11 +285,32 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
 
     case 'check_ins': {
       const arrived = num(after?.plus_ones_arrived);
+      if (action === 'update') {
+        // check_out_guest (#34): a check-out voids the row; a partial one
+        // clears voided_at again with the smaller party.
+        if (after && 'voided_at' in after) {
+          if (str(after.voided_at)) return { text: fmt(L.checkOut, { name: guest }), entity: guest };
+          return {
+            text:
+              arrived && arrived > 0
+                ? fmt(L.checkInAgainPlus, { name: guest, count: arrived })
+                : fmt(L.checkInAgain, { name: guest }),
+            entity: guest,
+          };
+        }
+        if (arrived !== null) {
+          return { text: fmt(L.checkInChangedPlus, { name: guest, count: arrived }), entity: guest };
+        }
+        return { text: fmt(L.checkInChanged, { name: guest }), entity: guest };
+      }
+      if (action === 'delete') return { text: fmt(L.checkInRemoved, { name: guest }), entity: guest };
       const extra = arrived && arrived > 0 ? ` +${arrived}` : '';
       return { text: `checked in ${guest}${extra} at the door`, entity: guest };
     }
 
     case 'refusals': {
+      if (action === 'update') return { text: fmt(L.refusalChanged, { name: guest }), entity: guest };
+      if (action === 'delete') return { text: fmt(L.refusalRemoved, { name: guest }), entity: guest };
       const reason = str(after?.reason);
       return {
         text: `refused ${guest}${reason ? `, reason: ${reason}` : ''}`,
@@ -185,6 +385,9 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
             entity: name,
           };
         }
+        case 'anonymize':
+          // Retention job (#29): request_name is the live, redacted handle.
+          return { text: fmt(L.requestAnonymized, { name }), entity: name };
         default:
           return { text: `changed the landing page request from ${name}`, entity: name };
       }
@@ -232,6 +435,11 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
         if (after.allow_uncheck === false) return { text: `turned off check-out for ${ev}`, entity: ev };
         return { text: `set check-out to follow the venue default for ${ev}`, entity: ev };
       }
+      // Per-event default crew quota (T10 / C7).
+      const defaultQuota = num(after?.default_member_quota);
+      if (defaultQuota !== null) {
+        return { text: fmt(L.eventDefaultQuota, { event: ev, count: defaultQuota }), entity: ev };
+      }
       return { text: 'updated the event', entity: ev };
     }
 
@@ -256,8 +464,39 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
       return { text: 'changed the venue settings', entity: 'the venue' };
     }
 
+    case 'subscriptions':
+      return subscriptionPhrase(row, action, before, after);
+
+    case 'contacts':
+      return contactPhrase(action, before, after);
+
+    case 'invites':
+      return invitePhrase(action, after);
+
+    case 'influencers':
+      return influencerPhrase(action, before, after);
+
+    case 'event_templates':
+      return templatePhrase(action, before, after);
+
+    case 'event_template_tiers':
+      return templateTierPhrase(action, before, after);
+
+    case 'platform_invites':
+      return platformInvitePhrase(action, after);
+
+    case 'user_profiles':
+      // set_platform_admin (#49): the only audited user_profiles write.
+      if (action === 'platform_admin_grant') {
+        return { text: L.platformAdminGranted, entity: L.platformAdminEntity };
+      }
+      if (action === 'platform_admin_revoke') {
+        return { text: L.platformAdminRevoked, entity: L.platformAdminEntity };
+      }
+      return fallbackPhrase(row, action);
+
     default:
-      return { text: `${action} on ${entityType}`, entity: row.guest_name ?? row.subject_name ?? '—' };
+      return fallbackPhrase(row, action);
   }
 }
 

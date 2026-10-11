@@ -341,6 +341,406 @@ describe('describeAuditEntry', () => {
   });
 });
 
+// ── Tables audited after the first phases (z8uq audit-fallback-copy) ────────
+// Rows shaped like the trigger output (audit_trigger: full snapshot on create,
+// changed fields only on update) and the SECURITY DEFINER RPCs' direct rows.
+describe('describeAuditEntry: every audited table reads as a sentence', () => {
+  // A company-scoped row: no event, no guest.
+  const company = (overrides: Partial<AuditFeedRow>) =>
+    row({ event_id: null, event_name: null, guest_id: null, guest_name: null, ...overrides });
+
+  describe('subscriptions', () => {
+    it('the onboarding insert starts the free trial (was "create on subscriptions")', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'create',
+          diff: { before: null, after: { status: 'trialing', plan_id: 'pro', trial_ends_at: null, stripe_customer_id: null } },
+        }),
+      );
+      expect(line.text).toBe('started the free trial');
+      expect(line.entity).toBe('the subscription');
+    });
+
+    it('an insert with a trial end names the date', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'create',
+          diff: { before: null, after: { status: 'trialing', trial_ends_at: '2026-10-26T23:00:00+00:00' } },
+        }),
+      );
+      expect(line.text).toBe('started the free trial, until 27 Oct 2026');
+    });
+
+    it('a comped insert or flip is "always free"', () => {
+      expect(
+        describeAuditEntry(
+          company({ entity_type: 'subscriptions', action: 'create', diff: { before: null, after: { status: 'comped' } } }),
+        ).text,
+      ).toBe('marked the company as always free');
+      // set_venue_comped(true): status + trial_ends_at cleared.
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'subscriptions',
+            action: 'update',
+            diff: {
+              before: { status: 'trialing', trial_ends_at: '2026-11-01T00:00:00+00:00' },
+              after: { status: 'comped', trial_ends_at: null },
+            },
+          }),
+        ).text,
+      ).toBe('marked the company as always free');
+    });
+
+    it('set_venue_comped(false) on a comped company is a fresh trial', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          diff: {
+            before: { status: 'comped', trial_ends_at: null },
+            after: { status: 'trialing', trial_ends_at: '2026-10-25T10:00:00+00:00' },
+          },
+        }),
+      );
+      expect(line.text).toBe('turned off always free, trial until 25 Oct 2026');
+    });
+
+    it('set_venue_trial_end names the new end date', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          diff: {
+            before: { trial_ends_at: '2026-10-20T10:00:00+00:00' },
+            after: { trial_ends_at: '2026-12-31T10:00:00+00:00' },
+          },
+        }),
+      );
+      expect(line.text).toBe('set the trial to end on 31 Dec 2026');
+    });
+
+    it('the ADE invite row (diff.source) says why the trial got longer', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          diff: {
+            before: { trial_ends_at: null },
+            after: { trial_ends_at: '2026-10-26T23:00:00+00:00' },
+            source: 'platform_invite_ade',
+            platform_invite_id: 'pi-1',
+          },
+        }),
+      );
+      expect(line.text).toBe('extended the trial to 27 Oct 2026 with a free until end of ADE invite');
+    });
+
+    it('a webhook status change reads as a status, by System', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          actor_id: null,
+          actor_name: null,
+          diff: {
+            before: { status: 'trialing', stripe_subscription_id: null },
+            after: { status: 'past_due', stripe_subscription_id: 'sub_123' },
+          },
+        }),
+      );
+      expect(line.actor).toBe('System');
+      expect(line.text).toBe('set the subscription to payment overdue');
+    });
+
+    it('a billing interval switch, and a bookkeeping-only update', () => {
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'subscriptions',
+            action: 'update',
+            diff: { before: { billing_interval: 'month' }, after: { billing_interval: 'year' } },
+          }),
+        ).text,
+      ).toBe('switched billing to yearly');
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'subscriptions',
+            action: 'update',
+            diff: { before: { stripe_customer_id: null }, after: { stripe_customer_id: 'cus_1' } },
+          }),
+        ).text,
+      ).toBe('updated the subscription');
+    });
+  });
+
+  describe('contacts', () => {
+    it('a new contact is named (was "create on contacts")', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'contacts',
+          action: 'create',
+          diff: {
+            before: null,
+            after: { full_name: 'Lotte de Wit', email: 'lotte@example.test', phone: '+31600000000', source: 'manual' },
+          },
+        }),
+      );
+      expect(line.text).toBe('added a contact: Lotte de Wit');
+      expect(line.text).not.toMatch(/@|\+316/);
+      expect(line.entity).toBe('Lotte de Wit');
+    });
+
+    it('an update names the contact only when the name is in the diff', () => {
+      expect(
+        describeAuditEntry(
+          company({ entity_type: 'contacts', action: 'update', diff: { before: { note: null }, after: { note: 'VIP' } } }),
+        ).text,
+      ).toBe('updated a contact');
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'contacts',
+            action: 'update',
+            diff: { before: { full_name: 'Lotte Wit' }, after: { full_name: 'Lotte de Wit' } },
+          }),
+        ).text,
+      ).toBe('updated the contact Lotte de Wit');
+    });
+
+    it('anonymization never prints the pre-anonymization name', () => {
+      // The anonymizing UPDATE still carries the real name in `before`.
+      const update = describeAuditEntry(
+        company({
+          entity_type: 'contacts',
+          action: 'update',
+          diff: {
+            before: { full_name: 'Lotte de Wit', anonymized_at: null },
+            after: { full_name: 'Contact #12', anonymized_at: '2027-06-01T03:00:00Z' },
+          },
+        }),
+      );
+      expect(update.text).toBe('anonymized a contact');
+      const job = describeAuditEntry(
+        company({
+          entity_type: 'contacts',
+          action: 'anonymize',
+          actor_id: null,
+          actor_name: null,
+          diff: { before: null, after: { anonymized_at: '2027-06-01T03:00:00Z', redacted_fields: ['full_name'] } },
+        }),
+      );
+      expect(job.text).toBe('anonymized a contact');
+    });
+
+    it('a removed contact', () => {
+      expect(
+        describeAuditEntry(
+          company({ entity_type: 'contacts', action: 'delete', diff: { before: { full_name: 'Lotte de Wit' }, after: null } }),
+        ).text,
+      ).toBe('removed the contact Lotte de Wit');
+    });
+  });
+
+  describe('door: check-out and corrections', () => {
+    it('a check-out voids the check-in (was "checked in")', () => {
+      const line = describeAuditEntry(
+        row({
+          entity_type: 'check_ins',
+          action: 'update',
+          diff: { before: { voided_at: null, voided_by: null }, after: { voided_at: '2026-06-20T23:00:00Z', voided_by: 'u-max' } },
+        }),
+      );
+      expect(line.text).toBe('checked out Juri Braakman');
+    });
+
+    it('a partial check-out puts the smaller party back in', () => {
+      const line = describeAuditEntry(
+        row({
+          entity_type: 'check_ins',
+          action: 'update',
+          diff: {
+            before: { voided_at: '2026-06-20T23:00:00Z', plus_ones_arrived: 3 },
+            after: { voided_at: null, plus_ones_arrived: 1 },
+          },
+        }),
+      );
+      expect(line.text).toBe('checked Juri Braakman back in +1');
+    });
+
+    it('an arrivals-only correction, and a refusal update', () => {
+      expect(
+        describeAuditEntry(
+          row({ entity_type: 'check_ins', action: 'update', diff: { before: { plus_ones_arrived: 1 }, after: { plus_ones_arrived: 2 } } }),
+        ).text,
+      ).toBe("changed Juri Braakman's check-in to +2");
+      expect(
+        describeAuditEntry(
+          row({ entity_type: 'refusals', action: 'update', diff: { before: { reason: 'x' }, after: { reason: 'y' } } }),
+        ).text,
+      ).toBe('changed the refusal for Juri Braakman');
+    });
+  });
+
+  it('retention anonymization of a guest and a request', () => {
+    expect(
+      describeAuditEntry(
+        row({ action: 'anonymize', actor_id: null, actor_name: null, guest_name: 'Guest #4', diff: { before: null, after: { anonymized_at: '2027-01-01T00:00:00Z' } } }),
+      ).text,
+    ).toBe('anonymized Guest #4');
+    expect(
+      describeAuditEntry(
+        row({
+          entity_type: 'guest_requests',
+          action: 'anonymize',
+          guest_name: null,
+          request_name: 'Request #9',
+          diff: { before: null, after: { anonymized_at: '2027-01-01T00:00:00Z' } },
+        }),
+      ).text,
+    ).toBe('anonymized the request from Request #9');
+  });
+
+  it('the per-event default crew quota', () => {
+    const line = describeAuditEntry(
+      row({
+        entity_type: 'events',
+        action: 'update',
+        guest_name: null,
+        diff: { before: { default_member_quota: 5 }, after: { default_member_quota: 8 } },
+      }),
+    );
+    expect(line.text).toBe('set the default crew quota for FRENZY to 8');
+  });
+
+  describe('invites', () => {
+    const invite = (action: string, diff: AuditFeedRow['diff']) =>
+      describeAuditEntry(company({ entity_type: 'invites', action, diff })).text;
+
+    it('names the roles, never the e-mail address', () => {
+      const text = invite('create', {
+        before: null,
+        after: { email: 'new.hire@example.test', roles: ['manager', 'doorhost'], event_ids: [] },
+      });
+      expect(text).toBe('invited someone to the team (manager, doorhost)');
+      expect(text).not.toContain('@');
+      expect(invite('create', { before: null, after: { email: 'dj@example.test', roles: [], event_ids: ['e1'] } })).toBe(
+        'invited someone to the external crew',
+      );
+    });
+
+    it('accept, decline, resend, cancel', () => {
+      expect(invite('update', { before: { accepted_at: null }, after: { accepted_at: '2026-10-01T10:00:00Z' } })).toBe(
+        'accepted the invite',
+      );
+      expect(invite('update', { before: { declined_at: null }, after: { declined_at: '2026-10-01T10:00:00Z' } })).toBe(
+        'declined the invite',
+      );
+      expect(invite('update', { before: { expires_at: '2026-10-01T10:00:00Z' }, after: { expires_at: '2026-10-08T10:00:00Z' } })).toBe(
+        'resent an invite',
+      );
+      expect(invite('delete', { before: { email: 'x@example.test', roles: ['staff'] }, after: null })).toBe('canceled an invite');
+    });
+  });
+
+  it('influencers, templates, and template tiers are named', () => {
+    const t1 = describeAuditEntry(
+      company({ entity_type: 'influencers', action: 'create', diff: { before: null, after: { name: 'Lotte', handle: '@lotte' } } }),
+    );
+    expect(t1.text).toBe('added the influencer Lotte');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'influencers', action: 'update', diff: { before: { archived_at: null }, after: { archived_at: '2026-10-01T00:00:00Z' } } }),
+      ).text,
+    ).toBe('archived an influencer');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'event_templates', action: 'create', diff: { before: null, after: { name: 'Friday club night' } } }),
+      ).text,
+    ).toBe('created the template Friday club night');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'event_templates', action: 'update', diff: { before: { capacity: 200 }, after: { capacity: 250 } } }),
+      ).text,
+    ).toBe('updated a template');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'event_template_tiers', action: 'delete', diff: { before: { name: 'VIP' }, after: null } }),
+      ).text,
+    ).toBe('removed tier VIP from a template');
+  });
+
+  it('platform invites and platform admin rights (Platform tab)', () => {
+    const pi = (action: string, diff: AuditFeedRow['diff']) =>
+      describeAuditEntry(company({ venue_id: null, entity_type: 'platform_invites', action, diff })).text;
+    expect(pi('create', { before: null, after: { email: 'owner@example.test', free_until_ade: true } })).toBe(
+      'sent a platform invite, free until end of ADE',
+    );
+    expect(pi('create', { before: null, after: { email: 'owner@example.test', free_until_ade: false } })).toBe(
+      'sent a platform invite',
+    );
+    expect(pi('update', { before: { revoked_at: null }, after: { revoked_at: '2026-10-01T00:00:00Z' } })).toBe(
+      'revoked a platform invite',
+    );
+    expect(pi('update', { before: { ade_trial_venue_id: null }, after: { ade_trial_venue_id: 'v9' } })).toBe(
+      'used a free until end of ADE invite',
+    );
+    expect(pi('update', { before: { last_sent_at: null }, after: { last_sent_at: '2026-10-01T00:00:00Z' } })).toBe(
+      'resent a platform invite',
+    );
+
+    const admin = (action: string) =>
+      describeAuditEntry(
+        company({
+          venue_id: null,
+          entity_type: 'user_profiles',
+          action,
+          diff: { before: { is_platform_admin: false }, after: { is_platform_admin: true } },
+        }),
+      ).text;
+    expect(admin('platform_admin_grant')).toBe('granted platform admin rights');
+    expect(admin('platform_admin_revoke')).toBe('revoked platform admin rights');
+  });
+
+  describe('fallback', () => {
+    it('a table without its own case reads as a plain verb, never "<action> on <table>"', () => {
+      const line = (action: string) =>
+        describeAuditEntry(company({ entity_type: 'company_locations', action, diff: { before: null, after: { name: 'Main room' } } }));
+      expect(line('create').text).toBe('added a record');
+      expect(line('update').text).toBe('updated a record');
+      expect(line('delete').text).toBe('removed a record');
+      expect(line('merge').text).toBe('made a change');
+      expect(line('create').entity).toBe('a record');
+    });
+
+    it('no audited table x action ever prints a raw table name or action verb', () => {
+      // Every table with an audit trigger or a direct audit_log writer
+      // (supabase/migrations), and every action the trigger/RPCs emit.
+      const tables = [
+        'guests', 'guest_tiers', 'quotas', 'event_quotas', 'quota_requests', 'check_ins', 'refusals',
+        'venue_memberships', 'events', 'venues', 'invites', 'guest_requests', 'contacts', 'event_templates',
+        'event_template_tiers', 'request_links', 'influencers', 'subscriptions', 'platform_invites',
+        'user_profiles', 'some_future_table',
+      ];
+      const actions = [
+        'create', 'update', 'delete', 'check_in', 'refuse', 'tier_change', 'quota_grant', 'approve', 'deny',
+        'lock', 'unlock', 'anonymize', 'export', 'platform_admin_grant', 'platform_admin_revoke',
+      ];
+      for (const entity_type of tables) {
+        for (const action of actions) {
+          const { text } = describeAuditEntry(row({ entity_type, action, diff: { before: {}, after: {} } }));
+          expect(text, `${entity_type} × ${action}`).not.toContain(entity_type);
+          expect(text, `${entity_type} × ${action}`).not.toMatch(/_/);
+          expect(text, `${entity_type} × ${action}`).not.toMatch(new RegExp(`^${action} on `));
+        }
+      }
+    });
+  });
+});
+
 describe('formatWhen', () => {
   const now = new Date('2026-06-20T12:00:00+02:00'); // Amsterdam midday
 
