@@ -105,7 +105,7 @@ describe('event mutations also invalidate poKeys.home (86ey9e9v5)', () => {
     const { wrapper, spy } = makeWrapper();
     const { result } = renderHook(() => usePoCreateEvent(), { wrapper });
 
-    act(() => result.current.mutate({ venueId: 'venue-1', name: 'New event', startsAt: '2026-08-10T20:00:00Z' }));
+    act(() => result.current.mutate({ venueId: 'venue-1', name: 'New event', startsAt: '2026-08-10T20:00:00Z', contactEmail: 'guests@club.test' }));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     const keys = invalidatedKeys(spy);
@@ -117,7 +117,7 @@ describe('event mutations also invalidate poKeys.home (86ey9e9v5)', () => {
     const { result } = renderHook(() => usePoCreateEventFromTemplate(), { wrapper });
 
     act(() =>
-      result.current.mutate({ templateId: 't1', name: 'From template', startsAt: '2026-08-10T20:00:00Z' })
+      result.current.mutate({ templateId: 't1', name: 'From template', startsAt: '2026-08-10T20:00:00Z', contactEmail: 'guests@club.test' })
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 

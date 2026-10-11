@@ -13,8 +13,9 @@ const PUBLIC_PATHS = new Set<string>(['/', '/login', '/api/health']);
 // and inbound webhooks (#32 — Stripe authenticates via signature, not a session;
 // a login redirect here would make Stripe mark every delivery as failed).
 // Guest mail F adds the guest's own bearer pages: /s (status + .ics) and /u
-// (opt-out, incl. RFC 8058 one-click POST from the mail provider).
-const PUBLIC_PREFIXES = ['/auth/', '/e/', '/r/', '/i/', '/s/', '/u/', '/api/webhooks/'];
+// (opt-out, incl. RFC 8058 one-click POST from the mail provider); team mail
+// 6b adds /n (the team mail opt-out, same one-click shape).
+const PUBLIC_PREFIXES = ['/auth/', '/e/', '/r/', '/i/', '/s/', '/u/', '/n/', '/api/webhooks/'];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;

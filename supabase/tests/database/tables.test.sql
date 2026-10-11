@@ -66,6 +66,10 @@ select tables_are(
     -- job's single-use tokens. RLS on, no policies, no app-role grants; the
     -- service_role / anon RPCs are the only paths.
     'guest_mail_queue', 'guest_mail_optouts', 'guest_mail_links', 'guest_mail_tokens',
+    -- Team mail 6b (z8uq9m2vpy, 20261013180600): the kick tokens, the
+    -- unsubscribe links (sha256 only) and the daily-summary ledger. RLS on,
+    -- no policies, no app-role grants; definer RPCs only.
+    'team_mail_tokens', 'team_mail_links', 'team_digest_deliveries', 'user_notification_prefs',
     -- Event locations L (z8uq9m444c): saved locations per company. Members
     -- read, admins write, archive instead of delete; events keep a copy.
     'company_locations',
