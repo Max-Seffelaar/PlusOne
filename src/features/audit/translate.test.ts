@@ -766,8 +766,9 @@ describe('describeAuditEntry: every audited table reads as a sentence', () => {
 
   describe('fallback', () => {
     it('a table without its own case reads as a plain verb, never "<action> on <table>"', () => {
+      // A table name that can never be real (company_locations gets its own case in #467).
       const line = (action: string) =>
-        describeAuditEntry(company({ entity_type: 'company_locations', action, diff: { before: null, after: { name: 'Main room' } } }));
+        describeAuditEntry(company({ entity_type: 'zz_future_table', action, diff: { before: null, after: { name: 'Main room' } } }));
       expect(line('create').text).toBe('added a record');
       expect(line('update').text).toBe('updated a record');
       expect(line('delete').text).toBe('removed a record');
@@ -782,7 +783,7 @@ describe('describeAuditEntry: every audited table reads as a sentence', () => {
         'guests', 'guest_tiers', 'quotas', 'event_quotas', 'quota_requests', 'check_ins', 'refusals',
         'venue_memberships', 'events', 'venues', 'invites', 'guest_requests', 'contacts', 'event_templates',
         'event_template_tiers', 'request_links', 'influencers', 'subscriptions', 'platform_invites',
-        'user_profiles', 'some_future_table',
+        'user_profiles', 'company_locations', 'zz_future_table',
       ];
       const actions = [
         'create', 'update', 'delete', 'check_in', 'refuse', 'tier_change', 'quota_grant', 'approve', 'deny',
@@ -795,6 +796,15 @@ describe('describeAuditEntry: every audited table reads as a sentence', () => {
         { before: {}, after: {} },
         { before: { roles: ['staff'] }, after: { roles: allRoles } },
         { before: null, after: { roles: allRoles } },
+        // The events location update and a company_locations rename + archive (#467).
+        {
+          before: { location_name: null, location_address: null },
+          after: { location_name: 'Main room', location_address: 'Keizersgracht 1' },
+        },
+        {
+          before: { name: 'Old room', archived_at: null },
+          after: { name: 'Main room', archived_at: '2026-10-01T00:00:00Z' },
+        },
       ];
       for (const entity_type of tables) {
         for (const action of actions) {
