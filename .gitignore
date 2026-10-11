@@ -72,3 +72,6 @@ supabase/.temp
 
 # QA-0 flow-screenshot harness output (scripts/flow-shots)
 flow-screenshots/
+
+# Vercel CLI link + pulled env (vercel link / vercel env pull): never commit
+.vercel
