@@ -8,6 +8,22 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Audit log: no more raw "create on subscriptions" lines
+
+Milestone **Now** (audit log readable for the first venues). Copy only: no migration, no trigger or RLS change. Merges after #466 (branched from it).
+
+- **Problem:** the audit log fell back to `"<action> on <table>"` for every table without its own case in `src/features/audit/translate.ts`, e.g. "Robin Vermeer create on subscriptions" / "create on contacts" (the Kelder Nord promo seed shows both).
+- **Matrix:** every table with an audit trigger or a direct `audit_log` writer in `supabase/migrations`, checked against translate.ts. New cases:
+  - `subscriptions`: insert = "started the free trial" (with "until {date}" when set) or "marked the company as always free"; `set_venue_comped` on/off; `set_venue_trial_end` = "set the trial to end on {date}"; the ADE invite row (`diff.source = 'platform_invite_ade'`) = "extended the trial to {date} with a free until end of ADE invite"; webhook status = "set the subscription to {status}" (labels, never the enum); billing interval.
+  - `contacts`: "added a contact: {name}", update/remove, anonymization never names the contact (the anonymizing UPDATE still holds the real name in `before`).
+  - `invites` (roles listed, never the e-mail; crew invites), `influencers`, `event_templates`, `event_template_tiers`, `platform_invites`, `user_profiles` platform admin grant/revoke.
+  - `anonymize` on guests and requests; `check_ins` update/delete (a check-out used to read "checked in"); `refusals` update/delete; `events.default_member_quota`.
+- **Fallback:** a plain verb by action ("added a record", "updated a record", "removed a record", "made a change"), so a future table never leaks its name.
+- **Copy:** new `t.audit.line` block in `src/lib/i18n/surfaces/audit.ts`; the older guest/quota/request phrases stay in translate.ts (untouched to keep #466's actor/subject structure intact).
+- **Tests:** translate.test.ts 54 (was 31), incl. a table × action sweep that fails if any line contains a table name, an underscore, or `"<action> on "`. Catalogue snapshot updated for `audit.line.*` only.
+
+---
+
 ## 2026-10-11 — Who did it: one label, one rule (spec #62a)
 
 Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes the "Open" item of spec #62(a). Builds on #461 (must merge after it). High-risk surface (new SECURITY DEFINER function): fresh-session `/code-review` + `/security-review` before merge.
