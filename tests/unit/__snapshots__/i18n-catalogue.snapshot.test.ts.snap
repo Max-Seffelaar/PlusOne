@@ -2,6 +2,7 @@
 
 exports[`i18n catalogue > matches the reviewed snapshot 1`] = `
 "analytics.addedByLabel = "Added by"
+analytics.addedBySupport = "PlusOne support"
 analytics.addedByUnit = "In heads (guest + plus-ones)"
 analytics.addedWord = "added"
 analytics.arrivalsLabel = "Arrivals by 15 min"
