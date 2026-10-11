@@ -191,6 +191,8 @@ test('company rename: wizard → More → Company settings → events with a loc
       const hour = page.getByLabel('Hour').first();
       await hour.fill('22:00');
       await hour.press('Enter');
+      // Guest mail 6c: every event needs its own contact address.
+      await page.getByRole('textbox', { name: 'Contact email' }).fill('guests@clubvesper.test');
       await page.getByRole('button', { name: 'Create event' }).click();
       await expect(page.getByRole('button', { name: 'Add your first tier' })).toBeVisible({ timeout: 20_000 });
       await expect
@@ -224,6 +226,8 @@ test('company rename: wizard → More → Company settings → events with a loc
       const hour = page.getByLabel('Hour').first();
       await hour.fill('22:00');
       await hour.press('Enter');
+      // Guest mail 6c: every event needs its own contact address.
+      await page.getByRole('textbox', { name: 'Contact email' }).fill('guests@clubvesper.test');
       await page.getByRole('button', { name: 'Create event' }).click();
       await page.waitForURL(/\/app\/events\/[^/]+/);
       await expect
@@ -294,6 +298,8 @@ test('company rename: wizard → More → Company settings → events with a loc
       const hour = page.getByLabel('Hour').first();
       await hour.fill('22:00');
       await hour.press('Enter');
+      // Guest mail 6c: every event needs its own contact address.
+      await page.getByRole('textbox', { name: 'Contact email' }).fill('guests@clubvesper.test');
       await page.getByRole('button', { name: 'Create event' }).click();
       await page.waitForURL(/\/app\/events\/[^/]+/);
       await expect

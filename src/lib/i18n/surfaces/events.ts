@@ -380,4 +380,14 @@ export const events = {
     reminderSending: 'Sending…',
     reminderSent: 'Reminder queued.',
   },
+  // Guest mail 6c: the event's own contact address (required, never pre-filled).
+  contactEmail: {
+    label: 'Contact email',
+    placeholder: 'e.g. guestlist@yourclub.com',
+    hint: 'Guests see this address in every email about this event. Their replies come here.',
+    required: 'Add a contact email for guests.',
+    invalid: "That email address doesn't look right.",
+    noDomain: "That email domain doesn't take mail. Check the part after the @.",
+    notSaved: "The event is created, but its contact email didn't save. Add it in the event settings.",
+  },
 } as const;

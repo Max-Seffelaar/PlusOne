@@ -31,6 +31,7 @@ const THROTTLED_ANON_RPCS = [
   // Guest mail F (20261013180200): the guest status page + opt-out, on 'st'.
   'get_guest_status',
   'unsubscribe_guest_mail',
+  'unsubscribe_team_mail',
 ];
 
 function sourceFiles(dir: string): string[] {
