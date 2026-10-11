@@ -59,7 +59,7 @@ export function toPerTier(tiers: TierStat[]): PerTier[] {
 export function toPerUser(users: UserAddition[]): PerUser[] {
   return users.map((u) => ({
     // Null when the adder is a PlusOne platform admin the caller cannot see
-    // (support work outside the company; 20261014130000).
+    // (support work outside the company; 20261016130000).
     who: u.full_name ?? t.shared.actor.support,
     added: u.added_headcount,
     removed: u.removed_headcount,

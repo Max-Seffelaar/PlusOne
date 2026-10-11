@@ -1,5 +1,5 @@
 -- pgTAP — SECURITY DEFINER read paths stay inside the profile boundary
--- (20261014130000, follow-up to the user_profiles column-SELECT audit).
+-- (20261016130000, follow-up to the user_profiles column-SELECT audit).
 --
 -- A definer function runs as the owner, so neither RLS nor the user_profiles
 -- column grant applies inside it: whatever it returns is the boundary. Claims:

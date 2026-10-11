@@ -1928,7 +1928,7 @@ export async function fetchUserSessions(client: Client, targetUserId: string): P
     not_after: s.not_after,
     user_agent: s.user_agent,
     // Another member's IP and MFA level are not the admin's business: the RPC
-    // returns null for both since 20261014130000 (list_own_sessions keeps them).
+    // returns null for both since 20261016130000 (list_own_sessions keeps them).
     ip: null,
     aal: null,
     is_current: false,

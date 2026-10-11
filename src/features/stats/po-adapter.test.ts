@@ -108,7 +108,7 @@ describe('toPerUser', () => {
       added_free_headcount: 3,
       present_free_headcount: 0,
       user_id: 'op',
-    }; // the RPC returns a null name here since 20261014130000
+    }; // the RPC returns a null name here since 20261016130000
     const [row] = toPerUser([hidden]);
     expect(row?.who).toBe('PlusOne support');
     expect(row?.added).toBe(3);
