@@ -16,7 +16,7 @@ type Client = SupabaseClient<Database>;
 export type EventSummary = Fn['event_stats_summary']['Returns'][number];
 export type QuarterBucket = Fn['event_checkins_per_quarter']['Returns'][number];
 export type TierStat = Fn['event_tier_stats']['Returns'][number];
-// full_name is null for a PlusOne platform admin the caller cannot see (support
+// full_name is null for a PlusOne platform admin with no membership or crew tie at the venue (support
 // work outside the company, 20261016130000); the generated type cannot say so.
 export type UserAddition = Omit<Fn['event_user_additions']['Returns'][number], 'full_name'> & {
   full_name: string | null;

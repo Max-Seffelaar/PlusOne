@@ -3,11 +3,13 @@
 --
 -- A definer function runs as the owner, so neither RLS nor the user_profiles
 -- column grant applies inside it: whatever it returns is the boundary. Claims:
---   * the "added by" stats never name a PlusOne platform admin the caller
---     cannot see under can_view_profile (support work in a venue they are no
---     member of), while their counts still add up;
+--   * the "added by" stats never name a PlusOne platform admin who has no
+--     membership or crew tie at THAT venue (support work), while their counts
+--     still add up — venue-relative, like venue_actor_names (spec #62a): also
+--     for a caller who shares another venue with them, and for the operator
+--     reading their own stats;
 --   * everyone else keeps their name — the operator once they are a real
---     member, the operator reading their own stats, and a former member;
+--     member, and a former member;
 --   * admin_list_user_sessions never reveals another member's MFA level (aal)
 --     or IP address, while list_own_sessions still shows the caller their own;
 --   * the existing gates are unchanged (staff gets no stats rows, cannot list
@@ -28,7 +30,7 @@ begin
 end;
 $fn$;
 
-select plan(20);
+select plan(22);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 = Club Vesper, Max admin, Tom staff,
@@ -156,8 +158,24 @@ select pg_temp.login('a9000000-0000-4000-8000-0000000000a1'); -- the operator
 select is(
   (select full_name from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
     where user_id = 'a9000000-0000-4000-8000-0000000000a1'),
-  'Secret Operator',
-  'B1 the operator reading the stats sees their own name');
+  null,
+  'B1 venue-relative: the operator reading this venue''s stats sees "PlusOne support" too');
+reset role;
+
+-- A caller who shares ANOTHER venue with the operator (Max administers venue 2)
+-- can see their profile under RLS, yet this venue's stats still withhold the
+-- name: the rule is about the venue, not the caller (aligned with #466).
+insert into public.venue_memberships (venue_id, user_id, roles)
+values ('aa000000-0000-7000-8000-000000000002', 'a9000000-0000-4000-8000-0000000000a1', '{staff}');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is((select count(*)::int from public.user_profiles
+            where id = 'a9000000-0000-4000-8000-0000000000a1'), 1,
+  'B1b precondition: via venue 2 the venue-1 admin can see the operator''s profile');
+select is(
+  (select full_name from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+    where user_id = 'a9000000-0000-4000-8000-0000000000a1'),
+  null,
+  'B1c …but venue 1''s stats still show them as PlusOne support (venue-relative)');
 reset role;
 
 insert into public.venue_memberships (venue_id, user_id, roles)
