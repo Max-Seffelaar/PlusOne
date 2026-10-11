@@ -40,7 +40,7 @@ import { buildDecideInput, buildDeclineInput, type SplitDecision } from '@/featu
 import type { PoLinkOption } from '@/features/po/queries';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { ActorName, Avatar, Btn, Empty, KeepMePostedBadge, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
+import { ActorAvatar, ActorName, Avatar, Btn, Empty, KeepMePostedBadge, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
 import { AssignSheet, DenySheet, ErrLine, EventPickerSheet, LinkPickerSheet, type DenyTarget } from './approvals-sheets';
 import { CreateLinkFlow } from './promotion/create-link-flow';
 import { soonestUpcoming } from './promotion/shared';
@@ -576,7 +576,7 @@ export function Aanvragen({
                 <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                   {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
                   <div className="mb-[11px] flex items-center gap-[11px]">
-                    <Avatar name={r.who} size={40} />
+                    <ActorAvatar name={r.who} kind={r.whoKind} size={40} />
                     <div className="min-w-0 flex-1">
                       <div className="font-display text-[15.5px] font-bold text-text">
                         <ActorName name={r.who} kind={r.whoKind} />

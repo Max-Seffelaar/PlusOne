@@ -253,7 +253,7 @@ describe('toPoGuest', () => {
   };
 
   it('maps a guest row + extras to the po Guest shape (incl. the real tier name + color)', () => {
-    const g = toPoGuest(row, { role: 'VIP', addedBy: 'Max', tierName: 'VIP — bottle', tierColor: '#FFD700' });
+    const g = toPoGuest(row, { role: 'VIP', tierName: 'VIP — bottle', tierColor: '#FFD700' });
     expect(g).toMatchObject({
       id: 'g1',
       name: 'Lieke Hofman',
@@ -266,7 +266,6 @@ describe('toPoGuest', () => {
       note: 'Tafel 4 reserveren',
       flag: 'high',
       noteAcknowledged: false,
-      by: 'Max',
       status: 'in',
       contactId: 'c1',
     });
@@ -288,7 +287,6 @@ describe('toPoGuest', () => {
       { ...row, note: null, note_priority: 'none', status: 'pending' },
       { role: 'Guest' }
     );
-    expect(g.by).toBe('');
     expect(g.note).toBe('');
     expect(g.flag).toBeNull();
     expect(g.status).toBe('wait');
@@ -481,7 +479,6 @@ describe('optimisticGuest', () => {
       plus: 2,
       note: '',
       flag: null,
-      by: '',
       addedAt: '14 Dec',
       status: 'wait',
     });

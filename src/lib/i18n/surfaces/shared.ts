@@ -26,9 +26,17 @@ export const shared = {
     /** Audit sentences: the person a quota/membership change concerns, when
      *  their name cannot be resolved ("granted a user a venue quota of 5"). */
     someUser: 'a user',
-    /** Screen-reader hint on a typed actor chip (kit ActorName): the words are
-     *  PlusOne's own label, not someone's name. */
-    labelHint: '(PlusOne label, not a name)',
+    /** Accessible name of a typed actor chip (kit ActorName), set ON the chip
+     *  so no text inside a name can add or fake it. */
+    chipAria: '{label}, PlusOne label',
+    /** The compact chip's visible text (captions, door rows); the full label
+     *  is in its title and accessible name. */
+    short: {
+      support: 'Support',
+      system: 'System',
+      unknown: 'Unknown',
+      unnamed: 'Unnamed',
+    },
     /** A user tried to take one of the labels above (or a blank) as their own
      *  name; the database refuses it too (user_profiles_full_name_not_reserved). */
     reservedName: 'That name is reserved in PlusOne. Please use your own name.',

@@ -11,7 +11,7 @@ import { fmt, t } from '@/lib/i18n';
 import { usePoEventActivity } from '@/features/po/hooks';
 import type { EventPhase } from '@/features/po/event-phase';
 import { absentKpi } from '@/features/stats/po-adapter';
-import { ActorName, Avatar, Empty, Label, press } from '../../kit';
+import { ActorAvatar, ActorName, Empty, Label, press } from '../../kit';
 
 export function EventStatsPanel({
   eventId,
@@ -133,7 +133,7 @@ export function EventStatsPanel({
                 key={`${u.who}-${i}`}
                 className={cn('flex items-center gap-[12px] py-[11px]', i < perUser.length - 1 && 'border-b border-line2')}
               >
-                <Avatar name={u.who} size={36} />
+                <ActorAvatar name={u.who} kind={u.whoKind} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="font-display text-[14.5px] font-bold text-text">
                     <ActorName name={u.who} kind={u.whoKind} />

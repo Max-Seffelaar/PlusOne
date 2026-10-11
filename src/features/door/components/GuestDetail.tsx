@@ -51,7 +51,7 @@ function LogRow({
       <span className="flex-1 text-[13.5px] text-faint">{label}</span>
       <span className="text-right">
         <span className={cn('text-[13.5px] font-semibold', accent ? 'text-acc' : 'text-text')}>
-          <ActorName name={who} kind={whoKind} />
+          <ActorName name={who} kind={whoKind} size="compact" />
         </span>
         {when && <span className="ml-[7px] font-display text-[12px] text-faint">{when}</span>}
       </span>
@@ -166,7 +166,7 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
                 <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
                   <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
                   {g.ackByName ? (
-                    <ActorPhrase template={t.door.taskDoneBy} slot="name" name={g.ackByName} kind={g.ackByKind} />
+                    <ActorPhrase template={t.door.taskDoneBy} slot="name" name={g.ackByName} kind={g.ackByKind} size="compact" />
                   ) : (
                     t.door.taskStatusDone
                   )}
@@ -236,7 +236,7 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
             {g.inAt ? fmt(t.door.inAt, { time: g.inAt }) : t.door.inside}
             {g.inByName ? (
               <span className="font-body text-[12.5px] font-semibold text-faint">
-                · <ActorPhrase template={t.door.inBy} slot="name" name={g.inByName} kind={g.inByKind} />
+                · <ActorPhrase template={t.door.inBy} slot="name" name={g.inByName} kind={g.inByKind} size="compact" />
               </span>
             ) : null}
           </div>

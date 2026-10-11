@@ -16,7 +16,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
-import { ActorName, ActorPhrase, Avatar, Label, Btn, Card, CountPill, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
+import { ActorAvatar, ActorName, ActorPhrase, Avatar, Label, Btn, Card, CountPill, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
 import { tierInk } from '@/lib/po/tier-colors';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
@@ -696,6 +696,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                         slot={feed[0].actor.slot}
                         name={feed[0].actor.name}
                         kind={feed[0].actor.kind}
+                        size="compact"
                       />
                     ) : (
                       liveFeedLabel(feed[0])
@@ -738,7 +739,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                         <div className="flex flex-col gap-[13px]">
                           {evQuotaReqs.map((r) => (
                             <div key={r.id} className="flex items-center gap-[11px]">
-                              <Avatar name={r.who} size={34} />
+                              <ActorAvatar name={r.who} kind={r.whoKind} size={34} />
                               <div className="min-w-0 flex-1">
                                 <div className="truncate text-[13.5px] font-semibold text-text">
                                   <ActorName name={r.who} kind={r.whoKind} />

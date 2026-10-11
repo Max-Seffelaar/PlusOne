@@ -30,7 +30,6 @@ function guest(over: Partial<Guest> = {}): Guest {
     plus: 2,
     note: '',
     flag: null,
-    by: 'Manager',
     addedAt: '1 jan',
     status: 'in',
     ...over,

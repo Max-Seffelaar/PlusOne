@@ -5,7 +5,13 @@
  * probes stay visible in this file.
  */
 import { describe, it, expect } from 'vitest';
-import { hasInvisibleChars, isBlankOrReservedName, isReservedProfileName, profileNameKey } from './profile-name';
+import {
+  hasInvisibleChars,
+  isBlankOrReservedName,
+  isReservedProfileName,
+  profileNameKey,
+  stripRefusedInvisible,
+} from './profile-name';
 import { profileNameSchema, profileSchema } from './schemas';
 import { t } from '@/lib/i18n';
 
@@ -125,12 +131,52 @@ describe('round 4: styled look-alikes, the phrase, and joiners real names use (s
   });
 });
 
-describe('Zod refuses them with the catalogue messages', () => {
-  it('profileSchema: invisible character → invisibleChars message', () => {
-    const res = profileSchema.safeParse({ firstName: 'Tom', lastName: `Bakker${ZWSP}`, phone: '' });
-    expect(res.success).toBe(false);
-    expect(res.error?.issues[0]?.message).toBe(t.shared.actor.invisibleChars);
+describe('the forms STRIP refused invisible characters, then validate (review #466 r5)', () => {
+  const cp = String.fromCodePoint;
+  const lrm = cp(0x200e);
+  const rlm = cp(0x200f);
+  const tag = (s: string): string => [...s].map((ch) => cp(0xe0000 + ch.charCodeAt(0))).join('');
+  const englandFlag = `${cp(0x1f3f4)}${tag('gbeng')}${cp(0xe007f)}`;
+
+  it.each([
+    ['WhatsApp bidi wrapping', `${lrm}Tom${rlm}`, 'Tom'],
+    ['a Khmer ZWSP', `Sok${ZWSP}Dara`, 'SokDara'],
+    ['a kanji variation selector', `${cp(0x8fbb)}${cp(0xe0100)}`, cp(0x8fbb)],
+    ['U+FE0E text presentation', `Star${cp(0x2b50)}${cp(0xfe0e)}`, `Star${cp(0x2b50)}`],
+    ['a soft hyphen', `Jo${cp(0xad)}hann`, 'Johann'],
+    ['the England flag tags', `Harry ${englandFlag}`, `Harry ${cp(0x1f3f4)}`],
+  ])('accepts a name with %s, stored stripped', (_label, raw, stored) => {
+    const res = profileNameSchema.safeParse({ fullName: raw });
+    expect(res.success).toBe(true);
+    expect(res.data?.fullName).toBe(stored);
+    expect(stripRefusedInvisible(raw)).toBe(stored);
   });
+
+  it('keeps ZWNJ / ZWJ / U+FE0F (allowed in names)', () => {
+    const name = `Mehr${cp(0x200c)}dad ${cp(0x2764)}${cp(0xfe0f)}`;
+    expect(stripRefusedInvisible(name)).toBe(name);
+  });
+
+  it('profileSchema strips first and last name too', () => {
+    const res = profileSchema.safeParse({ firstName: `${lrm}Tom`, lastName: `Bakker${ZWSP}`, phone: '' });
+    expect(res.success).toBe(true);
+    expect(res.data).toMatchObject({ firstName: 'Tom', lastName: 'Bakker' });
+  });
+
+  it('still refuses blank or reserved AFTER stripping', () => {
+    expect(profileNameSchema.safeParse({ fullName: `${ZWSP}${lrm}` }).success).toBe(false);
+    const res = profileNameSchema.safeParse({ fullName: `${ZWSP}System${lrm}` });
+    expect(res.success).toBe(false);
+    expect(res.error?.issues[0]?.message).toBe(t.shared.actor.reservedName);
+  });
+
+  it('refuses the chip hint phrase in a name ("plusone label")', () => {
+    expect(isReservedProfileName(`Syst${cp(0x0435)}m, PlusOne label`)).toBe(true);
+    expect(isReservedProfileName('Max (PlusOne label, not a name)')).toBe(true);
+  });
+});
+
+describe('Zod refuses them with the catalogue messages', () => {
 
   it('profileSchema: NBSP-joined label → reservedName message', () => {
     const res = profileSchema.safeParse({ firstName: `PlusOne${NBSP}`, lastName: 'support', phone: '' });
@@ -138,10 +184,10 @@ describe('Zod refuses them with the catalogue messages', () => {
     expect(res.error?.issues[0]?.message).toBe(t.shared.actor.reservedName);
   });
 
-  it('profileNameSchema: zero-width-prefixed System is refused', () => {
+  it('profileNameSchema: zero-width-prefixed System is refused (as reserved, after stripping)', () => {
     const res = profileNameSchema.safeParse({ fullName: `${ZWSP}System` });
     expect(res.success).toBe(false);
-    expect(res.error?.issues[0]?.message).toBe(t.shared.actor.invisibleChars);
+    expect(res.error?.issues[0]?.message).toBe(t.shared.actor.reservedName);
   });
 
   it('profileNameSchema: "Anne Marie" with an NBSP is fine', () => {

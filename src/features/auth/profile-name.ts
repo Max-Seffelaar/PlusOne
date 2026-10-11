@@ -15,7 +15,13 @@
 //     presentation). Those are allowed in the stored name but still stripped
 //     in the key, so "System" + ZWJ still keys to "system" and is refused.
 //   * RESERVED: a key that IS "system" / "unnamed" / "unknown" / "plusone
-//     support", or that CONTAINS "plusone support". "Systema Smith" is fine.
+//     support", or that CONTAINS "plusone support" or "plusone label" (the
+//     chip's accessible-name hint). "Systema Smith" is fine.
+//   * The profile / consent forms STRIP refused invisible characters before
+//     validating (copy-paste bidi marks, a Khmer ZWSP, a variation selector,
+//     flag tags, a soft hyphen are not the user's fault), like the DB's
+//     new-row sanitizer; blank or reserved after stripping is still refused.
+//     A raw API write that keeps them is refused by the DB CHECK.
 //
 // The DB needs explicit ranges (no \p{} in Postgres regex), so the list lives
 // here as INVISIBLE_RANGES and the migration carries the identical classes;
@@ -68,7 +74,7 @@ const INVISIBLE_ALL = new RegExp(PROFILE_NAME_INVISIBLE.source, 'gu');
 const SPACES = new RegExp(`(?:\\s|${classOf(SPACE_RANGES)})+`, 'gu');
 
 const RESERVED = new Set(['plusone support', 'system', 'unnamed', 'unknown']);
-const RESERVED_PHRASE = 'plusone support';
+const RESERVED_PHRASES = ['plusone support', 'plusone label'];
 
 /** The comparison key: NFKC, invisible characters removed, Unicode spaces
  *  collapsed to one ASCII space, lower-cased, trimmed. Mirror of
@@ -95,10 +101,16 @@ export function hasInvisibleChars(name: string): boolean {
   return false;
 }
 
+/** The name with every REFUSED invisible character removed (ZWNJ / ZWJ /
+ *  U+FE0F kept) — what the forms store, mirroring the DB's new-row sanitizer. */
+export function stripRefusedInvisible(name: string): string {
+  return name.replace(INVISIBLE_ALL, (ch) => (ALLOWED_IN_NAME.has(ch.codePointAt(0)!) ? ch : ''));
+}
+
 /** Is this KEY (already normalised) reserved? Equal to a label word, or
- *  containing the "plusone support" phrase. */
+ *  containing a reserved phrase. */
 export function isReservedKey(key: string): boolean {
-  return RESERVED.has(key) || key.includes(RESERVED_PHRASE);
+  return RESERVED.has(key) || RESERVED_PHRASES.some((phrase) => key.includes(phrase));
 }
 
 /** Blank (after normalisation) or reserved. */

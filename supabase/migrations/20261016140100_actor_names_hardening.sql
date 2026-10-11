@@ -60,6 +60,9 @@
 --        U+FE0F (emoji presentation) are ALLOWED in a stored name: the refused
 --        class below leaves them out, the key class still strips them, so
 --        "System" + ZWJ still keys to "system" and is refused.
+--    Review round 5: "plusone label" (the chip's accessible-name hint, set ON
+--    the chip) is a reserved phrase too, so a member name cannot carry it.
+--    Prod checked (aggregates, orchestrator): 0 names would violate.
 --    What each layer guarantees:
 --      * Layer 1 (primary, app): PlusOne's own labels render as a bordered
 --        chip (kit ActorName) that a name renders never — a member's name is
@@ -115,7 +118,8 @@ comment on function public.profile_name_key(text) is
   'one space, lower-cased, trimmed. Used by user_profiles_full_name_not_reserved '
   'and the new-row sanitizer.';
 
--- Reserved: a label word, or anything containing the "plusone support" phrase.
+-- Reserved: a label word, or anything containing "plusone support" or
+-- "plusone label" (the chip's accessible-name hint, review #466 r5).
 create or replace function public.profile_name_key_reserved(p_key text)
 returns boolean
 language sql
@@ -124,7 +128,8 @@ parallel safe
 set search_path = ''
 as $$
   select p_key in ('plusone support', 'system', 'unnamed', 'unknown')
-      or position('plusone support' in p_key) > 0;
+      or position('plusone support' in p_key) > 0
+      or position('plusone label' in p_key) > 0;
 $$;
 
 -- The CHECK evaluates these as the role doing the INSERT/UPDATE, so the roles

@@ -277,7 +277,7 @@ describe('describeAuditEntry', () => {
         labels,
       );
       expect(line.subject).toEqual({ text: 'PlusOne support', kind: 'support' });
-      expect(line.textTemplate).toBe("removed {subject}'s access");
+      expect(line.subjectParts).toEqual({ before: 'removed ', after: "'s access" });
       expect(line.text).toBe("removed PlusOne support's access");
     });
 
@@ -290,6 +290,35 @@ describe('describeAuditEntry', () => {
       expect(line.subject).toEqual({ text: 'a user', kind: 'unknown' });
       expect(line.text).toBe('granted a user an venue quota of 5');
       expect(describeAuditEntry(row({ action: 'delete' }), labels).subject).toBeUndefined();
+    });
+
+    it('a guest NAMED "{subject}" cannot forge or hide a subject (review #466 r5)', () => {
+      // A guest line: no subject entity, so no subject at all, and the name is literal text.
+      const guestLine = describeAuditEntry(row({ action: 'delete', guest_name: '{subject}' }), labels);
+      expect(guestLine.subject).toBeUndefined();
+      expect(guestLine.text).toBe('removed {subject} (soft delete)');
+      // A quota-request deny whose free-text reason says "{subject}": the real
+      // requester stays the subject, the reason stays text.
+      const deny = describeAuditEntry(
+        row({
+          entity_type: 'quota_requests', action: 'deny', subject_user_id: 'u-former', subject_name: null, guest_name: null,
+          diff: { before: null, after: { decision_reason: '{subject} tried this' } },
+        }),
+        labels,
+      );
+      expect(deny.subject).toEqual({ text: 'Lisa van den Berg', kind: 'member' });
+      expect(deny.subjectParts).toEqual({ before: 'denied the quota request from ', after: ', {subject} tried this' });
+    });
+
+    it('a member name containing replacement patterns ($&, $`, $\') is inserted literally', () => {
+      const name = 'A$&B$`C$\'D';
+      const tricky = new ActorLabels().setActor('u-t', name, 'member');
+      const line = describeAuditEntry(
+        row({ entity_type: 'venue_memberships', action: 'delete', subject_user_id: 'u-t', subject_name: null, guest_name: null }),
+        tricky,
+      );
+      expect(line.text).toBe(`removed ${name}'s access`);
+      expect(line.subject?.text).toBe(name);
     });
 
     it('the RLS-name fallback goes through the same blank → "Unnamed" rule', () => {

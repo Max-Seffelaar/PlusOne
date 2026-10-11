@@ -19,7 +19,8 @@
 --   * review round 3: neither does any default-ignorable, control or format
 --     code point, the braille blank or a Hangul filler; 'Unknown' is reserved;
 --   * review round 4: NFKC-styled look-alikes and names containing
---     "plusone support" are refused; ZWJ/ZWNJ/U+FE0F are allowed in names.
+--     "plusone support" are refused; ZWJ/ZWNJ/U+FE0F are allowed in names;
+--   * review round 5: "plusone label" (the chip's accessible-name hint) too.
 --
 -- Everything rolls back.
 
@@ -44,7 +45,7 @@ returns text language sql as $fn$
 $fn$;
 grant execute on function pg_temp.actor(uuid, uuid) to authenticated;
 
-select plan(82);
+select plan(84);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 aa…01 (Max admin, Tom staff, Lisa
@@ -640,6 +641,18 @@ select public.ensure_my_profile();
 reset role;
 select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000c4'),
   'User', 'K10 ensure_my_profile with the styled look-alike stores "User"');
+
+-- ---------------------------------------------------------------------------
+-- L. Review round 5: the chip's accessible-name hint is reserved too
+-- ---------------------------------------------------------------------------
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom, own row
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'Max (PlusOne label, not a name)' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'L1 a name containing "PlusOne label" is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'Syst' || chr(1077) || 'm, PlusOne' || chr(160) || 'label' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'L2 a Cyrillic-e "System" carrying the hint text (NBSP between words) is refused');
+reset role;
 
 select * from finish();
 
