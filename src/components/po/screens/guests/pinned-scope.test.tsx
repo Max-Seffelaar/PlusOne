@@ -26,6 +26,11 @@ vi.mock('../../context', () => ({
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
 
 const idle = { data: undefined, isLoading: false, isError: false };
+// The confirmation-mail state (z8uq9m49k1) has its own read; not under test here.
+vi.mock('@/features/po/guest-mail-status', () => ({
+  usePoGuestMailStatus: () => ({ data: undefined }),
+  usePoResendConfirmation: () => ({ mutate: () => undefined, isPending: false, isSuccess: false, isError: false }),
+}));
 vi.mock('@/features/po/hooks', () => ({
   // The venue list has NOT loaded: the old code derived the pinned event from it.
   usePoEvents: () => ({ data: [], isLoading: true }),

@@ -70,6 +70,7 @@ select tables_are(
     -- unsubscribe links (sha256 only) and the daily-summary ledger. RLS on,
     -- no policies, no app-role grants; definer RPCs only.
     'team_mail_tokens', 'team_mail_links', 'team_digest_deliveries', 'user_notification_prefs',
+    'guest_confirmation_resends',
     -- Event locations L (z8uq9m444c): saved locations per company. Members
     -- read, admins write, archive instead of delete; events keep a copy.
     'company_locations',
