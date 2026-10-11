@@ -1,5 +1,5 @@
 -- user_profiles: authenticated's table-level SELECT becomes an explicit column
--- list (contract step after 20261014120000_my_profile_rpc).
+-- list (contract step after 20261016120000_my_profile_rpc).
 --
 -- The hole: 20260613000000 granted `select` on the whole table and
 -- 20260923120000 left it there ("SELECT is deliberately left at table level"),
@@ -21,7 +21,7 @@
 --                      (security_invoker view: actor/subject names), exports
 --   email              team/crew/organizer lists, crew invite + resend lookup
 --   has_joined         crew list "joined" state (fetchVenueCrew) — a yes/no
---                      derived from terms_accepted_at (20261014120050), so
+--                      derived from terms_accepted_at (20261016120050), so
 --                      colleagues learn whether someone logged in, not when
 --                      (decision Max 2026-10-11)
 --

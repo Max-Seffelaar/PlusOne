@@ -1094,7 +1094,7 @@ export interface PoVenueCrewRow {
   events: { event_id: string; name: string; quota: number }[];
   /** Whether the person ever completed a first login (terms accepted at app
    *  entry) — false means the crew invite is still unanswered. A yes/no on
-   *  purpose: colleagues may not read the first-login time (20261014120100). */
+   *  purpose: colleagues may not read the first-login time (20261016120100). */
   has_joined: boolean;
 }
 
@@ -1922,7 +1922,7 @@ export type PoProfileRow = Pick<
 
 /** The caller's own profile (#24), through `my_profile()`: phone and first/last
  *  name are not in `authenticated`'s column grant on user_profiles, which would
- *  expose them on every colleague's row too (20261014120100). The RPC returns
+ *  expose them on every colleague's row too (20261016120100). The RPC returns
  *  only the `auth.uid()` row; the `id` filter keeps a mismatched `userId` null. */
 export async function fetchMyProfile(client: Client, userId: string): Promise<PoProfileRow | null> {
   const { data, error } = await client
@@ -2539,7 +2539,7 @@ export async function fetchPlatformFunnel(client: Client): Promise<PlatformFunne
 
 /** Whether the signed-in user is a PlusOne platform admin, via the
  *  `is_platform_admin()` RPC — `authenticated` holds no SELECT on the column
- *  itself (20261014120100). `_userId` only keys the cache in the hook; the RPC
+ *  itself (20261016120100). `_userId` only keys the cache in the hook; the RPC
  *  reads `auth.uid()`. It gates UI only — RLS decides what the Platform screen
  *  can actually read. */
 export async function fetchIsPlatformAdmin(client: Client, _userId: string): Promise<boolean> {

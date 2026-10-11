@@ -82,7 +82,7 @@ a deploy, **promote the previous production deployment** before debugging. Schem
 changes can't roll back this way — never `db push` a fix at 00:30 unless the app
 is already down and you've rehearsed it against a restored copy.
 
-**Known exception — `user_profiles` column grant (`20261014120100`, PR #460).**
+**Known exception — `user_profiles` column grant (`20261016120100`, PR #460).**
 Promoting a deployment from *before* #460 breaks everyone after that migration is
 on prod. The old app reads `mfa_snooze_until`/`terms_version`/`phone`/`is_platform_admin`
 (and, on the Team screen, a colleague's `terms_accepted_at`) straight from
@@ -95,7 +95,7 @@ grant select on public.user_profiles to authenticated;
 ```
 
 Then promote. Afterwards restore the column grant by re-running the body of
-`20261014120100_user_profiles_column_select.sql`. CI (`grant_matrix.test.sql`)
+`20261016120100_user_profiles_column_select.sql`. CI (`grant_matrix.test.sql`)
 fails for as long as the table-level grant exists.
 
 ## Who to inform

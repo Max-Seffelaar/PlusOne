@@ -142,7 +142,7 @@ $$, '...nor a column-level INSERT on guest_requests');
 -- may SELECT there, it may SELECT on every colleague. A table-level SELECT also
 -- covers every column added later, and a column-level REVOKE does not narrow it
 -- — which is how is_platform_admin and mfa_snooze_until sat readable venue-wide
--- until 20261014120100. Own-row private data goes through my_profile() and
+-- until 20261016120100. Own-row private data goes through my_profile() and
 -- is_platform_admin(). Widening the list below is a privacy decision: name the
 -- cross-user read that needs it in the migration that grants it.
 select ok(not has_table_privilege('authenticated', 'public.user_profiles', 'SELECT'),

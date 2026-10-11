@@ -194,7 +194,7 @@ export async function getMyPendingInvites(): Promise<PendingInvite[]> {
 // Whether the signed-in user is a PlusOne platform admin, through the
 // `is_platform_admin()` RPC over the user-scoped client — never a service-role
 // bypass, and never a direct column read: `authenticated` holds no SELECT on
-// user_profiles.is_platform_admin (20261014120100). Mirrors
+// user_profiles.is_platform_admin (20261016120100). Mirrors
 // `fetchIsPlatformAdmin` in `src/features/po/queries.ts`, the browser-client
 // counterpart for the UI gate; this one serves the venue-switch action + layout
 // below.

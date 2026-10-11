@@ -1,5 +1,5 @@
 /**
- * user_profiles column-allowlist guard (20261014120100, review #460 finding 6).
+ * user_profiles column-allowlist guard (20261016120100, review #460 finding 6).
  *
  * `authenticated` may SELECT only id, full_name, email and has_joined on
  * user_profiles — the columns the app reads on ANOTHER user's row. Everything

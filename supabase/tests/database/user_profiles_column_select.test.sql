@@ -1,4 +1,4 @@
--- pgTAP — user_profiles column-level SELECT (20261014120100).
+-- pgTAP — user_profiles column-level SELECT (20261016120100).
 --
 -- Threat model: any signed-in user holds the anon key + their own JWT and can
 -- send raw PostgREST requests. user_profiles_select (can_view_profile) admits

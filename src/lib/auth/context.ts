@@ -58,7 +58,7 @@ export const getMyProfile = cache(async (): Promise<MyProfile | null> => {
   if (!user) return null;
   const supabase = await createClient();
   // An RPC, not a table read: terms_version and mfa_snooze_until are outside
-  // `authenticated`'s column grant on user_profiles (20261014120100).
+  // `authenticated`'s column grant on user_profiles (20261016120100).
   const { data } = await supabase
     .rpc('my_profile')
     .select('full_name, terms_accepted_at, terms_version, mfa_snooze_until')
