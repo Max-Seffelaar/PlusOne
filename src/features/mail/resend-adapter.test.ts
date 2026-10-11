@@ -64,6 +64,14 @@ describe('ResendAdapter.send', () => {
     expect(await new ResendAdapter('k').send(MAIL)).toEqual({ ok: false, errorCode: 'provider_unavailable' });
   });
 
+  it('maps 409 (Idempotency-Key conflict) to its own code, not provider_rejected', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubFetch(409, { name: 'invalid_idempotent_request', message: 'Same key, different body' });
+    expect(await new ResendAdapter('k').send(MAIL)).toEqual({ ok: false, errorCode: 'idempotency_conflict' });
+    stubFetch(409, { name: 'concurrent_idempotent_requests' });
+    expect(await new ResendAdapter('k').send(MAIL)).toEqual({ ok: false, errorCode: 'idempotency_conflict' });
+  });
+
   it('never logs the provider message or the address', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     stubFetch(422, { name: 'validation_error', message: 'crew@example.test is invalid' });

@@ -21,6 +21,8 @@ import type { Locator, Page } from '@playwright/test';
 
 const ADMIN = 'admin@plusone.test';
 const MARKTZAAL = 'aa000000-0000-7000-8000-000000000002';
+const VESPER = 'aa000000-0000-7000-8000-000000000001';
+const COMPANY_NAME: Record<string, string> = { [MARKTZAAL]: 'De Marktzaal', [VESPER]: 'Club Vesper' };
 const PGURL = process.env.PGURL ?? 'postgresql://postgres:postgres@127.0.0.1:55322/postgres';
 const MAILPIT = process.env.INBUCKET_URL ?? 'http://127.0.0.1:55324';
 const WELCOME_SUBJECT = "You're in. De Marktzaal is on PlusOne";
@@ -172,6 +174,38 @@ test('billing-mails: job → Mailpit → Platform timeline → pause', async ({ 
   await flow.check(9, 'No price or purchase copy on the Platform screen, timeline open', async () => {
     await expect(page.locator('body')).not.toHaveText(PURCHASE_COPY);
   });
+  // Billing deep link (z8uq9m49k4): a billing mail's button is
+  // /app/billing?venue=<company>. admin@ is a member of both seed companies;
+  // exactly the one that is NOT active must show "Switch to {company}".
+  const cardFor = async (venueId: string): Promise<boolean> => {
+    await page.goto(`/app/billing?venue=${venueId}`);
+    await page.waitForURL(/\/app\/billing/);
+    // Wait until the screen settled: either the switch card or the billing body.
+    await expect(
+      page.getByTestId('billing-other-company').or(page.getByText('Pro', { exact: true })).first()
+    ).toBeVisible();
+    return (await page.getByTestId('billing-other-company').count()) > 0;
+  };
+  let other = '';
+  await flow.check(12, 'Billing link for the other company: "Billing for {company}" + "Switch to {company}", no silent switch', async () => {
+    const forMarktzaal = await cardFor(MARKTZAAL);
+    const forVesper = await cardFor(VESPER);
+    expect(forMarktzaal !== forVesper).toBe(true); // exactly one is the active company
+    other = forMarktzaal ? MARKTZAAL : VESPER;
+    await cardFor(other);
+    await expect(page.getByText(`Billing for ${COMPANY_NAME[other]}`, { exact: true })).toBeVisible();
+    await expect(page.locator('body')).not.toHaveText(PURCHASE_COPY);
+  });
+  await flow.shot('billing-other-company');
+
+  await flow.check(13, 'Switch lands on Billing of that company; its own link then shows its billing, no card', async () => {
+    await page.getByRole('button', { name: `Switch to ${COMPANY_NAME[other]}` }).click();
+    await page.waitForURL((url) => url.pathname === '/app/billing' && !url.search.includes('venue='));
+    await expect(page.getByTestId('billing-other-company')).toHaveCount(0);
+    expect(await cardFor(other)).toBe(false);
+  });
+  await flow.shot('billing-after-switch');
+
   await flow.check(10, 'No step scrolls sideways', async () => {
     expectNoHorizontalOverflow(flow);
   });
