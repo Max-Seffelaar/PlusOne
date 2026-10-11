@@ -119,6 +119,21 @@ export const requests = {
   assignSummaryTierConnector: ' under ',
   assignBusy: 'Working…',
   assignConfirm: 'Add to the list',
+  // z8uq9m2vga (Requests E): one decision per request, split over tiers.
+  decideSplitQuestion: 'Who goes on which tier?',
+  decideSplitHint: 'They asked for {n}. Anyone you leave off is declined.',
+  decideTierLess: 'One less on {tier}',
+  decideTierMore: 'One more on {tier}',
+  decideSummary: '{approved} of {requested} on the list',
+  decideSummaryDeclined: '{approved} of {requested} on the list, {declined} declined',
+  decideSummaryNone: 'Nobody on the list. The whole request is declined.',
+  decideNoteRequired: 'required when you decline someone',
+  decideNoteHint: 'They get this by email and on their status page.',
+  decideNoteMissing: 'Add a note for the guest to decline people.',
+  decideConfirmPartly: 'Add {approved}, decline {declined}',
+  decideConfirmDecline: 'Decline request',
+  decideCountsAria: 'Request totals',
+  decideCounts: '{requested} asked · {approved} on the list · {declined} declined',
   cancel: 'Cancel',
 
   // ── Deny / decline sheet ────────────────────────────────────────────────────
@@ -127,6 +142,9 @@ export const requests = {
   declineFromLanding: 'Request from {name}',
   denyFromQuota: 'Quota request from {name}',
   reasonLabel: 'Reason',
+  // z8uq9m2vga: a landing decline's note goes to the guest (mail + status page).
+  declineNoteLabel: 'Note to the guest',
+  declineNoteRequired: '· required',
   reasonRequired: '· required, the requester sees this',
   reasonPlaceholder: 'e.g. list\'s full, no room left for this event',
   declineBusy: 'Working…',

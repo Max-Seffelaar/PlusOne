@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918160000_status_token_mirror_hardening.sql:109.
+-- Newest source: supabase/migrations/20261015120000_request_decision_split.sql:490.
 
 create or replace function public.submit_guest_request(
   p_slug              text,
@@ -42,6 +42,7 @@ declare
   v_auto       boolean := false;
   v_locked     boolean;
   v_already    boolean;
+  v_guest_id   uuid;
 begin
   if v_name is null or char_length(v_name) < 2 or char_length(v_name) > 120 then
     return jsonb_build_object('status', 'invalid');
@@ -287,10 +288,11 @@ begin
           -- and event capacity (45005) all roll back just this block.
           insert into public.guests
             (event_id, tier_id, full_name, email, phone, plus_ones,
-             added_by, source, status, request_link_id)
+             added_by, source, status, request_link_id, guest_request_id)
           values
             (v_link.event_id, v_link.tier_id, v_name, v_email, v_phone, v_plus,
-             null, 'landing', 'approved', v_link.id);
+             null, 'landing', 'approved', v_link.id, v_request_id)
+          returning id into v_guest_id;
 
           update public.guest_requests
           set status = 'approved',
@@ -302,6 +304,19 @@ begin
         exception when sqlstate '45002' or sqlstate '45005' or sqlstate '45006' then
           null; -- full: stays pending, indistinguishable for the requester
         end;
+
+        -- z8uq9m2vga: the approval mail (6a queue), queued here because the
+        -- anon caller never gets the guest id (#28). Best effort and silent:
+        -- a queue problem never fails or un-approves the submission, and
+        -- nothing about it reaches the answer.
+        if v_auto then
+          begin
+            perform public.enqueue_guest_mail(
+              v_guest_id, 'guest_request_approved', null, null, 0, v_request_id);
+          exception when others then
+            null;
+          end;
+        end if;
 
       elsif v_already then
         -- The one place this function used to break its own #28 promise. On an
