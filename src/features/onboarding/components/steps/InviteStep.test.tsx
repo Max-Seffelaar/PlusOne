@@ -79,7 +79,11 @@ describe('InviteStep', () => {
     render(<InviteStep invites={[crew]} onSkip={onSkip} />);
     fireEvent.click(screen.getByRole('button', { name: s.decline }));
     fireEvent.click(screen.getByRole('button', { name: s.declineConfirm }));
-    fireEvent.click(await screen.findByRole('button', { name: c.ownCompanyAfter }));
+    // The label flips as soon as the card is gone; the button stays disabled
+    // until the decline transition settles, and a click on it then is a no-op.
+    const next = await screen.findByRole('button', { name: c.ownCompanyAfter });
+    await waitFor(() => expect(next).toBeEnabled());
+    fireEvent.click(next);
     expect(onSkip).toHaveBeenCalled();
   });
 
