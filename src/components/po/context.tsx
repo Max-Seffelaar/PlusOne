@@ -55,7 +55,10 @@ export type ScreenName =
   | 'platformaccess'
   /** Platform > Overview (z8uq9m2ybj) — aggregates only; RPCs raise 42501
    *  for anyone who is not a platform admin. */
-  | 'platformoverview';
+  | 'platformoverview'
+  /** Platform > Mail log (z8uq9m49k1) — platform_mail_log raises 42501 for
+   *  anyone who is not a platform admin. */
+  | 'platformmail';
 
 export interface ScreenProps {
   id?: string;

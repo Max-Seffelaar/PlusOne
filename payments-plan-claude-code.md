@@ -1,6 +1,6 @@
 # Betaalplan — Fase 14: deurbetalingen & betaalplatform (eigen Stripe-account, Tap to Pay, wekelijkse uitbetaling)
 
-> Status: **besloten in hoofdlijnen 2026-10-11 (Max, drie rondes dezelfde dag); vier restpunten in §9.** Grondslag: spec-beslissing **#34** (deurbetalingen route A/B/C), **#37** (native) en **#61** (geldstroom, type-model, fee-model, uitbetaling). Native laag = `capacitor-plan-claude-code.md` §4 golf 6 (beslissing 17). ClickUp: [86exxuuu7](https://app.clickup.com/t/86exxuuu7) (Fase 14) en [86exyp8rc](https://app.clickup.com/t/86exyp8rc) (backlog kassamodule).
+> Status: **besloten in hoofdlijnen 2026-10-11 (Max, drie rondes dezelfde dag); vier restpunten in §9.** Grondslag: spec-beslissing **#34** (deurbetalingen route A/B/C), **#37** (native) en **#62** (geldstroom, type-model, fee-model, uitbetaling). Native laag = `capacitor-plan-claude-code.md` §4 golf 6 (beslissing 17). ClickUp: [86exxuuu7](https://app.clickup.com/t/86exxuuu7) (Fase 14) en [86exyp8rc](https://app.clickup.com/t/86exyp8rc) (backlog kassamodule).
 > Milestone: **≥5** (Max 2026-10-11: "hiermee kunnen we beginnen met +5 klanten"). De store-golf 6 van het Capacitor-plan (Tap to Pay native) volgt daarmee ook ≥5; de share sheet (S6) staat los van dit plan.
 
 **Besluiten Max 2026-10-11, ronde 1 (gesprek over de geldstroom):**
