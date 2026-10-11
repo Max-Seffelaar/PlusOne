@@ -8,6 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Dev scripts: local-stack container from this checkout's config
+
+Milestone **Now** (dev tooling; no app or schema change).
+
+- **Bug:** `scripts/dev-mfa.mjs` hard-coded the DB container `supabase_db_PlusOne_Guestlist`. Its API calls follow the checkout's `.env.local`, so in a worktree running its own stack (another `project_id`, e.g. an isolated integration stack) the magic-link call hit that stack while the SQL writes (platform-admin flag, TOTP factors, dev owner) landed on the shared one. Found during the 2026-10-11 merge-train integration pass; that run happened to be a no-op on the shared DB (same state set minutes earlier by another session). `scripts/gen-types.mjs` had the same pattern for the pg-meta container.
+- **Fix:** `scripts/lib/supabase-project.mjs` derives `supabase_<service>_<project_id>` from the same checkout's `supabase/config.toml` (override: `SUPABASE_PROJECT_ID`). Both scripts use it. Verified end to end: run from a worktree with its own stack, `dev-mfa` updated only that stack's DB; the shared DB's timestamps were unchanged.
+- **Guard:** `tests/unit/supabase-project.test.ts` covers the parser and fails if any tracked script names a `supabase_*_PlusOne_*` container literally (verified red by re-adding the old literal).
+
+---
+
 ## 2026-10-11 — Resend confirmation visible on the guest page (z8uq9m49k1 follow-up)
 
 Milestone **Now**. UI only, no migration. Max's local test of #463: nobody found "Resend confirmation" behind the event card's "Edit". The confirmation line, the bounce/complaint hint and the button now sit on the guest profile's event card itself (`EventCardConfirmation` in `screens/guests/mail-status.tsx`), and are gone from the Edit sheet (never twice on one screen). Who sees the button is unchanged: `canResend` from the database and `editPlusOnes` from `profileRowActions`; the server action checks RLS again. Tests: vitest `mail-status.test.tsx`; flow `mail-status` Q2/Q4/Q5/Q12 now act on the card.
