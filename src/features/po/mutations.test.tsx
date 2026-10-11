@@ -22,7 +22,6 @@ vi.mock('@/features/guests/actions', () => ({
 
 vi.mock('@/features/requests/actions', () => ({
   approveGuestRequest: vi.fn(async () => ({ ok: true })),
-  denyGuestRequest: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock('@/features/contacts/actions', () => ({
