@@ -1,15 +1,16 @@
 'use client';
 
 // The confirmation-mail state of a guest (ClickUp z8uq9m49k1): a short line
-// in the guest list rows, and in the guest's event sheet the line plus
-// "Resend confirmation" when the database allows it (not sent or failed; after
-// a bounce only once the address has changed). The rules live in the database
-// (guest_confirmation_state); this file only shows them.
+// in the guest list rows, and on each event card of the guest profile the line
+// plus "Resend confirmation" when the database allows it (not sent, failed,
+// sent or delivered; after a bounce only once the address has changed). The
+// rules live in the database (guest_confirmation_state); this file only shows
+// them. On the card itself, not behind "Edit" (Max, #463: nobody found it there).
 
 import type { JSX } from 'react';
 import { fmt, t } from '@/lib/i18n';
 import type { ConfirmationState, GuestConfirmation } from '@/features/po/guest-mail-status';
-import { usePoResendConfirmation } from '@/features/po/guest-mail-status';
+import { usePoGuestMailStatus, usePoResendConfirmation } from '@/features/po/guest-mail-status';
 import { Btn, Note } from '../../kit';
 
 const PROBLEM: readonly ConfirmationState[] = ['not_sent', 'bounced', 'complained', 'failed'];
@@ -51,7 +52,21 @@ export function MailStatusTag({ status, className }: { status: GuestConfirmation
   );
 }
 
-/** The guest's event sheet: the state, the bounce hint, and the resend button. */
+/** One event card of the guest profile: its own per-event read (shared with the guest list). */
+export function EventCardConfirmation({
+  guestId,
+  eventId,
+  mayEdit,
+}: {
+  guestId: string;
+  eventId: string;
+  mayEdit: boolean;
+}): JSX.Element | null {
+  const { data } = usePoGuestMailStatus(eventId);
+  return <ConfirmationBlock guestId={guestId} eventId={eventId} status={data?.get(guestId)} mayEdit={mayEdit} />;
+}
+
+/** The state, the bounce hint, and the resend button, under a divider inside the event card. */
 export function ConfirmationBlock({
   guestId,
   eventId,
@@ -68,7 +83,7 @@ export function ConfirmationBlock({
   const resend = usePoResendConfirmation(eventId);
   if (!status) return null;
   return (
-    <div data-testid="guest-confirmation" className="flex flex-col gap-2 rounded-[14px] border border-line bg-elev px-4 py-3">
+    <div data-testid="guest-confirmation" className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
       <MailStatusTag status={status} className="font-body text-[13.5px] text-text" />
       {status.needsNewAddress && (
         <p className="text-[12.5px] leading-[1.45] text-faint">

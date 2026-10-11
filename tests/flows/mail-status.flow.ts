@@ -7,7 +7,8 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  * mail log and test mails (ClickUp z8uq9m49k1).
  *
  *   Guest list → each guest with an address shows "Confirmation: …" →
- *   a guest who never got one: Edit → "Resend confirmation" → queued, and
+ *   a guest who never got one: open the guest, the event card's "Resend
+ *   confirmation" → queued, and
  *   Mailpit gets "You're on the list" → once it has gone out, Resend again
  *   sends a second one (Q12, "they never got it") → a guest whose confirmation bounced:
  *   no resend, the hint says to change the address; after the address
@@ -130,10 +131,10 @@ test('mail status: guest list states, resend, bounce rule, platform mail log, te
 
   // ── Resend for the guest who never got one ─────────────────────────────────
   await page.goto(`/app/guests/${ids.fresh}?event=${EVENT}`);
-  await page.getByRole('button', { name: 'Edit PLUSONE Launch Night' }).click();
-  await flow.shot('resend');
+  // Guests → open guest → event card → Resend confirmation (on the card, not behind Edit).
   const block = page.getByTestId('guest-confirmation');
-  await expect(block).toBeVisible();
+  await expect(block.getByRole('button', { name: 'Resend confirmation' })).toBeVisible({ timeout: 20_000 });
+  await flow.shot('resend');
   await block.getByRole('button', { name: 'Resend confirmation' }).click();
   await flow.check(2, '"Resend confirmation" queues it: "Confirmation queued."', async () => {
     await expect(block.getByText('Confirmation queued.')).toBeVisible();
@@ -144,8 +145,9 @@ test('mail status: guest list states, resend, bounce rule, platform mail log, te
 
   // ── Sent, but "the guest says they never got it" (decision Max 2026-10-11) ─
   await page.reload();
-  await page.getByRole('button', { name: 'Edit PLUSONE Launch Night' }).click();
   const sentBlock = page.getByTestId('guest-confirmation');
+  await expect(sentBlock.locator('[data-testid="guest-mail-status"][data-state="sent"]')).toBeVisible({ timeout: 20_000 });
+  await flow.shot('resend-sent');
   await sentBlock.getByRole('button', { name: 'Resend confirmation' }).click();
   await expect(sentBlock.getByText('Confirmation queued.')).toBeVisible();
   await flow.check(12, 'A sent confirmation can be resent: a second "You\'re on the list" in Mailpit', async () => {
@@ -154,7 +156,6 @@ test('mail status: guest list states, resend, bounce rule, platform mail log, te
 
   // ── The bounced guest: no resend until the address changes ─────────────────
   await page.goto(`/app/guests/${ids.bounced}?event=${EVENT}`);
-  await page.getByRole('button', { name: 'Edit PLUSONE Launch Night' }).click();
   const bBlock = page.getByTestId('guest-confirmation');
   await expect(bBlock).toBeVisible();
   await flow.shot('bounced');
@@ -166,7 +167,6 @@ test('mail status: guest list states, resend, bounce rule, platform mail log, te
   const { error: upErr } = await adminClient().from('guests').update({ email: corrected } as never).eq('id', ids.bounced);
   if (upErr) throw new Error(upErr.message);
   await page.reload();
-  await page.getByRole('button', { name: 'Edit PLUSONE Launch Night' }).click();
   await flow.check(5, 'After the address changed, "Resend confirmation" is back', async () => {
     await expect(page.getByTestId('guest-confirmation').getByRole('button', { name: 'Resend confirmation' })).toBeVisible();
   });

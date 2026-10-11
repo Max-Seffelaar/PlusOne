@@ -149,6 +149,7 @@ export const FLOWS = {
       'src/components/po/screens/guests/mail-status.tsx',
       'src/components/po/screens/guests/list-shared.tsx',
       'src/components/po/screens/guests/profile-event-actions.tsx',
+      'src/components/po/screens/guests/profile.tsx',
       'src/components/po/screens/platform-mail-log.tsx',
       'supabase/migrations/20261015130000_mail_delivery_status.sql',
     ],
