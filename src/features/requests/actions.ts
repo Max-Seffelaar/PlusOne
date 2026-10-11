@@ -19,6 +19,7 @@ import {
   type DecideGuestRequestResult,
 } from './schemas';
 import { drainQueuedGuestMails, queueGuestMails, queueRequestDeclinedMail } from '@/features/mail/guest-queue';
+import { drainTeamMailsSoon } from '@/features/mail/team-queue';
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -133,6 +134,9 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
       // RPC (it never hands a guest id back to an anon caller, #28); this only
       // sends what is due now instead of waiting for the cron.
       if (payload.auto_approved === true) drainQueuedGuestMails();
+      // A pending request mailed the approvers who want it now (6b; the
+      // triggers queued it per preference). After the response, never in it.
+      else drainTeamMailsSoon();
       return { ok: true, statusToken, autoApproved: payload.auto_approved === true };
     case 'rate_limited':
       return {

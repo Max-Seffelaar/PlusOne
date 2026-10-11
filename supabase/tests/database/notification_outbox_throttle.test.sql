@@ -18,6 +18,13 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
+-- Push only (20261013180600): this file tests the push path, so every user in
+-- it wants no team mail, the email rows the outbox triggers would add for
+-- default preferences stay out of its counts. Rolled back with the rest.
+insert into public.user_notification_prefs (user_id, notification_prefs)
+select p.id, '{"requests": {"email": "off"}, "quota": {"email": "off"}, "decisions": {"email": false}}'::jsonb
+  from public.user_profiles p;
+
 create function pg_temp.as_service()
 returns void language plpgsql as $fn$
 begin
