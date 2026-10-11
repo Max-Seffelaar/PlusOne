@@ -1,4 +1,4 @@
--- pgTAP — user_profiles.has_joined (20261014120050): a yes/no derived from
+-- pgTAP — user_profiles.has_joined (20261016120050): a yes/no derived from
 -- terms_accepted_at, which no role can write.
 --
 -- Everything rolls back.

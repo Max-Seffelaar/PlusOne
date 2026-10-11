@@ -1,4 +1,4 @@
--- pgTAP — public.my_profile() (20261014120000): the caller's own profile row.
+-- pgTAP — public.my_profile() (20261016120000): the caller's own profile row.
 --
 -- The function exists so own-row reads of private columns (phone,
 -- mfa_snooze_until, terms_version, first/last name) do not need a column grant
