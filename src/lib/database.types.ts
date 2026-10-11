@@ -3483,6 +3483,14 @@ export type Database = {
         Returns: boolean
       }
       uuid_generate_v7: { Args: never; Returns: string }
+      venue_actor_names: {
+        Args: { p_ids: string[]; p_venue_id: string }
+        Returns: {
+          display_name: string
+          is_support: boolean
+          user_id: string
+        }[]
+      }
       venue_event_headcounts: {
         Args: { p_since?: string; p_venue_id: string }
         Returns: {
