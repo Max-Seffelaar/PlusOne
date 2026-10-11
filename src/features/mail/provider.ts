@@ -39,6 +39,11 @@ export type MailFailureCode =
   | 'daily_quota_exceeded'
   | 'monthly_quota_exceeded'
   | 'provider_rejected'
+  // Resend 409 on an Idempotency-Key it already holds: the first request is
+  // still in flight, or a retry carried a different body. The first attempt
+  // may well have been delivered, so this is "outcome unknown", never retried
+  // (no double mail) and never shown as a plain failure (review #446 D1).
+  | 'idempotency_conflict'
   | 'provider_unavailable'
   | 'timeout'
   | 'network';

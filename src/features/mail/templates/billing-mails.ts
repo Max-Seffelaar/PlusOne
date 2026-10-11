@@ -28,6 +28,21 @@ export interface BillingMailContent {
   companyName: string;
   /** Effective trial end (ISO). Required by the trial mails; ignored by the Stripe ones. */
   trialEndsAt: string | null;
+  /** The company the mail is about. A Billing button carries it as
+   *  `?venue=` (z8uq9m49k4), so someone with several companies lands on the
+   *  right one; the screen never switches without asking. */
+  venueId: string | null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BILLING_PATH = '/app/billing';
+
+/** The button's URL: the copy's path on the app origin, plus `?venue=` for Billing. */
+export function billingCtaUrl(base: string, path: string, venueId: string | null): string {
+  if (path === BILLING_PATH && venueId && UUID.test(venueId)) {
+    return `${base}${path}?${new URLSearchParams({ venue: venueId }).toString()}`;
+  }
+  return `${base}${path}`;
 }
 
 function cleanName(value: string): string {
@@ -47,7 +62,7 @@ export function renderBillingMail(content: BillingMailContent, appUrl: string): 
   const copy = billingMailCopy[content.type];
   const shared = billingMailShared;
   const base = appUrl.replace(/\/+$/, '');
-  const ctaUrl = `${base}${copy.path}`;
+  const ctaUrl = billingCtaUrl(base, copy.path, content.venueId);
   const firstName = cleanName(content.firstName ?? '');
   const vars: Record<string, string> = {
     first_name: firstName,
