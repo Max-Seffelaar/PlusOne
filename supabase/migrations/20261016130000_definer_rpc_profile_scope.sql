@@ -10,8 +10,12 @@
 --    venue that a PlusOne operator worked in their list and who, while
 --    platform_access_log is deliberately never shown to the venue (legal v0.3).
 --
---    Rule now: the name is null when the adder is a platform admin AND the
---    caller cannot view their profile. Everyone else keeps their name, former
+--    Rule now: the name is null when the adder is a platform admin with no
+--    membership at THIS venue and no crew tie to its events — venue-relative,
+--    exactly the is_support rule of venue_actor_names (#466, spec #62a), so
+--    stats, audit feed, door and export label the same person the same way
+--    (also for the operator reading their own stats, and for a caller who
+--    happens to share another venue with them). Everyone else keeps their name, former
 --    members included (their stats history is the venue's own, #24 — they
 --    simply lost the membership, not the record). The app labels the null
 --    "PlusOne support". Sorting uses the displayed name, so a hidden name
@@ -80,7 +84,15 @@ begin
     select
       reg.added_by as a_user,
       case
-        when p.is_platform_admin and not public.can_view_profile(reg.added_by) then null
+        when p.is_platform_admin
+             and not exists (select 1 from public.venue_memberships m
+                              where m.venue_id = (select e0.venue_id from public.events e0 where e0.id = p_event_id)
+                                and m.user_id = reg.added_by)
+             and not exists (select 1 from public.event_organizers eo
+                              join public.events e1 on e1.id = eo.event_id
+                              where e1.venue_id = (select e0.venue_id from public.events e0 where e0.id = p_event_id)
+                                and eo.user_id = reg.added_by)
+          then null
         else p.full_name
       end as a_name,
       count(*)::int as a_added,
@@ -144,7 +156,13 @@ begin
     select
       reg.added_by as a_user,
       case
-        when p.is_platform_admin and not public.can_view_profile(reg.added_by) then null
+        when p.is_platform_admin
+             and not exists (select 1 from public.venue_memberships m
+                              where m.venue_id = p_venue_id and m.user_id = reg.added_by)
+             and not exists (select 1 from public.event_organizers eo
+                              join public.events e1 on e1.id = eo.event_id
+                              where e1.venue_id = p_venue_id and eo.user_id = reg.added_by)
+          then null
         else p.full_name
       end as a_name,
       count(*)::int as a_added,
