@@ -17,6 +17,7 @@ import { Sheet } from '../../shell';
 import { press, col } from './_shared';
 import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 import { GuestScopeChips, BulkTierSheet, GuestCardList, GuestTable } from './list-shared';
+import { usePoGuestMailStatus } from '@/features/po/guest-mail-status';
 
 // QuickAdd is intentionally NOT re-exported here (#2b): the app shell code-splits
 // it via `next/dynamic` straight from './quick-add'. Re-exporting it would pull
@@ -95,6 +96,8 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
   // found, instead of downloading the whole venue and filtering in the browser.
   const venue = useVenueGuests(allMode ? events : [], dq);
   const single = usePoGuests(scope ?? '');
+  // Confirmation-mail state per guest (z8uq9m49k1): one event at a time.
+  const mailStatus = usePoGuestMailStatus(scope).data;
   const active = allMode ? venue : single;
   const guests = useMemo<GuestT[]>(
     () => (allMode ? venue.data?.guests : single.data) ?? [],
@@ -294,9 +297,10 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
         </Scroll>
       ) : (
         <>
-          <GuestCardList rows={gs} selected={selected} onAct={onCardAct} onToggle={toggle} />
+          <GuestCardList rows={gs} selected={selected} onAct={onCardAct} onToggle={toggle} mailStatus={mailStatus} />
           <GuestTable
             rows={gs}
+            mailStatus={mailStatus}
             selected={selected}
             onOpen={openGuest}
             onToggle={toggle}

@@ -55,6 +55,7 @@ describe('routes: screenPath ↔ parseAppUrl round-trip', () => {
     ['promotion', { tab: 'events' }],
     ['promotion', { tab: 'events', id: 'e1' }],
     ['promotion', { tab: 'roster' }],
+    ['platformmail', {}],
   ];
 
   for (const [name, props] of cases) {
