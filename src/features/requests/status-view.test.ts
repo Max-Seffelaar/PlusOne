@@ -79,15 +79,23 @@ describe('toRequestStatusView — approved', () => {
 });
 
 describe('toRequestStatusView — pending and denied never show approval-only fields', () => {
-  it.each(['pending', 'denied'] as const)('%s drops the count and message even if sent, keeps the event location', (status) => {
+  it.each(['pending', 'denied'] as const)('%s drops the confirmed count even if sent, keeps the event location', (status) => {
     const v = toRequestStatusView({ ...approved, status });
     expect(v).toMatchObject({
       status,
       location: 'Paradiso, Weteringschans 6, 1017 SG Amsterdam',
       approvedPlusOnes: null,
-      message: null,
     });
     expect(v?.time).toBe('23:00 to 05:00');
+  });
+
+  it('pending never shows a message, even if sent', () => {
+    expect(toRequestStatusView({ ...approved, status: 'pending' })?.message).toBeNull();
+  });
+
+  it('denied shows the venue note (mandatory on a decline since z8uq9m2vga), trimmed', () => {
+    const v = toRequestStatusView({ ...approved, status: 'denied', decision_message: '  Full tonight, sorry.  ' });
+    expect(v?.message).toBe('Full tonight, sorry.');
   });
 });
 
