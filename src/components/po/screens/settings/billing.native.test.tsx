@@ -38,7 +38,10 @@ vi.mock('@/features/po/mutations', () => ({
   usePoBillingCheckout: () => ({ isPending: false, error: null, mutateAsync: H.checkout }),
   usePoBillingPortal: () => ({ isPending: false, error: null, mutateAsync: vi.fn() }),
 }));
-vi.mock('../../context', () => ({ useNav: () => ({ back: vi.fn(), push: vi.fn() }) }));
+vi.mock('../../context', () => ({
+  useNav: () => ({ back: vi.fn(), push: vi.fn() }),
+  usePo: () => ({ myVenues: [], activeVenueId: null, switchToVenue: vi.fn() }),
+}));
 
 const { Billing } = await import('./billing');
 const { BillingLockNote } = await import('../../kit');

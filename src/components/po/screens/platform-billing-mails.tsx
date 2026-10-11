@@ -54,6 +54,8 @@ export function billingMailStatusLine(mail: PlatformBillingMail): string {
   if (mail.sending) parts.push(fmt(t.platform.billingMailSending, { count: mail.sending }));
   if (mail.failed) parts.push(fmt(t.platform.billingMailFailed, { count: mail.failed }));
   if (mail.bounced) parts.push(fmt(t.platform.billingMailBounced, { count: mail.bounced }));
+  // Resend answered 409 on the reused key: maybe delivered, so not "failed".
+  if (mail.unknown) parts.push(fmt(t.platform.billingMailUnknown, { count: mail.unknown }));
   return parts.join(' · ');
 }
 

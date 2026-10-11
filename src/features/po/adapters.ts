@@ -1423,6 +1423,8 @@ export interface PlatformBillingMail {
   delivered: number;
   failed: number;
   bounced: number;
+  /** Resend 409 on the reused key: maybe delivered, never retried (review #446 D1). */
+  unknown: number;
 }
 
 export interface PlatformBillingMails {
@@ -1467,6 +1469,7 @@ export function toPlatformBillingMails(raw: unknown): PlatformBillingMails {
       delivered: n(m.delivered),
       failed: n(m.failed),
       bounced: n(m.bounced),
+      unknown: n(m.unknown),
     });
   }
   return { paused, subscription, mails };

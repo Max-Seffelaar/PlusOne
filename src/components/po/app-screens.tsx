@@ -179,7 +179,7 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav): ReactNode {
     case 'profile':
       return <Profile />;
     case 'billing':
-      return <Billing />;
+      return <Billing venueId={p.id} />;
     case 'allowance':
       return <Allowance />;
     case 'stats':

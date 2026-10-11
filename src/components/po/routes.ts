@@ -111,7 +111,9 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
     case 'profile':
       return '/app/profile';
     case 'billing':
-      return '/app/billing';
+      // `id` = the company a billing mail was about (z8uq9m49k4): the screen
+      // offers "Switch to {company}" when it is not the active one.
+      return withVenueQuery('/app/billing', id);
     case 'stats':
       return '/app/analytics';
     case 'audit':
@@ -268,7 +270,10 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
   }
 
   if (first === 'profile') return { kind: 'screen', name: 'profile', props: {} };
-  if (first === 'billing') return { kind: 'screen', name: 'billing', props: {} };
+  if (first === 'billing') {
+    const venue = search.get('venue');
+    return { kind: 'screen', name: 'billing', props: venue ? { id: venue } : {} };
+  }
   if (first === 'analytics') return { kind: 'screen', name: 'stats', props: {} };
   if (first === 'audit') return { kind: 'screen', name: 'audit', props: { id: search.get('event') ?? undefined } };
   if (first === 'sessions') return { kind: 'screen', name: 'adminsessions', props: {} };
