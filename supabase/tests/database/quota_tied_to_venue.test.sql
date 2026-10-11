@@ -15,6 +15,12 @@
 --     (USING) but the admin can still delete it;
 --   * a non-admin member still cannot grant; a platform admin still can
 --     (decision #49, same as event_organizers_insert_admin).
+--   * review round 1: user_manager / finance / doorhost / crew are refused
+--     (crew self-grant too); ON CONFLICT DO NOTHING, multi-row inserts and a
+--     primary-key conflict upsert do not get around the rule; service_role
+--     cannot change a key either; a key name that is no column fails closed
+--     (42883); approve_quota_request refuses a requester who left the company
+--     and still works for a current member.
 --
 -- Own fixtures only (fresh uuids) so the file does not depend on the seed's
 -- quota rows. Everything rolls back.
@@ -48,7 +54,7 @@ begin
 end;
 $fn$;
 
-select plan(31);
+select plan(49);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Company Q (venue q…f1) with events q…e1 and q…e2:
@@ -56,6 +62,7 @@ select plan(31);
 --   crew   q…a4 (event_organizers on e1 only)
 --   stranger q…a5 (real account, no tie to Q)
 --   operator q…a6 (platform admin, no tie to Q)
+--   user_manager q…a7   finance q…a8   doorhost q…a9 (members of Q, not admin)
 -- Company R (venue q…f2) with event q…e3, admin q…a1 too (for venue repointing).
 -- ---------------------------------------------------------------------------
 
@@ -65,6 +72,9 @@ select pg_temp.mk_user('9a700000-0000-4000-8000-0000000000a3', 'qt-member2@pluso
 select pg_temp.mk_user('9a700000-0000-4000-8000-0000000000a4', 'qt-crew@plusone.test',     'Quota Crew');
 select pg_temp.mk_user('9a700000-0000-4000-8000-0000000000a5', 'qt-stranger@plusone.test', 'Quota Stranger');
 select pg_temp.mk_user('9a700000-0000-4000-8000-0000000000a6', 'qt-operator@plusone.test', 'Quota Operator');
+select pg_temp.mk_user('9a700000-0000-4000-8000-0000000000a7', 'qt-usermgr@plusone.test',  'Quota User Manager');
+select pg_temp.mk_user('9a700000-0000-4000-8000-0000000000a8', 'qt-finance@plusone.test',  'Quota Finance');
+select pg_temp.mk_user('9a700000-0000-4000-8000-0000000000a9', 'qt-door@plusone.test',     'Quota Door');
 
 insert into public.venues (id, name, slug) values
   ('9a700000-0000-7000-8000-0000000000f1', 'Quota Club', 'pgtap-quota-club'),
@@ -73,6 +83,9 @@ insert into public.venue_memberships (venue_id, user_id, roles) values
   ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a1', '{admin}'),
   ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a2', '{staff}'),
   ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a3', '{staff}'),
+  ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a7', '{user_manager}'),
+  ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a8', '{finance}'),
+  ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a9', '{doorhost}'),
   ('9a700000-0000-7000-8000-0000000000f2', '9a700000-0000-4000-8000-0000000000a1', '{admin}');
 insert into public.events (id, venue_id, name, starts_at, ends_at, status, landing_slug) values
   ('9a700000-0000-7000-8000-0000000000e1', '9a700000-0000-7000-8000-0000000000f1', 'Quota Night One',
@@ -100,8 +113,9 @@ select lives_ok($$
 $$, 'A1 admin grants a venue quota to a member');
 
 select lives_ok($$
-  insert into public.event_quotas (event_id, user_id, quota_override)
-  values ('9a700000-0000-7000-8000-0000000000e1', '9a700000-0000-4000-8000-0000000000a2', 6)
+  insert into public.event_quotas (id, event_id, user_id, quota_override)
+  values ('9a700000-0000-7000-8000-0000000000c1', '9a700000-0000-7000-8000-0000000000e1',
+          '9a700000-0000-4000-8000-0000000000a2', 6)
 $$, 'A2 admin grants an event quota to a member');
 
 select lives_ok($$
@@ -179,7 +193,51 @@ select throws_ok($$
   insert into public.quotas (venue_id, user_id, default_count)
   values ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a5', 3)
   on conflict (venue_id, user_id) do update set default_count = excluded.default_count
-$$, '42501', null, 'B5 the upsert shape for an untied account is refused too');
+$$, '42501', 'new row violates row-level security policy for table "quotas"',
+  'B5a the upsert shape for an untied account is refused too');
+select throws_ok($$
+  insert into public.quotas (venue_id, user_id, default_count)
+  values ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000ff', 3)
+  on conflict (venue_id, user_id) do update set default_count = excluded.default_count
+$$, '42501', 'new row violates row-level security policy for table "quotas"',
+  'B5b …with the exact same message for a uuid with no account');
+
+select throws_ok($$
+  insert into public.quotas (venue_id, user_id, default_count)
+  values ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a5', 3)
+  on conflict do nothing
+$$, '42501', 'new row violates row-level security policy for table "quotas"',
+  'B9 ON CONFLICT DO NOTHING for an untied account is refused (not silently skipped)');
+select throws_ok($$
+  insert into public.event_quotas (event_id, user_id, quota_override)
+  values ('9a700000-0000-7000-8000-0000000000e1', '9a700000-0000-4000-8000-0000000000ff', 3)
+  on conflict do nothing
+$$, '42501', 'new row violates row-level security policy for table "event_quotas"',
+  'B10 …and the same for a made-up uuid on event_quotas');
+
+select throws_ok($$
+  insert into public.event_quotas (event_id, user_id, quota_override) values
+    ('9a700000-0000-7000-8000-0000000000e2', '9a700000-0000-4000-8000-0000000000a3', 1),
+    ('9a700000-0000-7000-8000-0000000000e2', '9a700000-0000-4000-8000-0000000000a5', 1)
+$$, '42501', 'new row violates row-level security policy for table "event_quotas"',
+  'B11 a multi-row insert with one untied row is refused as a whole');
+
+-- Primary-key conflict: the INSERT half names a tied user, the DO UPDATE half
+-- would move the existing row (A2, member a2) to another person.
+select throws_ok($$
+  insert into public.event_quotas (id, event_id, user_id, quota_override)
+  values ('9a700000-0000-7000-8000-0000000000c1', '9a700000-0000-7000-8000-0000000000e1',
+          '9a700000-0000-4000-8000-0000000000a3', 1)
+  on conflict (id) do update set user_id = excluded.user_id
+$$, '42501', 'event_quotas.user_id cannot be changed',
+  'B13 an upsert on the primary key cannot repoint user_id to another member');
+select throws_ok($$
+  insert into public.event_quotas (id, event_id, user_id, quota_override)
+  values ('9a700000-0000-7000-8000-0000000000c1', '9a700000-0000-7000-8000-0000000000e1',
+          '9a700000-0000-4000-8000-0000000000a5', 1)
+  on conflict (id) do update set user_id = excluded.user_id
+$$, '42501', 'new row violates row-level security policy for table "event_quotas"',
+  'B14 …nor to an untied account');
 
 select throws_ok($$
   insert into public.event_quotas (event_id, user_id, quota_override)
@@ -187,6 +245,11 @@ select throws_ok($$
 $$, '42501', null,
   'B6 crew of company Q is not tied to company R, even for the same admin');
 reset role;
+
+select is((select count(*)::int from public.event_quotas
+            where event_id = '9a700000-0000-7000-8000-0000000000e2'
+              and user_id = '9a700000-0000-4000-8000-0000000000a3'), 0,
+  'B12 DB state: the tied row of the refused multi-row insert was not written either');
 
 select is((select count(*)::int from public.audit_log
             where entity_type in ('quotas', 'event_quotas')
@@ -200,6 +263,31 @@ select throws_ok($$
   insert into public.quotas (venue_id, user_id, default_count)
   values ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a3', 50)
 $$, '42501', null, 'B8 a staff member cannot grant themselves a quota');
+reset role;
+
+select pg_temp.login('9a700000-0000-4000-8000-0000000000a7');
+select throws_ok($$
+  insert into public.quotas (venue_id, user_id, default_count)
+  values ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a2', 50)
+$$, '42501', null, 'B15 a user_manager cannot grant a member a quota');
+reset role;
+select pg_temp.login('9a700000-0000-4000-8000-0000000000a8');
+select throws_ok($$
+  insert into public.quotas (venue_id, user_id, default_count)
+  values ('9a700000-0000-7000-8000-0000000000f1', '9a700000-0000-4000-8000-0000000000a2', 50)
+$$, '42501', null, 'B16 finance cannot grant a member a quota');
+reset role;
+select pg_temp.login('9a700000-0000-4000-8000-0000000000a9');
+select throws_ok($$
+  insert into public.event_quotas (event_id, user_id, quota_override)
+  values ('9a700000-0000-7000-8000-0000000000e1', '9a700000-0000-4000-8000-0000000000a9', 50)
+$$, '42501', null, 'B17 a doorhost cannot grant themselves an event quota');
+reset role;
+select pg_temp.login('9a700000-0000-4000-8000-0000000000a4');
+select throws_ok($$
+  insert into public.event_quotas (event_id, user_id, quota_override)
+  values ('9a700000-0000-7000-8000-0000000000e2', '9a700000-0000-4000-8000-0000000000a4', 50)
+$$, '42501', null, 'B18 crew cannot grant themselves an event quota');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -247,6 +335,24 @@ select throws_ok($$
      and user_id = '9a700000-0000-4000-8000-0000000000a2'
 $$, '42501', 'quotas.user_id cannot be changed',
   'C6 the key is immutable for the owner as well (trigger, not just RLS)');
+
+set local role service_role;
+select throws_ok($$
+  update public.event_quotas set user_id = '9a700000-0000-4000-8000-0000000000a3'
+   where event_id = '9a700000-0000-7000-8000-0000000000e1'
+     and user_id = '9a700000-0000-4000-8000-0000000000a2'
+$$, '42501', 'event_quotas.user_id cannot be changed',
+  'C7 service_role (bypasses RLS) cannot change a key either');
+reset role;
+
+-- A key name that is no column must fail closed, not compare null with null.
+create temp table qt_guard (id int primary key, val int);
+create trigger qt_guard_keys before update on qt_guard
+  for each row execute function public.refuse_key_column_change('id', 'renamed_away');
+insert into qt_guard values (1, 1);
+select throws_ok($$ update qt_guard set val = 2 where id = 1 $$,
+  '42883', 'qt_guard has no column renamed_away',
+  'C8 a trigger argument that names no column raises 42883 instead of passing');
 
 -- ---------------------------------------------------------------------------
 -- D. A row forged before the fix (only the owner can make one now)
@@ -309,6 +415,38 @@ select ok((select bool_and(pg_get_expr(polqual, polrelid) like '%is_tied_to_venu
              from pg_policy
             where polname in ('quotas_update_admin', 'event_quotas_update_admin')),
   'F2 both update policies also require the tie on the existing row (USING)');
+
+-- ---------------------------------------------------------------------------
+-- G. approve_quota_request (SECURITY DEFINER) checks the tie itself
+-- ---------------------------------------------------------------------------
+-- Member a3 files a request on e2, then leaves the company; member a2 files one
+-- on e1 and stays. Rows written as the owner (the filing itself is covered by
+-- quota_requests_column_grant / quota tests).
+insert into public.quota_requests (id, event_id, user_id, requested_extra, motivation) values
+  ('9a700000-0000-7000-8000-0000000000d1', '9a700000-0000-7000-8000-0000000000e2',
+   '9a700000-0000-4000-8000-0000000000a3', 3, 'leaver'),
+  ('9a700000-0000-7000-8000-0000000000d2', '9a700000-0000-7000-8000-0000000000e1',
+   '9a700000-0000-4000-8000-0000000000a2', 2, 'stays');
+delete from public.venue_memberships
+ where venue_id = '9a700000-0000-7000-8000-0000000000f1'
+   and user_id = '9a700000-0000-4000-8000-0000000000a3';
+select is(public.user_event_quota('9a700000-0000-7000-8000-0000000000e1', '9a700000-0000-4000-8000-0000000000a2'), 6,
+  'G1 precondition: the staying member''s effective quota on e1 is their override 6');
+
+select pg_temp.login('9a700000-0000-4000-8000-0000000000a1');
+select throws_ok($$ select public.approve_quota_request('9a700000-0000-7000-8000-0000000000d1') $$,
+  '42501', 'Deze aanvrager hoort niet meer bij deze company.',
+  'G2 approving the pending request of someone who left the company is refused');
+select lives_ok($$ select public.approve_quota_request('9a700000-0000-7000-8000-0000000000d2') $$,
+  'G3 approving a current member''s request still works');
+reset role;
+select is((select status::text from public.quota_requests where id = '9a700000-0000-7000-8000-0000000000d1'), 'pending',
+  'G4 DB state: the leaver''s request stays pending (the admin can still deny it)');
+select ok((select status = 'approved' and quota_override = 8
+             from public.quota_requests r
+             join public.event_quotas q on q.event_id = r.event_id and q.user_id = r.user_id
+            where r.id = '9a700000-0000-7000-8000-0000000000d2'),
+  'G5 DB state: the member''s request is approved and their override is 6 + 2 = 8');
 
 select * from finish();
 rollback;

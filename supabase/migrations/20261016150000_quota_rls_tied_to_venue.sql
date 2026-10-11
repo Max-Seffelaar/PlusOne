@@ -14,7 +14,7 @@
 --     subjects from venue_actor_names' footprint) a name oracle;
 --   * do the same with an UPDATE that repoints user_id on a legit row.
 --
--- The fix, policies only (no new table, no grant change):
+-- The fix (no new table, no grant change on the tables):
 -- 1. INSERT (quotas_insert_admin, event_quotas_insert_admin): still an admin of
 --    the venue, AND the target is tied to that venue (public.is_tied_to_venue:
 --    a member, or crew on any event of the venue) OR the caller is a platform
@@ -31,14 +31,20 @@
 --    needs UPDATE privilege on user_id/venue_id/event_id even though the value
 --    never changes, so a column grant would break the Team screen and the crew
 --    sheet. The trigger compares OLD and NEW, so the upsert (same key) passes
---    and only a real change is refused, for every role.
+--    and only a real change is refused, for every role. A key name that is no
+--    column (rename, typo) raises 42883 instead of passing silently.
+-- 4. approve_quota_request (SECURITY DEFINER, so RLS does not apply inside it)
+--    refuses (42501) when the requester is no longer tied to the venue, e.g. a
+--    member who filed a request and then left (review round 1).
 -- DELETE policies are unchanged: an admin can still remove a quota row of
 -- someone no longer tied (e.g. a row forged before this migration).
 --
 -- Legit writers checked (none affected):
---   * accept_invite_for_caller / accept_invites_for_caller / approve_quota_request
---     are SECURITY DEFINER (owner postgres, RLS not forced) — RLS does not apply;
---     they never change a key column (approve's upsert sets quota_override only).
+--   * accept_invite_for_caller / accept_invites_for_caller are SECURITY DEFINER
+--     (owner postgres, RLS not forced) — RLS does not apply; they write a quota
+--     for the invitee at the moment of their own accept, never change a key.
+--   * approve_quota_request: SECURITY DEFINER too; now checks the tie itself
+--     (4. above); its upsert sets quota_override only.
 --   * setDefaultQuotaAction (src/features/quotas/default-quota-actions.ts): Team
 --     screen, target is a member of the venue → tied.
 --   * upsertCrewQuota (src/features/events/actions.ts) from assignOrganizer
@@ -49,7 +55,8 @@
 --
 -- Grant matrix: unchanged for quotas / event_quotas. The new trigger function
 -- is executable by nobody directly (revoked from public, anon, authenticated,
--- service_role); triggers do not need EXECUTE.
+-- service_role); triggers do not need EXECUTE. approve_quota_request keeps its
+-- ACL (EXECUTE: authenticated, service_role; not public/anon), re-asserted.
 
 -- ── policies ────────────────────────────────────────────────────────────────
 alter policy quotas_insert_admin on public.quotas
@@ -112,8 +119,15 @@ declare
   k text;
 begin
   -- TG_ARGV = the key columns of this table. Compared as jsonb so one function
-  -- serves both tables.
+  -- serves both tables. A name that is not a column (a later rename, a typo)
+  -- would read null on both sides and pass silently, so it fails closed: every
+  -- UPDATE of the table errors until the trigger names the real column again.
   foreach k in array tg_argv loop
+    if not (to_jsonb(new) ? k) then
+      raise exception using
+        errcode = '42883',
+        message = format('%s has no column %s', tg_table_name, k);
+    end if;
     if (to_jsonb(new) -> k) is distinct from (to_jsonb(old) -> k) then
       raise exception using
         errcode = '42501',
@@ -136,3 +150,71 @@ create trigger quotas_keys_immutable
 create trigger event_quotas_keys_immutable
   before update on public.event_quotas
   for each row execute function public.refuse_key_column_change('id', 'event_id', 'user_id');
+
+-- ── approve_quota_request: the requester must still be tied ─────────────────
+-- Review round 1 (P2): the RPC is SECURITY DEFINER, so the new event_quotas
+-- policies do not apply inside it. A member files a request, leaves the
+-- company, and an admin approves the still-pending request: that wrote an
+-- event_quotas row for someone no longer tied to the venue. Now refused with
+-- 42501 (the app maps it to the generic no-permission copy); the admin can
+-- still deny it. Checked after the admin check, so a non-admin learns nothing
+-- about the tie. The rest is the 20260925140100 definition verbatim:
+-- signature, `returns void`, SECURITY DEFINER, `set search_path = ''`, the row
+-- lock, error codes/messages, override maths. Grants re-asserted below.
+create or replace function public.approve_quota_request(p_request_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_req public.quota_requests;
+  v_venue uuid;
+  v_current int;
+  v_rows int;
+begin
+  select * into v_req from public.quota_requests where id = p_request_id for update;
+  if v_req.id is null then
+    raise exception using errcode = 'P0002', message = 'Quota-verzoek niet gevonden.';
+  end if;
+  if v_req.status <> 'pending' then
+    raise exception using errcode = '45003',
+      message = 'Dit verzoek is al afgehandeld.';
+  end if;
+
+  v_venue := public.event_venue(v_req.event_id);
+  if not public.has_venue_role(v_venue, '{admin}'::public.venue_role[]) then
+    raise exception using errcode = '42501',
+      message = 'Alleen een admin mag quota-verzoeken goedkeuren.';
+  end if;
+
+  if not (public.is_platform_admin() or public.is_tied_to_venue(v_venue, v_req.user_id)) then
+    raise exception using errcode = '42501',
+      message = 'Deze aanvrager hoort niet meer bij deze company.';
+  end if;
+
+  -- New override = the requester's current effective quota + the granted extra.
+  v_current := public.user_event_quota(v_req.event_id, v_req.user_id);
+  insert into public.event_quotas (event_id, user_id, quota_override)
+  values (v_req.event_id, v_req.user_id, v_current + v_req.requested_extra)
+  on conflict (event_id, user_id)
+  do update set quota_override = excluded.quota_override;
+
+  update public.quota_requests
+  set status = 'approved',
+      decided_by = (select auth.uid()),
+      decided_at = now()
+  where id = p_request_id
+    and status = 'pending';
+  get diagnostics v_rows = row_count;
+  if v_rows <> 1 then
+    -- Unreachable while the row lock above holds; raising rolls back the
+    -- override written a few lines up.
+    raise exception using errcode = '45003',
+      message = 'Dit verzoek is al afgehandeld.';
+  end if;
+end;
+$$;
+
+revoke execute on function public.approve_quota_request(uuid) from public, anon;
+grant execute on function public.approve_quota_request(uuid) to authenticated, service_role;
