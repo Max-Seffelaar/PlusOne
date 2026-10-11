@@ -21,6 +21,7 @@ const FULL: GuestRowFull = {
   source: 'app',
   status: 'approved',
   request_link_id: 'rl1',
+  guest_request_id: 'gr1',
   anonymized_at: null,
   removed_at: null,
   created_at: '2026-06-10T12:00:00Z',

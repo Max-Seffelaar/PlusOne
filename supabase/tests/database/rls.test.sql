@@ -521,14 +521,18 @@ select throws_ok(
            decided_at = now()
      where full_name = 'Robin Castelijns'$$,
   '42501', null, 'N3 organizer cannot approve a request by a direct write (#12: approval = RPC)');
-select is(
-  pg_temp.rowcount($$update public.guest_requests
+-- RLS lets the organizer's deny through (no 42501); since z8uq9m2vga the note
+-- guard refuses a decline without a note to the guest, which a client write
+-- cannot carry, so declines go through decide_guest_request.
+select throws_ok(
+  $$update public.guest_requests
               set status = 'denied',
                   decided_by = '44444444-4444-4444-8444-444444444444',
                   decided_at = now(),
                   decision_reason = 'Lijst zit vol'
-              where full_name = 'Robin Castelijns'$$),
-  1, 'N3b organizer denies a pending request directly (#12)');
+              where full_name = 'Robin Castelijns'$$,
+  '23514', 'Add a note when you decline (part of) a request.',
+  'N3b organizer passes RLS on a direct deny, but a decline without a note is refused (#12, z8uq9m2vga)');
 
 reset role;
 

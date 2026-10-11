@@ -553,6 +553,7 @@ export type PoGuestRequestRow = Pick<
   | 'event_id'
   | 'status'
   | 'decision_reason'
+  | 'decision_message'
   | 'request_link_id'
   | 'decided_via'
   | 'marketing_opt_in'
@@ -617,7 +618,7 @@ export async function fetchGuestRequests(
   const { data, error } = await client
     .from('guest_requests')
     .select(
-      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via, marketing_opt_in'
+      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, decision_message, request_link_id, decided_via, marketing_opt_in'
     )
     .eq('venue_id', venueId)
     // z8uq9m0hw6: an anonymized request (#29, past the retention window) is no
@@ -635,6 +636,39 @@ export async function fetchGuestRequests(
     const link = r.request_link_id ? labels.get(r.request_link_id) : undefined;
     return { ...r, viaLabel: link?.label ?? null, viaStandard: link?.isDefault ?? false };
   });
+}
+
+/** People asked / approved / declined / waiting (Requests E, z8uq9m2vga). */
+export interface PoRequestDecisionCounts {
+  requested: number;
+  approved: number;
+  /** Whole declines plus the declined part of a partly approved request. */
+  declined: number;
+  waiting: number;
+}
+
+/**
+ * Request decision counts for the company, or one event: a GROUP-BY RPC
+ * (`request_decision_counts`, SECURITY INVOKER), never rows summed in JS.
+ * RLS-scoped like the inbox itself: a role without request access gets zeros.
+ */
+export async function fetchRequestDecisionCounts(
+  client: Client,
+  venueId: string,
+  eventId?: string
+): Promise<PoRequestDecisionCounts> {
+  const { data, error } = await client.rpc('request_decision_counts', {
+    p_venue_id: venueId,
+    ...(eventId ? { p_event_id: eventId } : {}),
+  });
+  if (error) throw error;
+  const row = data?.[0];
+  return {
+    requested: Number(row?.requested_heads ?? 0),
+    approved: Number(row?.approved_heads ?? 0),
+    declined: Number(row?.declined_heads ?? 0),
+    waiting: Number(row?.waiting_heads ?? 0),
+  };
 }
 
 export interface PoQuotaRequestRow {
