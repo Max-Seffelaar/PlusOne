@@ -154,11 +154,9 @@ export const requestStatusPayloadSchema = z.object({
   // payload of the function deployed before 20261013160000 still parses.
   location_name: z.string().nullish(),
   location_address: z.string().nullish(),
-  // Legacy, always null since 20261013160000 and never rendered (the company
-  // address); still accepted so either function version parses. Contract:
-  // drop together with the keys in the RPC.
-  venue_address_line: z.string().nullish(),
-  venue_postal_code: z.string().nullish(),
-  venue_city: z.string().nullish(),
+  // The legacy venue_* keys (the company address) are gone from the RPC since
+  // 20261015140000 (z8uq9m49k2) and are not part of this schema: Zod strips
+  // unknown keys, so a payload that still carried them could never reach the
+  // page.
 });
 export type RequestStatusPayload = z.infer<typeof requestStatusPayloadSchema>;

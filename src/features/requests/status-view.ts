@@ -11,9 +11,10 @@
  *
  * Location (z8uq9m444c, spec #48(c) revised): the page shows the EVENT's own
  * location in every state, never the company address. The legacy
- * `venue_address_*` keys are ignored here on purpose: a function from before
- * migration 20261013160000 still fills them on approval with the company
- * address, and this page must not show that during the deploy window.
+ * `venue_address_*` keys (a function from before migration 20261013160000
+ * filled them with the company address on approval) are not in the schema at
+ * all, so even such a payload can never render an address here; the RPC
+ * dropped them in 20261015140000 (z8uq9m49k2).
  */
 import { formatTime, formatWeekdayDate } from '@/features/po/format';
 import { fmt, t } from '@/lib/i18n';

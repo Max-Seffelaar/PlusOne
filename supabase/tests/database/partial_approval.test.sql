@@ -390,27 +390,25 @@ select ok(
           and r ->> 'plus_ones' = '4'
           and r ->> 'approved_plus_ones' = '2'
           and r ->> 'decision_message' = 'We could fit three of you. See you at 23:00.'
-          and r ->> 'venue_address_line' is null
-          and r ->> 'venue_postal_code' is null
-          and r ->> 'venue_city' is null
+          and not (r ?| array['venue_address_line', 'venue_postal_code', 'venue_city'])
           and r ->> 'ends_at' is not null
      from public.get_request_status('tok-pa-pia', 'ip-pa-f2') r),
   'F2 reduced approval: requested +4, approved +2, the message and the end time; never the company address (z8uq9m444c)');
 select ok(
   (select r ->> 'approved_plus_ones' = '2' and r ->> 'plus_ones' = '2' and r ->> 'decision_message' is null
-          and r ->> 'venue_address_line' is null
+          and not (r ? 'venue_address_line')
      from public.get_request_status('tok-pa-lars', 'ip-pa-f3') r),
   'F3 approval as requested: the confirmed count equals the request, no message, no company address');
 select ok(
   (select r ->> 'status' = 'pending'
           and r ->> 'approved_plus_ones' is null and r ->> 'decision_message' is null
-          and r ->> 'venue_address_line' is null and r ->> 'venue_postal_code' is null
-          and r ->> 'venue_city' is null and r ->> 'ends_at' is not null
+          and not (r ?| array['venue_address_line', 'venue_postal_code', 'venue_city'])
+          and r ->> 'ends_at' is not null
      from public.get_request_status('tok-pa-gijs', 'ip-pa-f4') r),
   'F4 pending: the times, but no address, no count, no message');
 select ok(
   (select r ->> 'status' = 'denied'
-          and r ->> 'venue_address_line' is null and r ->> 'decision_message' is null
+          and not (r ? 'venue_address_line') and r ->> 'decision_message' is null
           and not (r ? 'decision_reason')
      from public.get_request_status('tok-pa-dirk', 'ip-pa-f5') r),
   'F5 denied: no address, no message, and the deny reason stays internal');
@@ -456,9 +454,7 @@ select ok(
           and r ->> 'full_name' = 'Stranger Sid'
           and r ->> 'decision_message' is null
           and r ->> 'approved_plus_ones' is null
-          and r ->> 'venue_address_line' is null
-          and r ->> 'venue_postal_code' is null
-          and r ->> 'venue_city' is null
+          and not (r ?| array['venue_address_line', 'venue_postal_code', 'venue_city'])
      from public.get_request_status('tok-pa-sid', 'ip-pa-m4') r),
   'F13 the mirror token NEVER gets the message, the confirmed count or the venue address (review L1)');
 select is(

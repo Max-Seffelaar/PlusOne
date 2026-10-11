@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Event locations follow-up: audit trail on location changes + drop venue_* keys (z8uq9m49k2)
+
+Milestone **Now**. Follow-up of 3b (#452); spec #58 amended.
+
+- **Migration `20261015140000_location_audit`**:
+  - `audit_events` (the one consolidated events trigger) also fires on `location_name` / `location_address`, so a location change is one `update` row with actor and changed-columns diff. A name-only edit still writes nothing.
+  - `company_locations` gets the standard AFTER INSERT/UPDATE/DELETE trigger on `audit_trigger()` (create = snapshot, update incl. archive/un-archive = changed columns, delete = snapshot). `audit_trigger()` itself is unchanged (K10).
+  - Contract: `get_request_status` no longer returns `venue_address_line` / `venue_postal_code` / `venue_city` (always null since #452). Canonical body updated.
+- **Who read the keys** (grep before the drop): only the Zod schema (optional, never rendered), tests, and the dev fixture backend `scripts/dev/fake-supabase.mjs`, which still mimicked the old company-address payload. All three updated; the deployed app parses the new payload unchanged.
+- **Audit feed**: `translate.ts` names the new rows ("added / renamed / archived / restored the location …", "set the location of FRENZY to …", "cleared the location of …").
+- **Tests**: pgTAP `location_audit.test.sql` (19: trigger shape, one events trigger, create/rename/archive/un-archive/no-op/delete rows with actor + diff, event location set/cleared, gated name-only edit, organizer as actor, admin reads the rows, no forged rows); `event_locations` C5/C7 and `partial_approval` now assert the keys are absent. Full suite 104 files / 2844. Vitest 312 files / 3638.
+
 ## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.

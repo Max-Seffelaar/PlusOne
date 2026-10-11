@@ -21,9 +21,6 @@ const approved = {
   decision_message: '  Happy birthday! Doors close at 01:00.  ',
   location_name: 'Paradiso',
   location_address: 'Weteringschans 6, 1017 SG Amsterdam',
-  venue_address_line: null,
-  venue_postal_code: null,
-  venue_city: null,
 } as const;
 
 describe('toRequestStatusView — not found stays neutral', () => {
@@ -98,7 +95,7 @@ describe('toRequestStatusView — the event location, never the company address 
     expect(toRequestStatusView({ ...approved, location_name: null, location_address: null })?.location).toBeNull();
   });
 
-  it('ignores the legacy venue_* keys even when a pre-migration function fills them with the company address', () => {
+  it('never renders the legacy venue_* keys, even from a pre-#452 payload that fills them with the company address', () => {
     // The deploy window: new app, old get_request_status (no location keys,
     // the company address on approval). The page renders, without an address.
     const oldShape: Record<string, unknown> = { ...approved };
