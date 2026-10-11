@@ -19,6 +19,7 @@ import { shared } from './surfaces/shared';
 import { platform } from './surfaces/platform';
 import { mail } from './surfaces/mail';
 import { guestStatus } from './surfaces/guest-status';
+import { notifications } from './surfaces/notifications';
 
 /**
  * Active UI dictionary — the composed "message catalogus". EN-only for now; to add
@@ -53,6 +54,7 @@ export const t = {
   platform,
   mail,
   guestStatus,
+  notifications,
 };
 
 /** Fill {placeholders} in a copy string. Unknown keys are left as `{key}`. */

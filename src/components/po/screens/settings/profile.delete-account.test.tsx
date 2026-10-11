@@ -26,6 +26,8 @@ vi.mock('../../kit', async (importOriginal) => ({
 }));
 vi.mock('../../app-shell-data', () => ({ useIsDemoAccount: () => false }));
 vi.mock('../../context', () => ({ useNav: () => ({ push: vi.fn(), back: vi.fn() }) }));
+// Its own section with its own query (6b); covered by notification-prefs tests + the flow.
+vi.mock('./notification-prefs', () => ({ NotificationPrefsSection: () => null }));
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: H.roles, venueName: 'Venue A' }) }));
 vi.mock('@/features/po/hooks', () => ({
   usePoProfile: () => ({

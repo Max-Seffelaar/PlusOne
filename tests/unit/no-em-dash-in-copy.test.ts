@@ -82,6 +82,8 @@ const HARDCODED_COPY_FILES = [
   // Guest mail copy v3 + the noreply auto-reply (z8uq9m2vpy).
   'src/features/mail/templates/guest-copy.ts',
   'src/features/mail/templates/inbound-copy.ts',
+  'src/features/mail/templates/team-notify-copy.ts',
+  'src/lib/i18n/surfaces/notifications.ts',
   'src/features/billing/gate.ts',
   'src/features/billing/actions.ts',
   'src/features/door/DoorProvider.tsx',

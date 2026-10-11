@@ -171,7 +171,7 @@ describe('middleware — x-po-request-path stamp for the /app layout gates', () 
   it('is not stamped on routes outside /app, and a client value is dropped there', async () => {
     mockForwardingSession();
     const { middleware } = await loadMiddleware();
-    for (const path of ['/r/tok-123', '/i/tok-456', '/s/tok-789', '/u/tok-012', '/api/webhooks/stripe', '/appx', '/door/e1']) {
+    for (const path of ['/r/tok-123', '/i/tok-456', '/s/tok-789', '/u/tok-012', '/n/tok-345', '/api/webhooks/stripe', '/appx', '/door/e1']) {
       const req = new NextRequest(`http://localhost:3000${path}`, {
         headers: { 'x-po-request-path': '/app/profile' },
       });
@@ -206,6 +206,8 @@ describe('middleware — unauthenticated access (unchanged behaviour)', () => {
       ['/s/tok-123/calendar.ics', 'GET'],
       ['/u/tok-456', 'GET'],
       ['/u/tok-456', 'POST'],
+      ['/n/tok-456', 'GET'],
+      ['/n/tok-456', 'POST'],
     ] as const) {
       const res = await middleware(new NextRequest(`http://localhost:3000${path}`, { method }));
       expect(res.headers.get('location'), `${method} ${path}`).toBeNull();

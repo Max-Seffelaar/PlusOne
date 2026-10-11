@@ -106,6 +106,21 @@ export const FLOWS = {
       'src/components/po/screens/events/guest-mail.tsx',
     ],
   },
+  'team-mail': {
+    title: 'Gastcommunicatie F (6b) — Profile → Notifications (per role, saves) → quota request + decision mails → /n unsubscribe',
+    paths: [
+      'src/features/mail/',
+      'src/features/notifications/prefs-',
+      'src/features/po/notification-prefs.ts',
+      'src/features/quotas/actions.ts',
+      'src/features/requests/actions.ts',
+      'src/app/n/',
+      'src/app/api/webhooks/team-mails/',
+      'src/components/po/screens/settings/notification-prefs.tsx',
+      'src/components/po/screens/settings/profile.tsx',
+      'supabase/migrations/20261013180600_notification_prefs.sql',
+    ],
+  },
   'event-contact': {
     title: 'Gastcommunicatie F (6c) — event contact email: required, never pre-filled, domain-checked → guest mail reply-to + footer use the event address',
     paths: [

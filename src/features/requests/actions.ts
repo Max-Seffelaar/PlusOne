@@ -17,6 +17,7 @@ import {
   type DenyGuestRequestInput,
 } from './schemas';
 import { queueGuestMails } from '@/features/mail/guest-queue';
+import { drainTeamMailsSoon } from '@/features/mail/team-queue';
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -127,6 +128,9 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   const payload = parsedPayload.data;
   switch (payload.status) {
     case 'ok':
+      // A pending request mailed the approvers who want it now (6b; the
+      // triggers queued it per preference). After the response, never in it.
+      if (payload.auto_approved !== true) drainTeamMailsSoon();
       return { ok: true, statusToken, autoApproved: payload.auto_approved === true };
     case 'rate_limited':
       return {
