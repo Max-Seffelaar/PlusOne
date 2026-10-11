@@ -158,7 +158,7 @@ select is_empty($$
       'id',                -- embed join key + WHERE of the self-UPDATEs
       'full_name',         -- team/crew/organizer lists, "added by", audit_feed
       'email',             -- team/crew/organizer lists, crew invite lookup
-      'terms_accepted_at'  -- crew list "joined" state
+      'has_joined'         -- crew list "joined" yes/no (never the timestamp)
     ])
 $$, 'authenticated SELECTs no user_profiles column beyond the cross-user allowlist');
 

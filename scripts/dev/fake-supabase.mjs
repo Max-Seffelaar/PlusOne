@@ -147,6 +147,7 @@ const db = {
     phone: null,
     mfa_snooze_until: null,
     terms_accepted_at: iso(now - 30 * D),
+    has_joined: true, // generated: terms_accepted_at is not null
     terms_version: '2026-06-24',
     created_at: iso(now - 60 * D),
     updated_at: iso(now),

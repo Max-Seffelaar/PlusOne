@@ -20,10 +20,13 @@
 --   full_name          team, crew and organizer lists, "added by", audit_feed
 --                      (security_invoker view: actor/subject names), exports
 --   email              team/crew/organizer lists, crew invite + resend lookup
---   terms_accepted_at  crew list "joined" state (fetchVenueCrew)
+--   has_joined         crew list "joined" state (fetchVenueCrew) — a yes/no
+--                      derived from terms_accepted_at (20261014120050), so
+--                      colleagues learn whether someone logged in, not when
+--                      (decision Max 2026-10-11)
 --
 -- What it loses: is_platform_admin, mfa_snooze_until, phone, first_name,
--- last_name, terms_version, created_at, updated_at. Own-row reads of those go
+-- last_name, terms_version, terms_accepted_at, created_at, updated_at. Own-row reads of those go
 -- through my_profile() (and is_platform_admin() for the flag), which the app
 -- switched to in the same PR as this migration. Platform admins are not an
 -- exception here: they read colleagues' rows through the same grant, and
@@ -32,7 +35,8 @@
 -- Expand–contract: push this only after the app version that reads through
 -- my_profile()/is_platform_admin() is live (Vercel deploys on merge; the prod
 -- push follows). The previous app version reads mfa_snooze_until,
--- terms_version, phone and is_platform_admin directly and would get 42501.
+-- terms_version, phone, is_platform_admin and (crew list) a colleague's
+-- terms_accepted_at directly and would get 42501.
 --
 -- Unchanged: the column-level INSERT/UPDATE grants from 20260923120000, the
 -- RLS policies, and every SECURITY DEFINER function (they run as the owner).
@@ -44,5 +48,5 @@
 
 revoke select on public.user_profiles from authenticated;
 
-grant select (id, full_name, email, terms_accepted_at)
+grant select (id, full_name, email, has_joined)
   on public.user_profiles to authenticated;

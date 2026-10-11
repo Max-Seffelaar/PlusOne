@@ -979,7 +979,7 @@ export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
     email: row.email,
     eventsLabel: first ? (extra > 0 ? `${first} +${extra}` : first) : '—',
     eventCount: row.event_names.length,
-    hasAccepted: row.terms_accepted_at !== null,
+    hasAccepted: row.has_joined,
     events: row.events.map((e) => ({ eventId: e.event_id, name: e.name, quota: e.quota })),
   };
 }

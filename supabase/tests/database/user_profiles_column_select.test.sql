@@ -6,7 +6,7 @@
 -- question is not WHICH rows they see — RLS answers that, unchanged — but
 -- WHICH COLUMNS. Before this migration: every column, including
 -- is_platform_admin and mfa_snooze_until. After: id, full_name, email,
--- terms_accepted_at, for every row they can see, their own included (a column
+-- has_joined, for every row they can see, their own included (a column
 -- grant is row-blind); their own private columns come from my_profile() and
 -- is_platform_admin().
 --
@@ -48,7 +48,7 @@ begin
 end;
 $fn$;
 
-select plan(30);
+select plan(31);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: Max (admin) and Tom (staff) share venue 1.
@@ -94,8 +94,8 @@ select is(
     where a.attrelid = 'public.user_profiles'::regclass
       and a.attnum > 0 and not a.attisdropped
       and has_column_privilege('authenticated', a.attrelid, a.attnum, 'SELECT')),
-  array['email', 'full_name', 'id', 'terms_accepted_at'],
-  'A2 authenticated can SELECT exactly id, full_name, email, terms_accepted_at');
+  array['email', 'full_name', 'has_joined', 'id'],
+  'A2 authenticated can SELECT exactly id, full_name, email, has_joined');
 
 select ok(not has_any_column_privilege('anon', 'public.user_profiles', 'SELECT'),
   'A3 anon holds no SELECT on any user_profiles column');
@@ -117,10 +117,13 @@ select is(
     where id = '11111111-1111-4111-8111-111111111111'),
   row('11111111-1111-4111-8111-111111111111'::uuid, 'Max de Vries', 'admin@plusone.test')::text,
   'B1 a colleague still reads id, full_name, email');
-select is((select terms_accepted_at from public.user_profiles
+select is((select has_joined from public.user_profiles
             where id = '11111111-1111-4111-8111-111111111111'),
-  '2026-06-24 12:00:00+00'::timestamptz,
-  'B2 …and terms_accepted_at (crew "joined" state), with its value');
+  true,
+  'B2 …and has_joined (crew "joined" state), with its value');
+select throws_ok($$ select terms_accepted_at from public.user_profiles
+                    where id = '11111111-1111-4111-8111-111111111111' $$, '42501', null,
+  'B2b …but not terms_accepted_at: whether, never when');
 select lives_ok($$ select count(*) from public.user_profiles $$,
   'B3 count(*) still works');
 select is((select count(*)::int from public.venue_memberships m

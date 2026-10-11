@@ -1,10 +1,10 @@
 /**
  * user_profiles column-allowlist guard (20261014120100, review #460 finding 6).
  *
- * `authenticated` may SELECT only id, full_name, email and terms_accepted_at on
+ * `authenticated` may SELECT only id, full_name, email and has_joined on
  * user_profiles — the columns the app reads on ANOTHER user's row. Everything
  * else (phone, mfa_snooze_until, is_platform_admin, first/last name,
- * terms_version, timestamps) is read through my_profile() / is_platform_admin().
+ * terms_version, terms_accepted_at, timestamps) is read through my_profile() / is_platform_admin().
  * The generated `Tables['user_profiles']['Row']` still advertises every column,
  * so `.from('user_profiles').select('phone')` type-checks and only fails in
  * prod with a 42501 — on the consent gate that means every user bounces. This
@@ -24,7 +24,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
-const ALLOWED = new Set(['id', 'full_name', 'email', 'terms_accepted_at']);
+const ALLOWED = new Set(['id', 'full_name', 'email', 'has_joined']);
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -129,11 +129,12 @@ describe('user_profiles reads stay inside the authenticated column grant', () =>
     expect(probe(`c.from('x').select('id, p:user_profiles!fk(full_name, is_platform_admin)')`)).toEqual([
       'is_platform_admin',
     ]);
-    expect(probe(`c.from('user_profiles').select('id, full_name, email, terms_accepted_at');`)).toEqual([]);
+    expect(probe(`c.from('user_profiles').select('id, full_name, email, has_joined');`)).toEqual([]);
+    expect(probe(`c.from('x').select('user_profiles(full_name, terms_accepted_at)')`)).toEqual(['terms_accepted_at']);
     expect(probe(`c.rpc('my_profile').select('phone, mfa_snooze_until');`)).toEqual([]);
   });
 
-  it('no authenticated read names a column outside id, full_name, email, terms_accepted_at', () => {
+  it('no authenticated read names a column outside id, full_name, email, has_joined', () => {
     const offences = FILES.flatMap(scan);
     expect(offences.map((o) => `${o.file}: ${o.what}`)).toEqual([]);
   });

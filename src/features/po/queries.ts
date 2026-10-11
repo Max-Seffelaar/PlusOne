@@ -1059,14 +1059,15 @@ export interface PoVenueCrewRow {
    *  none), soonest first: the Team screen's crew sheet (z8uq9m2yvp). */
   events: { event_id: string; name: string; quota: number }[];
   /** Whether the person ever completed a first login (terms accepted at app
-   *  entry) — null means the crew invite is still unanswered. */
-  terms_accepted_at: string | null;
+   *  entry) — false means the crew invite is still unanswered. A yes/no on
+   *  purpose: colleagues may not read the first-login time (20261014120100). */
+  has_joined: boolean;
 }
 
 /**
  * Every external-crew person at a venue (event_organizers across ALL its
  * events, deduped, venue members excluded) — the Team screen's second section
- * (T8). Crew who have never logged in (terms_accepted_at null) render as a
+ * (T8). Crew who have never logged in (has_joined false) render as a
  * pending invite with a resend. RLS: any venue member may read the rows; the
  * screen itself is gated to viewTeam.
  */
@@ -1075,7 +1076,7 @@ export async function fetchVenueCrew(client: Client, venueId: string): Promise<P
     await Promise.all([
       client
         .from('event_organizers')
-        .select('user_id, user_profiles(full_name, email, terms_accepted_at), events!inner(id, name, starts_at, venue_id)')
+        .select('user_id, user_profiles(full_name, email, has_joined), events!inner(id, name, starts_at, venue_id)')
         .eq('events.venue_id', venueId),
       client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
       // event_quotas RLS: admin/finance read the venue's rows; anyone else sees
@@ -1098,7 +1099,7 @@ export async function fetchVenueCrew(client: Client, venueId: string): Promise<P
       user_id: r.user_id,
       full_name: r.user_profiles?.full_name ?? '—',
       email: r.user_profiles?.email ?? '—',
-      terms_accepted_at: r.user_profiles?.terms_accepted_at ?? null,
+      has_joined: r.user_profiles?.has_joined === true,
       events: [],
     };
     if (r.events) {

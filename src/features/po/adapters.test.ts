@@ -782,7 +782,7 @@ describe('toPoVenueCrewMember', () => {
     full_name: 'Yusuf Demir',
     email: 'organizer@plusone.test',
     event_names: ['Launch Night', 'NYE', 'Spring Break'],
-    terms_accepted_at: null,
+    has_joined: false,
     events: [
       { event_id: 'e1', name: 'Launch Night', quota: 4 },
       { event_id: 'e2', name: 'NYE', quota: 0 },
@@ -813,7 +813,7 @@ describe('toPoVenueCrewMember', () => {
     const cm = toPoVenueCrewMember({
       ...row,
       event_names: ['Launch Night'],
-      terms_accepted_at: '2026-07-01T10:00:00Z',
+      has_joined: true,
     });
     expect(cm.eventsLabel).toBe('Launch Night');
     expect(cm.eventCount).toBe(1);
