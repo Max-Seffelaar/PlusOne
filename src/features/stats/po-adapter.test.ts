@@ -113,6 +113,14 @@ describe('toPerUser', () => {
     expect(row?.who).toBe('PlusOne support');
     expect(row?.added).toBe(3);
   });
+
+  it('never turns a blank member name into PlusOne support: it reads "Unnamed" (review #466)', () => {
+    const blank: UserAddition = {
+      added: 1, added_headcount: 1, removed_headcount: 0, full_name: '  ', present: 0,
+      present_headcount: 0, added_free_headcount: 1, present_free_headcount: 0, user_id: 'u-blank',
+    };
+    expect(toPerUser([blank])[0]?.who).toBe('Unnamed');
+  });
 });
 
 describe('eventKpis', () => {

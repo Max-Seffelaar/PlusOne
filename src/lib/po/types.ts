@@ -92,8 +92,10 @@ export interface Guest {
   /** Where the name came from (guests.source). Rendered through
    *  `guestSourceLabel` (src/features/po/format.ts) — never read raw in a screen. */
   source?: GuestSource;
-  /** Display name of who added them; null when RLS hides the actor's profile. */
+  /** Who added them, by the who-did-what rule (#62a); null when unknown. */
   addedByName?: string | null;
+  /** The adder is "PlusOne support" (is_support flag; never inferred from text). */
+  addedBySupport?: boolean;
   /** Non-default request link (label or influencer) behind a landing sign-up. */
   linkLabel?: string | null;
   /** Owning event id — set on venue-wide ("all guests") reads so a row can deep-link

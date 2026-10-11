@@ -25,8 +25,13 @@ Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes 
 - **App:** `fetchActorLabels` / `actorLabel` (`src/features/audit/actor-labels.ts`), chunked to 120 ids. Every surface above switched from RLS `user_profiles` reads or embeds to it; component APIs unchanged. Falls back to the old read only on `PGRST202` (bundle live before the migration).
   - Export: former members are named now (the old "leave the cell empty" rule is gone); an undecided request keeps an empty `decided_by`.
   - `guestSourceLabel` keeps "PlusOne support" whole instead of cutting it to a first name.
-- **Not changed:** the `audit_feed` view (its free-text search still only matches RLS-visible names), the stats RPCs (#461 owns them; they stay caller-relative), the door's "Via request link" caption.
+- **Not changed:** the `audit_feed` view (its free-text search still only matches RLS-visible names), the stats RPCs' SQL (#461 owns them; since #461's review they use the same venue-relative support rule), the door's "Via request link" caption.
 - **Tests:** pgTAP `venue_actor_names.test.sql` (30, run in a rolled-back transaction on the shared stack; full reset + `pnpm db:test` is the orchestrator's); Vitest for the helper, the audit translator, export, door snapshot, guest source and the person profile.
+- **Review round 1** (independent review: not merge-ready; all fixed in this PR):
+  - **P1-1, forged footprint:** an admin of any company (anyone can make one) could grant a quota to an arbitrary uuid; the audit row then made `venue_actor_names` name that person or reveal `is_support`. Migration `20261016140100_actor_names_hardening`: the past-membership branch now accepts `venue_memberships` subjects only. The quota RLS gap itself is a separate task.
+  - **P1-2, spoofable "PlusOne support":** the label now comes from `is_support` only. The flag travels with the labels (`ActorLabels`) to the guest-source caption; no string comparison is left. A blank name reads "Unnamed". CHECK `user_profiles_full_name_not_reserved` (NOT VALID) refuses blank and the three label words on every UPDATE; Zod refuses them first with a catalogue message; a NEW profile row with such a name is stored as 'User' so an invite to system@… can still log in. Look-alikes are an accepted residual.
+  - **P2:** guests branch bound to `venue_id` with a partial index (EXPLAIN: index scans on all three footprint probes); door and lists use `fetchActorLabelsSafe` (a failing label RPC never takes the door down); spec #62(a) documents read-time labels and drops the stale stats paragraph; the PGRST202 fallback is marked for the contract step; 'Deur'/'Unknown'/'Door'/'Via request link' moved to i18n.
+  - pgTAP `venue_actor_names.test.sql` grows to 46 (forged quota and event_quota, crew of another venue's event, null venue, former crew, crew vs a former member on another event, reserved names, the new-row rename, look-alike is not support).
 
 ---
 

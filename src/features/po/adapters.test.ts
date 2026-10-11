@@ -248,6 +248,7 @@ describe('toPoGuest', () => {
     anonymized_at: null,
     source: 'app',
     addedByName: 'Max Seffelaar',
+    addedBySupport: false,
     linkLabel: null,
   };
 

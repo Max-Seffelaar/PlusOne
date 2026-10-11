@@ -5,6 +5,18 @@
 import { z } from 'zod';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { VENUE_ROLES } from './roles';
+import { t } from '@/lib/i18n';
+
+/**
+ * The who-did-what labels (spec #62a: "PlusOne support", "System", "Unnamed")
+ * and a blank name are not a name a user may take — mirror of the DB CHECK
+ * user_profiles_full_name_not_reserved (20261016140100): trimmed, lower-cased,
+ * inner whitespace collapsed. Look-alikes ("PIusOne support") pass, as in the DB.
+ */
+export function isReservedProfileName(name: string): boolean {
+  const n = name.trim().toLowerCase().replace(/\s+/g, ' ');
+  return n === '' || n === 'plusone support' || n === 'system' || n === 'unnamed';
+}
 
 // E-mail is normalised (trim + lowercase) so invite/lookup matching is
 // case-insensitive and consistent with the DB's lower(email) indexes.
@@ -94,7 +106,8 @@ export const profileNameSchema = z.object({
     .string()
     .trim()
     .min(1, 'Enter your name')
-    .max(120, 'Name is too long'),
+    .max(120, 'Name is too long')
+    .refine((v) => !isReservedProfileName(v), t.shared.actor.reservedName),
 });
 
 // Profile is global to the user (decision #24): first/last name + phone. full_name
@@ -108,7 +121,13 @@ export const profileSchema = z.object({
     .max(40, 'Too long')
     .transform((v) => (v === '' ? null : v))
     .refine((v) => v === null || /^[+0-9 ()-]{6,40}$/.test(v), 'Invalid phone number'),
-});
+})
+  // The actions store full_name = `${firstName} ${lastName}` — that combination
+  // must not be a reserved label either ("PlusOne" + "support").
+  .refine((v) => !isReservedProfileName(`${v.firstName} ${v.lastName}`), {
+    message: t.shared.actor.reservedName,
+    path: ['lastName'],
+  });
 
 export const emailChangeSchema = z.object({
   email: emailSchema,

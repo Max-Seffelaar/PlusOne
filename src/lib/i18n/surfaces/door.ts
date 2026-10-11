@@ -40,6 +40,8 @@ export const door = {
   partlyInside: '{arrived}/{total} inside · {n} still on the way',
   partlyBadge: '{n} more',
   logBy: 'by',
+  /** "Added by" for a guest with no adder: they signed up through a request link. */
+  addedViaRequestLink: 'Via request link',
   // Refused row
   refused: 'Refused',
   refusedWithReason: 'Refused · {reason}',

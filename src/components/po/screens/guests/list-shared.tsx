@@ -228,7 +228,14 @@ const selectRowHit = "relative before:absolute before:-inset-[14px] before:conte
 /** The row's provenance caption ("Added by Sanne", "Sign-up link · Joeri") —
  *  empty for a row that predates the field (mock/optimistic) so nothing renders. */
 function sourceLine(g: GuestT): string {
-  return g.source ? guestSourceLabel({ source: g.source, addedByName: g.addedByName, linkLabel: g.linkLabel }) : '';
+  return g.source
+    ? guestSourceLabel({
+        source: g.source,
+        addedByName: g.addedByName,
+        addedBySupport: g.addedBySupport,
+        linkLabel: g.linkLabel,
+      })
+    : '';
 }
 
 /** Virtualized mobile card list (own scroll parent → the virtualizer windows it).

@@ -16,7 +16,7 @@ import type { Database } from '@/lib/database.types';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { formatCompanyAddress, resolveEventLocation } from '@/features/po/adapters';
 import { fetchAllRanged } from '@/lib/supabase/paging';
-import { fetchActorLabels } from '@/features/audit/actor-labels';
+import { fetchActorLabelsSafe } from '@/features/audit/actor-labels';
 
 /** FULL guests row — the shape a realtime payload or a server row arrives in,
  *  before it is projected to the narrow snapshot shape below (P-IDB7). */
@@ -232,11 +232,12 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   } = await client.auth.getUser();
   if (user) ids.add(user.id);
 
-  // venue_actor_names via fetchActorLabels (#62a): a former member who worked
-  // this door stays named, an operator reads "PlusOne support". Chunked to
-  // <=120 ids per call (CLAUDE.md scale rule): a busy event's added_by/
-  // checked_by/acknowledged_by set can exceed that well before 1000 rows.
-  const labels = await fetchActorLabels(client, event.venue_id, ids);
+  // venue_actor_names (#62a): a former member who worked this door stays
+  // named, an operator reads "PlusOne support". Chunked to <=120 ids per call
+  // (CLAUDE.md scale rule). The SAFE variant: a failing label RPC must never
+  // take the door down (#25, door speed); the snapshot then loads without
+  // labels and the screens say "Unknown".
+  const labels = await fetchActorLabelsSafe(client, event.venue_id, ids);
 
   return {
     event: {

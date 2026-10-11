@@ -10,6 +10,7 @@ import type { CheckInRow, DoorEventMeta, DoorSnapshot, GuestRow, TierRow } from 
 import { formatShortDate, formatDateTime } from '@/features/po/format';
 import { tierRole } from '@/lib/po/tier';
 import { computeHeadcounts, type HeadcountRow } from '@/features/po/headcount';
+import { t } from '@/lib/i18n';
 
 export type NotePriority = 'none' | 'low' | 'high';
 
@@ -132,7 +133,7 @@ function toDoorGuest(
     tierIcon: role.icon,
     // added_by is NULL only for auto-approved request-link guests (F1) — the
     // system, not a person, put them on the list.
-    addedByName: g.added_by ? profiles[g.added_by] ?? 'Unknown' : 'Via request link',
+    addedByName: g.added_by ? profiles[g.added_by] ?? t.shared.actor.unknown : t.door.addedViaRequestLink,
     addedAt: formatShortDate(g.created_at),
     last4: lastFour(g.phone),
     note: g.note,
@@ -144,7 +145,7 @@ function toDoorGuest(
     checkInId: ci?.id ?? null,
     pay: false,
     inAt: active ? formatDateTime(ci.checked_at) : undefined,
-    inByName: active ? profiles[ci.checked_by] ?? 'Door' : undefined,
+    inByName: active ? profiles[ci.checked_by] ?? t.shared.actor.unknown : undefined,
     arrived: active ? ci.plus_ones_arrived : undefined,
     refused: g.status === 'refused',
     refusedReason,

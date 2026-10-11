@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { auditPersonIds, describeAuditEntry, type AuditLine } from '@/features/audit/translate';
-import { actorLabel, fetchActorLabels } from '@/features/audit/actor-labels';
+import { ActorLabels, actorLabel, fetchActorLabelsSafe } from '@/features/audit/actor-labels';
+import { t } from '@/lib/i18n';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
@@ -59,7 +60,7 @@ export type PoGuestRow = Pick<
 // ── Guest provenance (ADE round, item J) ─────────────────────────────────────
 // `guests.source` alone can't say "Added by Sanne" or "Sign-up link · Joeri", so
 // both guest reads carry `added_by` and embed the request link. The adder's
-// label comes from venue_actor_names (fetchActorLabels, spec #62a): a former
+// label comes from venue_actor_names (fetchActorLabelsSafe, spec #62a): a former
 // member stays named, an operator reads "PlusOne support" — an RLS-scoped
 // user_profiles embed hid both. `request_links` stays an RLS-scoped embed:
 // admin/finance/organizer only, so staff simply get null and the label degrades
@@ -71,6 +72,9 @@ export interface GuestSourceEmbedFlat {
   /** Who added the guest, by the who-did-what rule (#62a); null for a
    *  request-link guest (no adder) or an id the venue has no record of. */
   addedByName: string | null;
+  /** The adder is "PlusOne support" (venue_actor_names is_support). The flag,
+   *  never the label text, decides how the UI treats it (review #466 P1-2). */
+  addedBySupport: boolean;
   /** Label of a NON-default request link (its own label, else the influencer's
    *  name); null for the event's default link or an unreadable link row. */
   linkLabel: string | null;
@@ -93,7 +97,7 @@ export interface GuestSourceEmbedRaw {
  *  is unit-tested rather than inferred from a query. */
 export function flattenGuestSource<T extends GuestSourceEmbedRaw>(
   row: T,
-  labels: ReadonlyMap<string, string> = new Map(),
+  labels: ActorLabels = new ActorLabels(),
 ): Omit<T, keyof GuestSourceEmbedRaw> & GuestSourceEmbedFlat {
   const { added_by, request_links, ...rest } = row;
   const link = [request_links].flat().filter(Boolean)[0] as RequestLinkEmbed | undefined;
@@ -103,6 +107,7 @@ export function flattenGuestSource<T extends GuestSourceEmbedRaw>(
   return {
     ...rest,
     addedByName: added_by ? (labels.get(added_by) ?? null) : null,
+    addedBySupport: labels.isSupport(added_by),
     // The default link IS "the sign-up link" — only a named or influencer link
     // earns the extra "· {label}" on the row.
     linkLabel: link && !link.is_default ? link.label ?? influencer?.name ?? null : null,
@@ -197,8 +202,8 @@ export async function fetchGuests(client: Client, eventId: string): Promise<PoVe
   // One event = one venue; the adders are a team-sized set (chunked anyway).
   const venueId = raw[0]?.venue_id;
   const labels = venueId
-    ? await fetchActorLabels(client, venueId, raw.map((g) => g.added_by))
-    : new Map<string, string>();
+    ? await fetchActorLabelsSafe(client, venueId, raw.map((g) => g.added_by))
+    : new ActorLabels();
   return raw.map(({ venue_id: _venueId, ...g }) => flattenGuestSource(g, labels));
 }
 
@@ -281,7 +286,7 @@ export async function fetchVenueGuestsWindow(
 
   const raw = (data ?? []) as PoVenueGuestTierRaw[];
   // The window is <= VENUE_GUESTS_WINDOW rows, so its adders are a small set.
-  const labels = await fetchActorLabels(client, args.venueId, raw.map((g) => g.added_by));
+  const labels = await fetchActorLabelsSafe(client, args.venueId, raw.map((g) => g.added_by));
   const rows: PoVenueGuestWithTier[] = raw.map(({ guest_tiers, ...g }) => {
     const tier = [guest_tiers].flat().filter(Boolean)[0] as VenueGuestTierEmbed | undefined;
     return { ...flattenGuestSource(g, labels), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
@@ -482,15 +487,15 @@ export async function fetchRecentCheckins(
   // Who let them in, by the who-did-what rule (#62a) — one round-trip.
   const venueId = rows[0]?.venue_id;
   const labels = venueId
-    ? await fetchActorLabels(client, venueId, rows.map((r) => r.checked_by))
-    : new Map<string, string>();
+    ? await fetchActorLabelsSafe(client, venueId, rows.map((r) => r.checked_by))
+    : new ActorLabels();
 
   return rows.map((r) => ({
     guestId: r.guests.id,
     name: r.guests.full_name,
     plus: r.plus_ones_arrived,
     at: r.checked_at,
-    by: actorLabel(r.checked_by, labels, 'Deur'),
+    by: actorLabel(r.checked_by, labels, t.shared.actor.unknown),
   }));
 }
 
@@ -706,7 +711,7 @@ export async function fetchQuotaRequests(
   if (error) throw error;
 
   const rows = reqs ?? [];
-  const labels = await fetchActorLabels(client, venueId, rows.map((r) => r.user_id));
+  const labels = await fetchActorLabelsSafe(client, venueId, rows.map((r) => r.user_id));
 
   return rows.map((r) => ({
     id: r.id,
@@ -714,7 +719,7 @@ export async function fetchQuotaRequests(
     requestedExtra: r.requested_extra,
     motivation: r.motivation,
     created_at: r.created_at,
-    requesterName: actorLabel(r.user_id, labels, 'Unknown'),
+    requesterName: actorLabel(r.user_id, labels, t.shared.actor.unknown),
   }));
 }
 
@@ -766,8 +771,8 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
   // Who added them, by the who-did-what rule (#62a). One event = one venue.
   const venueId = data[0]?.venue_id;
   const labels = venueId
-    ? await fetchActorLabels(client, venueId, data.map((g) => g.added_by))
-    : new Map<string, string>();
+    ? await fetchActorLabelsSafe(client, venueId, data.map((g) => g.added_by))
+    : new ActorLabels();
 
   return data.map((g) => {
     // The generated client can type the embed as to-one OR to-many; normalize to
@@ -1484,6 +1489,9 @@ export interface ContactProfileData {
   /** Actor labels by user id for the timeline, by the who-did-what rule (#62a):
    *  a current or former member's name, or "PlusOne support". */
   actorNames: Record<string, string>;
+  /** The ids among them that are "PlusOne support" (is_support). The UI keys
+   *  on this, never on the label text (review #466 P1-2). */
+  supportActorIds: string[];
 }
 
 /**
@@ -1654,10 +1662,10 @@ async function fetchGuestAppearance(client: Client, guestId: string): Promise<Ra
 async function fetchActorNames(
   client: Client,
   { appearances, venueId }: RawAppearances,
-): Promise<Record<string, string>> {
-  if (!venueId) return {};
-  const labels = await fetchActorLabels(client, venueId, actorIds(appearances));
-  return Object.fromEntries(labels);
+): Promise<Pick<ContactProfileData, 'actorNames' | 'supportActorIds'>> {
+  if (!venueId) return { actorNames: {}, supportActorIds: [] };
+  const labels = await fetchActorLabelsSafe(client, venueId, actorIds(appearances));
+  return { actorNames: Object.fromEntries(labels), supportActorIds: [...labels.support] };
 }
 
 /** The contact header + all appearances + resolved actor names for the profile.
@@ -1673,9 +1681,9 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
   ]);
   if (cErr) throw cErr;
 
-  if (!c) return { header: null, appearances: [], actorNames: {} };
+  if (!c) return { header: null, appearances: [], actorNames: {}, supportActorIds: [] };
 
-  const actorNames = await fetchActorNames(client, raw);
+  const { actorNames, supportActorIds } = await fetchActorNames(client, raw);
   const { appearances } = raw;
 
   return {
@@ -1694,6 +1702,7 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
     },
     appearances,
     actorNames,
+    supportActorIds,
   };
 }
 
@@ -1701,6 +1710,7 @@ const EMPTY_PERSON: PersonProfileData = {
   header: null,
   appearances: [],
   actorNames: {},
+  supportActorIds: [],
   isContact: false,
   promoteGuestId: null,
   restricted: false,
@@ -1742,7 +1752,7 @@ export async function fetchPersonProfile(
     // caller → a one-appearance profile synthesised from the guest row (readable
     // via the guests RLS, which is far more permissive than contacts).
     const raw = await fetchGuestAppearance(client, g.id);
-    const actorNames = await fetchActorNames(client, raw);
+    const { actorNames, supportActorIds } = await fetchActorNames(client, raw);
     const { appearances } = raw;
     return {
       header: {
@@ -1760,6 +1770,7 @@ export async function fetchPersonProfile(
       },
       appearances,
       actorNames,
+      supportActorIds,
       isContact: false,
       // A restricted (already-linked) guest never offers the "Save as contact"
       // promote flow — it's already a contact, just not visible to this caller.
@@ -2105,7 +2116,7 @@ export async function fetchPoAuditFeed(
   const rows = data ?? [];
   // Who-did-what (#62a): actor + subject labels from venue_actor_names, so a
   // former member stays named and an operator reads "PlusOne support".
-  const labels = await fetchActorLabels(client, filters.venueId, auditPersonIds(rows));
+  const labels = await fetchActorLabelsSafe(client, filters.venueId, auditPersonIds(rows));
   return rows.map((r) => describeAuditEntry(r, labels));
 }
 
@@ -2144,7 +2155,7 @@ export async function fetchPoGuestHistory(
   // One guest = one venue: its log rows all carry that venue_id.
   const feed = rows ?? [];
   const venueId = feed.find((r) => r.venue_id)?.venue_id ?? null;
-  const labels = venueId ? await fetchActorLabels(client, venueId, auditPersonIds(feed)) : new Map<string, string>();
+  const labels = venueId ? await fetchActorLabelsSafe(client, venueId, auditPersonIds(feed)) : new ActorLabels();
 
   return {
     guest: guest

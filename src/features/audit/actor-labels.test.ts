@@ -5,7 +5,14 @@
  * venue_actor_names RPC, chunked to ≤120 ids per call (CLAUDE.md scale rule).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { ACTOR_ID_CHUNK, actorLabel, fetchActorLabels, labelForActorRow } from './actor-labels';
+import {
+  ACTOR_ID_CHUNK,
+  ActorLabels,
+  actorLabel,
+  fetchActorLabels,
+  fetchActorLabelsSafe,
+  labelForActorRow,
+} from './actor-labels';
 import { t } from '@/lib/i18n';
 
 type Row = { user_id: string; display_name: string | null; is_support: boolean };
@@ -57,6 +64,17 @@ describe('the label rule', () => {
     );
   });
 
+  it('decides "PlusOne support" from is_support ONLY (review #466 P1-2)', () => {
+    // A member who named themselves like the label stays a name, not support…
+    expect(labelForActorRow({ user_id: 'u3', display_name: 'PlusOne support', is_support: false })).toBe(
+      'PlusOne support',
+    );
+    // …and a blank name is the neutral "Unnamed", never support.
+    expect(labelForActorRow({ user_id: 'u4', display_name: '', is_support: false })).toBe(t.shared.actor.unnamed);
+    expect(labelForActorRow({ user_id: 'u4', display_name: '   ', is_support: false })).toBe('Unnamed');
+    expect(labelForActorRow({ user_id: 'u4', display_name: null, is_support: false })).toBe('Unnamed');
+  });
+
   it('says "System" for no actor', () => {
     expect(actorLabel(null, new Map())).toBe('System');
     expect(actorLabel(undefined, new Map([['u1', 'Lisa']]))).toBe(t.shared.actor.system);
@@ -85,6 +103,11 @@ describe('fetchActorLabels', () => {
     const labels = await fetchActorLabels(client, 'v1', ['u-former', null, 'u-op', 'u-former', '', undefined, 'u-x']);
     expect(rpcCalls).toEqual([{ venue: 'v1', ids: ['u-former', 'u-op', 'u-x'] }]);
     expect(Object.fromEntries(labels)).toEqual({ 'u-former': 'Former Floor', 'u-op': 'PlusOne support' });
+    // The flag travels with the label, so the UI never compares text.
+    expect(labels).toBeInstanceOf(ActorLabels);
+    expect(labels.isSupport('u-op')).toBe(true);
+    expect(labels.isSupport('u-former')).toBe(false);
+    expect(labels.isSupport(null)).toBe(false);
   });
 
   it('chunks to ≤120 ids per call', async () => {
@@ -119,5 +142,23 @@ describe('fetchActorLabels', () => {
     const { client, profileReads } = fakeClient({ rpcError: { code: '22023', message: 'too many' } });
     await expect(fetchActorLabels(client, 'v1', ['u1'])).rejects.toMatchObject({ code: '22023' });
     expect(profileReads).toEqual([]);
+  });
+});
+
+describe('fetchActorLabelsSafe (door, lists: labels are a nicety)', () => {
+  it('returns an empty label set instead of throwing, and never widens to user_profiles', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { client, profileReads } = fakeClient({ rpcError: { code: '57014', message: 'statement timeout' } });
+    const labels = await fetchActorLabelsSafe(client, 'v1', ['u1']);
+    expect(labels.size).toBe(0);
+    expect(labels.isSupport('u1')).toBe(false);
+    expect(profileReads).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('passes the labels through when the RPC works', async () => {
+    const { client } = fakeClient({ rows: () => [{ user_id: 'u1', display_name: 'Tom', is_support: false }] });
+    expect(Object.fromEntries(await fetchActorLabelsSafe(client, 'v1', ['u1']))).toEqual({ u1: 'Tom' });
   });
 });

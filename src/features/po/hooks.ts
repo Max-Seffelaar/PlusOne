@@ -1213,6 +1213,7 @@ export function usePoPersonProfile(args: {
         promoteGuestId: data.promoteGuestId,
         restricted: data.restricted,
         originEventId,
+        supportActorIds: data.supportActorIds,
       });
     },
   });

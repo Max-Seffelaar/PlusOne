@@ -305,6 +305,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     // flatten the same two embeds, so no caller has to resolve it a second time.
     source: row.source,
     addedByName: row.addedByName,
+    addedBySupport: row.addedBySupport,
     linkLabel: row.linkLabel,
     eventId: extras.eventId,
     eventName: extras.eventName,
@@ -538,6 +539,8 @@ export interface PoProfileEvent {
   /** Provenance for this appearance (item J) — feed straight to `guestSourceLabel`. */
   source: GuestSource;
   addedByName: string | null;
+  /** The adder is "PlusOne support" (is_support) — feed to `guestSourceLabel`. */
+  addedBySupport: boolean;
   linkLabel: string | null;
 }
 
@@ -622,11 +625,14 @@ export function toPoContactProfile(
     promoteGuestId?: string | null;
     originEventId?: string | null;
     restricted?: boolean;
+    /** Actor ids that are "PlusOne support" (venue_actor_names is_support). */
+    supportActorIds?: readonly string[];
     /** Injected clock for the per-event phase (deterministic tests). */
     nowMs?: number;
   } = {}
 ): PoContactProfile {
   const isContact = opts.isContact ?? true;
+  const supportActors = new Set(opts.supportActorIds ?? []);
   const originEventId = opts.originEventId ?? null;
   const nowMs = opts.nowMs ?? Date.now();
   const events: PoProfileEvent[] = appearances
@@ -665,6 +671,7 @@ export function toPoContactProfile(
         // The profile already resolved every actor id to a name in one read —
         // reuse that map instead of a second per-appearance profile embed.
         addedByName: a.addedBy ? actorNames[a.addedBy] ?? null : null,
+        addedBySupport: a.addedBy != null && supportActors.has(a.addedBy),
         linkLabel: a.linkLabel,
       };
     })

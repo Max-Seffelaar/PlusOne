@@ -562,7 +562,12 @@ export function ContactProfile({
                   )}
                   {/* Item J: where this name came from. */}
                   <span className="ml-auto max-w-[180px] truncate text-right text-[11px] text-faint">
-                    {guestSourceLabel({ source: e.source, addedByName: e.addedByName, linkLabel: e.linkLabel })}
+                    {guestSourceLabel({
+                      source: e.source,
+                      addedByName: e.addedByName,
+                      addedBySupport: e.addedBySupport,
+                      linkLabel: e.linkLabel,
+                    })}
                   </span>
                 </div>
                 {e.note && (

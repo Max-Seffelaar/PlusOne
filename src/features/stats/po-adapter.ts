@@ -60,7 +60,7 @@ export function toPerUser(users: UserAddition[]): PerUser[] {
   return users.map((u) => ({
     // Null when the adder is a PlusOne platform admin with no membership or crew tie at the venue
     // (support work outside the company; 20261016130000).
-    who: u.full_name ?? t.shared.actor.support,
+    who: u.full_name == null ? t.shared.actor.support : u.full_name.trim() || t.shared.actor.unnamed,
     added: u.added_headcount,
     removed: u.removed_headcount,
     in: u.present_headcount,

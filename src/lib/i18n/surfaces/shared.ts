@@ -19,6 +19,13 @@ export const shared = {
     support: 'PlusOne support',
     /** No actor at all: a database/system action. */
     system: 'System',
+    /** A member whose name is blank: neutral, never mistaken for support. */
+    unnamed: 'Unnamed',
+    /** An actor id the screen could not resolve (labels unavailable). */
+    unknown: 'Unknown',
+    /** A user tried to take one of the labels above (or a blank) as their own
+     *  name; the database refuses it too (user_profiles_full_name_not_reserved). */
+    reservedName: 'That name is reserved in PlusOne. Please use your own name.',
   },
 
   // ── Quiet offline indicator (offline-indicator.tsx, N7 follow-up) ───────

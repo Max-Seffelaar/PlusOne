@@ -10,7 +10,10 @@
 --   * crew sees the footprint of their own events (+ current members), never
 --     past members or the crew of other events;
 --   * a non-member gets zero rows, anon cannot execute, the id cap holds, and
---     the result has exactly three columns.
+--     the result has exactly three columns;
+--   * review round 1 (20261016140100): a forged quota/event_quota is no
+--     footprint; the label words and a blank name cannot be taken as a name;
+--     crew of another venue's event and a null venue get nothing.
 --
 -- Everything rolls back.
 
@@ -35,7 +38,7 @@ returns text language sql as $fn$
 $fn$;
 grant execute on function pg_temp.actor(uuid, uuid) to authenticated;
 
-select plan(30);
+select plan(46);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner). Seed: venue 1 aa…01 (Max admin, Tom staff, Lisa
@@ -264,6 +267,157 @@ select ok(not exists (
             'a9000000-0000-4000-8000-0000000000b3'::uuid, 'a9000000-0000-4000-8000-0000000000b4'::uuid])
      where display_name is not null and is_support),
   'E5 is_support never carries a name');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- F. Review round 1 (P1-1): a forged quota is no footprint
+-- ---------------------------------------------------------------------------
+-- Any company admin can grant a quota to an arbitrary uuid (quotas_insert_admin
+-- checks the caller, not the target). That must not turn venue_actor_names into
+-- a name directory, nor reveal that a uuid is a PlusOne operator.
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+)
+select '00000000-0000-0000-0000-000000000000', u.id, 'authenticated', 'authenticated', u.email, '', now(),
+       '{"provider": "email", "providers": ["email"]}'::jsonb, jsonb_build_object('full_name', u.name),
+       now(), now(), '', '', '', '', '', '', '', ''
+  from (values
+    ('a9000000-0000-4000-8000-0000000000b6'::uuid, 'van-victim@plusone.test',  'Victim Person'),
+    ('a9000000-0000-4000-8000-0000000000b7'::uuid, 'van-v2crew@plusone.test',  'Venue Two Crew'),
+    ('a9000000-0000-4000-8000-0000000000b8'::uuid, 'van-former2@plusone.test', 'Former Two')
+  ) as u(id, email, name);
+insert into public.user_profiles (id, full_name, email)
+values
+  ('a9000000-0000-4000-8000-0000000000b6', 'Victim Person',  'van-victim@plusone.test'),
+  ('a9000000-0000-4000-8000-0000000000b7', 'Venue Two Crew', 'van-v2crew@plusone.test'),
+  ('a9000000-0000-4000-8000-0000000000b8', 'Former Two',     'van-former2@plusone.test');
+
+-- Max (admin of venue 2) forges a venue quota and an event quota for the victim
+-- and for the operator, who have no tie to venue 2 at all.
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+insert into public.quotas (venue_id, user_id, default_count) values
+  ('aa000000-0000-7000-8000-000000000002', 'a9000000-0000-4000-8000-0000000000b6', 3),
+  ('aa000000-0000-7000-8000-000000000002', 'a9000000-0000-4000-8000-0000000000b1', 3);
+insert into public.event_quotas (event_id, user_id, quota_override) values
+  ('ee000000-0000-7000-8000-0000000000a3', 'a9000000-0000-4000-8000-0000000000b6', 4),
+  ('ee000000-0000-7000-8000-0000000000a3', 'a9000000-0000-4000-8000-0000000000b1', 4);
+select is((select count(*)::int from public.audit_log
+            where venue_id = 'aa000000-0000-7000-8000-000000000002'
+              and entity_type in ('quotas', 'event_quotas')
+              and (diff -> 'after' ->> 'user_id') in ('a9000000-0000-4000-8000-0000000000b6',
+                                                      'a9000000-0000-4000-8000-0000000000b1')), 4,
+  'F1 precondition: the forged quota and event_quota rows are audited with the victim as subject');
+select is((select count(*)::int from public.venue_actor_names('aa000000-0000-7000-8000-000000000002',
+            array['a9000000-0000-4000-8000-0000000000b6'::uuid])), 0,
+  'F2 a forged quota / event_quota for an untied uuid returns no row (no name)');
+select is((select count(*)::int from public.venue_actor_names('aa000000-0000-7000-8000-000000000002',
+            array['a9000000-0000-4000-8000-0000000000b1'::uuid])), 0,
+  'F3 …and a forged quota for an operator does not reveal is_support either');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- G. More gate / crew edges
+-- ---------------------------------------------------------------------------
+
+-- Crew of a venue-2 event only.
+insert into public.event_organizers (event_id, user_id)
+values ('ee000000-0000-7000-8000-0000000000a3', 'a9000000-0000-4000-8000-0000000000b7');
+select pg_temp.login('a9000000-0000-4000-8000-0000000000b7');
+select is((select count(*)::int from public.venue_actor_names('aa000000-0000-7000-8000-000000000001',
+            array['55555555-5555-4555-8555-555555555555'::uuid])), 0,
+  'G1 crew of a venue-2 event passing venue 1 gets zero rows');
+reset role;
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is((select count(*)::int from public.venue_actor_names(null,
+            array['55555555-5555-4555-8555-555555555555'::uuid])), 0,
+  'G2 p_venue_id null returns nothing');
+reset role;
+select pg_temp.login('a9000000-0000-4000-8000-0000000000b1'); -- a platform admin
+select is((select count(*)::int from public.venue_actor_names(null,
+            array['55555555-5555-4555-8555-555555555555'::uuid])), 0,
+  'G3 …also for a platform admin');
+reset role;
+
+-- Former crew: Other Crew loses the ee…a2 tie; their guest there stays.
+delete from public.event_organizers
+ where event_id = 'ee000000-0000-7000-8000-0000000000a2'
+   and user_id = 'a9000000-0000-4000-8000-0000000000b4';
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is(pg_temp.actor('aa000000-0000-7000-8000-000000000001', 'a9000000-0000-4000-8000-0000000000b4'),
+  row('Other Crew', false)::text, 'G4 former crew are named for members');
+reset role;
+
+-- Former Two: a member who acted only on ee…a2, then left.
+insert into public.venue_memberships (venue_id, user_id, roles)
+values ('aa000000-0000-7000-8000-000000000001', 'a9000000-0000-4000-8000-0000000000b8', '{doorhost}');
+insert into public.audit_log (actor_id, venue_id, event_id, entity_type, entity_id, action)
+values ('a9000000-0000-4000-8000-0000000000b8', 'aa000000-0000-7000-8000-000000000001',
+        'ee000000-0000-7000-8000-0000000000a2', 'check_ins', 'cc000000-0000-7000-8000-0000000000b4', 'check_in');
+delete from public.venue_memberships
+ where venue_id = 'aa000000-0000-7000-8000-000000000001'
+   and user_id = 'a9000000-0000-4000-8000-0000000000b8';
+select pg_temp.login('44444444-4444-4444-8444-444444444444'); -- crew of ee…01 only
+select is(pg_temp.actor('aa000000-0000-7000-8000-000000000001', 'a9000000-0000-4000-8000-0000000000b8'),
+  null, 'G5 crew do not see a former member who acted only on another event');
+reset role;
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is(pg_temp.actor('aa000000-0000-7000-8000-000000000001', 'a9000000-0000-4000-8000-0000000000b8'),
+  row('Former Two', false)::text, 'G6 …while members do');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- H. Review round 1 (P1-2): the labels are not a name anyone can take
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom renames himself
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'PlusOne support' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'H1 "PlusOne support" is refused as an own name');
+select throws_ok(
+  $$ update public.user_profiles set full_name = '   ' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'H2 a blank name is refused');
+select throws_ok(
+  $$ update public.user_profiles set full_name = '  SYSTEM ' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'H3 "System" is refused, whatever the case or padding');
+select throws_ok(
+  $$ update public.user_profiles set full_name = 'plusone   Support' where id = '55555555-5555-4555-8555-555555555555' $$,
+  '23514', null, 'H4 …and inner whitespace does not get around it');
+select lives_ok(
+  $$ update public.user_profiles set full_name = 'Tom Bakker' where id = '55555555-5555-4555-8555-555555555555' $$,
+  'H5 an ordinary name still saves');
+reset role;
+
+-- A new profile born with a reserved name (invite seeds the e-mail local part,
+-- e.g. system@…) is not refused — that would break the first login — but stored as 'User'.
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+) values (
+  '00000000-0000-0000-0000-000000000000', 'a9000000-0000-4000-8000-0000000000b9',
+  'authenticated', 'authenticated', 'system@van.test', '', now(),
+  '{"provider": "email", "providers": ["email"]}'::jsonb, '{"full_name": "system"}'::jsonb,
+  now(), now(), '', '', '', '', '', '', '', ''
+);
+insert into public.user_profiles (id, full_name, email)
+values ('a9000000-0000-4000-8000-0000000000b9', 'system', 'system@van.test');
+select is((select full_name from public.user_profiles where id = 'a9000000-0000-4000-8000-0000000000b9'),
+  'User', 'H6 a NEW profile with a reserved name is stored as "User", not refused');
+
+-- A look-alike passes the CHECK (accepted residual) but never becomes support:
+-- is_support is the platform-admin flag, not the name.
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+update public.user_profiles set full_name = 'PIusOne support' where id = '55555555-5555-4555-8555-555555555555';
+reset role;
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is(pg_temp.actor('aa000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
+  row('PIusOne support', false)::text, 'H7 a spoofed look-alike name is just a name: is_support stays false');
 reset role;
 
 select * from finish();

@@ -89,6 +89,9 @@ export interface GuestSourceInput {
   /** Who added them, by the one who-did-what rule (#62a): a member's name or
    *  "PlusOne support"; null when unknown. */
   addedByName?: string | null;
+  /** The adder is "PlusOne support" (is_support). Decides the wording; the
+   *  label text never does (a user could name themselves that). */
+  addedBySupport?: boolean;
   /** Non-default request link label (or its influencer); null for the default
    *  link and whenever `request_links` isn't readable for this role (RLS). */
   linkLabel?: string | null;
@@ -107,10 +110,9 @@ function firstName(full: string): string {
  */
 export function guestSourceLabel(g: GuestSourceInput): string {
   const s = t.guests.source;
-  // The who-did-what placeholders (#62a: "PlusOne support", "System") are not
-  // a person: never cut them down to a first name.
-  const placeholder = g.addedByName === t.shared.actor.support || g.addedByName === t.shared.actor.system;
-  const who = g.addedByName ? (placeholder ? g.addedByName : firstName(g.addedByName)) : '';
+  // "PlusOne support" (#62a) is not a person: never cut it to a first name.
+  // Decided by the flag only — never by comparing the label text (P1-2).
+  const who = g.addedBySupport ? t.shared.actor.support : g.addedByName ? firstName(g.addedByName) : '';
   switch (g.source) {
     case 'permanent':
       return s.regular;

@@ -20,7 +20,7 @@ const tables: Record<string, unknown[]> = {
   refusals: [],
 };
 
-function fakeClient() {
+function fakeClient(opts: { labelsFail?: boolean } = {}) {
   const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
   const fromTables: string[] = [];
   const client = {
@@ -29,6 +29,7 @@ function fakeClient() {
       rpcCalls.push({ name, args });
       if (name === 'can_uncheck_check_in') return Promise.resolve({ data: true, error: null });
       if (name === 'venue_actor_names') {
+        if (opts.labelsFail) return Promise.resolve({ data: null, error: { code: '57014', message: 'timeout' } });
         const rows = [
           { user_id: 'u-former', display_name: 'Former Floor', is_support: false },
           { user_id: 'u-op', display_name: null, is_support: true },
@@ -68,5 +69,17 @@ describe('door snapshot actor labels (#62a)', () => {
       'u-op': 'PlusOne support',
       'u-me': 'Me Myself',
     });
+  });
+
+  it('still loads the door when the label RPC fails (door speed, #25): no labels, no throw', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { client, fromTables } = fakeClient({ labelsFail: true });
+    const snap = await fetchDoorSnapshot(client, 'e1');
+    expect(snap.guests).toHaveLength(2);
+    expect(snap.checkIns).toHaveLength(1);
+    expect(snap.profiles).toEqual({});
+    // Never a widened fallback read.
+    expect(fromTables).not.toContain('user_profiles');
+    warn.mockRestore();
   });
 });

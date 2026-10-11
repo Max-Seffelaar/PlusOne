@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
 import { auditPersonIds, describeAuditEntry, type AuditLine } from './translate';
-import { fetchActorLabels } from './actor-labels';
+import { ActorLabels, fetchActorLabelsSafe } from './actor-labels';
 
 // Server-side audit-feed reads. Everything goes through the USER-scoped client,
 // so the audit_feed view's RLS (admin/finance, role-only, inherited from audit_log)
@@ -61,7 +61,7 @@ export async function fetchAuditFeed(filters: AuditFilters): Promise<AuditLine[]
 
   const { data } = await query;
   const rows = data ?? [];
-  const labels = await fetchActorLabels(supabase, filters.venueId, auditPersonIds(rows));
+  const labels = await fetchActorLabelsSafe(supabase, filters.venueId, auditPersonIds(rows));
   return rows.map((r) => describeAuditEntry(r, labels));
 }
 
@@ -97,7 +97,7 @@ export async function fetchGuestHistory(guestId: string): Promise<GuestHistory> 
 
   const feed = rows ?? [];
   const venueId = feed.find((r) => r.venue_id)?.venue_id ?? null;
-  const labels = venueId ? await fetchActorLabels(supabase, venueId, auditPersonIds(feed)) : new Map<string, string>();
+  const labels = venueId ? await fetchActorLabelsSafe(supabase, venueId, auditPersonIds(feed)) : new ActorLabels();
 
   return {
     guest: guest
