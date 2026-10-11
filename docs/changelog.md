@@ -71,6 +71,10 @@ Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes 
   - The neutral chip uses `border-line` (visible on hover rows and `bg-elev`). The chip's hint is ON the element (`role="img"`, `aria-label` "{label}, PlusOne label"), not a sibling sr-only span; "plusone label" joins the reserved phrases (DB + app). The audit timeline's second actor mention is `aria-hidden`.
   - The profile and consent forms strip refused invisible characters before validating (copy-paste bidi marks, a Khmer ZWSP, a variation selector, flag tags, U+FE0E, a soft hyphen); blank/reserved after stripping is still refused; the DB CHECK is unchanged.
   - Removed the dead `Guest.by` field (always ''). pgTAP 84 (L1–L2: the hint phrase).
+- **Visual re-check + review round 6** (door row at 375px still broke: the `shrink-0` compact chip overflowed under the check button and caused sideways scroll):
+  - The compact chip may shrink to "icon + Sup…" and then the icon alone (`min-w-[22px] shrink overflow-hidden`, label `min-w-0 truncate`), border intact; `ActorCaption` clips (`overflow-hidden`); the door caption keeps `min-w-[4.5rem]` next to the truncating name. New flow `door-actor-chip` asserts at phone width that the chip ends inside its caption, the caption inside the row, and there is no sideways scroll.
+  - `title` only on the compact chip (with `aria-label` it was read twice); neutral chips use a `border-faint` boundary (>= 3:1 on elev/elev2/hover) and every chip fill is opaque (support: `bg-elev` instead of the translucent `bg-acc-dim`); a row's `opacity-70` now goes on the caption TEXT only (`ActorCaption textClassName`), never on the chip.
+  - Pasted tab / CR / LF in a name become one space before the invisible-character strip (no more "MaxSmith").
 
 ---
 

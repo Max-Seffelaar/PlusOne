@@ -101,10 +101,21 @@ export function hasInvisibleChars(name: string): boolean {
   return false;
 }
 
+// Whitespace CONTROLS (tab, LF, VT, FF, CR, the C0 separators, NEL): a pasted
+// "Max<TAB>Smith" means a space, not "MaxSmith".
+const WHITESPACE_CONTROLS = new RegExp(
+  `[${[0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x85].map((c) => String.fromCharCode(c)).join('')}]+`,
+  'g',
+);
+
 /** The name with every REFUSED invisible character removed (ZWNJ / ZWJ /
- *  U+FE0F kept) — what the forms store, mirroring the DB's new-row sanitizer. */
+ *  U+FE0F kept) — what the forms store, mirroring the DB's new-row sanitizer.
+ *  Whitespace controls first become one space; runs of spaces then collapse. */
 export function stripRefusedInvisible(name: string): string {
-  return name.replace(INVISIBLE_ALL, (ch) => (ALLOWED_IN_NAME.has(ch.codePointAt(0)!) ? ch : ''));
+  return name
+    .replace(WHITESPACE_CONTROLS, ' ')
+    .replace(INVISIBLE_ALL, (ch) => (ALLOWED_IN_NAME.has(ch.codePointAt(0)!) ? ch : ''))
+    .replace(/ {2,}/g, ' ');
 }
 
 /** Is this KEY (already normalised) reserved? Equal to a label word, or
