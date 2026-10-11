@@ -8,6 +8,15 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Billing mails follow-ups: 409 = outcome unknown, Stripe mails first, Billing ?venue= deep link (z8uq9m49k4)
+
+Follow-up of 2c (#446), review nits D1/D3 and an open point. Milestone **Now**.
+
+- **D1, Resend 409 has its own code.** `resend-adapter.ts` maps a 409 (an Idempotency-Key Resend already holds: first request still in flight, or a retry with a different body) to `idempotency_conflict` instead of `provider_rejected`. `log_billing_mail` already never retries it (not in its transient list), so no second mail can follow. Migration `20261015150000_billing_mail_unknown_outcome.sql` re-creates `platform_billing_mail_timeline` with one extra count, `unknown`; the Platform timeline shows "N unknown" instead of "failed". Guest and team mail treat the new code like the old one (no retry); only the name in `mail_log.error_code` changes.
+- **D3, Stripe mails first.** A run builds its list with the payment-failed/canceled mails before the trial mails, so a run that hits its 45 s budget never makes a failed payment wait an hour.
+- **Billing deep link.** Every Billing button in a billing mail is `/app/billing?venue=<company>` (uuid-checked; the welcome mail's "Create your first event" is unchanged). For another company the user is a member of, Billing shows "Billing for {company}" + "Switch to {company}" (the event deep link's pattern: never a silent switch). The switch goes through `switchToVenue` → `switchActiveVenueAction` (membership check, platform_access_log rules unchanged) and lands on `/app/billing`. The active company, a company the user is no member of, or junk show the active company's billing: the link never reveals another company.
+- **Tests.** vitest: adapter 409 mapping, job order + `?venue=` in the sent mail, template CTA (uuid only, plain URL otherwise), routes round-trip, Billing deep-link screen (incl. native: no purchase copy). pgTAP `billing_mail_followups.test.sql` (8): a 409 is never retried, the timeline counts it as unknown, grants unchanged. Flow `billing-mails` Q12/Q13: the deep link on all four variants.
+
 ## 2026-10-10 — Gastcommunicatie F, PR 6b: team mail + notification preferences (z8uq9m2vpy)
 
 Milestone **Now** (golf E, ADE). Spec #59 (new). Migration `20261013180600_notification_prefs.sql`, merges after 6c (#456, `…180500`); it does not touch `guest_mails_claim`.

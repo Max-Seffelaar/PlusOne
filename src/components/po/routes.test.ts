@@ -43,6 +43,7 @@ describe('routes: screenPath ↔ parseAppUrl round-trip', () => {
     ['venuecreate', {}],
     ['profile', {}],
     ['billing', {}],
+    ['billing', { id: 'v2' }],
     ['stats', {}],
     ['audit', {}],
     ['audit', { id: 'e1' }],

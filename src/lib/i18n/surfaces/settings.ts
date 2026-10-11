@@ -396,6 +396,14 @@ export const settings = {
   },
   billing: {
     title: 'Billing',
+    /** A billing mail's link (/app/billing?venue=…) for another company the
+     *  user belongs to (z8uq9m49k4): explain + button, never switch silently,
+     *  same as the event deep link (decision Max 2026-10-06). */
+    otherCompany: {
+      title: 'Billing for {company}',
+      body: "You're working in {active} right now. Switch to see the billing for {company}.",
+      cta: 'Switch to {company}',
+    },
     loading: 'Loading…',
     loadError: "Couldn't load the subscription.",
     empty: 'No subscription for this company yet.',
