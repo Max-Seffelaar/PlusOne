@@ -9,6 +9,7 @@ import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
 import { formatCompanyAddress } from '@/features/po/adapters';
 import { requestedHeadsOf } from '@/features/po/funnel';
+import { auditFilterActions } from '@/features/po/audit-presenter';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -2084,7 +2085,8 @@ export interface PoAuditFilters {
   eventId?: string;
   /** Actor (who performed the action) — "filter op user". */
   actorId?: string;
-  /** "filter op actiesoort". */
+  /** Action filter: a chip key from AUDIT_ACTION_FILTERS (may group several
+   *  actions, e.g. 'lock' = lock + unlock) or a raw action. */
   action?: string;
   /** Free-text on actor/guest/subject names (server-side ilike). */
   search?: string;
@@ -2116,7 +2118,9 @@ export async function fetchPoAuditFeed(
 
   if (filters.eventId) query = query.eq('event_id', filters.eventId);
   if (filters.actorId) query = query.eq('actor_id', filters.actorId);
-  if (filters.action && filters.action !== 'all') query = query.eq('action', filters.action);
+  // A filter chip can group actions (lock + unlock): a small fixed list.
+  const actions = auditFilterActions(filters.action);
+  if (actions) query = query.in('action', [...actions]);
   if (filters.search) {
     const s = sanitizeAuditSearch(filters.search);
     if (s) {

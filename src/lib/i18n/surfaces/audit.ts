@@ -47,6 +47,33 @@ export const audit = {
   filterAllUsers: 'All people',
   showResults: 'Show results',
 
+  // ── Action chips (row marker) + action filter ───────────────────────────────
+  // One short label per action the audit triggers and RPCs emit
+  // (features/po/audit-presenter.ts). `fallback` only for an action added
+  // later without a label here.
+  actionLabel: {
+    create: 'Added',
+    update: 'Change',
+    delete: 'Removed',
+    checkIn: 'Check-in',
+    refuse: 'Refused',
+    tierChange: 'Tier',
+    quotaGrant: 'Quota',
+    approve: 'Approved',
+    deny: 'Declined',
+    lock: 'Locked',
+    unlock: 'Unlocked',
+    anonymize: 'Anonymized',
+    export: 'Export',
+    platformAdminGrant: 'Admin granted',
+    platformAdminRevoke: 'Admin revoked',
+    fallback: 'Action',
+  },
+  // Filter chips that group several actions.
+  filterAll: 'All',
+  filterListLock: 'List lock',
+  filterPrivacy: 'Privacy',
+
   // ── Per-guest timeline ──────────────────────────────────────────────────────
   historyTitle: 'Timeline',
   historyLoadError: "Couldn't load the timeline.",

@@ -3,6 +3,7 @@ import 'server-only';
 import { createClient } from '@/lib/supabase/server';
 import { auditPersonIds, describeAuditEntry, type AuditLine } from './translate';
 import { ActorLabels, fetchActorLabelsSafe } from './actor-labels';
+import { auditFilterActions } from '@/features/po/audit-presenter';
 
 // Server-side audit-feed reads. Everything goes through the USER-scoped client,
 // so the audit_feed view's RLS (admin/finance, role-only, inherited from audit_log)
@@ -48,7 +49,9 @@ export async function fetchAuditFeed(filters: AuditFilters): Promise<AuditLine[]
   if (filters.eventId) query = query.eq('event_id', filters.eventId);
   if (filters.actorId) query = query.eq('actor_id', filters.actorId);
   if (filters.guestId) query = query.eq('guest_id', filters.guestId);
-  if (filters.action && filters.action !== 'all') query = query.eq('action', filters.action);
+  // Same chip keys as the po feed (a chip can group actions, e.g. lock + unlock).
+  const actions = auditFilterActions(filters.action);
+  if (actions) query = query.in('action', [...actions]);
 
   if (filters.search) {
     const s = sanitizeSearch(filters.search);
