@@ -49,6 +49,8 @@ export const shared = {
     /** Generic copy-button idle/success labels for `CopyableField` (kit.tsx). */
     copyLabel: 'Copy',
     copyDone: 'Copied!',
+    /** Closes the kit Select's bottom sheet without picking (touch only). */
+    selectCancel: 'Cancel',
   },
 
   // ── Date/time fields (datetime-field.tsx) — desktop calendar + time selects ──

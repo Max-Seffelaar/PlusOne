@@ -16,6 +16,7 @@ import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
 import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
+import { useNativeBackIntercept } from './native-back-intercept';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
 // of one of these (some already drifted to 0.94/0.985/1.09); exported so a
@@ -379,16 +380,29 @@ export function TierPicker({
   );
 }
 
-// ── Field (input or static display) ──────────────────────────────────────────
 // ── Select ───────────────────────────────────────────────────────────────────
 /**
- * A native `<select>` in the Field's own skin — the `po` kit had no dropdown
- * primitive before P-05's audit-viewer venue filter needed one. Native
- * (not a custom listbox) on purpose: with up to hundreds of venues, a native
- * `<select>` gets free virtualisation, keyboard nav, and screen-reader
- * support the button-list `Sheet` pattern (see `audit.tsx`'s FilterSheet)
- * doesn't scale to. `ariaLabel` mirrors `Field`'s own prop for a filter bar
- * where the visible `Label` sits above rather than wrapping the control.
+ * The kit dropdown (z8uq9m4a2w): a Field-look trigger that opens a PlusOne
+ * listbox instead of the OS-drawn `<select>` list (Windows drew it white, #463).
+ *
+ * One panel for both densities, like InfoTip: a popover under the trigger for a
+ * fine pointer from `lg:` up, a bottom sheet (max 560px, 44px rows, dimmed
+ * backdrop, Cancel) everywhere else, including an iPad in landscape. No
+ * media-query JS, no portal, so it behaves the same in a Capacitor webview
+ * (#37); the Android back button closes the sheet (`useNativeBackIntercept`).
+ *
+ * Why a sheet on touch and not the native picker: the native list is the OS's
+ * (iPhone wheel, iPad popover, Android dialog, a narrow desktop window's white
+ * list), so the look changes per device and the selected row never gets the
+ * accent. The longest lists here (venues on the platform screens) read better as
+ * a scrolling list of 44px rows than on a wheel.
+ *
+ * a11y: the WAI-ARIA select-only combobox. DOM focus stays on the trigger
+ * (`role="combobox"`, `aria-expanded`, `aria-activedescendant`), so focus never
+ * has to be returned: picking, Escape, an outside tap and Cancel all leave it on
+ * the trigger. Keys: ↑↓ Home End PageUp PageDown, Enter/Space picks, Esc and Tab
+ * close, typing jumps to the first label that starts with the typed text.
+ * `placeholder` is the "" option on top (an "All venues" filter value).
  */
 export function Select({
   value,
@@ -408,36 +422,194 @@ export function Select({
   icon?: IconName;
   className?: string;
 }): JSX.Element {
+  const items = placeholder != null ? [{ value: '', label: placeholder }, ...options] : options;
+  const selectedIndex = items.findIndex((o) => o.value === value);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const listId = useId();
+  const optId = (i: number): string => `${listId}-o${i}`;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const typed = useRef({ text: '', at: 0 });
+
+  const close = (): void => {
+    setOpen(false);
+    // iOS Safari never focuses a tapped button; put focus where a keyboard user left it.
+    triggerRef.current?.focus({ preventScroll: true });
+  };
+  const show = (at: number): void => {
+    setActive(Math.max(0, Math.min(items.length - 1, at)));
+    setOpen(true);
+  };
+  const pick = (i: number): void => {
+    const o = items[i];
+    if (o && o.value !== value) onChange(o.value);
+    close();
+  };
+
+  useNativeBackIntercept(open ? close : null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    document.getElementById(`${listId}-o${active}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, active, listId]);
+
+  /** Type-ahead: the first label starting with the typed text; one repeated letter cycles. */
+  const match = (key: string, from: number): number => {
+    const now = Date.now();
+    const text = now - typed.current.at > 600 ? key : typed.current.text + key;
+    typed.current = { text, at: now };
+    const needle = text.toLowerCase();
+    const cycling = [...needle].every((c) => c === needle[0]);
+    const q = cycling ? needle[0] : needle;
+    const start = cycling ? from + 1 : from;
+    for (let k = 0; k < items.length; k++) {
+      const i = (start + k) % items.length;
+      if (items[i]!.label.toLowerCase().startsWith(q)) return i;
+    }
+    return -1;
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    const cur = open ? active : Math.max(0, selectedIndex);
+    const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (printable && !(e.key === ' ' && Date.now() - typed.current.at > 600)) {
+      e.preventDefault();
+      const i = match(e.key, cur);
+      if (i >= 0) show(i);
+      else if (!open) show(cur);
+      return;
+    }
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) {
+        e.preventDefault();
+        show(cur);
+      }
+      return;
+    }
+    const step: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10 };
+    if (e.key in step) {
+      e.preventDefault();
+      show(e.key === 'ArrowUp' && e.altKey ? cur : cur + step[e.key]!);
+      if (e.key === 'ArrowUp' && e.altKey) pick(cur);
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      show(e.key === 'Home' ? 0 : items.length - 1);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      pick(cur);
+    } else if (e.key === 'Escape') {
+      // Only this dropdown closes, not the sheet or screen it sits in.
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    } else if (e.key === 'Tab') {
+      setOpen(false);
+    }
+  };
+
+  const fine = 'lg:[@media(pointer:fine)]:';
   return (
-    // The <select> itself is the tap target, so it fills the box (44px + 2px
-    // padding + border = the same 50px Field height) instead of sitting as a
-    // 23px line inside 13px of padding (layout suite, 44px on touch).
-    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[2px]', className)}>
-      {icon && (
-        <span className="text-faint">
-          <Icon name={icon} size={19} />
-        </span>
-      )}
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+    <div ref={wrapRef} className={cn('relative', className)}>
+      <button
+        ref={triggerRef}
+        type="button"
+        role="combobox"
         aria-label={ariaLabel}
-        // The options get the theme's own colours: Windows Chrome draws the
-        // native list on a white background, and inheriting text-text left
-        // every option but the highlighted one unreadable (Max, #463).
-        className="h-[44px] min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none [&>option]:bg-elev [&>option]:text-text"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={open ? optId(active) : undefined}
+        onClick={() => (open ? close() : show(Math.max(0, selectedIndex)))}
+        onKeyDown={onKeyDown}
+        // 48px + border = the 50px Field height; the whole box is the tap target.
+        className={cn(
+          'flex min-h-[50px] w-full cursor-pointer items-center gap-[11px] rounded-field border bg-elev px-[15px] text-left outline-none focus-visible:border-acc',
+          open ? 'border-acc' : 'border-line',
+        )}
       >
-        {placeholder != null && <option value="">{placeholder}</option>}
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+        {icon && (
+          <span className="text-faint">
+            <Icon name={icon} size={19} />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate font-body text-[16px] text-text">{items[selectedIndex]?.label ?? ''}</span>
+        <Icon name="chevD" size={18} className={cn('shrink-0 text-faint transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <>
+          {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
+          <div className={cn('fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px]', `${fine}hidden`)} onClick={close} />
+          <div
+            data-testid="select-panel"
+            className={cn(
+              // Bottom padding clears the mobile tab bar, as in InfoTip; the
+              // sidebar chrome (lg) has none.
+              'fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[70vh] max-w-[560px] flex-col rounded-t-[22px] border border-line bg-elev p-[10px] pb-[calc(80px+env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.55)] lg:pb-[calc(10px+env(safe-area-inset-bottom))]',
+              `${fine}absolute ${fine}inset-x-0 ${fine}bottom-auto ${fine}top-[calc(100%+6px)] ${fine}max-h-[320px] ${fine}min-w-[220px] ${fine}max-w-none ${fine}rounded-[16px] ${fine}p-[6px] ${fine}shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]`,
+            )}
+          >
+            {ariaLabel && (
+              <div className={cn('px-[12px] pb-[8px] pt-[6px] font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text', `${fine}hidden`)}>
+                {ariaLabel}
+              </div>
+            )}
+            <ul id={listId} role="listbox" aria-label={ariaLabel} className="po-scroll min-h-0 flex-1 overflow-y-auto">
+              {items.map((o, i) => {
+                const on = i === selectedIndex;
+                return (
+                  <li
+                    key={o.value}
+                    id={optId(i)}
+                    role="option"
+                    aria-selected={on}
+                    data-value={o.value}
+                    // Keep focus on the trigger (it owns aria-activedescendant).
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseMove={() => i !== active && setActive(i)}
+                    onClick={() => pick(i)}
+                    className={cn(
+                      'flex min-h-[44px] cursor-pointer items-center gap-[11px] rounded-[12px] px-[12px] py-[10px] text-[15px] text-text',
+                      `${fine}min-h-[36px] ${fine}rounded-[10px] ${fine}py-[7px] ${fine}text-[14px]`,
+                      i === active && 'bg-elev2',
+                      on && 'bg-acc-dim text-acc',
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                    {on && <Icon name="check" size={15} sw={2.4} className="shrink-0 text-acc" />}
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={close}
+              className={cn(
+                'mt-[8px] flex min-h-[44px] w-full shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim',
+                press,
+                `${fine}hidden`,
+              )}
+            >
+              {t.shared.kit.selectCancel}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
+// ── Field (input or static display) ──────────────────────────────────────────
 export function Field({
   icon,
   placeholder,
