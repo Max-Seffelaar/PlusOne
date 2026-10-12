@@ -17,6 +17,37 @@
 - **Max merget.** Branch protection staat aan. De worker levert een draft-PR, CI groen, test-handoff. Max test, antwoordt "1 ✅, 2 ❌ — …", merget, en doet de prod-push van migraties vanuit de linked main-checkout (CLAUDE.md "Prod-push flow"). Pas dan de volgende brief.
 - **Stack in de sessie:** remote container → `pnpm stack` (eerste keer circa 5 minuten); laptop → de lopende lokale stack. Vóór een pgTAP-run `pnpm db:fresh`, en alleen als niemand anders op die stack test.
 - **Lokaal testscript voor Max (les 2026-10-11):** elk script dat de orchestrator stuurt (1) controleert een échte head-sha, nooit een placeholder; (2) draait na `pnpm db:fresh` ook `pnpm promo:seed` (Kelder Nord, de realistische company, `owner@kelder-nord.test`), want `db:fresh` wist álles tot `seed.sql` (2 companies; `manager@` zit alleen in Club Vesper, `admin@` in beide), ook companies die Max zelf lokaal aanmaakte; (3) zet de data klaar die de test nodig heeft (bijv. `venues.contact_email`, anders gaat er geen gastmail; een aanvraag met de juiste +N) via `docker exec -i supabase_db_PlusOne_Guestlist psql -U postgres`; (4) noemt de seed-gebruiker met het juiste recht (aanvragen beslissen = admin of event-organisator, niet `manager@`). Controleer de gebruiker tegen de flow van de PR (`tests/flows/*.flow.ts`). (5) zegt erbij: na een branch-wissel eerst een harde reload (Ctrl+Shift+R) of een nieuw tabblad; anders geeft elke knop "Server Action … was not found" (oude action-ids uit het vorige build, eventueel uit de service-worker-cache: DevTools → Application → Unregister + Clear site data).
+- **Vaste vorm voor Max' testscript en prod-push (besluit Max 2026-10-12):** elk lokaal testscript gaat als één plakbaar PowerShell-blok (Max' Windows-checkout, poort 7000), altijd in deze vorm; alleen `$branch`, `$expect` en de SQL-regel wisselen. Het script stopt zelf bij lokale wijzigingen, een mislukte switch, een andere head of een mislukte seed:
+
+  ```powershell
+  & {
+    $repo='C:\Users\Maxse\Documents\GitHub\PlusOne'; $branch='<branch>'; $expect='<7-teken head-sha>'
+    Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 2
+    Set-Location $repo; git fetch origin
+    if (git status --porcelain --untracked-files=no) { 'STOP: local changes'; git status --short; return }
+    git switch $branch; if ($LASTEXITCODE) { 'STOP: switch failed'; return }
+    git pull --ff-only
+    $head = git rev-parse --short HEAD; "Branch: $branch  Head: $head"
+    if (-not $head.StartsWith($expect)) { "STOP: head is $head, expected $expect"; return }
+    pnpm install
+    pnpm db:fresh;   if ($LASTEXITCODE) { 'STOP: db:fresh failed'; return }
+    pnpm promo:seed; if ($LASTEXITCODE) { 'STOP: promo:seed failed'; return }
+    "<data-setup-SQL voor deze test>" | docker exec -i supabase_db_PlusOne_Guestlist psql -U postgres -d postgres -v ON_ERROR_STOP=1
+    if ($LASTEXITCODE) { 'STOP: test setup failed'; return }
+    Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
+    $env:DEV_WEBPACK='1'; $env:PORT='7000'; pnpm dev
+  }
+  ```
+
+  Daaronder de dev-login-links op poort 7000 en de Ctrl+Shift+R-regel. Prod-push na een merge, ook altijd als één blok, met het timestamp van de nieuwste migratie die mee moet en de merge-commit die `git log -1` hoort te tonen:
+
+  ```powershell
+  cd C:\Users\Maxse\Documents\GitHub\PlusOne
+  git switch main; git pull --ff-only; git log -1 --oneline
+  Push-PlusOneProd <nieuwste migratie-timestamp>
+  ```
+
+  `Push-PlusOneProd` is Max' eigen functie (niet in de repo); de orchestrator verifieert daarna op prod (`list_migrations` + functies/grants) en schrijft het resultaat in §2b. Workers leveren het testscript in hun eindrapport al in deze vorm.
 - **Migratie-timestamps zijn hier toegewezen** (§3), niet door workers gekozen. De worker checkt zijn timestamps tegen `origin/main` vóór de eerste push: `git ls-files supabase/migrations | grep 202610`. Op 2026-10-06 bestaan `20261006120000` t/m `20261006170000`; alles hieronder ligt daarna.
 - **Gedeelde bestanden:** omdat er niets parallel loopt, is er geen wachtlijst. Wel een scope-hek per taak (§4), zodat een worker geen werk van een latere taak alvast meeneemt. Buiten het hek = stoppen en melden in de PR, niet bouwen.
 - **Review gates:** P1 (layout en middleware = auth), D (RLS op `check_ins`), G (billing, service-role-RPC's, platform-RPC's), F (webhook, mail-infra, publieke afmeld-route), E en Q (SECURITY DEFINER-RPC's met quota-math), P2 (middleware, RLS, service worker) en de invite-metadata in A zijn high-risk. De worker schrijft ongevraagd de security-research-prompt in de PR-body; Max start daarna de reviewer-sessie uit §5 vóór hij merget.
@@ -227,6 +258,22 @@ Besluiten Max (avond): Tasks-tab in een aparte mini-PR (door-bestanden); deep li
 
 Aandachtspunten: 3 en 5 raken allebei `events/edit.tsx` (3 alleen het locatieveld, 5 tijdkiezer/tier-stap); 2b en 3 raken allebei de platform-schermen (3 alleen comped-vinkje/resend). De digest van 2b wordt alleen gebouwd als hij zonder nieuw service-role- of cron-pad op de mail-infra past; anders een ontwerpvoorstel in de PR. Na de merge van 3 werkt de orchestrator de CLAUDE.md-regel "Platform invites … keep the Supabase path" bij (docs-PR).
 
+### Status golf F (orchestrator, gestart 2026-10-12)
+
+Startcheck 2026-10-12 (`origin/main` = `4b9c8d8`): golf E staat in de code (`src/features/billing/mail-schedule.ts`, `src/app/u/[token]/route.ts`, migraties `20261013170000`–`20261015160000`; notificatievoorkeuren als `user_notification_prefs`, niet als kolom op `user_profiles`). Taak 7 (#457) was al gemerged en op prod. ClickUp bereikbaar.
+
+Besluiten Max 2026-10-12 (startprompt golf F):
+- **Eerst de wachtrij, dan golf-F-merges:** #459 → #460 → #461 → #464 → #466 → #469 → #470, plus #474 (geen migratie). Golf-F-PR's mergen pas als die allemaal in main staan; bouwen mag al.
+- **Taak 8 nieuw slot `20261016160000`:** `20261016120000` is bezet door #459; de wachtrij bezet `20261016120000`–`…150000`. `20261017120000`/`…120100` (taak 9) zijn vrij.
+- **Script- en prod-push-vorm vast** (§1).
+
+| Taak | Worker-sessie | PR | Status | Prod |
+|---|---|---|---|---|
+| 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | — | gestart 2026-10-12; merget na de wachtrij (overlap met #466 `fetchQuotaRequests`-labels en #469 quota-policies: worker merget main vóór zijn laatste push) | `20261016160000` |
+| 7c Kit Select ([z8uq9m4a2w](https://app.clickup.com/t/z8uq9m4a2w)) | — | — | wacht op besluit Max (parallel aan 8 of na 10) | geen migratie |
+| 9 Snelheid P2 ([z8uq9m2xz2](https://app.clickup.com/t/z8uq9m2xz2)) | — | — | wacht op merge 8; getClaims-PR alleen als asymmetrische JWT-keys aan staan | `20261017120000`, `…120100` |
+| 10 Analytics PH | — | — | wacht op 9, Max' go, PostHog-key en een ClickUp-id (de oude taak `86ey3x371` is het plan, staat op complete) | n.n.b. |
+
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
 Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. **Aanbevolen gebruik: per golf een verse sessie met deze zelfde prompt** (context en kosten blijven klein; de prompt vindt zelf de lopende golf), met bovenaan één regel welke golf het is. Rename: `/rename Onboarding okt 2026 — orchestrator golf <X>`.
@@ -425,7 +472,7 @@ GOLF F — sequentieel: 7 → 8 → 9 → 10. Wacht op golf E gemerged.
     Raakt: de migratie, src/features/requests/**, src/features/po/ (requests hooks/mutations/adapters), de approve-sheet, de statusmail-aanroep uit taak 6, pgTAP guest_requests_decide, gastenlijst-app-spec.md.
     Verboden: door, billing, onboarding. High-risk (SECURITY DEFINER met quota-math) → reviewer-sessie.
 8   z8uq9m2xyp   Quota-aanvraag Q                   Opus    branch claude/z8uq9m2xyp-quota-flow
-    Timestamp: 20261016120000_quota_request_guest_payload. Wacht op 7.
+    Timestamp: 20261016160000_quota_request_guest_payload (was 20261016120000; bezet door #459, zie Status golf F). Wacht op 7.
     Raakt: de migratie, src/features/quotas/**, src/features/po/ (quota hooks/mutations/adapters + Updates-kaart), home.tsx, quota-formulier en beslis-sheet, i18n, pgTAP quota_requests_*, gastenlijst-app-spec.md.
     Verboden: guest_requests (taak 7), door, billing, mail (bestaande push volstaat). High-risk → reviewer-sessie.
 9   z8uq9m2xz2   Snelheid P2                        Opus    per punt een PR; timestamps 20261017120000_rls_set_based_helpers, 20261017120100_check_ins_update_policy_merge. Wacht op 8, of eerder op aanwijzing van Max.
@@ -472,7 +519,7 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 6 | `20261013180200_guest_mail_optout.sql` | `contact_mail_optout` (per contact per venue, publieke token-route), RLS |
 | 6 | `20261013180300_notification_prefs.sql` | `user_profiles.notification_prefs jsonb` (+ kolom-grant), `notification_outbox.channel` ('push' \| 'email'), triggers zetten een rij per kanaal per voorkeur |
 | 7 | `20261015120000_request_decision_split.sql` | RPC `decide_guest_request(p_request_id, p_decision jsonb)`: inkorten, splitsen over tiers, deels afwijzen, verplichte opmerking; atomair; audit |
-| 8 | `20261016120000_quota_request_guest_payload.sql` | `quota_requests.guest_payload jsonb`, `seen_at`, verplichte reden bij `declined`; `approve_quota_request` maakt de gast aan in dezelfde transactie; RLS voor `seen_at` |
+| 8 | `20261016160000_quota_request_guest_payload.sql` (was `20261016120000`; dat slot nam #459 `my_profile_rpc`, en #459–#469 bezetten `20261016120000`–`…150000`) | `quota_requests.guest_payload jsonb`, `seen_at`, verplichte reden bij `declined`; `approve_quota_request` maakt de gast aan in dezelfde transactie; RLS voor `seen_at` |
 | 9 | `20261017120000_rls_set_based_helpers.sql` | set-based policies i.p.v. per-rij helper-ketens (audit #13); pgTAP per rol |
 | 9 | `20261017120100_check_ins_update_policy_merge.sql` | de twee permissive UPDATE-policies op `check_ins` samenvoegen (advisor) |
 
