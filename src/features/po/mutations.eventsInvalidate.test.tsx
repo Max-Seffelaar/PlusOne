@@ -36,7 +36,9 @@ function makeWrapper() {
 const invalidatedEvents = (spy: { mock: { calls: unknown[][] } }): boolean =>
   spy.mock.calls.some((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey) === JSON.stringify(EVENTS_PREFIX));
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('guest writes invalidate the event window (staleTime minutes is safe)', () => {
   it('EVENTS_PREFIX is the prefix of the events window key', () => {
