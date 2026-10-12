@@ -7,7 +7,9 @@
 // adding a second one; SEQUENCE grows with the event's updated_at. Text is
 // escaped per RFC 5545 §3.3.11 and lines are folded at 75 octets (§3.1).
 // Control characters (CR/LF included) never reach a property value, so an
-// event name cannot inject a property.
+// event name cannot inject a property. The description (the event's guest
+// info, z8uq9m4a5n) keeps its line breaks, but only as the escaped `\n` text
+// sequence (§3.3.11), never as a raw CR or LF.
 
 export interface CalendarEvent {
   id: string;
@@ -16,6 +18,8 @@ export interface CalendarEvent {
   endsAt: string | null;
   location: string | null;
   updatedAt: string | null;
+  /** Free text for guests (events.guest_info): DESCRIPTION / Google `details`. */
+  description?: string | null;
 }
 
 /** An event without an end time lasts this long in a calendar. */
@@ -42,6 +46,28 @@ function oneLine(value: string): string {
 
 export function escapeIcsText(value: string): string {
   return oneLine(value).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,');
+}
+
+/** Multi-line free text: line breaks kept (LF, CRLF and CR all count as one); every other control character, line separator and bidi control becomes a space (the plainLine set). */
+export function multiLine(value: string): string {
+  return value
+    .replace(/\r\n?/g, '\n')
+    // eslint-disable-next-line no-control-regex -- stripping control chars is the point
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, ' ')
+    .split('\n')
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** RFC 5545 TEXT with line breaks: each break is the two characters `\n`, so a value never spans a raw line. */
+export function escapeIcsMultiline(value: string): string {
+  return multiLine(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\n/g, '\\n');
 }
 
 /** Fold one content line into 75-octet chunks (continuation lines start with a space). */
@@ -82,6 +108,7 @@ export function buildIcs(event: CalendarEvent, now: Date = new Date()): string {
     `DTEND:${utcStamp(endOf(event))}`,
     `SUMMARY:${escapeIcsText(event.name)}`,
     ...(event.location ? [`LOCATION:${escapeIcsText(event.location)}`] : []),
+    ...(event.description && multiLine(event.description) ? [`DESCRIPTION:${escapeIcsMultiline(event.description)}`] : []),
     'END:VEVENT',
     'END:VCALENDAR',
   ];
@@ -97,5 +124,7 @@ export function googleCalendarUrl(event: CalendarEvent): string {
     dates: `${utcStamp(start)}/${utcStamp(endOf(event))}`,
   });
   if (event.location) q.set('location', oneLine(event.location));
+  const details = event.description ? multiLine(event.description) : '';
+  if (details) q.set('details', details);
   return `https://calendar.google.com/calendar/render?${q.toString()}`;
 }

@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Guest info + live calendar link (z8uq9m4a5n)
+
+Milestone **Now** (ADE). Spec #63 (new). Migration `20261015160000_event_guest_info.sql`, merges after #467 (`…140000`, its `audit_events` WHEN is the base here) and #462 (`…150000`).
+
+- **Why (decision Max 2026-10-11):** the Google "add to calendar" link in a guest mail was a URL frozen at send time, so a location or time set later never reached it (Max saw an empty location); and events had no free text for guests.
+- **`events.guest_info`:** nullable, 1–1000 characters, newlines allowed, other control characters refused (CHECK). Column grants for `authenticated`, nothing for anon; audited through the one `audit_events` trigger. "Info for guests" textarea on the event create/edit form, saved with the form (a template create writes it in the follow-up update; templates do not carry it).
+- **Where guests see it:** a "Good to know" block in on_list, approved, partly, reminder and event_changed mails (escaped, line breaks → `<br>`), the `/s/[token]` status page while the spot holds, `.ics` `DESCRIPTION` (escaped `\n`, folded) and Google `details`. `get_guest_status` and `guest_mails_claim` return it; each body is main's verbatim plus two added lines.
+- **Live Google link:** mails link to `/s/[token]/google`, a 302 built from the current event through the same throttled, token-gated read as `calendar.ics`; anything else is the same bare 404. `Referrer-Policy: no-referrer` + `no-store` on the redirect.
+- **No new mail:** changing only the info queues nothing (`updateEvent` mails only on a start or location change).
+- **Gotchas:** the local Supabase CLI here generates differently formatted types, so `database.types.ts` got only the three `guest_info` lines by hand. The template create path's failure toast still says "location"; it now also covers the info.
+- **Tests:** pgTAP `event_guest_info.test.sql` (24); vitest for ICS/Google escaping and CRLF/`<script>` injection, the mail block, the job link, the status view, the route (302/404 parity with `.ics`) and the form; flow `guest-info` (Q1–Q10).
+
+---
+
 ## 2026-10-11 — Event locations follow-up: audit trail on location changes + drop venue_* keys (z8uq9m49k2)
 
 Milestone **Now**. Follow-up of 3b (#452); spec #58 amended.
