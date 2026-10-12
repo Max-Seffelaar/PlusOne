@@ -12,7 +12,7 @@ import {
   usePoCompanyLocations,
 } from '@/features/po/hooks';
 import { defaultEventLocation } from '@/features/po/adapters';
-import { GUEST_INFO_MAX, LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
+import { GUEST_INFO_MAX, HOUSE_RULES_MAX, LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
 import {
   usePoSetCancelled,
   usePoCreateEvent,
@@ -30,8 +30,8 @@ import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { useNav, usePo } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
-import { Btn, Field, InfoTip, Label, Note, PlacesField, Scroll, TextArea, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
-import { EventGuestMailSection } from './guest-mail';
+import { Btn, Field, InfoTip, Label, Note, PlacesField, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
+import { EventGuestMailSection, EventGuestTextFields } from './guest-mail';
 import { EventContactEmailField, contactEmailProblem, contactEmailValue } from './contact-email-field';
 import { BottomBar, Sheet } from '../../shell';
 import { ExportEventRow } from '../settings/export';
@@ -87,8 +87,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [locPrefilled, setLocPrefilled] = useState(false);
   // The event's contact address (6c): typed per event, never pre-filled.
   const [contactEmail, setContactEmail] = useState('');
-  // Info for guests (z8uq9m4a5n): saves with the form, on create and edit.
+  // House rules + info for guests (z8uq9m4a5n): one block, saved with the
+  // form, on create and edit.
   const [guestInfo, setGuestInfo] = useState('');
+  const [houseRules, setHouseRules] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState('');
@@ -131,6 +133,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     setLocAddress(ev.locationAddress ?? '');
     setContactEmail(ev.contactEmail ?? '');
     setGuestInfo(ev.guestInfo ?? '');
+    setHouseRules(ev.houseRules ?? '');
     const [d, t] = splitLocal(ev.startsAt);
     setDateStr(d);
     setTimeStr(t);
@@ -209,7 +212,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     // A prefilled location (template or default) is not an edit; a change is.
     const base = locBaseline(templateId);
     const locEdited = locName.trim() !== base.name || locAddress.trim() !== base.address;
-    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited || contactEmail.trim() || guestInfo.trim());
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited || contactEmail.trim() || guestInfo.trim() || houseRules.trim());
     if (!ev) return false;
     const [d0, t0] = splitLocal(ev.startsAt);
     const [ed0, et0] = splitLocal(ev.endsAt);
@@ -220,6 +223,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       locAddress.trim() !== (ev.locationAddress ?? '') ||
       contactEmailValue(contactEmail) !== (ev.contactEmail ?? '') ||
       guestInfo.trim() !== (ev.guestInfo ?? '') ||
+      houseRules.trim() !== (ev.houseRules ?? '') ||
       dateStr !== d0 ||
       timeStr !== t0 ||
       endDateStr !== ed0 ||
@@ -282,6 +286,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       setErr(t.events.guestInfoTooLong);
       return;
     }
+    const rules = houseRules.trim() || null;
+    if (rules && rules.length > HOUSE_RULES_MAX) {
+      setErr(t.events.houseRulesTooLong);
+      return;
+    }
     try {
       if (isNew) {
         if (!venueId) {
@@ -292,7 +301,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         const locationAddress = locAddress.trim() || null;
         const created = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt, contactEmail: contact })
-          : { eventId: await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, guestInfo: info, contactEmail: contact }), contactSaved: true };
+          : { eventId: await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, houseRules: rules, guestInfo: info, contactEmail: contact }), contactSaved: true };
         const newId = created.eventId;
         // The template RPC copies the template's CURRENT DB location
         // (20261007135000), which can differ from the cached one the form
@@ -303,8 +312,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         // regardless and say what didn't stick.
         if (templateId) {
           try {
-            // Templates carry no guest info (z8uq9m4a5n): it rides this same write.
-            await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress, guestInfo: info, contactEmail: contact });
+            // Templates carry no house rules or guest info (z8uq9m4a5n): they ride this same write.
+            await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress, houseRules: rules, guestInfo: info, contactEmail: contact });
           } catch {
             // The action's own contact write failed too (contactSaved false):
             // say that first, it is the one that holds the guests' mail back.
@@ -328,6 +337,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           endsAt,
           locationName: locName.trim() || null,
           locationAddress: locAddress.trim() || null,
+          houseRules: rules,
           guestInfo: info,
           contactEmail: contact,
         });
@@ -494,22 +504,16 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           className="mb-2"
         />
         <div className="mb-[18px] text-[12.5px] leading-[1.45] text-faint">{t.events.locationHint}</div>
-        {/* Info for guests (z8uq9m4a5n): parking, entrance, dress code. In the
-            mails with a spot, the status page and the calendar description. */}
-        <div data-testid="event-guest-info">
-          <Label className="mb-2">{t.events.guestInfoLabel}</Label>
-          <TextArea
-            value={guestInfo}
-            onChange={writable ? setGuestInfo : () => undefined}
-            placeholder={t.events.guestInfoPlaceholder}
-            ariaLabel={t.events.guestInfoLabel}
-            maxLength={GUEST_INFO_MAX}
-            rows={3}
-          />
-          <div className="mb-[18px] mt-1 text-[12.5px] leading-[1.45] text-faint">{t.events.guestInfoHint}</div>
-        </div>
+        {/* House rules + info for guests (z8uq9m4a5n follow-up): one block, saved
+            with the form. Mails, the status page and the calendar read both. */}
+        <EventGuestTextFields
+          houseRules={houseRules}
+          guestInfo={guestInfo}
+          onHouseRulesChange={writable ? setHouseRules : undefined}
+          onGuestInfoChange={writable ? setGuestInfo : undefined}
+        />
         <EventContactEmailField value={contactEmail} onChange={writable ? setContactEmail : undefined} />
-        {!isNew && editId && <EventGuestMailSection eventId={editId} writable={writable} />}
+        {!isNew && editId && <EventGuestMailSection eventId={editId} />}
 
         {!isNew && (
           <button

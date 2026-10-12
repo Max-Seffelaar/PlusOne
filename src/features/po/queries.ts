@@ -843,6 +843,8 @@ export interface EventEditRow {
   contactEmail: string | null;
   /** Info for guests (z8uq9m4a5n): mails with a spot, status page, calendar. */
   guestInfo: string | null;
+  /** House rules (guest mail F): "You're on the list", status page, calendar. */
+  houseRules: string | null;
 }
 
 /** A single event with the editable fields + the caller's organizer scope (EventEdit). */
@@ -855,7 +857,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, venue_id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, contact_email, guest_info, venues(name, allow_uncheck, address_line, postal_code, city)'
+        'id, venue_id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, contact_email, guest_info, house_rules, venues(name, allow_uncheck, address_line, postal_code, city)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -894,6 +896,7 @@ export async function fetchEventForEdit(
     venueAddress: formatCompanyAddress(e.venues),
     contactEmail: e.contact_email,
     guestInfo: e.guest_info,
+    houseRules: e.house_rules,
   };
 }
 

@@ -21,6 +21,17 @@ Milestone **Now** (privacy/legal hygiene before more venues sign). High-risk sur
 
 ---
 
+## 2026-10-12 — House rules + info for guests in one block, house rules in the calendar (z8uq9m4a5n follow-up)
+
+Milestone **Now** (ADE). Decision Max 2026-10-12 (option A). UI + copy only, no migration. Spec #63 amended.
+
+- **One "For your guests" block** on the event create/edit screen: House rules (rules at the door: age, ID, dress code) above Info for guests (practical: parking, entrance, cloakroom), each with its own hint. House rules now live in the event form state and save with the event, on create too (and in the template follow-up write); the separate "Save house rules" button and `usePoHouseRules`/`usePoSaveHouseRules` are gone. `fetchEventForEdit` reads `house_rules`.
+- **Calendar:** `.ics` `DESCRIPTION` and Google `details` (both live via `calendar.ics` and `/s/[token]/google`) are the info for guests, then "House rules:" and the rules. `calendarDescription()` in `guest-status-view.ts` uses the same cleaning (`multiLine`) and a combined 1600-character cap, and only fills it while the spot holds.
+- **Mails unchanged:** house rules stay in "You're on the list" only; "Good to know" (info for guests) stays in the five mails with details.
+- **Tests:** vitest for `calendarDescription` (order, either alone, controls/bidi, cap, ICS/Google escaping via the status view) and the form (one block, house rules saved on create, template follow-up); flow `guest-info` Q1/Q2/Q5/Q7/Q8 extended (one block, ≥44px, both texts in DB, `.ics` and the Google redirect).
+
+---
+
 ## 2026-10-11 — Guest info + live calendar link (z8uq9m4a5n)
 
 Milestone **Now** (ADE). Spec #63 (new). Migration `20261015160000_event_guest_info.sql`, merges after #467 (`…140000`, its `audit_events` WHEN is the base here) and #462 (`…150000`).
