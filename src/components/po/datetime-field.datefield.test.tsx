@@ -124,6 +124,51 @@ describe('DateField calendar', () => {
     expect(caption(q)).toEqual({ month: 'December', year: '2026' });
   });
 
+  it('every calendar tap target is 44px on touch; the compact size only behind a fine pointer (T1)', async () => {
+    const q = renderField(<DateField value="2026-09-05" onChange={vi.fn()} />);
+    await openCalendar(q);
+    // jsdom has no layout, so the size is read from the classes. The base
+    // (unprefixed) token is what a touch device gets; any shrink must sit
+    // behind `lg:[@media(pointer:fine)]:` (an iPad never matches it).
+    const FINE = 'lg:[@media(pointer:fine)]:';
+    const base = (el: HTMLElement): string[] => el.className.split(/\s+/).filter((c) => !c.includes(':'));
+    const px = (cls: string[], prop: string): number => {
+      const hit = cls.map((c) => new RegExp(`^${prop}-\\[(\\d+)px\\]$`).exec(c)).find(Boolean);
+      return hit ? Number(hit[1]) : 0;
+    };
+    const unfenced = (el: HTMLElement): string[] =>
+      el.className.split(/\s+/).filter((c) => /:(?:min-)?[hw]-/.test(c) && !c.startsWith(FINE));
+
+    const grid = q.getByRole('grid');
+    const days = within(grid).getAllByRole('button');
+    expect(days.length).toBeGreaterThanOrEqual(28);
+    for (const day of days) {
+      expect(px(base(day), 'h'), day.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(44);
+      expect(px(base(day), 'w'), day.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(44);
+      expect(unfenced(day)).toEqual([]);
+    }
+
+    const nav = [q.getByRole('button', { name: /previous/i }), q.getByRole('button', { name: /next/i })];
+    for (const btn of nav) {
+      expect(px(base(btn), 'h')).toBeGreaterThanOrEqual(44);
+      expect(px(base(btn), 'w')).toBeGreaterThanOrEqual(44);
+      expect(unfenced(btn)).toEqual([]);
+    }
+
+    // Footer text buttons grow with min-h/min-w instead of a fixed box.
+    for (const name of [/today/i, /clear/i]) {
+      const btn = q.getByRole('button', { name });
+      expect(px(base(btn), 'min-h')).toBeGreaterThanOrEqual(44);
+      expect(px(base(btn), 'min-w')).toBeGreaterThanOrEqual(44);
+      expect(unfenced(btn)).toEqual([]);
+    }
+
+    // Width budget on a 375px phone with a 16px gutter (343px): 7 columns of
+    // (44px + 2 x 1px cell padding) + 2 x 8px root padding + 2px border = 340px.
+    expect(base(days[0].parentElement as HTMLElement)).toContain('p-px');
+    expect(base(grid.closest('.select-none') as HTMLElement)).toContain('p-2');
+  });
+
   it('falls back to today only when there is neither a value nor an anchor', async () => {
     const q = renderField(<DateField value="" onChange={vi.fn()} />);
     await openCalendar(q);
