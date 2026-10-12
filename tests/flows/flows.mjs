@@ -67,6 +67,21 @@ export const SHARED_PATHS = [
 
 /** @type {Record<string, { title: string; paths: string[] }>} */
 export const FLOWS = {
+  'analytics-consent': {
+    title: 'Analytics PH — public cookie banner, Profile opt-out, no /ingest without a key',
+    paths: [
+      'src/features/analytics/',
+      'src/features/po/analytics-opt-out',
+      'src/components/po/screens/settings/analytics-opt-out',
+      'src/components/po/screens/settings/profile',
+      'src/features/auth/components/ConsentScreen',
+      'src/features/auth/sign-out-device',
+      'public/service-worker.js',
+      'src/app/page.tsx',
+      'src/app/login/',
+      'src/app/door/layout.tsx',
+    ],
+  },
   onboarding: {
     title: 'Onboarding — new owner, consent → wizard (DPA) → app → billing',
     paths: [
