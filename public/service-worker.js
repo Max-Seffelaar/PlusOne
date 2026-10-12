@@ -498,6 +498,43 @@ self.addEventListener('message', (event) => {
   }
 });
 
+/**
+ * Lie-fi timeout for network-first navigations (perf audit finding 11). A venue
+ * Wi-Fi that accepts the connection but never answers used to hold the boot
+ * screen for the whole failed fetch before the cache fallback. Now, after
+ * NAV_TIMEOUT_MS, the same fallback chain the offline path uses answers IF it
+ * has something; with nothing cached we keep waiting for the network (a
+ * timeout must never turn a slow load into an error page).
+ *
+ * The network fetch is never aborted: when it lands late, the fetch handler's
+ * own `.then` still runs — it writes that response under ITS OWN request URL
+ * into the same bucket as before (epoch-checked), or wipes SESSION_CACHE on an
+ * opaqueredirect, exactly as on a fast network. Nothing here touches a cache.
+ */
+const NAV_TIMEOUT_MS = 3500;
+
+function raceNavigation(network, fromCache) {
+  return new Promise((resolve) => {
+    let done = false;
+    const settle = (response) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(response);
+    };
+    const timer = setTimeout(() => {
+      fromCache()
+        .then((cached) => cached && settle(cached))
+        .catch(() => undefined);
+    }, NAV_TIMEOUT_MS);
+    network.then(settle, () =>
+      fromCache()
+        .catch(() => undefined)
+        .then((cached) => settle(cached || Response.error())),
+    );
+  });
+}
+
 self.addEventListener('fetch', (event) => {
   if (DEV) return; // dev: never intercept — always fresh from the network
   const request = event.request;
@@ -515,28 +552,27 @@ self.addEventListener('fetch', (event) => {
     const cacheName = navigationCache(url.pathname);
     const fallback = fallbackFor(url.pathname);
     const epochAtStart = sessionEpoch;
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (cacheName === SESSION_CACHE && isSessionGone(response)) {
-            // The session ended somewhere we don't run code (expiry, admin
-            // remote-revoke). Self-clean now that we are online. Bump the epoch
-            // for the same reason `session-wipe` does: a sibling tab's in-flight
-            // navigation must not re-create what we are deleting.
-            sessionEpoch += 1;
-            event.waitUntil(caches.delete(SESSION_CACHE).catch(() => undefined));
-          } else if (cacheName) {
-            event.waitUntil(putInCache(cacheName, request, response.clone(), epochAtStart));
-          }
-          return response;
-        })
-        .catch(() =>
-          (url.pathname === '/' ? offlineStart() : Promise.resolve(undefined))
-            .then((start) => start || caches.match(request, MATCH_OPTS))
-            .then((cached) => cached || (fallback ? caches.match(fallback, MATCH_OPTS) : undefined))
-            .then((cached) => cached || Response.error()),
-        ),
-    );
+    const network = fetch(request).then((response) => {
+      if (cacheName === SESSION_CACHE && isSessionGone(response)) {
+        // The session ended somewhere we don't run code (expiry, admin
+        // remote-revoke). Self-clean now that we are online. Bump the epoch
+        // for the same reason `session-wipe` does: a sibling tab's in-flight
+        // navigation must not re-create what we are deleting.
+        sessionEpoch += 1;
+        event.waitUntil(caches.delete(SESSION_CACHE).catch(() => undefined));
+      } else if (cacheName) {
+        event.waitUntil(putInCache(cacheName, request, response.clone(), epochAtStart));
+      }
+      return response;
+    });
+    // Keeps the worker alive for a response that lands after the timeout
+    // answered from cache, so its cache write / session wipe above still runs.
+    event.waitUntil(network.catch(() => undefined));
+    const fromCache = () =>
+      (url.pathname === '/' ? offlineStart() : Promise.resolve(undefined))
+        .then((start) => start || caches.match(request, MATCH_OPTS))
+        .then((cached) => cached || (fallback ? caches.match(fallback, MATCH_OPTS) : undefined));
+    event.respondWith(raceNavigation(network, fromCache));
     return;
   }
 

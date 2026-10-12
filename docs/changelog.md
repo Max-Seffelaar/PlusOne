@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2, 9-AUTH B: service-worker navigation timeout (z8uq9m2xz2)
+
+Milestone **≥5** (perf audit 2026-10-06, finding 11). High-risk (service worker): fresh-session `/code-review` + `/security-review` before merge. No migration. Branch `claude/z8uq9m2xz2-sw-timeout`.
+
+- **What:** network-first navigations in `public/service-worker.js` race the fetch against `NAV_TIMEOUT_MS = 3500` (`raceNavigation`). At the timeout the same fallback chain the offline path uses answers (`offlineStart` for `/`, the exact URL, then `fallbackFor`), but only if it has something; with nothing cached the worker keeps waiting for the network, never an early error page.
+- **Unchanged:** the buckets (`plusone-shell-*` / `plusone-session-*`), `navigationCache`, `fallbackFor`, `putInCache`, the epoch check, `clearDeviceCaches()`. The fetch is never aborted; its own `.then` still writes a late response under its own request URL into the same bucket, or wipes the session cache on a late opaqueredirect (307 → /login). `event.waitUntil(network)` keeps the worker alive for that late write.
+- **Guards:** `tests/unit/service-worker-cache-scope.test.ts` and `tests/unit/no-stale-pwa-artifacts.test.ts` green, unmodified. New `tests/unit/service-worker-nav-timeout.test.ts` (13 cases, fake timers; 5 of them fail on the old worker).
+- **Measured (local dev stack, SW opted in via `po:sw-dev-cache`, door@, 390 px, a proxy delays `/app` documents by 15 s, N=5):** boot of `/app` to DOMContentLoaded median 15.7 s → 3.53 s. Normal network: 754 ms → 681 ms (noise, no regression).
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
