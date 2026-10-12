@@ -9,20 +9,22 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  * Deur tab's fine-pointer ≥1024px variant; every other variant gets the mobile
  * door, which this PR does not touch.
  *
- *   admin@ → a fresh live Club Vesper event with 12 guests → Deur tab
+ *   admin@ → a fresh live event with 12 guests → Deur tab
  *   (cockpit) → a colleague's door checks 6 guests in, 400 ms apart → Inside
  *   reads 6 and those rows show as inside, without one guest-list or
  *   check-in re-download → a colleague voids one → Inside reads 5 → the tier
  *   and stats panels refresh a handful of times, not per check-in.
  *
- * Fixture: a new event per run (random ids), so reruns never share check-ins.
+ * Fixture: its own company "Flow Cockpit" (fixed id, admin@ is admin) and a
+ * new live event per run (random ids): reruns never share check-ins, and no
+ * other flow's Home or door ever sees these live events.
  * Numbered checks = the ✅ half of this flow's test handoff.
  */
 
 onlyVariants('desktop-browser');
 
 const ADMIN = 'admin@plusone.test';
-const VENUE = 'aa000000-0000-7000-8000-000000000001';
+const VENUE = 'fe000000-0000-7000-8000-0000000fc000';
 const GUESTS = 12;
 const CHECKINS = 6;
 // The service role holds no UPDATE on check_ins (voids go through the door's
@@ -38,6 +40,9 @@ test('cockpit realtime: peers\' check-ins land without re-downloading the list',
     if (error) throw new Error(`cockpit-realtime ${what}: ${error.message}`);
   };
   must('profile', (await db.from('user_profiles').update({ mfa_snooze_until: 'infinity' }).eq('id', adminId)).error);
+  must('venue', (await db.from('venues').upsert({ id: VENUE, name: 'Flow Cockpit', slug: 'flow-cockpit' }, { onConflict: 'id' })).error);
+  must('membership', (await db.from('venue_memberships')
+    .upsert({ venue_id: VENUE, user_id: adminId, roles: ['admin'] }, { onConflict: 'venue_id,user_id' })).error);
   const eventId = randomUUID();
   const tierId = randomUUID();
   const now = Date.now();
