@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
+
+Milestone **Now** (ADE). Request Max 2026-10-12 ("guest_info in templates"). Spec #63(e) revised. Migration `20261016160000_template_guest_texts.sql` (after main's `20261016120000`…`150000`).
+
+- **DB:** `event_templates.house_rules` / `guest_info`, nullable, the same CHECKs as `events` (`events_house_rules_len`, `events_guest_info_check`). `create_template_from_event` copies both, `create_event_from_template` puts both on the new event; bodies are `20261007135000` plus the two columns (SECURITY DEFINER, `search_path ''`, role checks and grants unchanged). No RLS/grant change: `event_templates` has table-level grants only.
+- **App:** template create/update actions + schemas take both texts; `fetchTemplates`/`fetchTemplate` read them. The template editor shows the same "For your guests" block (`EventGuestTextFields`, new `note` prop). The event form prefills both from a picked template, like location (`locBaseline`), so the follow-up write after a template create writes the template's texts, not empty ones; a prefilled text is not "dirty".
+- **Tests:** pgTAP `template_guest_texts.test.sql` (22: columns + CHECKs equal to events, copy both ways, NULL stays NULL, staff/organizer/anon denied, cross-tenant: a venue-1 organizer can't template a venue-2 event, function hygiene). Flow `guest-info` Q11–Q12 (Save as template keeps both → new event from it starts with and saves both).
+- `contact_email` stays per event (out of scope).
+
+---
+
 ## 2026-10-10 — user_profiles: column-level SELECT for authenticated
 
 Milestone **Now** (privacy/legal hygiene before more venues sign). High-risk surface (grants): fresh-session `/code-review` + `/security-review` before merge.

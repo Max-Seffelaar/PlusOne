@@ -349,6 +349,9 @@ export const createTemplateSchema = z.object({
   // Same location fields + caps as an event (z8uq9m2vqc).
   locationName,
   locationAddress,
+  // Same guest texts + caps as an event (z8uq9m4pnk).
+  houseRules,
+  guestInfo,
 });
 export type CreateTemplateInput = z.input<typeof createTemplateSchema>;
 
@@ -361,6 +364,8 @@ export const updateTemplateSchema = z.object({
   autoLockOffsetMinutes,
   locationName,
   locationAddress,
+  houseRules,
+  guestInfo,
 });
 export type UpdateTemplateInput = z.input<typeof updateTemplateSchema>;
 

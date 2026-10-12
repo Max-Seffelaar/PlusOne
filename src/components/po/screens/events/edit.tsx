@@ -178,14 +178,16 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Create-from-template: the template's own settings apply (the RPC copies
   // them), so the form shows the template's values read-only.
   const fromTemplate = isNew && !!templateId;
-  // The location a template (or no template) starts the form at: the
-  // template's own, else the company default (z8uq9m444c).
-  const locBaseline = (tplId: string | null): { name: string; address: string } => {
+  // What a template (or no template) starts the form at: the template's own
+  // location, else the company default (z8uq9m444c); its guest texts, else
+  // none (z8uq9m4pnk).
+  const locBaseline = (tplId: string | null): { name: string; address: string; rules: string; info: string } => {
     const tpl = tplId ? templates.data?.find((x) => x.id === tplId) : undefined;
+    const texts = { rules: tpl?.house_rules ?? '', info: tpl?.guest_info ?? '' };
     if (tpl && (tpl.location_name || tpl.location_address)) {
-      return { name: tpl.location_name ?? '', address: tpl.location_address ?? '' };
+      return { name: tpl.location_name ?? '', address: tpl.location_address ?? '', ...texts };
     }
-    return { name: defaultLoc?.locationName ?? '', address: defaultLoc?.locationAddress ?? '' };
+    return { name: defaultLoc?.locationName ?? '', address: defaultLoc?.locationAddress ?? '', ...texts };
   };
   // Picking a template prefills its location (still editable); un-picking
   // goes back to the default location (z8uq9m2vqc; z8uq9m444c).
@@ -194,13 +196,18 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     if (next === templateId) return;
     // Prefill only over what a template or the default put there: empty
     // fields, or the previous baseline left untouched. Never over typed input.
+    // Location and the guest texts each decide on their own.
     const prev = locBaseline(templateId);
-    const untouched = (locName === prev.name && locAddress === prev.address) || (locName === '' && locAddress === '');
-    setTemplateId(next);
-    if (!untouched) return;
     const base = locBaseline(next);
-    setLocName(base.name);
-    setLocAddress(base.address);
+    setTemplateId(next);
+    if ((locName === prev.name && locAddress === prev.address) || (locName === '' && locAddress === '')) {
+      setLocName(base.name);
+      setLocAddress(base.address);
+    }
+    if ((houseRules === prev.rules && guestInfo === prev.info) || (houseRules === '' && guestInfo === '')) {
+      setHouseRules(base.rules);
+      setGuestInfo(base.info);
+    }
   };
   const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
@@ -209,10 +216,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Anything the Save button would commit that differs from the loaded state.
   const fieldsDirty = ((): boolean => {
     if (!writable || saving) return false;
-    // A prefilled location (template or default) is not an edit; a change is.
+    // A prefilled location or guest text (template or default) is not an edit; a change is.
     const base = locBaseline(templateId);
     const locEdited = locName.trim() !== base.name || locAddress.trim() !== base.address;
-    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited || contactEmail.trim() || guestInfo.trim() || houseRules.trim());
+    const textsEdited = houseRules.trim() !== base.rules || guestInfo.trim() !== base.info;
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited || textsEdited || contactEmail.trim());
     if (!ev) return false;
     const [d0, t0] = splitLocal(ev.startsAt);
     const [ed0, et0] = splitLocal(ev.endsAt);
@@ -303,16 +311,15 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt, contactEmail: contact })
           : { eventId: await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, houseRules: rules, guestInfo: info, contactEmail: contact }), contactSaved: true };
         const newId = created.eventId;
-        // The template RPC copies the template's CURRENT DB location
-        // (20261007135000), which can differ from the cached one the form
-        // showed (no realtime on templates). So after a template create we
-        // always write what the user saw in the form — never diff against the
-        // cache. The event exists by now, so a failed write must never keep the
+        // The template RPC copies the template's CURRENT DB location and guest
+        // texts (20261007135000, 20261016160000), which can differ from the
+        // cached ones the form showed (no realtime on templates). So after a
+        // template create we always write what the user saw in the form (the
+        // picked template prefilled it) — never diff against the cache. The event exists by now, so a failed write must never keep the
         // form open (a second Save would create a SECOND event): move on
         // regardless and say what didn't stick.
         if (templateId) {
           try {
-            // Templates carry no house rules or guest info (z8uq9m4a5n): they ride this same write.
             await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress, houseRules: rules, guestInfo: info, contactEmail: contact });
           } catch {
             // The action's own contact write failed too (contactSaved false):

@@ -155,7 +155,7 @@ export const FLOWS = {
     ],
   },
   'guest-info': {
-    title: 'Guest info + live calendar link (z8uq9m4a5n) — Info for guests on the event → "Good to know" in the mail → /s/[token]/google follows a later location edit → status page + .ics → no extra mail',
+    title: 'Guest info + live calendar link (z8uq9m4a5n) — Info for guests on the event → "Good to know" in the mail → /s/[token]/google follows a later location edit → status page + .ics → no extra mail → templates keep both texts (z8uq9m4pnk)',
     paths: [
       'src/features/events/',
       'src/features/mail/',
@@ -166,6 +166,9 @@ export const FLOWS = {
       'src/components/po/screens/events/guest-mail.tsx',
       'src/features/po/guest-mail.ts',
       'supabase/migrations/20261015160000_event_guest_info.sql',
+      // Q11–Q13: Save as template → new event from it keeps both texts (z8uq9m4pnk).
+      'src/components/po/screens/templates.tsx',
+      'supabase/migrations/20261016160000_template_guest_texts.sql',
     ],
   },
   'event-contact': {
