@@ -267,14 +267,17 @@ Besluiten Max 2026-10-12 (startprompt golf F):
 - **Taak 8 nieuw slot `20261016160000`:** `20261016120000` is bezet door #459; de wachtrij bezet `20261016120000`–`…150000`. `20261017120000`/`…120100` (taak 9) zijn vrij.
 - **Script- en prod-push-vorm vast** (§1).
 - **Antwoorden startcheck (Max 2026-10-12):** (1) #470 en #474 mergeable maken via een worker; (2) asymmetrische JWT-signing-keys staan **aan**, dus de getClaims-PR van taak 9 gaat door; (3) PostHog (taak 10) later; (4) 7c Kit Select **parallel** aan 8 (geen bestandsoverlap).
+- **Eerst alles bouwen, daarna testen, mergen en pushen (Max 2026-10-12, middag):** vervangt "één worker tegelijk" voor golf F. Alle taken bouwen nu parallel; taak 9 in drie werkstromen (9-DB, 9-AUTH, 9-FE) en taak 10 keyless (Noop zonder `NEXT_PUBLIC_POSTHOG_KEY`). Wat níet parallel kan en dus in volgorde blijft: merge + prod-push per migratie-PR in timestamp-volgorde (wachtrij → 8 → 9-DB → 9-FE → 10), een migratie-PR merget pas als Max zegt "klaar om te pushen", elke latere PR merget main vóór zijn laatste push (CI opnieuw), en de reviewer-sessie per high-risk PR. Extra slots: 9-FE `20261017120200_contact_event_counts`, `20261017120300_event_headcounts_single` (alleen als nodig); 10 `20261018120000_analytics_opt_out`.
 
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
 | 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | — | gestart 2026-10-12; merget na de wachtrij (overlap met #466 `fetchQuotaRequests`-labels en #469 quota-policies: worker merget main vóór zijn laatste push) | `20261016160000` |
 | 7c Kit Select ([z8uq9m4a2w](https://app.clickup.com/t/z8uq9m4a2w)) | `session_014QHVZGmNf9anTyWc3TZ8T4` | — | gestart 2026-10-12, parallel aan 8; merget na de wachtrij | geen migratie |
 | Wachtrij-fix #470 + #474 | `session_01RfXsXyEkhkrGYWnriBSd9v` | [#470](https://github.com/Max-Seffelaar/PlusOne/pull/470), [#474](https://github.com/Max-Seffelaar/PlusOne/pull/474) | gestart 2026-10-12: main (en voor #470 de laatste #466-head) erin mergen, flow-shots-fout van #470 op phone/iPad root-causen | geen migratie |
-| 9 Snelheid P2 ([z8uq9m2xz2](https://app.clickup.com/t/z8uq9m2xz2)) | — | — | wacht op merge 8; JWT-keys asymmetrisch (Max), getClaims-PR gaat door | `20261017120000`, `…120100` |
-| 10 Analytics PH | — | — | **later** (Max 2026-10-12); dan nog go, PostHog-key en een ClickUp-id (de oude taak `86ey3x371` is het plan, staat op complete) | n.n.b. |
+| 9-DB set-based RLS + check_ins-policy-merge ([z8uq9m2xz2](https://app.clickup.com/t/z8uq9m2xz2)) | `session_01KjaQGWqaVqbDWYdsqMqEn9` | — | gestart 2026-10-12 (HIGH-RISK; matrix moet gelijk blijven na #460/#461/#469/8) | `20261017120000`, `…120100` |
+| 9-AUTH middleware getClaims + SW-timeout | `session_01QJLy7bUqwGj2drEKHDnW4t` | — | gestart 2026-10-12; twee PR's, beide HIGH-RISK; JWT-keys asymmetrisch (Max) | geen migratie |
+| 9-FE front-end (Regulars-RPC, headcounts, requests-lijst, events-venster, cockpit-patch, pushState, klein) | `session_01Bz1NMNNq7KxjGim64Nbi18` | — | gestart 2026-10-12; één PR per punt; overlap Home met taak 8 | `20261017120200`, evt. `…120300` |
+| 10 Analytics PH (PostHog) | `session_0179XDwivmrsRhhzNjatKtdS` | — | gestart 2026-10-12, keyless; drie PR's; merget als laatste. Live pas na Max' go + key + legal C → A; ClickUp-id nog aanmaken | `20261018120000` |
 
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
