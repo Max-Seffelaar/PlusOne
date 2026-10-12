@@ -2381,6 +2381,7 @@ export type Database = {
       }
       user_profiles: {
         Row: {
+          analytics_opt_out_at: string | null
           created_at: string
           email: string
           first_name: string | null
@@ -2396,6 +2397,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          analytics_opt_out_at?: string | null
           created_at?: string
           email: string
           first_name?: string | null
@@ -2411,6 +2413,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          analytics_opt_out_at?: string | null
           created_at?: string
           email?: string
           first_name?: string | null
@@ -3171,6 +3174,7 @@ export type Database = {
       my_profile: {
         Args: never
         Returns: {
+          analytics_opt_out_at: string
           email: string
           first_name: string
           full_name: string
@@ -3405,6 +3409,8 @@ export type Database = {
         Args: { p_search?: string }
         Returns: number
       }
+      profile_name_key: { Args: { p_name: string }; Returns: string }
+      profile_name_key_reserved: { Args: { p_key: string }; Returns: boolean }
       promote_guest_to_contact: {
         Args: { p_guest_id: string }
         Returns: undefined
