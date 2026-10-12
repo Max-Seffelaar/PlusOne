@@ -208,3 +208,702 @@ Besloten in ronde 5: alleen type 3 in v1 (de typen 1 zijn de privépersoon en de
 Ronde 6: default oversell 5 % besloten, sold-out-blok en klantgesprek toegevoegd (§4), chargeback-regel toegevoegd (§3), PSP-onderzoek gestart (`docs/psp-shortlist-2026-10.md`), P7 is een inhuurpost. Ronde 7: handmatig uitverkocht per tier, `accept_always` alleen platform-admins, wachtkamer = Queue-it.
 
 1. **PSP-keuze** (shortlist in `docs/psp-shortlist-2026-10.md`): voorstel offertes bij **Pay.nl en Adyen**, met de elf offertevragen uit §4 van dat document; SumUp alleen als Max een aparte Tap-to-Pay-partner naast een iDEAL-PSP wil (twee ledgers). Niet geverifieerd en dus in de offerte te vragen: Pay.nl chargeback-fee en refund-beleid, Adyen maandminimum, EUR-fixed-fee en chargeback-fee, SumUp iDEAL-tarief; de Capacitor-bridge per SDK is niet beoordeeld.
+
+## 10. CEO-review 2026-10-12 (gstack `/plan-ceo-review`, modus HOLD SCOPE) — werkdocument
+
+> Bron: office-hours van dezelfde dag, design-doc **APPROVED**: `docs/designs/fase-14-deurbetalingen-office-hours.md` (cross-session-kopie in `~/.gstack/projects/Max-Seffelaar-PlusOne/`). Dit hoofdstuk is het reviewverslag; de wijzigingen aan §1–§9 die eruit volgen staan onder "Gevolgen" in het design-doc en worden pas doorgevoerd na de review (aparte PR op `claude/86exxuuu7-fase14-ceo-review`).
+
+### 10.1 Besluitenledger
+
+| ID / owner | Contract en bewijs | Current | Proposed | Status | Goedkeuring en scope |
+|---|---|---|---|---|---|
+| L1 Max | Aanpak voor v1 (design-doc §Recommended Approach) | plan §6: P1→P2 (QR+shop)→P4→P3 | C: P1→P2 (betaling per gastrij, geen shop)→P4a (ledger, weekstaat, factuur, handmatige SEPA)→live→P3a/b→P4b/P2b | approved | D13 = C; scope = v1-volgorde en P4-splitsing |
+| L2 Max | Besluit 16 (eigen Stripe-account, geen Connect) | besluit 16 | second opinion: Connect Express voor v1 | approved (gehouden) | D12 = B; P0 houdt de drie bewijsstukken als open vragen 4/5 |
+| L3 Max | Route B (losse smart reader) | Capacitor-plan §5 "niet nu" | definitief uit; Tap to Pay native = product, QR = brug | approved | premisse 5 / D10 |
+| L4 Max | P2-scope | QR + shop op /e/[slug] | één getokeniseerde betaling per gastrij op twee oppervlakken; shop = P2b met eigen spec-besluit tegen #10 | approved | D13 + premisse 3 |
+| L5 Max | Walk-in-verkoop | niet in plan | in v1: quick-add + betaling per rij; #10-grens in spec #62 | approved | D14.3 |
+| L6 Max | Betaalmethoden v1 | "iDEAL/kaart/wallets" impliciet | iDEAL + alle kaarten + wallets; disputes = P2-acceptatie-eis (P5 vervalt als fase) | approved | D14.4 |
+| L7 Max | Eenheid van betaling | per gastrij (impliciet) | hoofden die nú binnenkomen; meerdere betalingen per rij; `entry_payments.heads` | approved | D14.2 / D15.2 |
+| L8 Max | Offline deur | "offline alleen via override" | vooraf gemint `/pay/[token]` in de deur-snapshot + uitkomst "nog niet bevestigd" naast override | approved | D14.1 / D15.1 |
+| L9 Max | Cash-schrijfpad | `entry_payments` server-only | cash via outbox, client-side UUIDv7, smalle RLS-insert | approved | D16.1 |
+| L10 Max | Token voor rijen ná event-start | niet gedefinieerd | client-gegenereerd in de outbox-payload | approved | D16.2 |
+| L11 Max | Design-doc | DRAFT | APPROVED | approved | D17 (geen voorkeur = aanbevolen A) |
+| L12 Max | Spec #62 verouderde tekst: (a) "transfer reversal" (Connect-restant), (b) `company_payment_accounts` ≠ plan `company_payout_accounts`, (c) `vat_type` "alleen platform-admin" ≠ plan "automatisch", (h) shop als P2b | spec regel 80 | corrigeren in de opvolg-PR | approved | D17 (design-doc "Gevolgen" goedgekeurd) → taak T12 |
+| L13 Max | ClickUp: P4 `z8uq9m4a7n` splitsen in P4a/P4b, P5 `z8uq9m4a7p` herbestemmen, P2b-taak nieuw, `86exxuuu7`/`86exyp8rc` hertaggen ≥5 (status staat op "25 clients") | tags milestone-25 | bijwerken | approved | D17 (design-doc "Dependencies/ClickUp" goedgekeurd) → taak T13; uitvoering door Max |
+| L14 Max | `payment_fee_rules` als tabel in P1 | plan §3/§4: tabel per provider × methode × drager | v1: ondergrens als constante + twee company-kolommen; tabel bij P4b/P6 | approved | D19 = B (Max 2026-10-12); scope: P1-datamodel; besluiten 4/11 ongewijzigd |
+
+### 10.2 Step 0A — premisse-challenge
+
+- **Echte probleem:** aan de deur is niet traceerbaar wie betaalde, mensen komen onbetaald binnen, er zijn geen records van wie wanneer kwam, en pin-transacties worden overgetypt of niet geïnd (Max, design-doc §Problem Statement).
+- **Doel:** eerste live betaling bij LOFI of Maassilo met "betaald" op de gastrij, een weekstaat die op de cent klopt, en de meting van één avond (sec/entree, afhaak, onbevestigd/override).
+- **Niets-doen-kosten:** vier prospects (LOFI, Boothstock, Solar, Maassilo) houden het losse kastje; PlusOne blijft een lijst-tool zonder geldstroom; de USP "iedere scanner een verkoper" blijft een belofte.
+- **Lost het plan de pijn direct op of een proxy?** De betaling per gastrij (P2 nieuw) raakt de pijn direct. De oorspronkelijke P2-shop (holds, oversell, 100k, Queue-it) loste een proxy op (peak sales) waar geen van de vier om vroeg: uit v1 (L4). Tap to Pay (P3) lost de tweede helft van de pijn op (het kastje weg) en volgt het entitlement.
+
+### 10.3 Step 0B — hergebruik van bestaande code (reality-rows)
+
+| Subprobleem | Bestaand | Receipt |
+|---|---|---|
+| Deur-vlag "te betalen" | `pay: boolean` inert | `src/features/door/model.ts:41-42` |
+| Deel-check-in / hoofden | `check_ins.plus_ones_arrived` absoluut, "Check in +1 more" | `supabase/migrations/20260613000000_full_schema.sql` (kolom `plus_ones_arrived integer not null default 0`); `src/features/door/outbox/gateway.ts:31-38` |
+| KvK/btw op company | `venues.kvk_number`, `venues.vat_number` (optioneel) | `supabase/migrations/20260615190000_venue_company_profile_quota.sql:26-27` |
+| PSP-seam-patroon | `BillingProvider` + stub | `src/features/billing/provider.ts:52-56` |
+| Webhook + idempotentie | `POST /api/webhooks/stripe`, `stripe_webhook_events` | `src/app/api/webhooks/stripe/route.ts`, `src/features/billing/stripe-webhook.ts` |
+| Publieke pagina's | `/e/[slug]`, `/r/[token]` | `src/app/e/[slug]/page.tsx`, `src/app/r/[token]/page.tsx` |
+| Capaciteit | triggers 45005/45006 | `supabase/migrations/20260624090000_event_capacity.sql` |
+| Gastmail-wachtrij | types, opt-out, contact-channels | `supabase/migrations/20261013180000_guest_mail_types.sql` e.v. |
+| pg_cron | aanwezig | `supabase/migrations/20260812120000_landing_throttle_cleanup_cron.sql` |
+| Tierprijs | `guest_tiers.door_price_cents`, `vat_percent` | `supabase/migrations/20260624180000_tier_door_price.sql`, `20260706140000_tier_vat_percent.sql` |
+
+Niets wordt herbouwd; `entry_payments`, `company_payout_accounts`, `company_ledger`, `payout_runs`, `/pay/[token]` en `src/features/payments/` zijn nieuw (`git ls-files src/features/payments src/app/pay` is leeg).
+
+REALITY: premise-table finding 15 claims; verified=11 (receipts hierboven + Stripe-webhookbestanden); re-measure before gate=2 (Stripe NL-tarieven §2 regel 73-77 en Apple/Stripe Tap to Pay-eisen, beide "gecontroleerd 2026-10-11", vandaag niet opnieuw); unverified=2 (Stripe Checkout-sessiegrens 30 min–24 u; "vier venues vroegen erom" is user-stated) `payments-plan-claude-code.md:73-77`
+REALITY: already-done pass `git log origin/main --grep "entry_payments|PaymentProvider|payout|Tap to Pay|tier_capacity"` levert alleen docs-commits (dbc400f6, ab9d800b, c5123179); geen code voor P1 bestaat `src/features/door/model.ts:41`
+REALITY: surface-check pass pnpm-scripts `db:test`, `e2e:smoke`, `qa:flows`, `dev:mfa`, `db:fresh`, `e2e:layout` bestaan in `package.json`; routes `/e/[slug]`, `/r/[token]`, `/api/webhooks/stripe` bestaan; `/pay/[token]` bestaat niet (gepland); `checkout.sessions.expire` is een Stripe-API-call, niet in de repo, vandaag niet tegen de Stripe-docs geverifieerd `package.json:28`
+REALITY: binding-decisions finding besluiten 1–33 (§0) en spec #62 gelden; vandaag gelogd: 10d9adc6 (aanpak C), 989e0e5c (besluit 16 gehouden), 247bce3c (route B uit), 85efed3d (deurregels D14/D15), 24cc454e (cash outbox, client-token); overruled default opnieuw aanwezig: spec #62(a) "verhaalbaar via transfer reversal" is Connect-taal die besluit 16 tegenspreekt `gastenlijst-app-spec.md:80`
+REALITY: numbers pass marge per methode op €25 opnieuw afgeleid uit §2-invoer [measured: formule §2 regel 92]: iDEAL €0,46, EER-kaart/wallet €0,11, niet-EER −€0,31; "9–11 sessies" (§6) en "6–7 sessies tot live" (design-doc) [estimated]; Connect ±€160/maand bij 5 venues [estimated door de second opinion uit §2 regel 80]; Stripe-tarieven [re-measure before gate] `payments-plan-claude-code.md:88-92`
+REALITY: deferred-asks finding ClickUp 86exxuuu7 vraagt: (1) "Statistieken: deuromzet per event" — in §4 Rapportage/P4, maar niet in P4a van het design-doc → opnemen in P4a (GROUP BY-RPC, klein); (2) "check-in zonder betaling alleen via override" — bewust vervangen door override + "nog niet bevestigd" (L8); (3) route B "voor venues met veel deurverkoop" — bewust afgewezen (L3); (4) "pas bouwen als venues er concreet om vragen" — vervuld (vier namen); (5) taakstatus "25 clients"/tag milestone-25 ≠ plan ≥5 — hertag open (L13) `payments-plan-claude-code.md:177`
+REALITY: pr-count finding geen `.gstack/ship-policy.json` → default één PR per golf; plan: één ClickUp-taak → één PR (§6 regel 161); het design-doc splitst P2 in P2-deur/P2-geld en P4 in P4a/P4b → 2 extra PR's; kosten = per PR een fresh-session review (high-risk) en de ClickUp-taken splitsen (L13); gebruikersreferenties (`z8uq9m4a7m`, `z8uq9m4a7n`) blijven geldig als parent `payments-plan-claude-code.md:161`
+
+### 10.4 Step 0C — droomtoestand
+
+```
+  CURRENT STATE                    THIS PLAN (v1, aanpak C)                12-MONTH IDEAL
+  gastenlijst + los pinkastje      betaling per gastrij (QR + maillink),   één telefoon per doorhost: lijst,
+  handmatig afvinken, geen         ledger + weekstaat + self-billing,      Tap to Pay, cash, walk-in; wekelijkse
+  records wie betaalde      --->   handmatige SEPA, disputes in P2,  --->  batch + netting + documentengine;
+  (LOFI, Maassilo, Boothstock,     Tap to Pay zodra entitlement + store;   P2b-shop alleen waar gevraagd; tweede
+  Solar vragen erom)               geen shop                                PSP; blended rate stuurt de fee
+```
+Het plan beweegt richting het ideaal zonder dat P4b/P2b/P6 herbouw vragen (ledger, token, hoofden en fee-snapshot zijn er al).
+
+### 10.5 Step 0G — HOLD SCOPE-checks
+
+1. **Complexiteit:** P1 raakt meer dan 8 bestanden (5 nieuwe tabellen + migraties, `src/features/payments/` met provider, adapter, stub, fee-engine, server actions; door-model + snapshot; Settings → Payments; webhook) en meer dan 2 nieuwe services (PaymentProvider, fee-engine, token-minter). Uitdaging: minder bewegende delen met hetzelfde doel? Kandidaat: `payment_fee_rules` (tabel per provider × methode × drager) is in v1 niet nodig; de ondergrens is een constante en de company-ophoging zijn twee kolommen. → L14/D19.
+2. **Minimum voor het doel (eerste live euro + meting):** P1 (entry_payments met `heads`/`payer_email`/token, company_payout_accounts met vat_type/IBAN/mandaat/cash-vlag, PaymentProvider + Stripe-adapter + stub, fee-snapshot, KvK/btw verplicht + privépersoon-vinkje, override, cash via outbox) → P2-deur (token-mint bij goedkeuring/event-start/quick-add, QR met `?heads=k`, `/pay/[token]`, Checkout, webhook, plafond per rij, "nog niet bevestigd", afstemming) → P2-geld (refunds a/b, dubbel-betaald-refund, disputes, bon via wachtrij) → P4a (ledger, weekstaat + self-billing-PDF, payout-ledgerregel bij goedkeuring, saldo in Settings, deuromzet per event op Stats).
+3. **Invarianten die blijven:** RLS als grens; audit-triggers op `entry_payments`, `company_ledger`, `payout_runs` en de geldkolommen van `company_payout_accounts`; bedragen server-side; check-in blijft outbox; geen PII in URL's (`/pay/[token]` opaak, `?heads=k` is geen PII); service_role alleen in webhook + payout-RPC; stripe-confinement-guard verbreed in dezelfde PR; grant-matrix revoke-then-grant per nieuwe tabel; pgTAP allowed + denied per rol.
+
+### 10.6 Step 0I — temporele ondervraging (voor de bouwer van P1/P2)
+
+```
+  UUR 1 (fundament):   migraties: welke kolommen client-geschreven mogen zijn (alleen cash-rijen en het token
+                       van een quick-add); grant-matrix; audit-triggerset uitbreiden; typed insert-paden.
+  UUR 2-3 (kern):      plafond per gastrij (betaald + open sessies) atomair in Postgres, niet in TS;
+                       webhook-idempotentie op (provider, provider_payment_id) én op de rij; refund-route
+                       bij overschrijding; token-levensduur event-einde + 24 u met event-tijdzone (#26).
+  UUR 4-5 (integratie): deur-snapshot krijgt token + betaalde hoofden; outbox-uitkomst "nog niet bevestigd"
+                       als nieuw kind met afstemming bij replay; realtime op entry_payments (RLS-filter!);
+                       quick-add-payload met token; cockpit-QR; mail-template met /pay/[token].
+  UUR 6+ (polish/tests): pgTAP: doorhost mag alleen cash inserten; replay muteert niets; plafond onder
+                       concurrency (db:test:concurrency); flow-test deur-QR + maillink tegelijk;
+                       guard: geen `stripe` buiten billing/payments; e2e: offline QR tonen.
+```
+Blokkers voor haalbaarheid: Stripe's schriftelijke antwoord en de jurist vóór het ontwerp van P4a bevriest (design-doc §Dependencies); Apple-entitlement voor P3a. Effort (human / CC): P1 ~3 wk / 2 sessies; P2 ~4 wk / 2–3 sessies; P4a ~2 wk / 1–2 sessies.
+
+### 10.7 currentDecision (L14)
+
+Commitment comparison:
+
+```text
+Commitment                         | Source/approval or pending | Current (plan)                      | A (tabel nu)        | B (constante + 2 kolommen, tabel later)
+Ondergrens €0,25 + 2 %             | besluit 11, approved       | platform-default-rij in tabel       | zelfde              | constante in code + CHECK op kolommen
+Company-ophoging tot €3,00 + 2,6 % | besluit 11, approved       | override-rij per company            | zelfde              | 2 kolommen op company_payout_accounts
+Companyfee per methode (default 0) | besluit 4, approved        | rij per provider × methode × drager | zelfde              | niet in v1; komt met de tabel bij P4b/P6
+Audit op fee-configuratie          | regel #4, approved         | trigger op tabel                    | zelfde              | trigger op company_payout_accounts (al in set)
+Snapshot op entry_payments         | §3, approved               | ja                                  | ja                  | ja
+Multi-PSP-fee per methode          | besluit 4, approved        | tabel                               | tabel               | pending tot P4b/P6 (expand-only)
+```
+
+Question: D19 — L14: `payment_fee_rules`-tabel in P1 bouwen, of uitstellen tot P4b/P6?
+Project: PlusOne, branch claude/86exxuuu7-fase14-ceo-review, HOLD SCOPE.
+ELI10: Het plan zet alle fee-logica in één tabel per provider × methode × drager, met platform-defaults en company-overrides. In v1 is er één provider, één gastfee met ondergrens en ophoging, en een companyfee die op €0 staat. Een constante plus twee kolommen op de company-rij doet hetzelfde met minder bewegende delen; de tabel komt expand-only zodra een tweede PSP of een fee per methode nodig is (P4b/P6).
+Stakes if we pick wrong: A = een extra geaudite tabel, RLS en Settings-UI in de high-risk P1 voor configuratie die niemand in v1 aanraakt; B = bij P6 alsnog de tabel, met migratie van twee kolommen (klein, expand-only).
+Recommendation: B omdat HOLD SCOPE minder bewegende delen vraagt waar het doel gelijk blijft; de snapshot op entry_payments maakt de latere migratie pijnloos.
+Completeness: A=9/10, B=8/10
+Pros / cons:
+A) Tabel nu, zoals het plan
+  ✅ Besluit 4 (fee per methode/PSP) staat vanaf dag 1 in het datamodel
+  ✅ Geen tweede migratie bij P6
+  ❌ Extra tabel + RLS + audit + UI in de high-risk P1 voor configuratie die v1 niet gebruikt
+B) Constante + twee company-kolommen; tabel bij P4b/P6 (recommended)
+  ✅ P1 kleiner en makkelijker te reviewen; dezelfde fee-uitkomst en dezelfde snapshot
+  ✅ Expand-only later: kolommen blijven, tabel komt ernaast
+  ❌ Besluit 4 is tot P6 alleen "voorbereid" in de snapshot, niet in een tabel
+Net: datamodel-compleetheid nu tegen een kleinere P1.
+Header: Fee-tabel
+A) Tabel nu
+Zoals plan §3/§4: `payment_fee_rules` met platform-defaults en company-overrides, geaudit, CHECK op grenzen. Effort M, risk medium.
+B) Constante + 2 kolommen (recommended)
+Ondergrens in code; `service_fee_fixed_cents`/`service_fee_bp` op `company_payout_accounts` met CHECK; tabel expand-only bij P4b/P6. Effort S, risk low.
+
+**Antwoord D19 (Max, 2026-10-12): B.** L14 → approved: ondergrens als constante in `src/features/payments/`, `service_fee_fixed_cents`/`service_fee_bp` op `company_payout_accounts` (CHECK ≤ 300 / ≤ 260, geaudit), `payment_fee_rules` expand-only bij P4b/P6; fee-snapshot op `entry_payments` blijft. Scope: alleen P1-datamodel; besluit 4 en 11 ongewijzigd.
+
+### 10.8 Section 1 — Architecture Review
+
+**Current scope:** modus HOLD SCOPE (D18, Max). Accepted: L1–L11, L14 (zie 10.1). Pending: L12 (spec #62-correcties), L13 (ClickUp-splitsing). Rejected: route B (L3), Connect Express voor v1 (L2), shop in v1 (L4), "betaald"-knop zonder geldstroom (D7).
+
+```
+  SYSTEEM (nieuw = ★)
+  ┌───────────────────────── client (PWA / Capacitor-shell) ─────────────────────────┐
+  │ Deur (DoorProvider, outbox, IDB-snapshot)   Settings→Payments★   Platform-tab★    │
+  │   ├─ check-in (+ "nog niet bevestigd"★, override)     IBAN/mandaat/cash/fee-kolommen │
+  │   ├─ quick-add (+ client-token★)                      payout-runs goedkeuren★       │
+  │   ├─ cash-betaling★ (outbox-kind)                                                   │
+  │   └─ QR = /pay/[token]?heads=k★ (uit snapshot)                                      │
+  └───────────┬───────────────────────────────┬──────────────────────────┬─────────────┘
+              │ outbox-upsert (RLS)           │ server actions (RLS)     │ anon GET/POST
+  ┌───────────▼───────────────────────────────▼──────────────────────────▼─────────────┐
+  │ Next.js server: src/features/payments/★                                            │
+  │   PaymentProvider★ ──► StripeAdapter★ / Stub★        /pay/[token]★ (throttle, Zod)  │
+  │   token-mint★ (approval, snapshot-fetch, quick-add)   createPaySession★ ──► RPC    │
+  │   webhook POST /api/webhooks/stripe (bestaand) + payment_intent.*, checkout.*,      │
+  │   charge.refunded, charge.dispute.*★ ──► stripe_webhook_events (bestaand) ──► RPC   │
+  └───────────┬────────────────────────────────────────────────────────────────────────┘
+  ┌───────────▼────────────────────────── Postgres (RLS = grens) ──────────────────────┐
+  │ guests ── guest_tiers(door_price_cents) ── check_ins(plus_ones_arrived, ★unconfirmed/override heads) │
+  │ entry_payments★ (heads, snapshot, token, payer_email, status)  ──► audit_log (trigger) │
+  │ company_payout_accounts★ (vat_type, IBAN, mandaat, cash, fee-kolommen)              │
+  │ company_ledger★ (append-only) ◄── payout_runs★ ◄── Platform-tab-RPC (is_platform_admin) │
+  │ guest_mail_queue (bestaand) ◄── bon★ ; pg_cron (bestaand) ◄── expire-sessions★       │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+          │ Stripe (Checkout, PaymentIntents, Refunds, Disputes, webhooks)  │ Bank (handmatig, P4a)
+```
+
+**Dataflows (vier paden per flow).**
+
+F1 Deur-QR → betaling
+```
+  happy: doorhost kiest k → QR /pay/[token]?heads=k (offline ok) → gast opent → server: token geldig? rij betaalbaar?
+         plafond (betaald + open ≤ 1+N)? → Checkout-sessie (bedrag server-side) → gast betaalt → webhook
+         → entry_payments.succeeded → realtime/sync → deur toont betaald(k) → check-in k hoofden
+  nil:   token ontbreekt/onbekend → 404 "link niet geldig" (geen onderscheid bestaat/niet, throttle)
+  empty: heads=0 of leeg → default k=1 (maillink) / weigeren aan de deur (k ≥ 1 verplicht, Zod)
+  error: Stripe create-session faalt → 503 "probeer opnieuw", geen entry_payments-rij in processing;
+         webhook faalt → Stripe retry; ledger-event blijft 'failed' zichtbaar in Platform-tab
+```
+F2 Maillink → vooruitbetaling: zelfde als F1 met k gekozen door de gast; nil = rij nog niet goedgekeurd → "nog niet gesynchroniseerd/nog niet goedgekeurd"; error = token verlopen (event-einde + 24 u) → "betaal aan de deur".
+
+F3 Cash (outbox)
+```
+  happy: doorhost kiest cash + k → outbox-kind entry_payment_cash {id uuidv7, guest_id, heads, client_ts}
+         → replay: INSERT via RLS-insertpolicy (method=cash, deurrechten, event-lid) → BEFORE INSERT-trigger
+         zet amount uit tier + fee-kolommen (client levert géén bedrag) → audit → ledger bij sync
+  nil:   company cash uit → UI toont geen cash-optie; replay van een oude payload → trigger weigert (cash_payments_enabled=false) → outbox-item 'rejected', deur toont het
+  empty: k=0 → Zod weigert client-side; trigger CHECK heads ≥ 1
+  error: replay-conflict (rij bestaat, idempotent upsert) → no-op; RLS denied (rol weg) → 'rejected' + melding
+```
+F4 P4a wekelijkse run: happy = Σ ledger per company → draft → platform-admin approve (payout-regel + weekstaat + factuur-PDF) → Max boekt → 'paid'; nil = geen betalingen die week → run zonder items, geen documenten; empty = saldo 0 of negatief → geen uitbetaling, vordering blijft; error = PDF/mail faalt → run blijft 'approved', retry-knop, geen 'paid' zonder bankreferentie.
+
+F5 Refund/dispute: happy = company kiest a/b → `refunds.create` → webhook charge.refunded → status + ledger-correctie; dispute.created → vordering + bewijs-upload; dispute.closed won → vordering vervalt. nil = refund op rij zonder succeeded → UI biedt het niet aan, server weigert. error = Stripe refund faalt (saldo, netwerk) → zie D20.2.
+
+**Toestandsmachines.**
+```
+  entry_payments.status:
+   requires_payment ─► processing ─► succeeded ─► refunded | partially_refunded | disputed ─► (won) succeeded
+        │                 │                                                             └► (lost) charged_back
+        └► canceled       └► failed ─► requires_payment (nieuwe sessie)
+   cash: INSERT direct succeeded (geen processing). Verboden: succeeded ─► requires_payment; refunded ─► succeeded
+   (CHECK + trigger op transities; alleen de webhook-RPC en de refund-RPC muteren status).
+
+  pay-token: minted ─► (gebruikt, n×) ─► expired (event_end + 24 u) ; nooit hergebruik over rijen; revoke bij rij 'removed'.
+
+  payout_runs: draft ─► approved ─► paid ; approved ─► draft (afkeuren, geaudit); nooit paid ─► draft.
+
+  check-in-uitkomst per hoofd: covered_paid | unconfirmed | override ; unconfirmed ─► covered_paid bij afstemming;
+   unconfirmed blijft 'te betalen' op de rij als de webhook minder hoofden meldt.
+```
+
+**Koppeling:** nieuw is de koppeling deur ↔ `entry_payments` (snapshot + realtime) en gastrij ↔ token. Gerechtvaardigd: de gastrij ís de eenheid. Vermijd koppeling van `check_ins` aan Stripe-ids: de deur kent alleen `entry_payments.status/heads`, nooit de PSP.
+**Schaal:** 10×: realtime-events op `entry_payments` per event zijn klein (≤ gasten); `/pay/[token]` is per-gast-verkeer, geen piek (geen shop). 100×: plafond-RPC serialiseert per gastrij (row lock op `guests.id`), niet per event: geen hot row. Weekstaat = GROUP BY over `company_ledger` per company (index op `(venue_id, created_at)`).
+**Single points of failure:** Stripe-webhook-levering (mitigatie: 60 s-sync + Stripe-retries + handmatige "sync met Stripe"-knop in de Platform-tab); het goedkeuren van runs door een platform-admin (Max of Joeri, beiden `is_platform_admin()`; runbook).
+**Security-architectuur (per nieuwe mutatie):** `createPaySession` (anon, token = capability, Zod, throttle, RPC toetst rij/plafond/event-tijd); cash-insert (doorhost, RLS smal, trigger zet bedrag); webhook (signature, service_role, ledger-idempotentie); refund-RPC (admin/finance van de company, RLS); payout-approve-RPC (`is_platform_admin()`, SECURITY DEFINER, audit); IBAN-kolom-grant (admin/finance eigen company).
+**Productiefouten per integratiepunt:** Stripe 5xx bij sessie-aanmaak → gast ziet "probeer opnieuw", doorhost ziet niets kapot; webhook 30 min vertraagd → deur werkt op "nog niet bevestigd", afstemming later; pg_cron expire-job stil → sessies verlopen zelf na 24 u (Stripe), plafond telt open sessies tot dan (acceptabel, zichtbaar in Platform-tab); mailqueue down → bon later, status niet geblokkeerd.
+**Rollback:** `payments_enabled=false` per company verbergt Charge/QR en weigert nieuwe sessies binnen één request; lopende sessies lopen af; cash-outbox blijft registreren; ledger blijft consistent. Migraties zijn expand-only (nieuwe tabellen/kolommen), code-rollback via Vercel-redeploy in minuten. Platform-brede noodrem: zie D20.1.
+
+**Bevindingen Section 1:**
+- **WARNING S1-1** token-mint-mechanisme voor "alle betaalbare rijen bij event-start" is niet gekozen. Aanbeveling (implementatiekeuze, owner P2-bouwer, geen cron nodig): mint bij goedkeuring (mail) én lui bij het ophalen van de deur-snapshot (server vult ontbrekende tokens voor betaalbare rijen van dat event) én client-side bij quick-add (L10). Pending, geen beslissing van Max nodig.
+- **WARNING S1-2** `entry_payments` moet in de realtime-publicatie met RLS-filter per event; de deur abonneert per event zoals op `guests`. Owner P2.
+- **OK S1-3** plafond per gastrij atomair in Postgres (row lock op `guests.id` in de sessie-RPC; webhook-RPC toetst opnieuw): vereiste van L7/R2-2, geen nieuwe keuze.
+- **WARNING S1-4** outbox-payloadversie: nieuwe kinds (`entry_payment_cash`) en nieuwe velden op check-in (unconfirmed/override heads) vragen een `v`-veld + tolerante replay voor oude app-versies (remote-URL-shell kan een oude bundle draaien). Owner P1/P2; expand–contract.
+- **OK S1-5** betaling op een rij die intussen `removed` is: webhook zet `succeeded` + markeert `needs_review`; company ziet het in Settings → Payments en kiest refund a/b (gedekt door de refund-regel, L-refund).
+- **D20.1** platform-brede noodrem naast de company-vlag (zie 10.11).
+- **D20.2** wat als de automatische refund (dubbel betaald / plafond) bij Stripe faalt (zie 10.11).
+
+### 10.9 Section 2 — Error & Rescue Map
+
+```
+  METHOD/CODEPATH                    | WHAT CAN GO WRONG                           | EXCEPTION CLASS
+  -----------------------------------|---------------------------------------------|-------------------------
+  mintPayToken (approval/snapshot)   | DB-fout; rij niet betaalbaar; dubbel minten | DbError; NotPayable; UniqueViolation
+  GET /pay/[token]                   | onbekend/verlopen token; rij removed; event voorbij; throttle | TokenNotFound; TokenExpired; RowRemoved; EventEnded; RateLimited
+  createPaySession (RPC + Stripe)    | plafond vol; open sessie bestaat; Stripe 5xx/timeout; Stripe 429; ongeldige heads | CeilingReached; OpenSessionExists; StripeAPIError; StripeRateLimit; ZodError
+  webhook checkout.session.completed | ongeldige signature; replay; rij onbekend; plafond overschreden; bedrag ≠ snapshot | SignatureInvalid; DuplicateEvent; UnknownSession; CeilingExceeded; AmountMismatch
+  webhook payment_intent.payment_failed | —                                         | (status → failed)
+  autoRefundOverpayment              | Stripe refund faalt (saldo/netwerk); al gerefund | StripeAPIError; AlreadyRefunded
+  enqueueReceipt                     | geen payer_email; queue-insert faalt         | NoRecipient; DbError
+  outbox replay entry_payment_cash   | RLS denied; cash uit; tier zonder prijs; duplicate | PermissionDenied(42501); CheckViolation; NotPayable; no-op
+  outbox replay check-in (unconfirmed/override) | oude server zonder kolommen; heads > plafond | UndefinedColumn(42703) (expand–contract!); CheckViolation
+  reconcileAfterSync                 | webhook meldt minder hoofden dan ingecheckt  | (geen exception: verschil blijft 'te betalen')
+  refundRpc (a/b)                    | rol onvoldoende; status niet refundable; Stripe faalt | PermissionDenied; InvalidTransition; StripeAPIError
+  webhook charge.dispute.created/closed | onbekende charge; bewijs-upload faalt    | UnknownCharge; StripeAPIError
+  approvePayoutRun (RPC)             | geen platform-admin; run niet draft; saldo < reserve | PermissionDenied; InvalidTransition; ReserveBreach
+  renderStatementPdf                 | render faalt; storage faalt                  | PdfError; StorageError
+  pg_cron expireStaleSessions        | Stripe 5xx; job stil                         | StripeAPIError; (geen signaal)
+
+  EXCEPTION CLASS       | RESCUED? | RESCUE ACTION                                            | USER SEES
+  ----------------------|----------|----------------------------------------------------------|---------------------------
+  TokenNotFound/Expired | Y        | 404/410 generiek, log token-hash + ip                    | "Deze betaallink is niet (meer) geldig; meld je bij de entree"
+  RowRemoved/EventEnded | Y        | 410, geen sessie                                         | idem
+  RateLimited           | Y        | 429 + Retry-After                                        | "Even wachten"
+  CeilingReached        | Y        | hergebruik open sessie of 409                            | "Al betaald / al in behandeling"
+  StripeAPIError (create)| Y       | 1 retry met idempotency-key, dan 503, geen rij in processing | "Probeer het opnieuw"
+  StripeRateLimit       | Y        | backoff 2×, dan 503                                      | idem
+  SignatureInvalid      | Y        | 400, log, geen verwerking                                | —
+  DuplicateEvent        | Y        | ledger no-op (bestaand patroon)                          | —
+  CeilingExceeded (webhook) | Y    | status succeeded + flag over_ceiling → autoRefund         | mail "dubbel betaald, komt terug"
+  AmountMismatch        | Y ← fix  | status succeeded + needs_review, alert Platform-tab      | geen; admin ziet het
+  AutoRefund StripeAPIError | GAP → D20.2 | zie beslissing                                     | —
+  NoRecipient           | Y        | geen bon; weekstaat toont bedrag                         | —
+  PermissionDenied (cash)| Y       | outbox-item 'rejected' met reden (bestaand patroon)      | deur: "cash niet toegestaan"
+  UndefinedColumn (oude server) | Y ← expand–contract | migratie vóór deploy; replay tolerant      | —
+  InvalidTransition     | Y        | 409, log actor + from/to                                 | "Niet mogelijk in deze status"
+  ReserveBreach         | Y        | run blijft draft; melding met tekort                     | Platform-tab: "reserve te laag"
+  PdfError/StorageError | Y        | run blijft approved; retry-knop; alert                   | Platform-tab: "document mislukt"
+  expire-job stil       | N (bewust) | Stripe verloopt sessies zelf na 24 u; plafond telt ze tot dan | niets; Platform-tab toont #open sessies
+```
+Geen catch-all; elke rescue logt actor, rij-id, event-id en Stripe-id (nooit payer_email of IBAN in logs).
+
+### 10.10 Section 3 — Security & Threat Model
+
+| Dreiging | Kans | Impact | Gemitigeerd? |
+|---|---|---|---|
+| Token raden/enumereren op `/pay/[token]` | L | M | Ja: ≥128-bit random, generieke 404, throttle per token-hash én ip (zelfde familie als `/r`) |
+| `?heads=k` manipuleren (meer hoofden dan plafond, negatief, niet-numeriek) | M | M | Ja: Zod, server-cap op 1+N−gedekt, bedrag server-side |
+| Client stuurt bedrag mee (cash-outbox) | M | H | Ja: trigger BEFORE INSERT zet bedrag uit tier + fee-kolommen en weigert een afwijkend client-bedrag; kolom `amount_cents` niet in de client-insert-kolommen (kolom-grant) |
+| Doorhost schrijft cash op andermans event / andere methode | M | H | Ja: RLS-insert alleen `method='cash'`, deurrechten op dat event, `venue_id`/`event_id` server-afgeleid; pgTAP allowed+denied |
+| Webhook-replay / vervalst event | L | H | Ja: signature over raw body, `stripe_webhook_events`-ledger, RPC idempotent op (provider, provider_payment_id) |
+| Dubbele betaling via twee oppervlakken | M | M | Ja: plafond per gastrij bij aanmaak én webhook + autorefund (D20.2 voor de faalroute) |
+| IBAN-lek via brede SELECT | L | H | Ja: kolom-grant, alleen admin/finance eigen company, nooit in logs/exports |
+| Mandaat "geaccepteerd" door niet-admin | L | H | Ja: server action met rolcheck admin, `mandate_accepted_by/at` + terms-versie, geaudit |
+| Payout-RPC door niet-platform-admin | L | H | Ja: SECURITY DEFINER met `is_platform_admin()`, audit, run-statusmachine |
+| Platform-admin keurt verkeerd bedrag goed | M | M | Deels: tweede paar ogen is proces (Joeri), reserve-check; weekstaat-PDF als bewijs |
+| Client-gegenereerd token (L10) te zwak/hergebruikt | M | M | Ja (eis): `crypto.getRandomValues` 128 bit, UNIQUE, server weigert hergebruik, token nooit in logs |
+| PII: `payer_email`, voornaam op `/pay/[token]`, dispute-bewijs naar Stripe | M | M | Deels: RLS event-scope; pagina toont alleen voornaam/event/bedrag; **vereist: `payer_email` in de bestaande AVG-anonimisatie (pg_cron) en Stripe als subverwerker in v1.1 (al in checklist §7)** |
+| PII in URL | L | M | Ja: token opaak; `heads` is geen PII |
+| Token in IndexedDB op gedeeld toestel | M | M | Ja: `plusone-session-*`/IDB is sessie-gebonden en wordt gewist bij sign-out (bestaande regel 86ey9e9mn); token geeft alleen "deze rij betalen" |
+| Nieuwe dependency | — | — | Geen in P1/P2 (Stripe SDK bestaat; QR client-side met een bestaande of 0-dep lib → check bij P2) |
+| Injectie (SQL/template) | L | H | Ja: typed client/RPC-params, Zod; mail via bestaande templates |
+
+**Bevindingen Section 3:** **CRITICAL (vereist, geen keuze):** (a) bedrag nooit uit de client, ook niet voor cash (trigger + kolom-grant); (b) `payer_email` opnemen in de AVG-anonimisatiecron en de retentie-tekst; (c) token-entropie en UNIQUE voor client-gegenereerde tokens; (d) pgTAP allowed+denied voor elke nieuwe policy (CLAUDE.md DoD 3). Alle vier zijn gedekt door bestaande invarianten (CLAUDE.md security-checklist, AVG-retentie, DoD) en worden als P1/P2-acceptatie-eisen in de taken opgenomen.
+
+### 10.11 currentDecision (L15, L16)
+
+| ID / owner | Contract en bewijs | Current | Proposed | Status | Goedkeuring en scope |
+|---|---|---|---|---|---|
+| L15 Max | Noodrem voor betalingen (Section 1 rollback) | alleen `payments_enabled` per company (plan §4) | + platform-brede server-side schakelaar | approved | D20.1 = B (Max 2026-10-12); scope: env-schakelaar in sessie-RPC, Charge, mint, refund + runbook |
+| L16 Max | Faalroute van de automatische refund bij dubbel betaald / plafond (Section 2 GAP) | niet gedefinieerd | handmatig met zichtbaarheid, of retry-wachtrij | approved (shortcut 7/10) | D20.2 = A (Max 2026-10-12); upgrade bij P4b of >3 rijen/week; decision 24329554 |
+
+Commitment comparison L15:
+```text
+Commitment                              | Source/approval or pending | Current               | A (company-vlag)   | B (+ platform-schakelaar)
+Company kan betalingen uitzetten        | plan §4, approved          | payments_enabled      | zelfde             | zelfde
+Alle venues tegelijk stilleggen         | pending                    | per company handmatig | per company        | één env-var, server-side gelezen in sessie-RPC/Charge/mint/refund
+Cash-outbox blijft werken               | L9, approved               | ja                    | ja                 | ja
+Lopende Checkout-sessies                | §4, approved               | lopen af              | lopen af           | lopen af; webhook verwerkt nog
+Migratie nodig                          | —                          | —                     | nee                | nee (env) 
+```
+Question: D20.1 — L15: platform-brede noodrem naast de company-vlag?
+Project: PlusOne, branch claude/86exxuuu7-fase14-ceo-review, HOLD SCOPE.
+ELI10: Als er iets mis is met geld (verkeerde fee, dubbele boekingen, Stripe-incident) wil je in één minuut álle nieuwe betalingen stoppen zonder per company te klikken. Een server-side schakelaar (env-var, gelezen in de sessie-RPC, Charge, token-mint en refund) doet dat; cash via de outbox en de check-in blijven werken, lopende sessies lopen af en de webhook verwerkt ze nog netjes.
+Stakes if we pick wrong: zonder schakelaar is een incident bij 5 venues 5 handmatige acties en bij 25 een avond werk; met schakelaar één Vercel-env-wijziging.
+Recommendation: B omdat Prime Directive 5 (runbooks/alerts zijn launch-scope) en de dunne marge een snelle noodrem vragen; kosten: één env-var en één check in vier codepaden.
+Completeness: A=7/10, B=9/10
+Pros / cons:
+A) Alleen de company-vlag (zoals het plan)
+  ✅ Niets extra's te bouwen of te documenteren
+  ✅ Fijnmazig: één company uit, de rest door
+  ❌ Platform-incident = per company handmatig uitzetten; geen snelle stop
+B) Company-vlag + platform-brede env-schakelaar (recommended)
+  ✅ Eén handeling stopt alle nieuwe sessies, Charges, mints en refunds; cash en check-in blijven werken
+  ✅ Geen migratie; runbook-regel in `docs/runbook.md`
+  ❌ Eén extra vertakking in vier codepaden en een test per pad
+Net: fijnmazigheid blijft; de vraag is of er daarnaast één grote rode knop komt.
+Header: Noodrem
+A) Alleen company-vlag
+`payments_enabled` per company, zoals plan §4. Effort S (nul extra), risk medium bij een platform-incident.
+B) + platform-schakelaar (recommended)
+Env `PAYMENTS_KILL_SWITCH`, server-side gelezen in sessie-RPC, Charge, token-mint, refund; cash/check-in ongemoeid; runbook-regel + test per pad. Effort S, risk low.
+
+Commitment comparison L16:
+```text
+Commitment                                   | Source/approval or pending | Current | A (handmatig + zichtbaar)                         | B (retry-wachtrij)
+Gast krijgt dubbel betaald bedrag terug      | L7/R2-2, approved          | —       | ja, door Max in het Stripe-dashboard binnen de SLA | ja, automatisch na retry
+Zichtbaarheid van de open refund             | pending                    | —       | rij `needs_refund` + Platform-tab-lijst + Sentry-alert | idem + retry-status
+Webhook charge.refunded sluit de rij         | §3, approved               | —       | ja                                                | ja
+Nieuwe infrastructuur                        | —                          | —       | geen                                              | actietabel + cron/route die Stripe aanroept
+Schaalt voorbij ~10 venues                   | —                          | —       | nee (handwerk)                                    | ja
+```
+Question: D20.2 — L16: als de automatische refund (dubbel betaald / plafond) bij Stripe faalt?
+Project: PlusOne, branch claude/86exxuuu7-fase14-ceo-review, HOLD SCOPE.
+ELI10: De webhook ziet een tweede geslaagde betaling boven het plafond en start een refund. Stripe kan dat weigeren (netwerk, saldo, al gerefund). Dan staat er geld van een gast bij ons zonder dat iemand het ziet, tenzij we het expliciet zichtbaar maken. Twee smaken: de rij markeren en Max doet de refund in het Stripe-dashboard (webhook sluit de rij), of een retry-wachtrij die het zelf blijft proberen.
+Stakes if we pick wrong: A zonder zichtbaarheid = stille schuld aan een gast; B = extra actietabel en een proces dat Stripe aanroept, in de high-risk P2.
+Recommendation: A omdat het volume in v1 klein is en de zichtbaarheid (flag + lijst + alert) het eigenlijke gat dicht; B wordt het opwaarderingspad bij P4b wanneer de batch-automatisering er toch komt. Dit is een bewuste shortcut (7/10): wordt gelogd met het upgrade-trigger.
+Completeness: A=7/10, B=9/10
+Pros / cons:
+A) Handmatig met harde zichtbaarheid (recommended)
+  ✅ Geen nieuwe infrastructuur in P2; Platform-tab-lijst + Sentry-alert + rijstatus maken het onmisbaar
+  ✅ Webhook `charge.refunded` sluit de rij automatisch zodra Max refundt
+  ❌ Handwerk; gast wacht op een mens; schaalt niet voorbij ~10 venues
+B) Retry-wachtrij
+  ✅ Zelfherstellend; geen gast die op Max wacht
+  ✅ Zelfde mechaniek later herbruikbaar voor disputes-bewijs en batch
+  ❌ Actietabel + cron/route die Stripe aanroept, in de high-risk P2; meer tests
+Net: zichtbaarheid nu tegen automatisering nu.
+Header: Refund faalt
+A) Handmatig + zichtbaar (recommended)
+`needs_refund`-status, Platform-tab-lijst, Sentry-alert; Max refundt in Stripe; webhook sluit de rij. Effort S, risk low. Upgrade naar B bij P4b of >10 venues.
+B) Retry-wachtrij
+Actietabel + cron/route, 3 pogingen met backoff, daarna A. Effort M, risk medium.
+
+**Antwoorden D20 (Max, 2026-10-12):** D20.1 = B → L15 approved (platform-brede env-schakelaar `PAYMENTS_KILL_SWITCH` naast `payments_enabled`; scope: vier codepaden + runbook-regel). D20.2 = A → L16 approved als bewuste shortcut 7/10 (`needs_refund` + Platform-tab-lijst + Sentry-alert; upgrade naar retry-wachtrij bij P4b of >3 rijen/week; gelogd in de gstack-decisionlog; code krijgt een `gstack-shortcut(dec-…)`-marker).
+
+### 10.12 Section 4 — Data Flow & Interaction Edge Cases
+
+F1/F2 `/pay/[token]` → sessie:
+```
+  INPUT token,heads ─► VALIDATION ─► TRANSFORM ─► PERSIST ─► OUTPUT
+   │ nil token ─► 404 generiek        │ amount = heads × door_price_cents (nu, niet bij mint)
+   │ garbage/te lang ─► 400 generiek  │   + fee(constante + company-kolommen), btw 9 %, gesnapshot
+   │ heads leeg ─► 1 (mail) / 400 (deur)│ │ Stripe timeout ─► 503, GEEN rij (rij pas na sessie-id)
+   │ heads > cap ─► cap (mail) / 409 (deur)│ conflict: open sessie ─► hergebruik (zelfde URL)
+   │ token verlopen ─► 410              │ stale: tierprijs gewijzigd ná sessie ─► sessie houdt zijn bedrag (Stripe), nieuwe sessie nieuwe prijs
+   │ rij removed ─► 410                 │ encoding: token base64url, heads integer, geen vrije tekst
+   │ kill switch / payments_enabled=false ─► 503 "tijdelijk niet mogelijk"
+```
+F3 cash-outbox: INPUT {uuidv7, guest_id, heads, client_ts} → RLS + trigger (bedrag, cash aan, prijs > 0) → PERSIST succeeded → ledger bij sync. Shadow: dubbele replay → no-op; rij removed intussen → insert geweigerd, outbox 'rejected' met reden; event voorbij → toegestaan (cash is al ontvangen), gemarkeerd `late`.
+F4 run: INPUT week + venue → ledger-GROUP BY → draft; shadow: negatief saldo → geen item, vordering zichtbaar; reserve-tekort → draft blijft; PDF-fout → approved zonder paid.
+
+**Async-ordering — invariant:** per gastrij geldt op elk moment `paid_heads + heads_van_open_sessies ≤ 1 + plus_ones` bij sessie-aanmaak, en `paid_heads + heads_van_deze_betaling ≤ 1 + plus_ones` bij de webhook (open sessies tellen bij de webhook níét mee, anders wordt een legitieme tweede betaling ten onrechte gerefund).
+```
+  tijd │ A: deur-sessie k=2 (RPC)        │ B: maillink k=2 (RPC)           │ shared: paid / open   (N=1 → plafond 2)
+  t1   │ SELECT guests FOR UPDATE ─┐     │                                 │ 0 / 0
+  t2   │ open=0 → maak sessie A ──┘      │ wacht op lock                   │ 0 / 2
+  t3   │ commit                          │ lock → open=2 → cap 0 → hergebruik A of 409 │ 0 / 2
+  omgekeerde volgorde: symmetrisch (B eerst, A hergebruikt B).  Uitgesloten schema: beide sessies vóór enige lock
+  — onmogelijk door de row lock in dezelfde RPC-transactie (mechanisme, geen aanname).
+  webhooks: W_A succeeded → paid 2 → W_B kan niet bestaan (geen sessie B); als N intussen verlaagd is (organisator)
+  → webhook-check faalt → succeeded + over_ceiling → autorefund (L16-route) + needs_review voor de company.
+```
+Regressiebewijs: pgTAP in `db:test:concurrency` met twee sessies die na de SELECT pauzeren (pg_advisory/`pg_sleep`-stappen zoals de bestaande quota-concurrencytest), beide volgordes; webhook-fixture met N-verlaging tussen aanmaak en succeeded.
+
+| Interactie | Randgeval | Afgehandeld? | Hoe |
+|---|---|---|---|
+| Charge-knop | dubbel tikken | Ja | idempotent: zelfde open sessie, zelfde QR |
+| Charge-knop | k wijzigen na tonen QR | Ja | nieuwe QR; oude URL krijgt server-cap; al geopende sessie houdt oude k |
+| `/pay/[token]` | gast navigeert weg / terug-knop | Ja | sessie blijft 30 min; heropenen = zelfde sessie; succes-pagina leest status uit DB |
+| `/pay/[token]` | trage verbinding gast | Ja | Checkout is Stripe-hosted; onze pagina is klein; retry-knop |
+| Deur | gast betaalt nádat doorhost override gaf | Ja | betaling blijft; override blijft geaudit; company ziet beide, kan refunden |
+| Deur | webhook-achterstand | Ja | "nog niet bevestigd" na 10 s; afstemming later |
+| Deur | 0 betaalbare rijen / tier zonder prijs | Ja | geen Charge-knop; gedrag van vandaag |
+| Deur | 2.000 gasten | Ja | snapshot +~60 B/gast (token + status), geen extra query per gast (view met GROUP BY) |
+| Outbox | replay van cash op een inmiddels `removed` rij | Ja | insert geweigerd, item 'rejected' met reden, deur toont het |
+| Webhook | duplicaat / out-of-order (succeeded vóór processing) | Ja | ledger + statusmachine accepteert succeeded vanuit requires_payment |
+| Refund | twee keer klikken | Ja | InvalidTransition 409 |
+| Run | twee platform-admins keuren tegelijk goed | Ja | statusovergang met `WHERE status='draft'` → tweede krijgt 409 |
+| Maillink | gast betaalt ná event-einde + 24 u | Ja | 410; eerder geopende sessie kan nog slagen → normale verwerking, company refund-keuze |
+
+Geen onafgehandelde randgevallen gevonden; de twee contractpunten (webhook-telling zonder open sessies; `late`-markering voor cash na event-einde) zijn nieuw t.o.v. het design-doc en gaan als P2-acceptatie-eis mee (geen nieuwe keuze: ze volgen uit L7/L9).
+
+### 10.13 Section 5 — Code Quality Review
+
+- **Structuur:** `src/features/payments/` spiegelt `src/features/billing/` (provider.ts, stripe-adapter.ts, stub, config.ts, schemas.ts, actions.ts, webhook-handlers.ts). Eén webhook-route blijft (`src/app/api/webhooks/stripe/route.ts`): signature-verificatie één keer, daarna een handler-map `{ 'checkout.session.completed': …, 'charge.dispute.created': … }` per module; geen tweede route, geen tweede ledger.
+- **Duplicatie (flag):** geldberekening mag maar op één plek bestaan. Cash (trigger) én PSP-sessie (RPC) hebben hetzelfde bedrag nodig → één SQL-functie `payment_amount_for(p_tier_id, p_heads, p_venue_id)` (prijs + fee-kolommen + btw) die zowel de sessie-RPC als de BEFORE INSERT-trigger aanroept; TypeScript rekent nooit met geld (alleen tonen). Vermijdt de klassieke drift tussen app en DB.
+- **Naamgeving:** `entry_payments` (plan), `heads` (telt personen, niet "quantity"), `vat_type` 1|3, `needs_refund`/`needs_review` als expliciete statussen, `pay_token` (niet "code").
+- **Foutpatronen:** Section 2; geen catch-all; Stripe-fouten via de adapter naar een smal `PaymentError`-type met `kind`.
+- **Randgevallen:** tijdzone van event-einde (#26) uit de event-rij, niet uit de server; `heads` als integer 1..50 met CHECK; bedrag in centen, nooit float.
+- **Over-engineering vermeden:** D19 (fee-tabel), L16 (geen retry-wachtrij), geen shop. **Onder-engineering bewaakt:** plafond in de DB, niet in TS; token-expiry server-side.
+- **Complexiteit:** webhook-dispatch > 5 branches → tabelgestuurd; `createPaySession` splitst validatie (pure functie, unit-test) van I/O.
+
+### 10.14 Section 6 — Test Review
+
+```
+  NIEUW                                  | TESTTYPE          | HAPPY                         | FAIL                                   | EDGE
+  ---------------------------------------|-------------------|-------------------------------|----------------------------------------|---------------------------
+  migraties + grant-matrix               | pgTAP (grant_matrix.test.sql bestaand) | tabellen dicht voor anon | authenticated zonder expliciete grant → 403 | nieuwe kolommen op user-tabellen zonder grant
+  RLS entry_payments SELECT              | pgTAP allowed+denied | doorhost eigen event leest   | ander event / andere venue → 0 rijen     | platform-admin leest alles
+  RLS entry_payments INSERT (cash)       | pgTAP               | doorhost cash eigen event     | method='card' → 42501; ander event → 42501; staff zonder deurrechten → 42501 | amount meegegeven → trigger overschrijft/weigert
+  payment_amount_for + trigger           | pgTAP               | 2 hoofden × €25 + fee = exact | tier zonder prijs → exception           | fee-kolommen op max; btw-afronding
+  plafond-RPC                            | pgTAP + concurrency | 2 van 2 → sessie              | 3e hoofd → CeilingReached               | twee sessies tegelijk (beide volgordes)
+  webhook-RPC apply_entry_payment_update | vitest (fixture-events) + pgTAP | succeeded zet status + ledger | replay muteert niets; bedrag ≠ snapshot → needs_review | N verlaagd → over_ceiling + needs_refund-pad
+  autoRefund                             | vitest (stub provider) | refund aangemaakt           | Stripe-fout → needs_refund + alert       | al gerefund → no-op
+  /pay/[token] route                     | vitest + e2e        | geldig → redirect Checkout    | onbekend/verlopen → 404/410 generiek; throttle → 429 | heads > cap → cap; kill switch → 503
+  token-mint (approval / snapshot / quick-add) | vitest + pgTAP | token aanwezig in snapshot    | dubbel minten → UNIQUE, idempotent      | client-token te kort → geweigerd
+  deur: QR offline + "nog niet bevestigd" | tests/flows (qa:flows) + DoorProvider.test | QR zichtbaar zonder netwerk; check-in met uitkomst | sync met minder hoofden → 'te betalen' blijft | override + betaling beide
+  outbox-kind entry_payment_cash         | DoorProvider.test + replay.test | replay insert             | rejected-pad met reden                   | oude payload zonder `v`
+  bon via gastmail-wachtrij              | actions.guest-mail.test | enqueue na succeeded        | geen payer_email → geen enqueue, geen fout | cash → geen bon
+  refund a/b RPC                         | pgTAP + vitest      | status + ledger-correctie     | rol finance van andere company → 42501  | partial na full → 409
+  disputes webhook                       | vitest fixtures     | vordering geboekt             | closed won → vordering vervalt          | onbekende charge → log + 200
+  P4a run + payout-regel                 | pgTAP + vitest      | draft→approved→paid, saldo daalt | reserve-tekort → draft                | twee approvers → één wint
+  stripe-confinement-guard               | vitest (bestaand)   | payments-map toegestaan       | import elders → faal                    | dynamische import
+  no-PII-in-logs                         | vitest (grep-guard, nieuw) | log-helper filtert payer_email/IBAN | —                                 | —
+```
+Assertiecheck (selectie): plafond: `assert count(open+paid) ≤ 1+N` na twee gelijktijdige RPC's; verwerpt "beide sessies aangemaakt"; no_claim=Stripe's eigen gedrag (gestubde provider; pgTAP zonder Stripe). Cash-RLS: `assert insert as doorhost method='card' raises 42501`; no_claim=none beyond protects. Webhook-replay: `assert ledger onveranderd na tweede identieke event`; no_claim=echte Stripe-signature (fixture met test-secret). Offline-QR: `assert QR-element aanwezig met netwerk uit (Playwright offline)`; no_claim=echte iDEAL-betaling.
+**2 uur 's nachts-test:** de concurrency-plafondtest + webhook-replay. **Vijandige QA:** twee telefoons, één gast, maillink + deur-QR tegelijk, N verlagen tijdens de betaling, kill switch halverwege. **Chaos:** webhook 30 min geblokkeerd (Stripe CLI), expire-job uit, Stripe 5xx bij sessie-aanmaak.
+**Piramide:** veel pgTAP/vitest, enkele flow-tests, één e2e-smoke (offline QR). **Flakiness:** tijd (token-expiry, 10 s-wachttijd) via geïnjecteerde klok; Stripe via stub + fixtures; volgorde via expliciete pauzes. **Load:** plafond-RPC 200 gelijktijdige calls op één rij (lock-serialisatie) en 2.000 rijen snapshot-ophalen < 1 s lokaal (hosted meten zoals de realtime-loadtest).
+Geen LLM/prompt-wijzigingen.
+
+### 10.15 Section 7 — Performance Review
+
+- **N+1:** deur-snapshot haalt betaalde/open hoofden per gast via één view `guest_payment_summary` (GROUP BY guest_id) gejoind op de bestaande snapshot-query; nooit per gast een query. Weekstaat: één GROUP BY op `company_ledger`.
+- **Indexen:** `entry_payments(guest_id)`, `(event_id, status)`, UNIQUE `(provider, provider_payment_id)`, UNIQUE `pay_token`, `(venue_id, created_at)`; `company_ledger(venue_id, created_at)`, `(payout_run_id)`; `payout_runs(venue_id, period_start)`.
+- **Geheugen:** snapshot +~60 B/gast; 2.000 gasten = +120 KB in IDB; ledger-rijen klein.
+- **Caching:** tierprijs/fee binnen de RPC (één SELECT); geen app-cache voor geld.
+- **Jobs:** expire-sessions elke 10 min, worst case = aantal open sessies (tientallen), 1 Stripe-call per sessie, retry volgende run.
+- **Trage paden (p99 schatting):** `/pay` sessie-aanmaak 1,5 s (Stripe-call); webhook-RPC 50 ms; weekstaat 200 ms bij 25 venues. 
+- **Pool:** +1 cron, webhook-bursts klein; Supabase-pool volstaat.
+
+### 10.16 Section 8 — Observability & Debuggability
+
+- **Logs (gestructureerd, geen PII):** entry_payment_id, guest_id, event_id, venue_id, stripe-ids, actor, from/to-status, reden bij reject; op entry/exit van sessie-aanmaak, webhook-handler, refund, run-overgangen, outbox-replay van cash.
+- **Metrics (per event/dag, uit de DB, geen extra systeem):** sessies aangemaakt/voltooid/verlopen (afhaak), tijd webhook→status (latency), check-ins per uitkomst (betaald/onbevestigd/override), needs_refund/needs_review-aantal, open sessies, ledger-saldo per company, run-status.
+- **Alerts (Sentry, bestaand):** signature-fouten > 3/uur; elke `AmountMismatch`; elke `needs_refund`; expire-job heartbeat > 1 u stil; reserve-tekort; webhook-event 'failed' in de ledger.
+- **Dashboards dag 1 (Platform-tab):** open sessies, needs_review/needs_refund-lijst, failed webhook events, saldo per company, laatste run, kill-switch-status.
+- **Debuggability:** elke rij draagt Stripe-ids en snapshot; `audit_log` before/after op entry_payments/ledger/runs → een melding 3 weken later is reconstrueerbaar uit DB + Stripe-dashboard zonder app-logs.
+- **Admin-tooling:** "sync met Stripe" (één sessie/PaymentIntent opnieuw ophalen), run afkeuren, needs_refund afhandelen (status na dashboard-refund via webhook).
+- **Runbooks (docs/runbook.md, launch-scope):** webhook-uitval; dubbel betaald; dispute binnen; run klopt niet met bank; kill switch aan/uit; Maestro-pas geweigerd aan de deur.
+
+**Bevindingen Section 8:** **WARNING S8-1** een expire-job die stil valt geeft nu geen signaal (Section 2) → heartbeat-metric + alert is vereist (geen nieuwe keuze: Prime Directive 1, zero silent failures). **OK** overige: alles bovenstaand is launch-scope in de taken.
+
+### 10.17 Section 9 — Deployment & Rollout Review
+
+- **Migratiesafety:** alles expand-only: nieuwe tabellen (`entry_payments`, `company_payout_accounts`, `company_ledger`, `payout_runs`), nieuwe nullable kolommen (`check_ins.unconfirmed_heads`, `override_heads`, default 0), geen rename/drop; `check_ins`-ALTER met default is een snelle metadata-wijziging op Postgres ≥ 11. Grant-matrix revoke-then-grant per object. `supabase db reset` + `pnpm db:test` vóór de push (CLAUDE.md prod-push-flow).
+- **Feature flags:** `payments_enabled` per company (default false; alleen type 3) + `PAYMENTS_KILL_SWITCH` (L15). Eerste live company = LOFI of Maassilo alleen; de rest blijft uit tot de meting van één avond.
+- **Rollout-volgorde:** migreren → deployen (CLAUDE.md expand–contract). De oude client (remote-URL-shell met oude bundle) stuurt check-in-payloads zonder `v` → server behandelt als v1; de oude snapshot-lezer negeert onbekende velden (token, betaalde hoofden). Nieuwe client tegen oude server bestaat niet (server deployt eerst), maar de outbox kan een payload met `v=2` vasthouden tot de nieuwe server er is → replay is tolerant (S1-4).
+- **Rollback:** (1) kill switch aan (1 min, Vercel-env); (2) `payments_enabled=false` voor de pilot-company; (3) code-rollback via Vercel-redeploy van de vorige build; (4) migraties blijven staan (expand-only, ongebruikt); (5) open sessies lopen af in Stripe; webhook blijft events accepteren en loggen. Geen datamigratie terug nodig.
+- **Risico-venster bij deploy:** tussen migratie en deploy bestaan tabellen zonder code: ongevaarlijk (dicht voor anon, geen flag aan).
+- **Omgevingspariteit:** geen staging (CLAUDE.md). Volgorde: lokale stack + Stripe test mode → prod met test-keys op één pilot-company (test-mode-demo voor de vier prospects) → live keys. Risico expliciet: de eerste live euro is op prod; mitigatie = één company, kill switch, needs_review-lijst.
+- **Post-deploy-check:** eerste 5 min: webhook-endpoint antwoordt 200 op een Stripe-testevent, `/pay/<onbekend>` geeft 404, deur-snapshot laadt met token-veld, Platform-tab toont kill-switch-status. Eerste uur: geen 42501-piek op `entry_payments`, geen failed webhook-events, Sentry stil.
+- **Smoke:** `pnpm e2e:smoke` + nieuwe spec: `/pay/<random>` → 404; snapshot-API bevat `pay_token` voor een betaalbare seed-rij.
+
+### 10.18 Section 10 — Long-Term Trajectory Review
+
+- **Schuld (bewust):** handmatige SEPA (P4a → P4b), handmatige refund-afhandeling (L16), fee als constante (L14), weekstaat als eenvoudige PDF (documentengine later). Alle vier met een benoemd upgrade-moment.
+- **Padafhankelijkheid:** `entry_payments.heads` + snapshot + token zijn de eenheden waar P2b (shop), P3 (Tap to Pay: zelfde rij, andere `method`) en P6 (tweede PSP: `provider`-kolom) op bouwen; geen herbouw voorzien. Eén risico: als later per hoofd gefactureerd moet worden (per persoon een bon), moet `heads` worden uitgesplitst; nu bewust niet (D15.2).
+- **Kennisconcentratie:** design-doc + dit hoofdstuk + runbook-regels; de bouwer van P1 heeft alles in drie bestanden. Na de review §10 samenvouwen in §1–§9 (T12), anders leest een nieuwe engineer twee waarheden.
+- **Omkeerbaarheid: 3/5.** Flags uit = slapend systeem; tabellen blijven (append-only geld); juridische constructie (type 3, mandaat) is de echte one-way door, niet de code.
+- **Ecosysteem-fit:** spiegelt `src/features/billing/`, outbox-patroon van `check_ins`, RPC-patroon van quota's, grant-matrix-regel. 
+- **1-jaarsvraag:** ja, mits T12 (docs samenvouwen) en de naamgeving (`heads`, `needs_refund`) consequent blijft.
+
+### 10.19 Section 11 — Design & UX Review (UI-scope aanwezig)
+
+**IA aan de deur:** eerst de naam en status (bestaand), dan "€X te betalen · k" als badge op de rij, dan één knop **Charge** → sheet: hoofden-stepper (default = wie meekomt), groot QR, regel "Kan de gast niet scannen? Toon link", optioneel **Cash** (alleen als aan), live "Betaald ✓ (k)" zodra bevestigd, anders na 10 s de keuze "Inchecken, nog niet bevestigd" of (admin) "Override". Op `/pay/[token]`: venue-naam, voornaam, event, aantal (aanpasbaar omlaag), bedrag incl. "Servicekosten", knop Betalen (Stripe-hosted), daarna "Je staat op de lijst, meld je bij de entree".
+
+| Feature | LOADING | EMPTY | ERROR | SUCCESS | PARTIAL |
+|---|---|---|---|---|---|
+| Charge-sheet | QR-skeleton (token komt uit snapshot: vrijwel nooit) | tier zonder prijs: geen knop | geen token (rij nog niet gesynct): "nog niet beschikbaar" + opnieuw | Betaald ✓ (k) | 2 van 4 betaald: badge "2/4 betaald" |
+| `/pay/[token]` | spinner tot sessie | — | 404/410/429/503 met één zin en "meld je bij de entree" | "Je staat op de lijst" | aantal verlaagd door cap: toont nieuw aantal vóór betalen |
+| Settings → Payments | skeleton | "Betalingen staan uit" + uitleg type 3 | opslaan mislukt: inline | saldo + laatste weekstaat | mandaat ontbreekt: knop geblokkeerd met reden |
+| Platform-tab runs/needs_* | skeleton | "Geen openstaande posten" | RPC-fout inline | run goedgekeurd → payout-regel | reserve-tekort: run blijft draft met bedrag |
+
+**Journey (emotionele boog):** doorhost: twee tikken, nooit wachten op netwerk, nooit uitleggen; gast: vertrouwen door venue-naam + eigen naam + exact bedrag en een bekende Stripe-pagina; admin: één weekstaat die klopt. **AI-slop-risico:** een generiek "payments dashboard" in de Platform-tab; houd het bij de bestaande kit (`kit.tsx`), lavender-accent, één lijst per zorg (open sessies, needs_review). **DESIGN.md:** `design-system.md` (Bricolage/Hanken, #0B0B0D, #B5A6FF); de Charge-sheet volgt de bestaande deur-sheets. **Responsief:** deur phone-first, iPad = QR-pad, cockpit (desktop) toont dezelfde QR groot; `/pay` is mobiel. **Toegankelijkheid:** QR + kopieerbare link, tap-targets ≥ 44 px (touch-density-guard), contrast op het bedrag, screenreader-label "Betaal €X voor k personen".
+
+```
+  deur-rij ─► [Charge] ─► sheet(k, QR, cash?) ─► gast scant ─► /pay ─► Stripe Checkout ─► succes-pagina
+     │                        │                                                       │
+     │                        └─► 10 s geen bevestiging ─► [Inchecken, nog niet bevestigd] ─► sync ─► ✓ / 'te betalen'
+     └─► (admin) [Override, reden] ─► check-in
+  maillink: goedkeuringsmail ─► /pay (k kiezen) ─► Checkout ─► "Je staat op de lijst" ─► deur ziet ✓
+```
+Aanbeveling: **`/plan-design-review`** vóór P2 voor de Charge-sheet en `/pay` (deursnelheid en vertrouwen zijn hier het product); na P2 `/design-review` op de live schermen.
+
+### 10.20 NOT in scope
+
+Uitgesteld (gaan naar TODOS.md): `payment_fee_rules`-tabel (D19 B, bij P4b/P6); retry-wachtrij voor gefaalde refunds (D20.2 A, bij P4b of >3 rijen/week); pain.001-batch, abonnement-netting, volledige documentengine, blended-rate-rapport (P4b, D13); open shop met holds/oversell/sold-out/Queue-it (P2b, eigen spec-besluit tegen #10, D13); tweede PSP (P6, na validatie).
+Afgewezen: Stripe Connect Express voor v1 (D12 B: controle, multi-PSP, type 3); losse smart reader / route B (premisse 5: één toestel); gratis "betaald"-knop zonder geldstroom (D7: geld moet door PlusOne); per-hoofd-betaalrijen vooraf (D15.2 B); walk-in alleen online (D16.2 B); cash alleen online (D16.1 B).
+
+### 10.21 What already exists
+
+Zie 10.3: deur-vlag `pay`, `check_ins.plus_ones_arrived` (deel-check-in), `venues.kvk_number/vat_number`, `BillingProvider`-patroon + stub, webhook-route + `stripe_webhook_events`, `/e/[slug]` + `/r/[token]` + throttle-familie, capaciteitstriggers, gastmail-wachtrij, pg_cron, `guest_tiers.door_price_cents/vat_percent`, audit-triggerset, grant-matrix-test, outbox-replay met rejected-pad. Alles wordt hergebruikt; niets herbouwd.
+
+### 10.22 Dream state delta
+
+Na v1 (P1 + P2 + P4a) staat PlusOne op "één telefoon per doorhost: lijst + betaling via QR, cash, walk-in; weekstaat die klopt"; het 12-maandsbeeld (Tap to Pay native, batch + netting + documentengine, shop waar gevraagd, tweede PSP) vraagt geen wijziging van `entry_payments`, token, hoofden of ledger. Afstand: P3a/P3b (entitlement + store), P4b, P2b, P6.
+
+### 10.23 Error & Rescue Registry
+
+Zie 10.9 (volledig). Samenvatting: 15 codepaden, 20 exception-klassen; 19 rescued met gedefinieerde gebruikerstekst; 1 bewust niet-gerescued (stilvallende expire-job) met heartbeat-alert als vereiste (S8-1); de refund-faalroute is door D20.2 van GAP naar rescued (zichtbaar) gegaan.
+
+### 10.24 Failure Modes Registry
+
+```
+  CODEPATH                    | FAILURE MODE                    | RESCUED? | TEST? | USER SEES?                 | LOGGED?
+  ----------------------------|---------------------------------|----------|-------|----------------------------|--------
+  /pay/[token]                | onbekend/verlopen token         | Y        | Y     | generieke 404/410          | Y
+  /pay/[token]                | throttle                        | Y        | Y     | 429                        | Y
+  createPaySession            | Stripe 5xx/timeout              | Y        | Y     | "probeer opnieuw"          | Y
+  createPaySession            | plafond vol / open sessie       | Y        | Y     | hergebruik / 409           | Y
+  createPaySession            | kill switch / payments uit      | Y        | Y     | 503 "tijdelijk niet"       | Y
+  webhook                     | signature / replay              | Y        | Y     | —                          | Y
+  webhook                     | bedrag ≠ snapshot               | Y        | Y     | admin: needs_review        | Y + alert
+  webhook                     | over_ceiling                    | Y        | Y     | mail dubbel betaald        | Y
+  autoRefund                  | Stripe weigert                  | Y (L16)  | Y     | admin: needs_refund + alert| Y
+  outbox cash replay          | RLS/CHECK weigert               | Y        | Y     | deur: rejected + reden     | Y
+  outbox check-in replay      | oude server zonder kolommen     | Y (volgorde) | Y | —                         | Y
+  reconcile                   | webhook < ingecheckt            | Y        | Y     | rij 'te betalen'           | Y
+  refund a/b                  | rol / status / Stripe           | Y        | Y     | 409 / inline fout          | Y
+  dispute webhook             | onbekende charge                | Y        | Y     | —                          | Y
+  approvePayoutRun            | reserve / status / rol          | Y        | Y     | Platform-tab melding       | Y
+  renderStatementPdf          | render/storage                  | Y        | Y     | retry-knop                 | Y + alert
+  expire-sessions cron        | job stil                        | Y (heartbeat, S8-1) | Y | Platform-tab #open   | Y + alert
+  token-mint on snapshot      | DB-fout                         | Y        | Y     | Charge: "nog niet beschikbaar" | Y
+```
+0 rijen met RESCUED=N ∧ TEST=N ∧ Silent → **0 CRITICAL GAPS** (mits T7, T9 landen).
+
+### 10.25 Diagrams
+
+Geproduceerd in dit hoofdstuk: systeemarchitectuur (10.8), dataflows F1–F5 met schaduwpaden (10.8/10.12), toestandsmachines (10.8), async-schedule (10.12), deploy-volgorde en rollback (10.17, tekstueel genummerd), gebruikersflow (10.19), droomtoestand (10.4). **Stale-audit:** het design-doc-fasediagram klopt na D19/D20 (geen fee-tabel genoemd, noodrem is tekst); plan §1–§9 bevatten geen ASCII-diagrammen, wel tabellen die T12 bijwerkt (§4 tabel `entry_payments`, §6 fasering).
+
+### 10.26 Implementation Tasks
+
+Synthesized from this review's findings. Each task derives from a specific finding above. Run with Claude Code or Codex; checkbox as you ship. (P1 blokkeert de eerste live euro; P2 zelfde branch/fase; P3 follow-up.)
+
+- [ ] **T1 (P1, human: ~1d / CC: ~20min)** — P1 migraties — één SQL-functie `payment_amount_for(tier_id, heads, venue_id)` + BEFORE INSERT-trigger op `entry_payments` die het bedrag zet en een client-bedrag weigert; TS rekent nooit met geld
+  - Surfaced by: Section 3 (CRITICAL a) + Section 5 (duplicatie)
+  - Files: `supabase/migrations/<new>_entry_payments.sql`, `src/features/payments/schemas.ts`
+  - Verify: pgTAP: insert met afwijkend `amount_cents` → overschreven/geweigerd; 2 × €25 + fee exact
+- [ ] **T2 (P1, human: ~1d / CC: ~20min)** — P2 sessie-RPC — plafond per gastrij met `SELECT … FOR UPDATE` op `guests.id`; webhook-RPC telt `paid + deze` (open sessies niet); over_ceiling → autorefund-pad
+  - Surfaced by: Section 4 (async-ordering), Section 1 S1-3
+  - Files: `supabase/migrations/<new>_pay_session_rpc.sql`, `src/features/payments/stripe-webhook-handlers.ts`
+  - Verify: `pnpm db:test:concurrency` nieuwe test beide volgordes; vitest fixture N-verlaging
+- [ ] **T3 (P1, human: ~½d / CC: ~15min)** — RLS — insert-policy `entry_payments` alleen `method='cash'`, deurrechten op event, server-afgeleide `venue_id/event_id`; pgTAP allowed + denied per rol
+  - Surfaced by: Section 3 (dreiging cash op andermans event), L9
+  - Files: migratie, `supabase/tests/database/entry_payments.test.sql`
+  - Verify: `pnpm db:test -- supabase/tests/database/entry_payments.test.sql`
+- [ ] **T4 (P1, human: ~1d / CC: ~20min)** — token — `pay_token` UNIQUE, 128-bit, expiry = event-einde + 24 u in event-tijdzone; mint bij goedkeuring, lui bij snapshot-fetch, client-token bij quick-add geaccepteerd en gevalideerd
+  - Surfaced by: Section 3 (entropie), Section 1 S1-1, L10
+  - Files: migratie, `src/features/payments/token.ts`, `src/features/door/queries.ts`, `src/features/door/outbox/gateway.ts`
+  - Verify: vitest token-lengte/entropie; pgTAP UNIQUE; flow-test QR offline
+- [ ] **T5 (P1, human: ~½d / CC: ~15min)** — outbox — `v`-veld op payloads, nieuw kind `entry_payment_cash`, `unconfirmed_heads`/`override_heads` op check-in, tolerante replay
+  - Surfaced by: Section 1 S1-4, Section 9
+  - Files: `src/features/door/outbox/types.ts`, `replay.ts`, `gateway.ts`, `DoorProvider.test.tsx`
+  - Verify: replay-tests oude payload zonder `v`; rejected-pad met reden
+- [ ] **T6 (P1, human: ~2h / CC: ~10min)** — noodrem — `PAYMENTS_KILL_SWITCH` gelezen in sessie-RPC-wrapper, Charge-action, mint, refund; runbook-regel
+  - Surfaced by: L15 / D20.1
+  - Files: `src/features/payments/config.ts`, `actions.ts`, `docs/runbook.md`
+  - Verify: vitest per pad met env gezet → 503/geen mint
+- [ ] **T7 (P1, human: ~½d / CC: ~15min)** — statussen — `needs_refund`, `needs_review`, `over_ceiling`-vlag; Platform-tab-lijst; Sentry-alert; webhook `charge.refunded` sluit `needs_refund`; `gstack-shortcut(dec-24329554)`-marker
+  - Surfaced by: L16 / D20.2, Section 2 AmountMismatch
+  - Files: migratie, `src/features/payments/stripe-webhook-handlers.ts`, `src/components/po/screens/platform/*`
+  - Verify: vitest: Stripe-refund-fout → needs_refund + alert; pgTAP transities
+- [ ] **T8 (P2, human: ~½d / CC: ~10min)** — realtime — `entry_payments` in de publicatie; deur abonneert per event; `guest_payment_summary`-view in de snapshot
+  - Surfaced by: Section 1 S1-2, Section 7 (N+1)
+  - Files: migratie (publication + view), `src/features/door/queries.ts`, `src/lib/supabase/realtime-throttle.ts`
+  - Verify: `door-render-isolation.test.tsx` groen; flow-test: betaald-vlag binnen 5 s
+- [ ] **T9 (P2, human: ~2h / CC: ~10min)** — cron — expire-stale-sessions elke 10 min + heartbeat-metric/alert
+  - Surfaced by: Section 2 (bewust niet-gerescued), Section 8 S8-1
+  - Files: migratie (pg_cron), `src/app/api/cron/payments-expire/route.ts` of edge function, Sentry-config
+  - Verify: test: job markeert heartbeat; alert bij > 1 u stil (handmatig getest)
+- [ ] **T10 (P2, human: ~2h / CC: ~10min)** — AVG — `payer_email` in de anonimisatiecron + retentietekst
+  - Surfaced by: Section 3 (PII)
+  - Files: `supabase/migrations/<new>_payments_retention.sql` (uitbreiding van `20260614230000_privacy_anonymization.sql`), `src/lib/legal.ts`-verwijzing
+  - Verify: pgTAP: na retentievenster is `payer_email` null
+- [ ] **T11 (P2, human: ~2h / CC: ~10min)** — Stats — deuromzet per event (bruto/fee/netto) als GROUP BY-RPC in P4a
+  - Surfaced by: reality-row deferred-asks (ClickUp 86exxuuu7 punt 5)
+  - Files: migratie (RPC, SECURITY INVOKER), `src/components/po/screens/stats.tsx`
+  - Verify: pgTAP: RPC rol-relatief; UI toont de regel
+- [ ] **T12 (P2, human: ~3h / CC: ~20min)** — docs — plan §4/§6 splitsen (P2/P2b, P4a/P4b, P5 → P2), §4-tabel `entry_payments` (cash client-side), §10 samenvouwen; spec #62 (a)(b)(c)(h) + hybride ticketdocument + #10-grens; CLAUDE.md-bullet; Capacitor-plan §5 route B bevestigd; changelog
+  - Surfaced by: L12, design-doc "Gevolgen"
+  - Files: `payments-plan-claude-code.md`, `gastenlijst-app-spec.md`, `CLAUDE.md`, `capacitor-plan-claude-code.md`, `docs/changelog.md`
+  - Verify: `tests/unit/claude-md-references.test.ts` groen; `pnpm test`
+- [ ] **T13 (P2, human: ~30min / CC: ~5min)** — ClickUp — P4 `z8uq9m4a7n` → P4a/P4b, P5 `z8uq9m4a7p` herbestemd, nieuwe P2b-taak, hertag `86exxuuu7`/`86exyp8rc` naar ≥5
+  - Surfaced by: L13, reality-row pr-count
+  - Files: to be determined (ClickUp)
+  - Verify: taken zichtbaar met juiste tags en dependencies
+- [ ] **T14 (P3, human: ~1d / CC: ~20min)** — QA — `tests/flows/door-payment.flow.ts` (QR offline, "nog niet bevestigd", cash) + `flows.mjs`-registratie; smoke `/pay/<random>` → 404
+  - Surfaced by: Section 6, Section 9
+  - Files: `tests/flows/door-payment.flow.ts`, `tests/flows/flows.mjs`, `tests/e2e/*.spec.ts`
+  - Verify: `pnpm qa:flows door-payment`; `pnpm e2e:smoke`
+- [ ] **T15 (P3, human: ~2h / CC: n.v.t.)** — P3a device-test — Maestro contactloos op Tap to Pay (NL) en een Android-tablet met NFC tegen Stripe's apparaatlijst
+  - Surfaced by: open vraag 11 (Max, 2026-10-12)
+  - Files: to be determined (`docs/native/*` runbook)
+  - Verify: betaling met echte Maestro-pas en Debit Mastercard op een release-build
+
+_No new tasks from Section 10 (trajectory): schuld is bewust en gelogd._
+
+### 10.27 TODOS.md
+
+Aangemaakt (`TODOS.md`, repo-root) met de vijf al-besloten uitstellingen, zonder nieuwe vragen (elk antwoord staat in het ledger): fee-regels-tabel (D19 B), retry-wachtrij refunds (D20.2 A), P4b uitbetaalautomatisering (D13), P2b open shop (D13/premisse 3), P6 tweede PSP (besluit 23). Geen nieuwe TODO-voorstellen uit de secties: alles wat gevonden is, is óf vereiste correctheid/operabiliteit (taken T1–T15) óf al uitgesteld.
+
+### 10.28 Outside Voice
+
+Codex: niet geïnstalleerd (preflight `CODEX_MODE: not_installed`). Native fallback vereist `TaskOutput` in de tooldefinities van deze sessie; die ontbreekt → onbeschikbaar-pad: geen reviewer gestart, geen clean-credit. Gelogd als `codex-plan-review` status `unavailable`, `outside_status: unavailable`. Let op: de **office-hours** van vandaag kreeg wél een onafhankelijke koude lezing (Claude-subagent, zie design-doc §Cross-Model Perspective); die telt niet als outside coverage voor déze review.
+
+### 10.29 Approval readiness
+
+Gecontroleerd per rij: L1 D13=C · L2 D12=B · L3 premisse 5/D10 · L4 D13 + premisse 3 · L5 D14.3=B · L6 D14.4=B · L7 D14.2/D15.2=A · L8 D14.1/D15.1=A · L9 D16.1=A · L10 D16.2=A · L11 D17 (geen voorkeur = aanbevolen A) · L12 D17 (Gevolgen) → T12 · L13 D17 (Dependencies) → T13 · L14 D19=B · L15 D20.1=B · L16 D20.2=A (shortcut, gelogd). Elke taak T1–T15 past binnen de scope van precies één van deze antwoorden of een bestaande invariant (CLAUDE.md security-checklist, AVG-retentie, DoD, Prime Directive 1/5). Afgewezen en uitgestelde items staan buiten de taken (10.20, 10.27).
+
+**Approval readiness: PASS** (L1–L16).
+
+### 10.30 Completion Summary
+
+```
+  +====================================================================+
+  |            MEGA PLAN REVIEW — COMPLETION SUMMARY                   |
+  +====================================================================+
+  | Mode selected        | HOLD SCOPE (D18, Max)                       |
+  | System Audit         | docs-only PR #465 gemerged; niets gebouwd;  |
+  |                      | spec #62 draagt Connect-restanten; ClickUp  |
+  |                      | Fase 14 nog op milestone-25                 |
+  | Step 0               | office-hours vooraf (design-doc APPROVED);  |
+  |                      | aanpak C; 16 ledger-rijen, alle approved    |
+  | Section 1  (Arch)    | 7 issues found (2 → beslissingen L15/L16)   |
+  | Section 2  (Errors)  | 20 error paths mapped, 1 GAP → resolved L16 |
+  | Section 3  (Security)| 13 threats, 0 unmitigated High; 4 CRITICAL  |
+  |                      | vereisten als taken (T1,T3,T4,T10)          |
+  | Section 4  (Data/UX) | 14 edge cases mapped, 0 unhandled           |
+  | Section 5  (Quality) | 2 issues found (geldlogica één plek; dispatch)|
+  | Section 6  (Tests)   | Diagram produced, 0 gaps (headers in T2,T3, |
+  |                      | T14)                                        |
+  | Section 7  (Perf)    | 0 issues found (indexen + view gespecificeerd)|
+  | Section 8  (Observ)  | 1 gap found (heartbeat → T9)                |
+  | Section 9  (Deploy)  | 2 risks flagged (geen staging; oude client) |
+  | Section 10 (Future)  | Reversibility: 3/5, debt items: 4 (bewust)  |
+  | Section 11 (Design)  | 0 issues; /plan-design-review aanbevolen    |
+  +--------------------------------------------------------------------+
+  | NOT in scope         | written (11 items: 5 deferred, 6 rejected)  |
+  | What already exists  | written                                     |
+  | Dream state delta    | written                                     |
+  | Error/rescue registry| 20 rows, 0 CRITICAL GAPS                    |
+  | Failure modes        | 18 total, 0 CRITICAL GAPS                   |
+  | TODOS.md updates     | 5 items (alle al besloten; geen nieuwe)     |
+  | Scope proposals      | 0 proposed, 0 accepted (HOLD SCOPE)         |
+  | CEO plan             | skipped by mode                             |
+  | Outside voice        | codex: unavailable (not installed; native   |
+  |                      | fallback zonder TaskOutput)                 |
+  | Lake Score           | 0/1 (D13: C gekozen, B was 10/10)           |
+  | Diagrams produced    | 7 (architectuur, dataflows, state machines, |
+  |                      | async-schedule, deploy/rollback, userflow,  |
+  |                      | droomtoestand)                              |
+  | Stale diagrams found | 0                                           |
+  | Unresolved decisions | 0                                           |
+  | Reality rows         | 7/7 rows (PLAN_REALITY complete), 2 unverified |
+  +====================================================================+
+```
+
+### 10.31 Unresolved Decisions
+
+Geen onbeantwoorde vragen; D17 kwam terug als "geen voorkeur" en is als de aanbevolen optie (A, goedkeuren) verwerkt en zo in het ledger genoteerd. Open **vragen** (geen reviewbeslissingen) staan in het design-doc §Open Questions: 1 (quotes per venue), 3 (ticketdocument-vlag), 4 (Stripe-bevestiging), 5 (jurist afzondering), 8 (deur-UI hoofden), 11 (Maestro/tablet-test); eigenaar Max/P0.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR | mode: HOLD SCOPE, 0 critical gaps (16 ledger rows approved, 15 tasks T1–T15, 5 deferred items in TODOS.md) |
+| Outside Review | codex (`/plan-ceo-review` outside voice) | Independent 2nd opinion | 1 | UNAVAILABLE | no completed external review: Codex not installed; native fallback unavailable (no TaskOutput in this session) |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+- **OUTSIDE COVERAGE:** provider codex, phase plan-review, unavailable (not installed; native fallback skipped: TaskOutput capability missing); 0 findings, no clean-review credit. Note: the office-hours design doc of 2026-10-12 did receive an independent cold read by a Claude subagent (same harness; recorded in the design doc), which does not count as outside coverage for this plan review.
+- **VERDICT:** CEO CLEARED (HOLD SCOPE, 0 unresolved, 0 critical gaps) — eng review required.
+
+NO UNRESOLVED DECISIONS
