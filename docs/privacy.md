@@ -40,6 +40,7 @@ verantwoordelijke bepaald; onderstaande is de praktische default.
 | 3 | **Deur: check-in & weigering** | Gasten | Check-in-tijd, door wie, device; weigerreden (vrije tekst) | Gerechtvaardigd belang (toegangscontrole, anti-fraude) | Idem; weigerreden wordt geredigeerd bij anonimisering |
 | 4 | **Toegang & personeelsbeheer** | Users (staff, admins, organisatoren) | Naam, e-mail (auth-identiteit), rollen, ingelogde sessies/devices | Uitvoering overeenkomst venue ↔ user | Zolang account/membership bestaat; verwijderen membership ≠ verwijderen user (#24) |
 | 5 | **Auditlog (fraudebestrijding)** | Gasten + actoren | Actor, actie, before/after-diff, tijdstip, device | Gerechtvaardigd belang (fraudebestendigheid, #1/#4/#15) | Append-only; **PII in diffs wordt geschoond** zodra de gast wordt geanonimiseerd (§4) |
+| 5b | **Productanalytics (PostHog, #65)** | Users (company-teams); bezoekers van `/` en `/login` | User-UUID (geen naam/e-mail), rollen, company-id, event-/scherm-id's, aantallen, browser/OS, URL zonder query. **Geen gastgegevens** | In de app: uitvoering overeenkomst / gerechtvaardigd belang (producttelemetrie, in de terms; opt-out in Profile). Publiek: toestemming via de cookie-banner | Volgens de PostHog-projectinstelling (vast te leggen bij go-live); IP wordt niet bewaard |
 | 6 | **Billing** *(fase 2)* | Venue-contactpersoon | Facturatiegegevens via Stripe (geen gast-PII) | Uitvoering overeenkomst | Conform fiscale bewaarplicht; bij Stripe (§6) |
 
 **Dataminimalisatie (#9, #16):** e-mail en telefoon van gasten zijn altijd
@@ -147,6 +148,7 @@ van persoonsgegevens buiten de EER in de kern van het product.
 |---|---|---|---|
 | **Supabase** | Database (Postgres), Auth, Realtime, Edge Functions | **eu-west-1 (Ierland, EU)** | Zie correctie-noot hieronder. Standaard Supabase-DPA. Alle gast- en gebruikers-PII rust hier. |
 | **Vercel** | Hosting & edge (Next.js PWA) | **fra1 (Frankfurt, EU)** | Vercel-DPA. Geen PII in de app-logs; edge serveert alleen de applicatie. |
+| **PostHog** *(gepland, live na legal-ronde, #65)* | Productanalytics (PostHog Cloud EU) | **EU (Frankfurt)** | Geen gast-PII. Alleen user-UUID + rollen/company-id + getypte events (ids/aantallen). Via eigen proxy `/ingest`; "Discard client IP data" aan; zonder key in de build gaat er niets heen. Van C (gepland) naar A in `docs/legal` bij go-live. |
 | **Stripe** *(fase 2)* | Billing/abonnementen | EU | Alleen **venue-facturatiegegevens**, geen gast-PII. Betaalgegevens (SEPA/iDEAL) blijven bij Stripe; wij slaan geen IBAN/kaartdata op (#32). |
 
 > **Correctie-noot (regio Supabase).** De oorspronkelijke opdracht noemde
@@ -208,5 +210,7 @@ contactgegevens horen in de verwerkersovereenkomst.
   bestaan al; zie `src/components/po/screens/settings.tsx`).
 - [ ] Actuele **DPA-versies en sub-verwerkerslijsten** van Supabase en Vercel
   vastleggen en periodiek herzien.
-- [ ] Beslissen over **cookie-/analytics-beleid** (analytics staat lokaal uit;
-  bevestig voor productie).
+- [x] Beslissen over **cookie-/analytics-beleid**: besloten (#65, `docs/analytics.md`):
+  in de app standaard aan met opt-out, publiek alleen na de cookie-banner, gasten nooit.
+  Nog open: cookie policy met de drie categorieën + subprocessor C → A (legal-ronde),
+  daarna pas de PostHog-key.

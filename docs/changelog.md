@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Analytics PH (PostHog), PR 3 docs (onboarding programme task 10)
+
+Branch `claude/posthog-docs` (from main; docs only). PR 1 foundation #485 and PR 2 instrumentation #488 hold the code; their changelog entries arrive with them.
+
+- `docs/analytics.md`: the canonical event catalog v1, the consent model per surface, transport, the dashboards for the weekly review, and the go-live checklist.
+- `docs/privacy.md`: processing record 5b (product analytics), PostHog as a planned subprocessor (EU, no guest data), and the cookie/analytics decision marked decided (#65) with the legal round still open.
+- CLAUDE.md: a "Product analytics" invariants section (pointing at `docs/analytics.md` only), and open work updated (PostHog built, no key yet).
+- Spec decision #65 itself ships with PR 1 (#485).
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.

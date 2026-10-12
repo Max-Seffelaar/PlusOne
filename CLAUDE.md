@@ -77,6 +77,19 @@ PlusOne's own operators (Max, Joeri) need cross-venue read+write for support/deb
 - Tokens/behaviour reference: `design-system.md` (repo root). Near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body. Entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`. Where prototype and spec conflict, the spec wins.
 - **Tablet (T1):** iPad ships in the native v1, so every screen must work at 641–1023px before store submission. Content layout switches at `md:` (768px) — never `lg:` for grids/tables — and the `WIDE_DESKTOP` column applies in both chromes. Density follows the pointer: a size below 44px only behind `lg:[@media(pointer:fine)]:` (iPad landscape is desktop width + touch); guarded by `tests/unit/touch-density.test.ts`.
 
+## Product analytics (PostHog, decision #65)
+
+Built, off until Max sets the key after the legal round. Canonical catalog, consent model and dashboards: `docs/analytics.md`. Invariants:
+
+- **Guests are never tracked.** Event properties are UUIDs, enums, booleans and counts only. Every event is a member of the typed catalog, and a PII lint test walks it; never a name, e-mail, phone, note or reason.
+- **No key = nothing.** posthog-js is loaded only through one dynamic import (a confinement test enforces this; never a static import, for door first paint), and posthog-node lives only in the server-only analytics module.
+- **Consent:**
+  - Signed in: on by default, with the opt-out in Profile (`user_profiles.analytics_opt_out_at`). It is written via a column UPDATE grant on your own row, never readable by colleagues, and read through `my_profile()`. Any doubt counts as opted out.
+  - Public: the cookie banner (necessary / analytics / marketing) on `/`, `/login` and `/e/<slug>`. Nothing loads before a choice. Anonymous analytics only on `/` and `/login`.
+  - Never a banner on a signed-in surface or in the native shell.
+- **Transport:** same-origin `/ingest` proxy, outside the middleware matcher and the service worker. `skipTrailingSlashRedirect` is on, so the middleware does the trailing-slash 308 itself.
+- **Door events are captured at enqueue, never from the outbox or its replay.** `signOutDevice` resets the PostHog identity.
+
 ## Capacitor-readiness checklist — EVERY new `po` screen (decision #37)
 
 The `po` surface gets wrapped via the **remote-URL model** (native webview loads the live app). Build every screen so the wrap needs no rewrite:
@@ -116,7 +129,7 @@ Established by `engineering-review-2026-07.md` + `perf-scale-audit-megaevent.md`
 
 Live on prod: backend + RLS + audit + quota engine + door PWA (offline outbox) + landing + stats + AVG retention + billing (pilots `comped`) + the unified responsive `/app` surface. Suites green: Vitest 434 + pgTAP 529 on a fresh reset. **Branch protection on `main` is on** (`lint-and-test` required, admins included). Full history: `docs/changelog.md`.
 
-Open work (ClickUp list `901818739469`, one task per session): **Prod-ready 9/7** program 01–13 (this file's slim-down = 01; Sentry, uptime, hooks, e2e smoke, restore drill, legal, incident skill…), **UX/IA 8/7** tasks (12, build order fixed, after the prod-ready core), P6 + K6/K11 review leftovers, tablet layouts. Parked by milestone: door mesh (≥5 venues), scale-track remainder (≥25), PostHog (after G1 — G1 itself shipped, see Design & surface above). Decided 2026-10-11, milestone **≥5**: **Fase 14 door payments** (`payments-plan-claude-code.md`; CEO-reviewed 2026-10-12: plan §10, `docs/designs/fase-14-deurbetalingen-office-hours.md`, tasks T1–T15, deferred items in `TODOS.md`; eng review next) and the Tap to Pay half of **Fase 17 wave 6**; the share sheet (S6) waits only on the first store approval.
+Open work (ClickUp list `901818739469`, one task per session): **Prod-ready 9/7** program 01–13 (this file's slim-down = 01; Sentry, uptime, hooks, e2e smoke, restore drill, legal, incident skill…), **UX/IA 8/7** tasks (12, build order fixed, after the prod-ready core), P6 + K6/K11 review leftovers, tablet layouts. Parked by milestone: door mesh (≥5 venues), scale-track remainder (≥25), PostHog is built (onboarding task 10, three PRs, no key yet; see "Product analytics" below). Decided 2026-10-11, milestone **≥5**: **Fase 14 door payments** (`payments-plan-claude-code.md`; CEO-reviewed 2026-10-12: plan §10, `docs/designs/fase-14-deurbetalingen-office-hours.md`, tasks T1–T15, deferred items in `TODOS.md`; eng review next) and the Tap to Pay half of **Fase 17 wave 6**; the share sheet (S6) waits only on the first store approval.
 
 ## Env & prod-push
 
