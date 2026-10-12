@@ -6,6 +6,7 @@
 // affected event subtree. Door writes are deliberately ABSENT — they flow through
 // the offline outbox (DoorProvider), never a plain server action (#25).
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { analytics } from '@/features/analytics/provider';
 import {
   addGuest,
   addGuestsBulk,
@@ -223,6 +224,15 @@ export function usePoAddGuest(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prev);
     },
+    // Ids and counts only: the guest's name is right there in `input` and must
+    // never reach analytics (events.ts, PII lint).
+    onSuccess: (_res, input) =>
+      analytics.capture({
+        event: 'guest_added',
+        event_id: eventId,
+        method: input.source === 'door' ? 'door' : 'quick_add',
+        plus_ones: input.plusOnes ?? 0,
+      }),
     // Reconcile with the server (real ids, role, audit) regardless of outcome —
     // our own key-invalidation, never Next's revalidatePath (that won't touch
     // the client React Query cache the po surface reads from).
@@ -238,6 +248,8 @@ export function usePoAddGuestsBulk(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prev);
     },
+    onSuccess: (_res, input) =>
+      analytics.capture({ event: 'guests_added_bulk', event_id: eventId, count: input.guests.length }),
     onSettled: () => invalidateAfterAdd(qc, eventId),
   });
 }
@@ -415,11 +427,19 @@ export function usePoPromoteGuestToContact(eventId: string) {
 // Contacts screen is opened again.
 export function usePoRemoveGuest(eventId: string) {
   const qc = useQueryClient();
-  return useMutation(guestMutation(qc, eventId,
+  const base = guestMutation(qc, eventId,
     // The note (guest mail F) goes to the guest in the removal mail.
     async (input: string | { guestId: string; note?: string }) => throwOnError(await removeGuest(input)),
     [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY, CONTACTS_KEY],
-  ));
+  );
+  return useMutation({
+    ...base,
+    onSuccess: () => {
+      base.onSuccess();
+      // Never the note: free text addressed to the guest.
+      analytics.capture({ event: 'guest_removed', event_id: eventId });
+    },
+  });
 }
 
 // ── Event-dag cockpit check-in/out (S13) ──────────────────────────────────────
@@ -795,6 +815,7 @@ export function usePoApproveRequest() {
     mutationFn: async (input: ApproveGuestRequestInput) =>
       throwOnError(await approveGuestRequest(input)),
     onSuccess: (_res, input) => {
+      if (input.eventId) analytics.capture({ event: 'request_approved', event_id: input.eventId });
       void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
       if (input.eventId) {
         void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
@@ -817,6 +838,14 @@ export function usePoDecideRequest() {
   return useMutation({
     mutationFn: async (input: DecideGuestRequestInput) => throwOnError(await decideGuestRequest(input)),
     onSuccess: (_res, input) => {
+      // Somebody got a spot = approved (a split or a trim included); nobody = denied.
+      // Never the note.
+      if (input.eventId) {
+        analytics.capture({
+          event: input.approved.length > 0 ? 'request_approved' : 'request_denied',
+          event_id: input.eventId,
+        });
+      }
       void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
       if (input.eventId && input.approved.length > 0) {
         void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
@@ -844,7 +873,9 @@ export function usePoRequestExtraSlots(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: QuotaRequestInput) => throwOnError(await requestExtraSlots(input)),
-    onSuccess: () => {
+    onSuccess: (_res, input) => {
+      // The amount, never the motivation (free text).
+      analytics.capture({ event: 'extra_slots_requested', event_id: eventId, amount: Number(input.requestedExtra) });
       void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
       void qc.invalidateQueries({ queryKey: QUOTA_REQUESTS_KEY });
     },
@@ -925,6 +956,7 @@ export function usePoAddContactToEvent() {
     mutationFn: async (input: AddContactToEventInput) =>
       throwOnError(await addContactToEvent(input)),
     onSuccess: (_res, input) => {
+      analytics.capture({ event: 'guest_added', event_id: input.eventId, method: 'contact', plus_ones: input.plusOnes ?? 0 });
       invalidateAfterAdd(qc, input.eventId);
       // The contact gained an appearance — refresh any open profile (S2 detail).
       void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
@@ -1002,7 +1034,8 @@ export function usePoCreateEvent() {
       if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
       return res.eventId;
     },
-    onSuccess: () => {
+    onSuccess: (eventId) => {
+      analytics.capture({ event: 'event_created', event_id: eventId, from_template: false });
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
@@ -1042,7 +1075,10 @@ export function usePoSetListLock(eventId: string) {
   const invalidate = useInvalidateEvent();
   return useMutation({
     mutationFn: async (input: SetLockInput) => throwOnError(await setListLock(input)),
-    onSuccess: () => invalidate(eventId),
+    onSuccess: (_data, input) => {
+      analytics.capture({ event: 'list_lock_toggled', event_id: eventId, locked: input.locked });
+      invalidate(eventId);
+    },
   });
 }
 
@@ -1055,7 +1091,10 @@ export function usePoSetListLockOnHome() {
   const invalidate = useInvalidateEvent();
   return useMutation({
     mutationFn: async (input: SetLockInput) => throwOnError(await setListLock(input)),
-    onSuccess: (_data, input) => invalidate(input.eventId),
+    onSuccess: (_data, input) => {
+      analytics.capture({ event: 'list_lock_toggled', event_id: input.eventId, locked: input.locked });
+      invalidate(input.eventId);
+    },
   });
 }
 
@@ -1199,7 +1238,8 @@ export function usePoCreateEventFromTemplate() {
       if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
       return { eventId: res.eventId, contactSaved: res.contactSaved !== false };
     },
-    onSuccess: () => {
+    onSuccess: ({ eventId }) => {
+      analytics.capture({ event: 'event_created', event_id: eventId, from_template: true });
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
@@ -1467,7 +1507,11 @@ export function usePoInviteUser() {
       input.eventIds?.forEach((id) => fd.append('eventIds', id));
       return throwOnActionError(await inviteUserAction(NO_PREV, fd));
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),
+    onSuccess: (_res, input) => {
+      // Roles and a count, never the address.
+      analytics.capture({ event: 'member_invited', roles_granted: [...input.roles], event_count: input.eventIds?.length ?? 0 });
+      void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') });
+    },
   });
 }
 
