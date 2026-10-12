@@ -159,6 +159,19 @@ Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` colu
 
 ---
 
+## 2026-10-12 — DateField month test flake: a timed-out test typed into the next one (+ 44px calendar on touch)
+
+Milestone **Now** (CI reliability). No migration. The flake fix is test-only; the browser check of the handoff found a separate touch-size gap, fixed in the same PR (last bullet).
+
+- **Symptom:** `datetime-field.datefield.test.tsx` failed now and then (more often in the full suite) with "expected October to equal September", which looked like the calendar opening on today's month.
+- **Root cause (reproduced deterministically):** under full-suite load the first test paid the cold react-day-picker import (next/dynamic) inside its 5 s budget and **timed out**. Vitest moves on but never cancels the test body. The abandoned test kept running and, through the global `screen`, found the **next** test's calendar and typed its own `17-10-2026` into it, so test 2 read October. The month being today's was a coincidence: with the typed date changed to `17-12-2026`, test 2 read December.
+- **Not a UI bug:** `openPicker` sets `month` (value → anchor → today) in the same batched update as `open`, and react-day-picker only calls `onMonthChange` on user navigation. The calendar shows a spinner until it loads, never today's month first.
+- **Fix (test):** every query is scoped to the test's own render container (`within(container)`), so an abandoned test can only touch its own unmounted tree; the calendar chunk is warmed in `beforeAll` (30 s hook budget); Date is pinned to 15 June 2026 (`toFake: ['Date']`), so the dropdown range (last year … three years out) no longer runs out in 2028, and a new 5th case pins the today fallback.
+- **Proof:** the forced-timeout repro (600 ms cold chunk, 300 ms budget for test 1) cascaded into test 2 before the fix and fails only the starved test after it. File 20× in a row: 20/20 green; 8 concurrent runs: 8/8 green; full `CI=1 pnpm test`: the file is 5/5, and only the known Windows-only files fail. A browser check (event moved to Jan 2027, MutationObserver from closed to open) saw only January 2027, with no flash of today's month.
+- **44px calendar on touch (T1).** The browser check at 390px found every calendar day button at 40×40px. On touch, day buttons are now 44×44 (`daypicker.tsx`), and the Today/Clear footer buttons are `min-h/min-w-[44px]`. The compact sizes (34px days, 12px root padding, 2px cell padding, the footer's natural height) apply only behind `lg:[@media(pointer:fine)]:`. To keep 7 columns inside a 375px phone with a 16px gutter, touch uses 1px cell padding and 8px root padding: 7×46 + 16 + 2 = 340px of the 343px available. The loading placeholder matches both sizes. A jsdom case asserts the base classes of every day, nav and footer button, and fails on the old 40px. `touch-density` and `kit.tap-target` stay green. DateField file 10× in a row: 10/10 green, 6/6 each.
+
+---
+
 ## 2026-10-11 — Guest info + live calendar link (z8uq9m4a5n)
 
 Milestone **Now** (ADE). Spec #63 (new). Migration `20261015160000_event_guest_info.sql`, merges after #467 (`…140000`, its `audit_events` WHEN is the base here) and #462 (`…150000`).
