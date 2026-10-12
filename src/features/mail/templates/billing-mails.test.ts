@@ -12,8 +12,13 @@ const ALL: BillingMailType[] = [...TRIAL_MAIL_TYPES, ...EVENT_MAIL_TYPES];
 // ADE override: 27 Oct 00:00 Amsterdam.
 const ADE_END = '2026-10-26T23:00:00Z';
 
+const VENUE = 'aa000000-0000-7000-8000-000000000002';
+
 function render(type: BillingMailType, over: Partial<Parameters<typeof renderBillingMail>[0]> = {}) {
-  return renderBillingMail({ type, firstName: 'Sanne', companyName: 'Club Vesper', trialEndsAt: ADE_END, ...over }, APP);
+  return renderBillingMail(
+    { type, firstName: 'Sanne', companyName: 'Club Vesper', trialEndsAt: ADE_END, venueId: VENUE, ...over },
+    APP
+  );
 }
 
 describe('renderBillingMail: the seven subjects from copy v3', () => {
@@ -43,9 +48,9 @@ describe('renderBillingMail: body facts', () => {
     '%s: button goes to the web Billing page',
     (type) => {
       const m = render(type);
-      expect(m.html).toContain('href="https://app.plus-one.io/app/billing"');
+      expect(m.html).toContain(`href="https://app.plus-one.io/app/billing?venue=${VENUE}"`);
       expect(m.html).toContain(`>${billingMailCopy[type].button}</a>`);
-      expect(m.html).toContain('Button not working? Open https://app.plus-one.io/app/billing');
+      expect(m.html).toContain(`Button not working? Open https://app.plus-one.io/app/billing?venue=${VENUE}`);
     }
   );
 
@@ -107,7 +112,10 @@ describe('renderBillingMail: injection rules', () => {
   });
 
   it('a trailing slash on the app URL does not double up', () => {
-    const m = renderBillingMail({ type: 'billing_canceled', firstName: 'S', companyName: 'C', trialEndsAt: null }, `${APP}/`);
+    const m = renderBillingMail(
+      { type: 'billing_canceled', firstName: 'S', companyName: 'C', trialEndsAt: null, venueId: null },
+      `${APP}/`
+    );
     expect(m.html).toContain('href="https://app.plus-one.io/app/billing"');
   });
 });
@@ -128,5 +136,25 @@ describe('sender', () => {
   it('is replyable: support@ as sender and reply-to', () => {
     expect(BILLING_MAIL_FROM).toBe('PlusOne <support@plus-one.io>');
     expect(BILLING_MAIL_REPLY_TO).toBe('support@plus-one.io');
+  });
+});
+
+describe('billing CTA ?venue= (z8uq9m49k4)', () => {
+  it('every Billing button names the company; the welcome mail (new event) does not', () => {
+    for (const type of ['billing_trial_day7', 'billing_trial_day12', 'billing_trial_ended', 'billing_trial_day21', 'billing_payment_failed', 'billing_canceled'] as const) {
+      expect(render(type).text).toContain(`https://app.plus-one.io/app/billing?venue=${VENUE}`);
+    }
+    const welcome = render('billing_trial_day0');
+    expect(welcome.text).toContain('https://app.plus-one.io/app/events/new');
+    expect(welcome.text).not.toContain('?venue=');
+  });
+
+  it('no venue, or anything that is not a uuid, gives the plain Billing URL (never a raw value in the link)', () => {
+    for (const venueId of [null, '', 'x"><script>', `${VENUE}&next=//evil`]) {
+      const m = render('billing_trial_day7', { venueId });
+      expect(m.html).toContain('href="https://app.plus-one.io/app/billing"');
+      expect(m.html).not.toContain('evil');
+      expect(m.html).not.toContain('<script>');
+    }
   });
 });
