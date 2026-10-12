@@ -23,6 +23,7 @@ function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
     old_tier_name: null,
     new_tier_name: null,
     request_name: null,
+    location_name: null,
     ...overrides,
   };
 }
@@ -278,5 +279,62 @@ describe('formatWhen', () => {
 
   it('returns empty string for a missing timestamp', () => {
     expect(formatWhen('', now)).toBe('');
+  });
+});
+
+// z8uq9m49k2 — location changes are audited (company_locations + events.location_*).
+describe('describeAuditEntry — locations', () => {
+  const loc = (action: string, diff: AuditFeedRow['diff']) =>
+    describeAuditEntry(row({ entity_type: 'company_locations', entity_id: 'l1', action, event_id: null, event_name: null, guest_name: null, diff }));
+
+  it('names saved-location writes', () => {
+    expect(loc('create', { before: null, after: { name: 'Paradiso' } }).text).toBe('added the location Paradiso');
+    expect(loc('update', { before: { name: 'Paradiso' }, after: { name: 'Paradiso Noord' } }).text).toBe(
+      'renamed the location Paradiso to Paradiso Noord',
+    );
+    expect(loc('update', { before: { archived_at: null }, after: { archived_at: '2026-10-11T10:00:00Z' } }).text).toBe(
+      'archived a saved location',
+    );
+    expect(loc('update', { before: { archived_at: '2026-10-11T10:00:00Z' }, after: { archived_at: null } }).text).toBe(
+      'restored a saved location',
+    );
+    expect(loc('update', { before: { city: 'A' }, after: { city: 'B' } }).text).toBe('updated a saved location');
+    expect(loc('delete', { before: { name: 'Paradiso' }, after: null }).text).toBe('removed the location Paradiso');
+  });
+
+  it('falls back to the current name audit_feed resolves when the diff has none (#467 test 10)', () => {
+    const named = (diff: AuditFeedRow['diff'], location_name: string | null) =>
+      describeAuditEntry(row({ entity_type: 'company_locations', entity_id: 'l1', action: 'update', event_id: null, event_name: null, guest_name: null, location_name, diff }));
+    const r = named({ before: { archived_at: null }, after: { archived_at: '2026-10-11T10:00:00Z' } }, 'Melkweg');
+    expect(r.text).toBe('archived the location Melkweg');
+    expect(r.entity).toBe('Melkweg');
+    // Company-level: no event, so the Event column renders its "—".
+    expect(r.event).toBe('');
+    expect(named({ before: { city: 'A' }, after: { city: 'B' } }, 'Melkweg').text).toBe('updated the location Melkweg');
+    // The diff's own name wins (the name at the time), not today's.
+    expect(named({ before: { name: 'Paradiso' }, after: { name: 'Paradiso Noord' } }, 'Later Name').text).toBe(
+      'renamed the location Paradiso to Paradiso Noord',
+    );
+  });
+
+  const ev = (diff: AuditFeedRow['diff']) =>
+    describeAuditEntry(row({ entity_type: 'events', entity_id: 'e1', action: 'update', diff }));
+
+  it('names an event location change with the whole new location', () => {
+    expect(ev({ before: { location_name: null, location_address: null }, after: { location_name: 'Melkweg', location_address: 'Lijnbaansgracht 234A' } }).text).toBe(
+      'set the location of FRENZY to Melkweg, Lijnbaansgracht 234A',
+    );
+    // Only the address changed: an unchanged column is not in the diff.
+    expect(ev({ before: { location_address: 'Old 1' }, after: { location_address: 'New 2' } }).text).toBe(
+      'set the location of FRENZY to New 2',
+    );
+    expect(ev({ before: { location_name: 'Melkweg', location_address: 'X' }, after: { location_name: null, location_address: null } }).text).toBe(
+      'cleared the location of FRENZY',
+    );
+  });
+
+  it('a lock still reads as a lock, even if the same edit touched the location', () => {
+    const r = describeAuditEntry(row({ entity_type: 'events', action: 'lock', diff: { before: { list_locked: false, location_name: null }, after: { list_locked: true, location_name: 'X' } } }));
+    expect(r.text).toBe('locked the list');
   });
 });

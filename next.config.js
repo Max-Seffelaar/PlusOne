@@ -139,6 +139,11 @@ const nextConfig = {
       // Must stay AFTER the catch-all above — last-wins per header key.
       // '/e/:path*' also matches the bare '/e' segment.
       { source: '/e/:path*', headers: [{ key: 'Content-Security-Policy', value: landingCsp }] },
+      // The guest status surface is a bearer URL (/s/[token], its .ics and
+      // the live Google redirect, z8uq9m4a5n): no Referer at all, so the token
+      // never leaves, not even on a same-origin hop. A route's own
+      // Referrer-Policy loses to the catch-all above, so it is set here.
+      { source: '/s/:path*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
     ];
   },
 };
