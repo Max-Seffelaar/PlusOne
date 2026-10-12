@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — DateField month test flake: a timed-out test typed into the next one
+
+Milestone **Now** (CI reliability). Test-only, no migration, no component change.
+
+- **Symptom:** `datetime-field.datefield.test.tsx` failed now and then (more often in the full suite) with "expected October to equal September", which looked like the calendar opening on today's month.
+- **Root cause (reproduced deterministically):** under full-suite load the first test paid the cold react-day-picker import (next/dynamic) inside its 5 s budget and **timed out**. Vitest moves on but never cancels the test body. The abandoned test kept running and, through the global `screen`, found the **next** test's calendar and typed its own `17-10-2026` into it, so test 2 read October. The month being today's was a coincidence: with the typed date changed to `17-12-2026`, test 2 read December.
+- **Not a UI bug:** `openPicker` sets `month` (value → anchor → today) in the same batched update as `open`, and react-day-picker only calls `onMonthChange` on user navigation. The calendar shows a spinner until it loads, never today's month first.
+- **Fix (test):** every query is scoped to the test's own render container (`within(container)`), so an abandoned test can only touch its own unmounted tree; the calendar chunk is warmed in `beforeAll` (30 s hook budget); Date is pinned to 15 June 2026 (`toFake: ['Date']`), so the dropdown range (last year … three years out) no longer runs out in 2028, and a new 5th case pins the today fallback.
+- **Proof:** the forced-timeout repro (600 ms cold chunk, 300 ms budget for test 1) cascaded into test 2 before the fix and fails only the starved test after it. File 20× in a row: 20/20 green; 8 concurrent runs: 8/8 green; full `CI=1 pnpm test`: the file is 5/5, and only the known Windows-only files fail.
+
+---
+
 ## 2026-10-11 — Billing mails follow-ups: 409 = outcome unknown, Stripe mails first, Billing ?venue= deep link (z8uq9m49k4)
 
 Follow-up of 2c (#446), review nits D1/D3 and an open point. Milestone **Now**.
