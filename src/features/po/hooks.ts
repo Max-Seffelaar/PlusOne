@@ -183,6 +183,12 @@ import {
   type PerUser,
 } from '@/features/stats/po-adapter';
 import { getDoorClient } from '@/features/door/offline/device';
+import {
+  patchArrivalsFromCheckIn,
+  patchGuestsFromRow,
+  type RealtimeCheckInRow,
+  type RealtimeGuestRow,
+} from './eventday/realtime-patch';
 import { shouldRefetchOnStatus, type ChannelStatus } from '@/features/door/sync/reconnect';
 
 /** Existing-contact dedup keys for the import preview, mirroring the DB's
@@ -817,22 +823,46 @@ export function usePoCheckinArrivals(eventId: string, options?: { refetchInterva
 
 // Door rush = several check-ins/sec from 5+ devices; each check-in touches BOTH
 // `guests` (status flip) and `check_ins` (insert), i.e. 2 postgres_changes events.
-// Firing the full cascade per event made the cockpit re-download an unchanged
-// list on every single check-in (~20 requests/check-in, 86ey9e8fe).
-// Leading+trailing coalesce: the first event in a quiet period still invalidates
-// immediately (a lone check-in feels instant), further events within the window
-// are absorbed into one trailing refetch instead of firing again per event.
-const REALTIME_INVALIDATE_THROTTLE_MS = 500;
+// The guest list and the arrivals are patched straight from those payloads
+// (Snelheid P2, finding 10 — like the door's onRealtimeCheckIn): no request at
+// all for an ordinary check-in, void, top-up or edit. Only a row the payload
+// can't build (a peer's new guest, an unknown tier) falls back to a refetch of
+// the list, coalesced over REALTIME_REFETCH_THROTTLE_MS. The aggregates that do
+// need the server (tier occupancy, the 5-RPC stats bundle, the event-detail
+// header) refresh at most every REALTIME_AGGREGATE_THROTTLE_MS.
+const REALTIME_REFETCH_THROTTLE_MS = 500;
+const REALTIME_AGGREGATE_THROTTLE_MS = 5_000;
+
+/** Leading + trailing coalesce: the first call in a quiet period runs now, any
+ *  further calls inside the window collapse into one trailing run. */
+function leadingTrailing(run: () => void, ms: number): { call: () => void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pending = false;
+  const call = (): void => {
+    if (timer) {
+      pending = true;
+      return;
+    }
+    run();
+    timer = setTimeout(function tick() {
+      if (pending) {
+        pending = false;
+        run();
+        timer = setTimeout(tick, ms);
+      } else {
+        timer = null;
+      }
+    }, ms);
+  };
+  return { call, cancel: () => timer && clearTimeout(timer) };
+}
 
 /**
  * Keep the cockpit live: subscribe to this event's guests changes (the check-in
  * trigger flips guests.status) AND to check_ins (top-ups/voids touch check_ins
- * without a status move), invalidating the guest list + tier counts + arrivals +
- * stats. Mirrors the door's realtime setup (useDoorSync) — JWT set before
- * subscribe, the shared device-scoped client — but the cockpit needs no outbox, so
- * refetch-on-change is enough. Invalidation is throttled (see above) rather than
- * firing once per postgres_changes event. Returns the channel state for the "live"
- * indicator.
+ * without a status move). Mirrors the door's realtime setup (useDoorSync) — JWT
+ * set before subscribe, the shared device-scoped client — but the cockpit needs
+ * no outbox. Returns the channel state for the "live" indicator.
  */
 export function usePoEventRealtime(eventId: string): { realtimeConnected: boolean } {
   const qc = useQueryClient();
@@ -845,61 +875,66 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     let channel: ReturnType<typeof client.channel> | null = null;
     // Previous channel status → refetch on resubscribe after a drop (#0b).
     let prevStatus: ChannelStatus | null = null;
-    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
-    let trailingPending = false;
+
+    const refetchLists = leadingTrailing(() => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
+    }, REALTIME_REFETCH_THROTTLE_MS);
+    const refreshAggregates = leadingTrailing(() => {
+      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
+      // A peer's check-in/void also touches the event-detail header (headcount).
+      // NOT the venue-wide All-Guests tab (86ey9e8hz): re-downloading that
+      // working set on every check-in during a rush is exactly the cost the
+      // windowing removed — it refreshes on guest writes (mutation paths keep
+      // invalidating VENUE_GUESTS_PREFIX), on navigation, and on its safety sync.
+      void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
+    }, REALTIME_AGGREGATE_THROTTLE_MS);
+
+    const onGuest = (row: RealtimeGuestRow): void => {
+      const { next, needsRefetch } = patchGuestsFromRow(
+        qc.getQueryData<Guest[]>(poKeys.guests(eventId)),
+        row,
+        qc.getQueryData<Tier[]>(poKeys.tiers(eventId)),
+      );
+      if (needsRefetch) refetchLists.call();
+      else if (next) qc.setQueryData<Guest[]>(poKeys.guests(eventId), next);
+      refreshAggregates.call();
+    };
+    const onCheckIn = (row: RealtimeCheckInRow): void => {
+      qc.setQueryData<Map<string, CheckinArrival>>(poKeys.arrivals(eventId), (old) => patchArrivalsFromCheckIn(old, row));
+      refreshAggregates.call();
+    };
 
     void client.auth.getSession().then(({ data }) => {
       if (cancelled) return;
       const token = data.session?.access_token;
       if (token) client.realtime.setAuth(token);
 
-      const runInvalidate = (): void => {
-        void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-        void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
-        void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
-        void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
-        // A peer's check-in/void also touches the event-detail header (headcount).
-        // NOT the venue-wide All-Guests tab (86ey9e8hz): re-downloading that
-        // working set on every check-in during a rush is exactly the cost the
-        // windowing removed — it refreshes on guest writes (mutation paths keep
-        // invalidating VENUE_GUESTS_PREFIX), on navigation, and on its safety sync.
-        void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
-      };
-
-      // Leading edge fires now; further calls inside the window only flag a
-      // trailing refetch so a whole burst collapses into at most 2 cascades.
-      const invalidate = (): void => {
-        if (throttleTimer) {
-          trailingPending = true;
-          return;
-        }
-        runInvalidate();
-        throttleTimer = setTimeout(() => {
-          throttleTimer = null;
-          if (trailingPending) {
-            trailingPending = false;
-            runInvalidate();
-          }
-        }, REALTIME_INVALIDATE_THROTTLE_MS);
-      };
-
       channel = client
         .channel(`eventday:${eventId}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'guests', filter: `event_id=eq.${eventId}` },
-          invalidate
+          (payload) => {
+            if (payload.new && Object.keys(payload.new).length > 0) onGuest(payload.new as RealtimeGuestRow);
+          }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` },
-          invalidate
+          (payload) => {
+            if (payload.new && Object.keys(payload.new).length > 0) onCheckIn(payload.new as RealtimeCheckInRow);
+          }
         )
         .subscribe((st) => {
           if (cancelled) return;
           // Heal a missed burst: a resubscribe after a drop replays nothing, so
-          // refetch the 4 cockpit queries to close the gap (#0b).
-          if (shouldRefetchOnStatus(prevStatus, st)) invalidate();
+          // refetch the cockpit queries to close the gap (#0b).
+          if (shouldRefetchOnStatus(prevStatus, st)) {
+            refetchLists.call();
+            refreshAggregates.call();
+          }
           prevStatus = st;
           setRealtimeConnected(st === 'SUBSCRIBED');
         });
@@ -908,7 +943,8 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     return () => {
       cancelled = true;
       setRealtimeConnected(false);
-      if (throttleTimer) clearTimeout(throttleTimer);
+      refetchLists.cancel();
+      refreshAggregates.cancel();
       if (channel) void client.removeChannel(channel);
     };
   }, [eventId, qc]);

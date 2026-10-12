@@ -8,6 +8,15 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2 #10: cockpit patches from the realtime payload (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-cockpit-patch`. No migration.
+
+- **What was costly:** every realtime change on the desktop event-day cockpit invalidated the full guest list (+ tiers read + actor names), the arrivals, tier occupancy, the 5-RPC stats bundle and the event-detail header, throttled only to 500 ms: about two full re-downloads per second per open cockpit at a door rush.
+- **Fix:** `usePoEventRealtime` patches `poKeys.guests` and `poKeys.arrivals` straight from the `guests` / `check_ins` payloads (`src/features/po/eventday/realtime-patch.ts`, pure, like the door's `onRealtimeCheckIn`). Only a row the payload can't build (a peer's new guest, an unknown tier) refetches the list (500 ms coalesce). Tier occupancy, stats and the event-detail header refresh leading + trailing at most every 5 s. A resubscribe after a drop still refetches everything (#0b); the 60 s safety poll is unchanged.
+- **Measured** (`scripts/perf/p2-measure-cockpit.mjs`: real Chromium at 1280 px on the cockpit, a peer checks in 20 guests at 2/s through the service role, requests counted until 6 s after the last; dev servers on origin/main and on the branch): **352 → 21 requests** (21.5 → 1.3 req/s), full guest-list reads 32 → 0, check-in reads 32 → 0; both show 20/40 inside at the end.
+- **Tests:** `realtime-patch.test.ts`; `hooks.eventRealtime.test.tsx` rewritten to the new contract (patch, no list refetch, C19 detail refresh, no venue-guests, ~5 s aggregates, resubscribe heals); flow `cockpit-realtime` (desktop only, 6 checks).
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.

@@ -1,38 +1,38 @@
 // @vitest-environment jsdom
 //
-// Regression coverage for C19 (2026-07 review P3, ClickUp 86ey6xdkb):
-// usePoEventRealtime's invalidate() previously omitted eventDetail — a peer's
-// check-in/void never refreshed the event-detail header. Asserts the full
-// invalidated key-list on a postgres_changes callback, not just the pre-fix subset.
+// Regression coverage for usePoEventRealtime, the desktop cockpit's live feed.
 //
-// 86ey9e8hz updated this: the venue-wide All-Guests tab (VENUE_GUESTS_PREFIX) is
-// NO LONGER invalidated per check-in — that tab is a server-windowed working set,
-// and re-downloading it on every check-in during a rush is the cost the windowing
-// removed. It still refreshes on guest WRITES (the mutation paths keep the prefix).
-//
-// Also covers 86ey9e8fe: invalidate() is throttled (leading+trailing) so a
-// burst of postgres_changes events (a check-in touches BOTH guests AND
-// check_ins) collapses into at most 2 invalidate cycles instead of firing the
-// full cascade once per event.
+// C19 (2026-07 review P3, ClickUp 86ey6xdkb): a peer's check-in/void must also
+// refresh the event-detail header (eventDetail).
+// 86ey9e8hz: the venue-wide All-Guests tab (VENUE_GUESTS_PREFIX) is NOT
+// re-downloaded per check-in; it refreshes on guest WRITES (mutation paths).
+// 86ey9e8fe: a burst collapses (leading + trailing), never one cascade per event.
+// Snelheid P2 (finding 10): the guest list and the arrivals are PATCHED from the
+// payload (no request for an ordinary check-in/void/edit); only a row the payload
+// can't build (a peer's new guest, an unknown tier) refetches the list, and the
+// server aggregates (tiers, stats, event detail) refresh at most every ~5 s.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
+type Payload = { new: Record<string, unknown> };
 interface FakeChannel {
-  on: (event: string, filter: unknown, cb: () => void) => FakeChannel;
+  on: (event: string, filter: { table: string }, cb: (p: Payload) => void) => FakeChannel;
   subscribe: (cb: (status: string) => void) => FakeChannel;
 }
 
-const handlers: Array<() => void> = [];
+const handlers: Record<string, (p: Payload) => void> = {};
+let statusCb: ((status: string) => void) | null = null;
 const channelChain: FakeChannel = {
-  on: vi.fn((_event: string, _filter: unknown, cb: () => void) => {
-    handlers.push(cb);
+  on: vi.fn((_event: string, filter: { table: string }, cb: (p: Payload) => void) => {
+    handlers[filter.table] = cb;
     return channelChain;
   }),
   subscribe: vi.fn((cb: (status: string) => void) => {
     // First-ever SUBSCRIBED must NOT itself trigger an invalidate (that would
     // double-fetch on mount) — mirrors src/features/door/sync/reconnect.ts.
+    statusCb = cb;
     cb('SUBSCRIBED');
     return channelChain;
   }),
@@ -53,13 +53,26 @@ import { usePoEventRealtime } from './hooks';
 import { poKeys } from './keys';
 import { VENUE_GUESTS_PREFIX } from './mutations';
 
+import type { Guest, Tier } from '@/lib/po/types';
+import type { CheckinArrival } from './queries';
+
+const GUEST = (id: string, over: Partial<Guest> = {}): Guest =>
+  ({ id, name: id, role: 'Guest', tierId: 't1', tierName: 'Regular', tierColor: '#888', plus: 0, note: '', flag: null, status: 'wait', ...over }) as Guest;
+const TIERS = [
+  { id: 't1', name: 'Regular', color: '#888' },
+  { id: 't2', name: 'VIP', color: '#B5A6FF' },
+] as Tier[];
+
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qc.setQueryData(poKeys.guests('event-1'), [GUEST('g1'), GUEST('g2')]);
+  qc.setQueryData(poKeys.tiers('event-1'), TIERS);
+  qc.setQueryData(poKeys.arrivals('event-1'), new Map<string, CheckinArrival>());
   const spy = vi.spyOn(qc, 'invalidateQueries');
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
-  return { wrapper, spy };
+  return { qc, wrapper, spy };
 }
 
 function invalidatedKeys(spy: { mock: { calls: unknown[][] } }): unknown[] {
@@ -72,61 +85,104 @@ function includesKey(keys: unknown[], expected: readonly unknown[]): boolean {
 
 afterEach(() => {
   vi.clearAllMocks();
-  handlers.length = 0;
+  for (const k of Object.keys(handlers)) delete handlers[k];
+  statusCb = null;
 });
 
-describe('usePoEventRealtime invalidate() (C19, 86ey6xdkb / 86ey9e8hz)', () => {
-  it('a postgres_changes event invalidates guests, tiers, arrivals, event-stats AND event-detail — but NOT venue-guests', async () => {
-    const { wrapper, spy } = makeWrapper();
-    const { result } = renderHook(() => usePoEventRealtime('event-1'), { wrapper });
+const checkIn = (guestId: string, voided = false): Payload => ({
+  new: { id: `ci-${guestId}`, guest_id: guestId, plus_ones_arrived: 1, checked_at: '2026-10-12T22:00:00Z', voided_at: voided ? '2026-10-12T22:05:00Z' : null },
+});
 
-    await waitFor(() => expect(result.current.realtimeConnected).toBe(true));
-    expect(handlers.length).toBeGreaterThan(0); // both 'guests' and 'check_ins' subscriptions registered
+async function mount() {
+  const ctx = makeWrapper();
+  const { result } = renderHook(() => usePoEventRealtime('event-1'), { wrapper: ctx.wrapper });
+  await waitFor(() => expect(result.current.realtimeConnected).toBe(true));
+  expect(Object.keys(handlers).sort()).toEqual(['check_ins', 'guests']);
+  ctx.spy.mockClear();
+  return ctx;
+}
 
-    act(() => handlers.forEach((h) => h()));
+describe('usePoEventRealtime — patch from the payload (Snelheid P2 #10)', () => {
+  it('a peer check-in patches the guest and the arrivals in place: no list refetch, aggregates refresh (C19), venue-guests untouched', async () => {
+    const { qc, spy } = await mount();
+    act(() => {
+      handlers.guests({ new: { id: 'g1', status: 'checked_in', plus_ones: 1 } });
+      handlers.check_ins(checkIn('g1'));
+    });
 
+    expect(qc.getQueryData<Guest[]>(poKeys.guests('event-1'))?.find((g) => g.id === 'g1')).toMatchObject({ status: 'in', plus: 1 });
+    expect(qc.getQueryData<Map<string, CheckinArrival>>(poKeys.arrivals('event-1'))?.get('g1')).toEqual({
+      arrived: 1, at: '2026-10-12T22:00:00Z', id: 'ci-g1',
+    });
     const keys = invalidatedKeys(spy);
-    expect(includesKey(keys, poKeys.guests('event-1'))).toBe(true);
+    expect(includesKey(keys, poKeys.guests('event-1'))).toBe(false);
+    expect(includesKey(keys, poKeys.arrivals('event-1'))).toBe(false);
     expect(includesKey(keys, poKeys.tiers('event-1'))).toBe(true);
-    expect(includesKey(keys, poKeys.arrivals('event-1'))).toBe(true);
     expect(includesKey(keys, poKeys.eventStats('event-1'))).toBe(true);
     expect(includesKey(keys, poKeys.eventDetail('event-1'))).toBe(true);
-    // 86ey9e8hz: the windowed venue-wide All-Guests tab is NOT re-downloaded per
-    // check-in; only guest writes (mutation paths) invalidate this prefix.
     expect(includesKey(keys, VENUE_GUESTS_PREFIX)).toBe(false);
+  });
+
+  it('a void clears the arrival; a removal drops the guest; a tier move takes the known tier', async () => {
+    const { qc } = await mount();
+    act(() => handlers.check_ins(checkIn('g1')));
+    act(() => handlers.check_ins(checkIn('g1', true)));
+    expect(qc.getQueryData<Map<string, CheckinArrival>>(poKeys.arrivals('event-1'))?.has('g1')).toBe(false);
+
+    act(() => handlers.guests({ new: { id: 'g2', status: 'removed' } }));
+    expect(qc.getQueryData<Guest[]>(poKeys.guests('event-1'))?.map((g) => g.id)).toEqual(['g1']);
+
+    act(() => handlers.guests({ new: { id: 'g1', status: 'approved', tier_id: 't2' } }));
+    expect(qc.getQueryData<Guest[]>(poKeys.guests('event-1'))?.[0]).toMatchObject({ tierId: 't2', tierName: 'VIP', role: 'VIP' });
+  });
+
+  it('a row the payload cannot build (a peer\'s new guest, an unknown tier) refetches the list', async () => {
+    const { spy } = await mount();
+    vi.useFakeTimers();
+    try {
+      act(() => handlers.guests({ new: { id: 'g-new', status: 'approved', full_name: 'New' } }));
+      expect(includesKey(invalidatedKeys(spy), poKeys.guests('event-1'))).toBe(true);
+      // Past the 500 ms list-refetch window, so the next one fires on its leading edge.
+      act(() => vi.advanceTimersByTime(600));
+      spy.mockClear();
+      act(() => handlers.guests({ new: { id: 'g1', status: 'approved', tier_id: 't-unknown' } }));
+      expect(includesKey(invalidatedKeys(spy), poKeys.guests('event-1'))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a resubscribe after a drop refetches everything (#0b)', async () => {
+    const { spy } = await mount();
+    act(() => statusCb?.('CHANNEL_ERROR'));
+    act(() => statusCb?.('SUBSCRIBED'));
+    const keys = invalidatedKeys(spy);
+    for (const k of [poKeys.guests('event-1'), poKeys.arrivals('event-1'), poKeys.tiers('event-1'), poKeys.eventStats('event-1')]) {
+      expect(includesKey(keys, k)).toBe(true);
+    }
   });
 });
 
-describe('usePoEventRealtime invalidate() throttling (86ey9e8fe)', () => {
-  it('a burst of postgres_changes events fires the 5-key cascade only twice (leading + trailing), not once per event', async () => {
-    const { wrapper, spy } = makeWrapper();
-    const { result } = renderHook(() => usePoEventRealtime('event-1'), { wrapper });
-
-    // Establish the connection on real timers first — fake timers don't mock
-    // the promise microtask chain, but mixing them with testing-library's
-    // waitFor internals is fragile.
-    await waitFor(() => expect(result.current.realtimeConnected).toBe(true));
-    expect(handlers.length).toBeGreaterThan(0);
-    spy.mockClear();
-
+describe('usePoEventRealtime throttling (86ey9e8fe → ~5 s for aggregates)', () => {
+  it('a door-rush burst refreshes the 3 aggregates once now and once per 5 s, never per event, with zero list refetches', async () => {
+    const { spy } = await mount();
     vi.useFakeTimers();
     try {
-      // One check-in touches BOTH `guests` and `check_ins` — simulate that plus
-      // a few peers' check-ins landing in the same door-rush burst.
+      // 8 check-ins, each touching guests AND check_ins (16 events).
       act(() => {
-        for (let i = 0; i < 8; i++) handlers.forEach((h) => h());
+        for (let i = 0; i < 8; i++) {
+          handlers.guests({ new: { id: i % 2 ? 'g1' : 'g2', status: 'checked_in' } });
+          handlers.check_ins(checkIn(i % 2 ? 'g1' : 'g2'));
+        }
       });
-
-      // Leading edge already fired once synchronously (5 keys: guests, tiers,
-      // arrivals, event-stats, event-detail — venue-guests dropped in 86ey9e8hz).
-      expect(spy.mock.calls.length).toBe(5);
+      expect(spy.mock.calls.length).toBe(3); // leading edge: tiers, stats, event detail
 
       act(() => vi.advanceTimersByTime(600));
+      expect(spy.mock.calls.length).toBe(3); // not yet: aggregates wait ~5 s
 
-      // Trailing edge closes the burst with exactly one more cascade — NOT one
-      // cascade per one of the 16 events that fired above (86ey9e8fe: ~20
-      // requests/check-in came from firing the full cascade per event).
-      expect(spy.mock.calls.length).toBe(10);
+      act(() => vi.advanceTimersByTime(4_500));
+      expect(spy.mock.calls.length).toBe(6); // one trailing refresh for the whole burst
+      expect(includesKey(invalidatedKeys(spy), poKeys.guests('event-1'))).toBe(false);
     } finally {
       vi.useRealTimers();
     }

@@ -275,6 +275,13 @@ export const FLOWS = {
       'src/components/po/screens/settings/venue.tsx',
     ],
   },
+  'cockpit-realtime': {
+    title: 'Snelheid P2 #10 (z8uq9m2xz2) — desktop cockpit patches guests + arrivals from the realtime payload, aggregates ~every 5 s (desktop only)',
+    paths: [
+      'src/features/po/eventday/',
+      'src/features/po/hooks.ts',
+    ],
+  },
   'door-actor-chip': {
     title: 'Door row at phone width — the who-did-what chip stays inside its caption and the row; no sideways scroll (#466 V1b)',
     paths: [
