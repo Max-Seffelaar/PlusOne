@@ -275,6 +275,14 @@ export const FLOWS = {
       'src/components/po/screens/settings/venue.tsx',
     ],
   },
+  'door-actor-chip': {
+    title: 'Door row at phone width — the who-did-what chip stays inside its caption and the row; no sideways scroll (#466 V1b)',
+    paths: [
+      'src/features/door/components/CheckInList.tsx',
+      'src/components/po/kit.tsx',
+      'src/features/audit/actor-labels.ts',
+    ],
+  },
   'door-tasks-tab': {
     title: 'Check-in — no Tasks view on either door variant (tab or cockpit card); an old ?seg=taken link lands on the list (z8uq9m2vg7)',
     paths: [

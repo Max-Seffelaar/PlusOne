@@ -7,10 +7,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
 import { DEFAULT_TIER_COLOR, tierInk, tintTier } from '@/lib/po/tier-colors';
-import { guestSourceLabel } from '@/features/po/format';
+import { guestSourceLabel, guestSourceParts } from '@/features/po/format';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
-import { Avatar, Btn, PayChip, StatusDot, hitRingY6 } from '../../kit';
+import { ActorCaption, Avatar, Btn, PayChip, StatusDot, hitRingY6 } from '../../kit';
 import { Sheet } from '../../shell';
 import { press, cardPress, TierPill } from './_shared';
 
@@ -227,10 +227,51 @@ const GUEST_ROW_EST = 58;
 const selectAllHit = "relative before:absolute before:-inset-[15px] before:content-['']";
 const selectRowHit = "relative before:absolute before:-inset-[14px] before:content-['']";
 
+/** "Event · Added by Sanne" as ONE truncating caption (kit ActorCaption): a
+ *  member's name truncates with the text, PlusOne's own labels are a compact
+ *  chip that is never clipped (spec #64a, review #466 V1). */
+function EventAndSource({
+  g,
+  className,
+  textClassName,
+}: {
+  g: GuestT;
+  className?: string;
+  /** Text-only styling (opacity), never inherited by the chip. */
+  textClassName?: string;
+}): JSX.Element {
+  const lead = g.eventName ? `${g.eventName} · ` : '';
+  const parts = g.source
+    ? guestSourceParts({ source: g.source, addedByName: g.addedByName, addedByKind: g.addedByKind, linkLabel: g.linkLabel })
+    : null;
+  if (!parts || 'text' in parts) {
+    const text = parts ? `${lead}${parts.text}` : g.eventName ?? '';
+    return <span className={cn('block min-w-0 truncate', className, textClassName)}>{text}</span>;
+  }
+  return (
+    <ActorCaption
+      template={parts.template}
+      slot="name"
+      name={parts.name}
+      kind={parts.kind}
+      lead={lead}
+      className={className}
+      textClassName={textClassName}
+    />
+  );
+}
+
 /** The row's provenance caption ("Added by Sanne", "Sign-up link · Joeri") —
  *  empty for a row that predates the field (mock/optimistic) so nothing renders. */
 function sourceLine(g: GuestT): string {
-  return g.source ? guestSourceLabel({ source: g.source, addedByName: g.addedByName, linkLabel: g.linkLabel }) : '';
+  return g.source
+    ? guestSourceLabel({
+        source: g.source,
+        addedByName: g.addedByName,
+        addedByKind: g.addedByKind,
+        linkLabel: g.linkLabel,
+      })
+    : '';
 }
 
 /** Virtualized mobile card list (own scroll parent → the virtualizer windows it).
@@ -342,9 +383,11 @@ export function GuestCardList({
                     {/* One subline: event (venue-wide mode only) + where the name
                         came from (item J). Joined so the card keeps its density. */}
                     {(g.eventName || sourceLine(g)) && (
-                      <span className={cn('truncate font-body text-[11px]', isRefused ? 'text-faint' : 'opacity-70')}>
-                        {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
-                      </span>
+                      <EventAndSource
+                        g={g}
+                        className={cn('font-body text-[11px]', isRefused && 'text-faint')}
+                        textClassName={isRefused ? undefined : 'opacity-70'}
+                      />
                     )}
                     {!isRefused && (
                       <MailStatusTag status={mailStatus?.get(g.id)} className="truncate font-body text-[11px] opacity-80" />
@@ -513,9 +556,7 @@ export function GuestTable({
                           {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
                         </span>
                         {(g.eventName || sourceLine(g)) && (
-                          <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-faint">
-                            {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
-                          </span>
+                          <EventAndSource g={g} className="mt-0.5 max-w-[280px] text-[12px] text-faint" />
                         )}
                         <MailStatusTag
                           status={g.status === 'refused' ? undefined : mailStatus?.get(g.id)}
@@ -534,8 +575,7 @@ export function GuestTable({
                   <td>
                     {/* No leading em-dash when the adder is unknown (fixes the
                         "—27 Jun" artifact): show the name + date, or the date alone. */}
-                    {g.by && <span className="text-[13px] text-dim">{g.by}</span>}
-                    {g.addedAt && <span className={cn('font-display text-[12px] text-faint', g.by && 'ml-1.5')}>{g.addedAt}</span>}
+                    {g.addedAt && <span className="font-display text-[12px] text-faint">{g.addedAt}</span>}
                   </td>
                 </tr>
               );

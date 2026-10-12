@@ -5,6 +5,19 @@
 import { z } from 'zod';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { VENUE_ROLES } from './roles';
+import { t } from '@/lib/i18n';
+import { hasInvisibleChars, isBlankOrReservedName, stripRefusedInvisible } from './profile-name';
+
+export { isReservedProfileName } from './profile-name';
+
+/** Why a user may not take this as their own name, or null when they may.
+ *  Mirror of the DB CHECK user_profiles_full_name_not_reserved (20261016140100;
+ *  rule + character classes in ./profile-name.ts). */
+function ownNameIssue(name: string): string | null {
+  if (hasInvisibleChars(name)) return t.shared.actor.invisibleChars;
+  if (isBlankOrReservedName(name)) return t.shared.actor.reservedName;
+  return null;
+}
 
 // E-mail is normalised (trim + lowercase) so invite/lookup matching is
 // case-insensitive and consistent with the DB's lower(email) indexes.
@@ -89,26 +102,45 @@ export const inviteSchema = z.object({
   ),
 });
 
+/** Strip refused invisible characters first (review #466 r5: copy-paste bidi
+ *  marks, a Khmer ZWSP, a variation selector, flag tags are not the user's
+ *  fault); the result is then validated like any name. */
+const stripInvisible = (v: unknown): unknown => (typeof v === 'string' ? stripRefusedInvisible(v) : v);
+
 export const profileNameSchema = z.object({
-  fullName: z
-    .string()
-    .trim()
-    .min(1, 'Enter your name')
-    .max(120, 'Name is too long'),
+  fullName: z.preprocess(
+    stripInvisible,
+    z
+      .string()
+      .trim()
+      .min(1, 'Enter your name')
+      .max(120, 'Name is too long')
+      .superRefine((v, ctx) => {
+        const issue = ownNameIssue(v);
+        if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+      }),
+  ),
 });
 
 // Profile is global to the user (decision #24): first/last name + phone. full_name
 // is kept as a display mirror, maintained by the action from first + last.
 export const profileSchema = z.object({
-  firstName: z.string().trim().min(1, 'Enter your first name').max(80, 'Too long'),
-  lastName: z.string().trim().min(1, 'Enter your last name').max(120, 'Too long'),
+  firstName: z.preprocess(stripInvisible, z.string().trim().min(1, 'Enter your first name').max(80, 'Too long')),
+  lastName: z.preprocess(stripInvisible, z.string().trim().min(1, 'Enter your last name').max(120, 'Too long')),
   phone: z
     .string()
     .trim()
     .max(40, 'Too long')
     .transform((v) => (v === '' ? null : v))
     .refine((v) => v === null || /^[+0-9 ()-]{6,40}$/.test(v), 'Invalid phone number'),
-});
+})
+  // The actions store full_name = `${firstName} ${lastName}` — that combination
+  // must not be a reserved label either ("PlusOne" + "support"), nor carry an
+  // invisible character in either field.
+  .superRefine((v, ctx) => {
+    const issue = ownNameIssue(`${v.firstName} ${v.lastName}`);
+    if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['lastName'] });
+  });
 
 export const emailChangeSchema = z.object({
   email: emailSchema,

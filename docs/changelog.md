@@ -32,6 +32,104 @@ Milestone **Now** (ADE). Decision Max 2026-10-12 (option A). UI + copy only, no 
 
 ---
 
+## 2026-10-11 — Audit log: no more raw "create on subscriptions" lines
+
+Milestone **Now** (audit log readable for the first venues). Copy only: no migration, no trigger or RLS change. Merges after #466 (branched from it).
+
+- **Problem:** the audit log fell back to `"<action> on <table>"` for every table without its own case in `src/features/audit/translate.ts`, e.g. "Robin Vermeer create on subscriptions" / "create on contacts" (the Kelder Nord promo seed shows both).
+- **Matrix:** every table with an audit trigger or a direct `audit_log` writer in `supabase/migrations`, checked against translate.ts. New cases:
+  - `subscriptions`: insert = "started the free trial" (with "until {date}" when set) or "marked the company as always free"; `set_venue_comped` on/off; `set_venue_trial_end` = "set the trial to end on {date}"; the ADE invite row (`diff.source = 'platform_invite_ade'`) = "extended the trial to {date} with a free until end of ADE invite"; webhook status = "set the subscription to {status}" (labels, never the enum); billing interval.
+  - `contacts`: "added a contact: {name}", update/remove, anonymization never names the contact (the anonymizing UPDATE still holds the real name in `before`).
+  - `invites` (roles listed, never the e-mail; crew invites), `influencers`, `event_templates`, `event_template_tiers`, `platform_invites`, `user_profiles` platform admin grant/revoke.
+  - `anonymize` on guests and requests; `check_ins` update/delete (a check-out used to read "checked in"); `refusals` update/delete; `events.default_member_quota`.
+- **Roles:** membership and invite lines list roles with the app labels (`ROLE_LABELS`, `src/features/auth/roles.ts`, UI order): "gave Noor van Dijk access (User manager)", never `user_manager`/`doorhost`.
+- **Fallback:** a plain verb by action ("added a record", "updated a record", "removed a record", "made a change"), so a future table never leaks its name.
+- **Action chips + filter:** every emitted action (`AUDIT_ACTIONS` in `src/features/po/audit-presenter.ts`) has a chip label from `t.audit.actionLabel` (new: Anonymized, Export, Admin granted, Admin revoked); the generic "Action" is only for an action added later. The filter sheet gains Change, Removed, Declined, "List lock" (lock + unlock) and "Privacy" (anonymize + export); a chip can group actions, so the feed query filters with `.in('action', …)` on that small fixed list. Platform-admin actions have no chip (venue_id null, never in a company's log).
+- **Copy:** new `t.audit.line` block in `src/lib/i18n/surfaces/audit.ts`; the older guest/quota/request phrases stay in translate.ts (untouched to keep #466's actor/subject structure intact).
+- **Tests:** translate.test.ts 60 after merging #466 (25 of them new here), incl. a table × action sweep that fails if any line contains a table name, an underscore, a raw role key, or `"<action> on "`. Catalogue snapshot: only `audit.line.*`, `audit.actionLabel.*` and the three `audit.filter*` chip keys added.
+
+---
+
+## 2026-10-11 — Who did it: one label, one rule (spec #64a)
+
+Milestone **Now** (fraud resistance + privacy). Decision Max 2026-10-11, closes the "Open" item of spec #64(a). Builds on #461 (must merge after it). High-risk surface (new SECURITY DEFINER function): fresh-session `/code-review` + `/security-review` before merge.
+
+- **Rule, on every company-facing surface** (audit feed, export, door, guest lists, recap, recent check-ins, quota requests, person profile, stats):
+  - current and former members/crew by name (full_name only);
+  - a platform admin without a membership/crew tie to the company is "PlusOne support";
+  - no actor is "System".
+  - One i18n key set, `t.shared.actor` (replaces `t.analytics.addedBySupport`).
+- **Migration `20261016140000_venue_actor_names`:** `venue_actor_names(p_venue_id, p_ids)` → `(user_id, display_name, is_support)`.
+  - SECURITY DEFINER, STABLE, empty search_path; EXECUTE for `authenticated` only; max 500 ids (22023).
+  - Gate: members (and platform admins) get the venue, crew only their own events plus current members, anyone else zero rows.
+  - Footprint rule: only ids with history in that venue (membership now or before, crew tie, an audited action, a guest they added). A random uuid or another venue's people return nothing.
+  - Two partial `audit_log` indexes keep the per-id probes index-bound.
+- **App:** `fetchActorLabels` / `actorLabel` (`src/features/audit/actor-labels.ts`), chunked to 120 ids. Every surface above switched from RLS `user_profiles` reads or embeds to it; component APIs unchanged. Falls back to the old read only on `PGRST202` (bundle live before the migration).
+  - Export: former members are named now (the old "leave the cell empty" rule is gone); an undecided request keeps an empty `decided_by`.
+  - `guestSourceLabel` keeps "PlusOne support" whole instead of cutting it to a first name.
+- **Not changed:** the `audit_feed` view (its free-text search still only matches RLS-visible names), the stats RPCs' SQL (#461 owns them; since #461's review they use the same venue-relative support rule), the door's "Via request link" caption.
+- **Tests:** pgTAP `venue_actor_names.test.sql` (30, run in a rolled-back transaction on the shared stack; full reset + `pnpm db:test` is the orchestrator's); Vitest for the helper, the audit translator, export, door snapshot, guest source and the person profile.
+- **Review round 1** (independent review: not merge-ready; all fixed in this PR):
+  - **P1-1, forged footprint:** an admin of any company (anyone can make one) could grant a quota to an arbitrary uuid; the audit row then made `venue_actor_names` name that person or reveal `is_support`. Migration `20261016140100_actor_names_hardening`: the past-membership branch now accepts `venue_memberships` subjects only. The quota RLS gap itself is a separate task.
+  - **P1-2, spoofable "PlusOne support":** the label now comes from `is_support` only. The flag travels with the labels (`ActorLabels`) to the guest-source caption; no string comparison is left. A blank name reads "Unnamed". CHECK `user_profiles_full_name_not_reserved` (NOT VALID) refuses blank and the three label words on every UPDATE; Zod refuses them first with a catalogue message; a NEW profile row with such a name is stored as 'User' so an invite to system@… can still log in. Look-alikes are an accepted residual.
+  - **P2:** guests branch bound to `venue_id` with a partial index (EXPLAIN: index scans on all three footprint probes); door and lists use `fetchActorLabelsSafe` (a failing label RPC never takes the door down); spec #64(a) documents read-time labels and drops the stale stats paragraph; the PGRST202 fallback is marked for the contract step; 'Deur'/'Unknown'/'Door'/'Via request link' moved to i18n.
+  - pgTAP `venue_actor_names.test.sql` grows to 46 (forged quota and event_quota, crew of another venue's event, null venue, former crew, crew vs a former member on another event, reserved names, the new-row rename, look-alike is not support).
+- **Review round 2** (P1-1 confirmed fixed; P1-2 only partly):
+  - **N1 (P1), Unicode bypass:** `btrim()` strips only ASCII spaces, so NBSP/tab/CR/LF/zero-width-wrapped "PlusOne support" and invisible-only blanks passed the CHECK and the new-row trigger. Now one IMMUTABLE normaliser, `public.profile_name_key()`: control and format characters removed, every Unicode space to one space, lower-cased, trimmed. The CHECK (still NOT VALID) refuses any control/format character outright, plus a blank or reserved key. The trigger strips invisible characters first, then stores 'User' for a blank or reserved key. The app mirrors the exact classes in `src/features/auth/profile-name.ts`, for Zod (new message `t.shared.actor.invisibleChars`) and for "blank → Unnamed" in `nameLabel()` and the stats adapter. Prod (aggregates only): 22 profiles, 0 affected. Look-alike letters remain a residual.
+  - **N2 (P2):** a non-null actor without a label is "Unknown" in the audit feed, never "System" (former members and operators have a null RLS name).
+  - **N3 (P2):** `mergeDoorProfiles` keeps the previous (IndexedDB-persisted) snapshot's labels when a refetch comes back with fewer, so a label-RPC outage no longer wipes the door's names. The outbox is untouched.
+  - pgTAP 59 (Unicode probes I1–I13 incl. `ensure_my_profile` from spoofed metadata); Vitest for the mirror, N2 and N3.
+- **Review round 3** (N2/N3 confirmed fixed; N1 still P1: the hand-picked class missed U+2066–206F, U+034F, U+FE0F, U+3164, U+180E, U+061C, U+115F, U+FFA0, tags, U+2800). New design, two layers:
+  - **Layer 1, structural (the primary guarantee):** who-did-what is a TYPE. `ActorLabels`/`actorRef` carry a kind per actor (`member | support | system | unknown | unnamed`, `src/lib/po/actor-kind.ts`). Only `member` is user text. Every surface renders the other kinds through one kit primitive (`ActorName`/`ActorPhrase` in `kit.tsx`: muted, italic, icon): audit feed and guest history, door added-by/checked-in-by/done-by, guest-row captions (`GuestSourceCaption`), recap, recent check-ins, quota requester, profile timeline, stats per-member rows. A member named "System" + U+2066 or "PlusOne support" renders plain. CSV export: `created_by_type`, `decided_by_type`, `acted_by_type` (`member | plusone_support | system | unknown`), appended as the LAST column of each row so every existing column keeps its position (decision Max; a test pins the pre-#466 column order); documented in `legal-v03-plan-claude-code.md`. `firstName()` keeps the full name when the first word reads like a label ("System Smith").
+  - **Layer 2, defence in depth:** the class is now every Default_Ignorable_Code_Point plus Cc and Cf (explicit ranges in the migration; `INVISIBLE_RANGES` + `\p{}` in `profile-name.ts`), U+2800 counts as a space, `'unknown'` is reserved. `profile-name.cross-check.test.ts` walks U+0001..U+10FFFF and proves the migration class equals the app list and covers everything the runtime's Unicode tables call DI/Cc/Cf. Prod re-checked (aggregates): 22 profiles, 0 affected.
+  - pgTAP 72 (J1–J13: U+2066, U+034F, U+FE0F, U+3164, U+2800, U+E0001, U+180E, U+061C, U+115F, U+FFA0, 'Unknown' refused; `ensure_my_profile` with "System" + U+2066 stores 'User'; "José Müller" accepted). F1–F3 untouched.
+- **Review round 4** (plumbing confirmed sound; one P1: a STYLED look-alike — shield symbol + Mathematical Sans-Serif Italic letters + U+2800 — passed the key and looked like the italic label):
+  - **Layer 1:** non-member kinds now render as a **chip** (bordered pill: lavender outline for support, neutral for system/unknown/unnamed, icon, `sr-only` hint `t.shared.actor.labelHint`); a member's name is plain text. The chip shrinks and truncates its own text (min-w-0 + truncate). Also wired: the cockpit's quota requester and its quota feed lines (`FeedEntry.actor`), the quota deny sheet, and the audit SUBJECT (quota/membership target) via `AuditLine.subject` + `textTemplate`; the "a user" fallback is `t.shared.actor.someUser`.
+  - **Layer 2:** `profile_name_key` folds with `normalize(NFKC)` first (JS `.normalize('NFKC')`); U+2800 splits words in `firstName()` too; a key containing "plusone support" is reserved (`profile_name_key_reserved`); ZWNJ/ZWJ/U+FE0F are allowed in a stored name (left out of the refused class, still stripped from the key). The cross-check's coverage direction only runs on runtimes at or below the stamped Unicode version (`INVISIBLE_RANGES_UNICODE_VERSION`); SQL == app stays unconditional. Spec #64(a) and the migration header now state what each layer guarantees, with no "can never pass" claims.
+  - Export: an empty `*_type` means no actor yet (pending request); a blank-named member exports "Unnamed" with type `member` — documented. Removed: the unused `actorLabel` export and the caller-less `src/features/audit/queries.ts`.
+  - pgTAP 82 (K1–K10: styled look-alike, fullwidth, Mathematical Bold "System", the phrase, "System" + ZWJ refused; "Systema Smith", "Zoë 李", emoji ZWJ sequences and U+FE0F accepted; `ensure_my_profile` with the styled look-alike stores 'User'). The round-4 widening needs the same prod aggregate re-check before the push (query in the migration header).
+- **Visual pass + review round 5** (round 5: merge-ready; P2s folded in):
+  - **V1:** a chip inside a plain `truncate` caption was clipped mid-pill (guest rows, door row at 375px). New kit `ActorCaption`: a flex row (`min-w-0`) whose text truncates while a **compact** chip (icon + short label `t.shared.actor.short`, full label in `title` and the accessible name) stays whole. Used in guest rows, the profile event caption, the door row, recent check-ins, recap; door detail and the cockpit feed use the compact chip; tables, stats and the audit feed keep the full chip.
+  - **V2:** new kit `ActorAvatar`: initials for a member, the kind's icon (styled like the chip) otherwise — audit WHO column and timeline, stats per-member rows, quota requester rows (approvals, cockpit).
+  - Audit subject: the sentence comes pre-split (`subjectParts`) around a U+0000 sentinel no stored text can contain, only for the quota / quota-request / membership entity types, joined with `split`/`join` (no `$&` expansion). Guest named `{subject}` and `$&` names tested.
+  - The neutral chip uses `border-line` (visible on hover rows and `bg-elev`). The chip's hint is ON the element (`role="img"`, `aria-label` "{label}, PlusOne label"), not a sibling sr-only span; "plusone label" joins the reserved phrases (DB + app). The audit timeline's second actor mention is `aria-hidden`.
+  - The profile and consent forms strip refused invisible characters before validating (copy-paste bidi marks, a Khmer ZWSP, a variation selector, flag tags, U+FE0E, a soft hyphen); blank/reserved after stripping is still refused; the DB CHECK is unchanged.
+  - Removed the dead `Guest.by` field (always ''). pgTAP 84 (L1–L2: the hint phrase).
+- **Visual re-check + review round 6** (door row at 375px still broke: the `shrink-0` compact chip overflowed under the check button and caused sideways scroll):
+  - The compact chip may shrink to "icon + Sup…" and then the icon alone (`min-w-[22px] shrink overflow-hidden`, label `min-w-0 truncate`), border intact; `ActorCaption` clips (`overflow-hidden`); the door caption keeps `min-w-[4.5rem]` next to the truncating name. New flow `door-actor-chip` asserts at phone width that the chip ends inside its caption, the caption inside the row, and there is no sideways scroll.
+  - `title` only on the compact chip (with `aria-label` it was read twice); neutral chips use a `border-faint` boundary (>= 3:1 on elev/elev2/hover) and every chip fill is opaque (support: `bg-elev` instead of the translucent `bg-acc-dim`); a row's `opacity-70` now goes on the caption TEXT only (`ActorCaption textClassName`), never on the chip.
+  - Pasted tab / CR / LF in a name become one space before the invisible-character strip (no more "MaxSmith").
+
+---
+
+## 2026-10-11 — SECURITY DEFINER read paths: profile scope (audit follow-up)
+
+Milestone **Now** (privacy/legal hygiene). Follow-up to the `user_profiles` column-SELECT audit (#459/#460). High-risk surface (definer functions): fresh-session `/code-review` + `/security-review` before merge.
+
+- **Audit (2026-10-11):** I read all 16 definer functions that read `user_profiles` and the 8 that read `auth.*` and are callable by an app role. I then tested them in a rolled-back transaction with a support operator who belongs to no venue.
+  - No private column (`is_platform_admin`, `mfa_snooze_until`, `phone`, first/last name, `terms_version`) reaches a caller who is not a platform admin.
+  - Two leaks fixed here.
+  - Side channels judged negligible:
+    - `create_venue_with_owner`'s trial end reveals whether the inviter is still a platform admin.
+    - `user_is_quota_exempt` reads only the caller's own flag.
+- **Migration `20261016130000_definer_rpc_profile_scope`:**
+  - `event_user_additions` / `venue_user_additions` named every `added_by`, including a platform admin doing support outside the venue. RLS and `audit_feed` hide that name, and the venue never sees `platform_access_log` (legal v0.3).
+    - The name is now null when the adder is a platform admin with no membership or crew tie at that venue (venue-relative, the same rule as `venue_actor_names` in #466, so every surface labels the same person the same way).
+    - Counts and `user_id` stay; the venue already sees that actor id on its `audit_log`.
+    - Former members keep their name (#24).
+    - Sorting uses the displayed name, so a hidden name can't be placed alphabetically.
+    - The app shows the null as "PlusOne support" (`t.analytics.addedBySupport`).
+  - `admin_list_user_sessions` returned each member session's `aal` (whether that member uses MFA) and raw IP.
+    - Both now always return null (decision Max 2026-10-11). Remote logout needs device + last active, not location. An IP is personal data (GDPR data minimisation), and sessions are account-wide, so admin A also saw the IPs of sessions used for company B.
+    - The admin screen drops the location line; `user_agent` stays so sessions can be told apart. The columns stay for the deployed app (expand–contract); a later migration drops them.
+    - `list_own_sessions` keeps `aal` and `ip`, since they are the caller's own data.
+- **Same signatures, result types, gates and grants.** CREATE OR REPLACE is used throughout, with grants re-asserted. The app keeps working against both the old and the new function.
+- **Tests:**
+  - pgTAP `definer_profile_scope.test.sql` (20): operator hidden but counted; named for themselves, as a real member, and for a former member; `aal` null for admins and kept for yourself; existing gates and anon grants unchanged.
+  - Unit test for the "PlusOne support" label.
+
+---
+
 ## 2026-10-11 — Guest info + live calendar link (z8uq9m4a5n)
 
 Milestone **Now** (ADE). Spec #63 (new). Migration `20261015160000_event_guest_info.sql`, merges after #467 (`…140000`, its `audit_events` WHEN is the base here) and #462 (`…150000`).

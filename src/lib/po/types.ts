@@ -8,6 +8,7 @@
  */
 
 import type { Database } from '@/lib/database.types';
+import type { ActorKind } from './actor-kind';
 
 export type Role = 'VIP' | 'All Access' | 'Artist' | 'Press' | 'Crew' | 'Guest';
 
@@ -79,7 +80,6 @@ export interface Guest {
   /** Whether the note/task has been acknowledged (guests.note_acknowledged_at
    *  != null). Undefined when the note itself is empty — nothing to ack. */
   noteAcknowledged?: boolean;
-  by: string;
   addedAt: string;
   status: GuestStatus;
   at?: string;
@@ -92,8 +92,10 @@ export interface Guest {
   /** Where the name came from (guests.source). Rendered through
    *  `guestSourceLabel` (src/features/po/format.ts) — never read raw in a screen. */
   source?: GuestSource;
-  /** Display name of who added them; null when RLS hides the actor's profile. */
+  /** Who added them, by the who-did-what rule (#64a); null when unknown. */
   addedByName?: string | null;
+  /** What the adder is (spec #64a): only 'member' is a person's own text. */
+  addedByKind?: ActorKind | null;
   /** Non-default request link (label or influencer) behind a landing sign-up. */
   linkLabel?: string | null;
   /** Owning event id — set on venue-wide ("all guests") reads so a row can deep-link
@@ -233,6 +235,8 @@ export interface RecapGuest {
   tierColor?: string;
   at?: string;
   by?: string;
+  /** What `by` is (spec #64a) — render through kit ActorPhrase. */
+  byKind?: ActorKind;
 }
 
 export interface Recap {

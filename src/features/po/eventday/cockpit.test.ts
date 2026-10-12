@@ -31,7 +31,6 @@ function g(partial: Partial<Guest> & { id: string }): Guest {
     plus: partial.plus ?? 0,
     note: partial.note ?? '',
     flag: partial.flag ?? null,
-    by: partial.by ?? '',
     addedAt: partial.addedAt ?? '1 jan',
     status: partial.status ?? 'wait',
     at: partial.at,
