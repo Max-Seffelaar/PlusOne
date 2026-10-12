@@ -8,6 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2 #1: po screens navigate without a server round-trip (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-pushstate-nav`. No migration.
+
+- **What was slow:** every po tab or screen tap was a `router.push` on the dynamic `/app/[[...segments]]` route: middleware → GoTrue → a fra1 function → an RSC payload that renders `null` (P1's `staleTimes` only covered revisits).
+- **Fix:** `app.tsx` `pushUrl` / `replaceUrl` (and `nav.replace` / the cold-`back` fallback) call `history.pushState(null, '', url)` / `replaceState` for `/app` screens and tabs (`isClientOnlyPath` in `routes.ts`). Next 15 copies its internal history state onto a `null`-state entry and fires ACTION_RESTORE, so `usePathname` / `useSearchParams` follow and back/forward traverse with no fetch. Door URLs (`/app/door…`) and anything outside `/app` still use the router (door navigation stays out of this change, §4 taak 9); the door's raw-history sub-nav and `useDoorOverride` are unchanged. URLs stay real and bookmarkable (G1); `PlusOneApp` still mounts via `app-client.tsx` with `ssr:false`.
+- **Measured** (`scripts/perf/p2-measure-nav.mjs`: real Chromium, admin on Club Vesper, Home → Events → Guests → More → Events → Guests, dev servers on origin/main and the branch): first visits 1 doc/RSC request and ~700 ms click → URL each (revisits 0 / ~150 ms via P1's `staleTimes`) → **0 requests on every tap, ~90–180 ms**, desktop and phone.
+- **Not covered by this change:** the layout's consent/MFA/membership gates and the middleware no longer run on a tab tap; they still run on every document load, server action and data request, and RLS stays the boundary.
+- **Tests:** `routes.client-nav.test.ts` (every screen and tab client-only, every door URL and non-`/app` path through the router); flow `tab-nav` (5 checks × 4 variants: no document/RSC request across Home → Events → Guests → More → Contacts, Back, reload lands on the same screen, Check-in still opens the door); `pnpm e2e:smoke` 12/12 locally (incl. `app-shell-no-remount`, `app-home-events-visible`, `door-offline-reload`); `door-render-isolation.test.tsx` and the shell guards unchanged and green.
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.

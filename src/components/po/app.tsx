@@ -31,7 +31,7 @@ import { AppShellChrome } from './app-chrome';
 import { AppScreens } from './app-screens';
 import { DesktopDoorAutoOpen, PoDoorBranch, type DoorNav } from './door-branch';
 import { type Nav, type ScreenName } from './context';
-import { doorPath, parseAppUrl, screenPath, tabPath, type DoorSeg } from './routes';
+import { doorPath, isClientOnlyPath, parseAppUrl, screenPath, tabPath, type DoorSeg } from './routes';
 import { parentPathFor } from './nav-map';
 import { useDoorOverride, type DoorOverrideState } from './use-door-override';
 import type { TabKey } from './shell';
@@ -62,6 +62,7 @@ import type { DoorOverlay } from './screens/door';
 // Door sub-nav (`pushDoorState`) bypasses `router.push` entirely and sets the
 // flag directly.
 let hasPushedThisSession = false;
+
 
 /**
  * Remount probe (86ey9uc87). Counts how often the shell MOUNTS, on `window` so
@@ -143,7 +144,8 @@ export function PlusOneApp(): JSX.Element {
     target.kind === 'screen' ? target.name : target.kind === 'door' ? 'deur' : target.tab;
   // Sentry po-screen context (fase 4.2): tag the active screen + a navigation
   // breadcrumb centrally, from the URL-derived key — every push/tab/back/replace
-  // flows through the router, so this fires on every real navigation for free.
+  // changes the URL (router or the client-only pushState above), so this fires
+  // on every real navigation for free.
   useEffect(() => {
     sentrySetTag('po.screen', activeScreenKey);
     sentryAddBreadcrumb({ category: 'navigation', message: activeScreenKey, level: 'info' });
@@ -167,11 +169,18 @@ export function PlusOneApp(): JSX.Element {
   const pushUrl = useCallback(
     (url: string): void => {
       hasPushedThisSession = true;
-      router.push(url);
+      if (isClientOnlyPath(url)) window.history.pushState(null, '', url);
+      else router.push(url);
     },
     [router],
   );
-  const replaceUrl = useCallback((url: string): void => router.replace(url), [router]);
+  const replaceUrl = useCallback(
+    (url: string): void => {
+      if (isClientOnlyPath(url)) window.history.replaceState(null, '', url);
+      else router.replace(url);
+    },
+    [router],
+  );
 
   // Mobile door sub-nav (guest/add overlay, Deur↔Taken segment, event
   // override) — raw History API, entirely bypassing `router.push/replace`
@@ -201,7 +210,7 @@ export function PlusOneApp(): JSX.Element {
       // after-create flows: "New event" → replace with the created event's
       // settings, so back returns to where the flow started instead of the stale
       // create form.
-      replace: (name: ScreenName, props = {}) => guarded(() => router.replace(screenPath(name, props))),
+      replace: (name: ScreenName, props = {}) => guarded(() => replaceUrl(screenPath(name, props))),
       // Real history to pop (pushed earlier this session) → let the browser go
       // back. Otherwise (cold deep link) → zoom out to the screen's parent
       // instead of no-op'ing or leaving the app. `replace`, NOT `pushUrl`: a
@@ -212,7 +221,7 @@ export function PlusOneApp(): JSX.Element {
       // child↔parent forever instead of climbing. `replace` swaps in place and
       // never latches, so a second cold back() computes a fresh parent from the
       // new (parent) target and keeps ascending (review fix).
-      back: () => guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target)))),
+      back: () => guarded(() => (hasPushedThisSession ? router.back() : replaceUrl(parentPathFor(target)))),
       setTab: (tab: TabKey) =>
         guarded(() => {
           if (tab === 'deur') {
@@ -237,7 +246,7 @@ export function PlusOneApp(): JSX.Element {
     // ever reads `doorState.overlay`, and depending on the whole object meant
     // every door sub-nav (Deur↔Taken, event switch) minted a new `nav` → new
     // `po` CONTEXT value, re-rendering every screen that reads it.
-    [target, doorState.overlay, router, guarded, pushUrl],
+    [target, doorState.overlay, router, guarded, pushUrl, replaceUrl],
   );
 
   // The door's sub-navigation, as ONE permanently stable object.

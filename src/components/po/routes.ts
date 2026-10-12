@@ -316,3 +316,30 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
 
   return { kind: 'tab', tab: 'start' };
 }
+
+/**
+ * Screen-to-screen navigation without a server round-trip (Snelheid P2, perf
+ * audit finding 1). The `/app/[[...segments]]` page renders nothing and does
+ * no server work (`src/app/app/[[...segments]]/page.tsx`), and everything this
+ * shell shows is derived from the URL on the client, so a `router.push` only
+ * bought a middleware + GoTrue + function hop that rendered `null` (150–400 ms
+ * warm, 1–2 s cold).
+ *
+ * Next 15 patches `history.pushState/replaceState`: a call whose state carries
+ * no `__NA` marker gets Next's internal history state copied onto it and fires
+ * an ACTION_RESTORE, so `usePathname`/`useSearchParams` follow the new URL and
+ * back/forward traverse it like any router entry — with no fetch
+ * (node_modules/next/dist/client/components/app-router.js, "Patch pushState").
+ * Passing `null` (not `window.history.state`) is what opts in; the door's own
+ * raw-history sub-nav passes the current state on purpose and keeps its
+ * override (`use-door-override.ts`); `app.tsx` `pushUrl`/`replaceUrl` use this.
+ *
+ * Only for `/app` screens and tabs. The door's URLs (`/app/door…`) keep going
+ * through the router in this change (§4 taak 9: door navigation stays as it is
+ * until its guards are green on the rest), and anything outside `/app` is a
+ * different route that needs the router.
+ */
+export function isClientOnlyPath(url: string): boolean {
+  const path = url.split('?')[0];
+  return (path === '/app' || path.startsWith('/app/')) && path !== '/app/door' && !path.startsWith('/app/door/');
+}

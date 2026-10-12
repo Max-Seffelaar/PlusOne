@@ -307,6 +307,14 @@ export const FLOWS = {
       'src/features/po/queries.ts',
     ],
   },
+  'tab-nav': {
+    title: 'Snelheid P2 #1 (z8uq9m2xz2) — po screens and tabs navigate client-only (pushState, no document/RSC request), Back/reload keep working, door navigation unchanged',
+    paths: [
+      'src/components/po/routes',
+      'src/components/po/app.tsx',
+      'src/components/po/use-door-override.ts',
+    ],
+  },
   'native-shell-guard': {
     title: 'Native-shell guard — billing is status-only inside the app (#32/#37)',
     paths: [
