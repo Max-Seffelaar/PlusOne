@@ -76,6 +76,8 @@ export interface ClaimedMail {
     endsAt: string | null;
     location: string | null;
     houseRules: string | null;
+    /** events.guest_info (z8uq9m4a5n): the "Good to know" block and the calendar description. */
+    description: string | null;
     updatedAt: string | null;
   };
   company: { name: string; contactEmail: string };
@@ -153,6 +155,7 @@ export function parseClaimedMail(raw: unknown): ClaimedMail | null {
       endsAt: isDate(ev.ends_at) ? ev.ends_at : null,
       location: locationLine(str(ev.location_name), str(ev.location_address)),
       houseRules: str(ev.house_rules),
+      description: str(ev.guest_info),
       updatedAt: isDate(ev.updated_at) ? ev.updated_at : null,
     },
     company: { name: companyName, contactEmail },
@@ -181,7 +184,14 @@ export function buildGuestMail(mail: ClaimedMail, base: string): OutgoingMail {
       : null,
     askedPeople: mail.askedPeople,
     remark: mail.remark,
-    links: { statusUrl, icsUrl: statusUrl ? `${statusUrl}/calendar.ics` : null, unsubscribeUrl },
+    // The Google link is live (/s/[token]/google, z8uq9m4a5n): it reads the
+    // event when the guest clicks, so a later time, place or info edit lands.
+    links: {
+      statusUrl,
+      icsUrl: statusUrl ? `${statusUrl}/calendar.ics` : null,
+      googleUrl: statusUrl ? `${statusUrl}/google` : null,
+      unsubscribeUrl,
+    },
   });
   return {
     to: mail.to,

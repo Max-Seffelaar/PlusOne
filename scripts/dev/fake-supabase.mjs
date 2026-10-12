@@ -928,7 +928,6 @@ const rpcs = {
     const f = statusByHash.get(p_token_hash);
     const e = f && db.events.find((x) => x.id === f.event);
     if (!f || !e) return { found: false };
-    const v = db.venues.find((x) => x.id === e.venue_id);
     const approved = f.status === 'approved';
     const own = approved && !f.mirror;
     return {
@@ -940,10 +939,14 @@ const rpcs = {
       starts_at: e.starts_at,
       ends_at: e.ends_at,
       approved_plus_ones: own ? (f.approved_plus_ones ?? f.plus_ones) : null,
-      decision_message: own ? (f.decision_message ?? null) : null,
-      venue_address_line: own ? (v?.address_line ?? null) : null,
-      venue_postal_code: own ? (v?.postal_code ?? null) : null,
-      venue_city: own ? (v?.city ?? null) : null,
+      // Like the real RPC since task 7 (z8uq9m2vga): the venue note on the own
+      // token of an approved OR a declined request; never for a mirror.
+      decision_message:
+        (f.status === 'approved' || f.status === 'denied') && !f.mirror ? (f.decision_message ?? null) : null,
+      // The event's own location in every state, never the company address
+      // (z8uq9m444c; the venue_* keys are gone since z8uq9m49k2).
+      location_name: e.location_name ?? null,
+      location_address: e.location_address ?? null,
     };
   },
   // In-memory approval: the request leaves the inbox, the guest lands with the

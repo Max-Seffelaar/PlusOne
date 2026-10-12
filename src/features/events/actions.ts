@@ -109,7 +109,7 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules, contactEmail } =
+  const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules, guestInfo, contactEmail } =
     parsed.data;
 
   const supabase = await createClient();
@@ -145,6 +145,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         location_name: locationName ?? null,
         location_address: locationAddress ?? null,
         house_rules: houseRules ?? null,
+        guest_info: guestInfo ?? null,
         contact_email: contactEmail,
         landing_slug: buildEventSlug(name, startsAt),
       } as Database['public']['Tables']['events']['Insert'])
@@ -161,15 +162,18 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
 }
 
 /**
- * Edit name / start / end / location / house rules (admin or organizer — RLS).
- * A changed start time or location mails every guest with a spot and an
- * address ("New details for …", guest mail F), debounced so a burst of edits
- * sends one mail. A name or end-time change alone mails nobody.
+ * Edit name / start / end / location / house rules / info for guests (admin or
+ * organizer — RLS). A changed start time or location mails every guest with a
+ * spot and an address ("New details for …", guest mail F), debounced so a
+ * burst of edits sends one mail. A name, end-time or guest-info change alone
+ * mails nobody (z8uq9m4a5n: the live calendar link and the status page pick
+ * up the new text; the next mail carries it).
  */
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules, contactEmail } = parsed.data;
+  const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules, guestInfo, contactEmail } =
+    parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -202,6 +206,7 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     ...(locationName !== undefined ? { location_name: locationName } : {}),
     ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
     ...(houseRules !== undefined ? { house_rules: houseRules } : {}),
+    ...(guestInfo !== undefined ? { guest_info: guestInfo } : {}),
     ...(contactEmail !== undefined ? { contact_email: contactEmail } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };

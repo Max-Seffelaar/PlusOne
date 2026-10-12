@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIcs, escapeIcsText, foldIcsLine, googleCalendarUrl, type CalendarEvent } from './ics';
+import { buildIcs, escapeIcsMultiline, escapeIcsText, foldIcsLine, googleCalendarUrl, multiLine, type CalendarEvent } from './ics';
 
 const event: CalendarEvent = {
   id: 'ee000000-0000-7000-8000-000000000001',
@@ -51,5 +51,48 @@ describe('googleCalendarUrl', () => {
     expect(url.searchParams.get('text')).toBe('Neon Friday');
     expect(url.searchParams.get('dates')).toBe('20261017T210000Z/20261018T030000Z');
     expect(url.searchParams.get('location')).toBe('Club Vesper, Keizersgracht 1');
+  });
+});
+
+describe('description (info for guests, z8uq9m4a5n)', () => {
+  const info = 'Park at P2; entrance, side street.\r\nDress code: black\\white.';
+
+  it('emits DESCRIPTION with line breaks as the escaped \\n sequence', () => {
+    const ics = buildIcs({ ...event, description: info });
+    const unfolded = ics.replace(/\r\n /g, '');
+    expect(unfolded).toContain(
+      'DESCRIPTION:Park at P2\\; entrance\\, side street.\\nDress code: black\\\\white.\r\n',
+    );
+  });
+
+  it('leaves DESCRIPTION out when there is no text', () => {
+    expect(buildIcs(event)).not.toContain('DESCRIPTION');
+    expect(buildIcs({ ...event, description: '  \n\t ' })).not.toContain('DESCRIPTION');
+  });
+
+  it('cannot inject a property or a second event through the text (CRLF)', () => {
+    const ics = buildIcs({ ...event, description: 'x\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nATTENDEE:mailto:a@b.c\u0000\u2028y' });
+    const lines = ics.replace(/\r\n /g, '').split('\r\n');
+    expect(lines.filter((l) => l === 'BEGIN:VEVENT')).toHaveLength(1);
+    expect(lines.some((l) => l.startsWith('ATTENDEE'))).toBe(false);
+    expect(ics).not.toMatch(/[\u0000\u2028]/);
+    // Raw newlines in the value would have split it; every physical line is a property or a fold.
+    for (const line of ics.split('\r\n').filter(Boolean)) expect(line).toMatch(/^([A-Z-]+[:;]| )/);
+  });
+
+  it('folds a long description at 75 octets', () => {
+    const ics = buildIcs({ ...event, description: 'é'.repeat(600) });
+    for (const line of ics.split('\r\n')) expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(75);
+  });
+
+  it('keeps line breaks, drops other controls and bidi overrides', () => {
+    expect(multiLine('a\r\nb\rc\n\n\n\nd\u0007e‮f')).toBe('a\nb\nc\n\nd e f');
+    expect(escapeIcsMultiline('a,b;c\\d\ne')).toBe('a\\,b\\;c\\\\d\\ne');
+  });
+
+  it('puts the text in Google details, line breaks kept, controls dropped', () => {
+    const url = new URL(googleCalendarUrl({ ...event, description: 'Park at P2.\r\nNo <script>alert(1)</script>\u0007' }));
+    expect(url.searchParams.get('details')).toBe('Park at P2.\nNo <script>alert(1)</script>');
+    expect(new URL(googleCalendarUrl(event)).searchParams.has('details')).toBe(false);
   });
 });
