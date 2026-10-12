@@ -1,5 +1,5 @@
 /**
- * Who did it, as a TYPE — not as text (spec #62(a), review #466 rounds 3–4).
+ * Who did it, as a TYPE — not as text (spec #64(a), review #466 rounds 3–4).
  *
  * Only `member` carries user-controlled text (a person's own full_name). The
  * other kinds are PlusOne's own labels and every surface renders them as a

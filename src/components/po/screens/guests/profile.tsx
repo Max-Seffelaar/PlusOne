@@ -53,7 +53,7 @@ function LogRow({ icon, label, who, whoKind, when, accent, last }: { icon: IconN
   );
 }
 
-/** The timeline's actor (spec #62a): the sign-up link and an unresolved actor
+/** The timeline's actor (spec #64a): the sign-up link and an unresolved actor
  *  are typed labels, a resolved actor keeps the kind the RPC gave it. */
 function timelineActor(it: PoProfileTimelineItem): { who: string; whoKind: ActorKind } {
   if (it.viaSignUpLink) return { who: t.guests.contactProfile.actorSignUpLink, whoKind: 'system' };

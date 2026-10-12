@@ -1612,7 +1612,7 @@ export function DpaCheck({
   );
 }
 
-// ── Who did it (spec #62a, review #466 rounds 3–5) ──────────────────────────
+// ── Who did it (spec #64a, review #466 rounds 3–5) ──────────────────────────
 // A member's name is user-controlled text and renders PLAIN — never with a
 // border, background or icon. PlusOne's own labels ("PlusOne support",
 // "System", "Unknown", "Unnamed") render as a CHIP: a bordered pill (lavender

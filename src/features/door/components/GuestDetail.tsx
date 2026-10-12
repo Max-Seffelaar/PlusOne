@@ -37,7 +37,7 @@ function LogRow({
   icon: IconName;
   label: string;
   who: string;
-  /** What `who` is (spec #62a); omitted = a member's name. */
+  /** What `who` is (spec #64a); omitted = a member's name. */
   whoKind?: ActorKind;
   when?: string;
   accent?: boolean;

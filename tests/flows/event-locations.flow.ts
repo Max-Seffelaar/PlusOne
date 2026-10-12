@@ -10,7 +10,8 @@ import { adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
  *   (starts at the first saved location, the chip picks the second) → the
  *   share link /e/[slug] → a guest request through that page → the status page
  *   while pending → the admin approves → the status page approved → archiving
- *   the location leaves the event's copy alone.
+ *   the location leaves the event's copy alone, and the audit log shows the
+ *   company-level location writes at once (no reload, inside the staleTime).
  *
  * The share link and the status page must show the EVENT's location, never the
  * company address (spec #48(c) revised). The seed's admin@ is shared across
@@ -50,6 +51,15 @@ function typedDate(daysAhead: number): string {
 async function goApp(page: Page, path: string, baseURL: string | undefined): Promise<void> {
   await page.goto(new URL(path, baseURL).toString());
   await page.waitForLoadState('networkidle').catch(() => {});
+}
+
+/** In-app navigation through Next's own router (what <Link> does), so the
+ *  React Query cache survives — a page.goto would start from an empty cache. */
+async function clientNav(page: Page, path: string): Promise<void> {
+  await page.evaluate((p) => {
+    (window as unknown as { next: { router: { push: (href: string) => void } } }).next.router.push(p);
+  }, path);
+  await page.waitForURL((u) => u.pathname === path);
 }
 
 async function addLocation(page: Page, l: typeof LOC1): Promise<void> {
@@ -256,7 +266,11 @@ test('event locations: company settings → two saved locations → event at the
   await flow.shot('status-approved');
 
   // ── Archive keeps the event's copy ─────────────────────────────────────────
-  await goApp(page, '/app/venue', baseURL);
+  // Open the audit log first (a full load, so its feed is cached), then move
+  // client-side so the React Query cache survives into Q10 (#467 test 10).
+  await goApp(page, '/app/audit', baseURL);
+  await expect(page.getByText(`added the location ${LOC2.name}`).filter({ visible: true }).first()).toBeVisible();
+  await clientNav(page, '/app/venue');
   await page.getByRole('button', { name: `Archive ${LOC2.name}` }).click();
   await flow.shot('archive-confirm');
   await page.getByRole('button', { name: 'Archive location' }).click();
@@ -267,10 +281,30 @@ test('event locations: company settings → two saved locations → event at the
   });
   await flow.shot('settings-after-archive');
 
-  await flow.check(10, 'No step scrolls sideways', async () => {
+  // Back to the audit log inside the 30 s staleTime, without a reload.
+  await clientNav(page, '/app/audit');
+  await flow.check(10, 'The audit log shows the company-level location writes straight away, with no event', async () => {
+    await expect(page.getByText(`archived the location ${LOC2.name}`).filter({ visible: true }).first()).toBeVisible();
+    await expect(page.getByText(`added the location ${LOC1.name}`).filter({ visible: true }).first()).toBeVisible();
+    // DB truth: two creates + the archive, all on the company, none on an event.
+    const { data } = await db
+      .from('audit_log')
+      .select('action, event_id')
+      .eq('entity_type', 'company_locations')
+      .eq('venue_id', venueId)
+      .order('created_at');
+    expect(data).toEqual([
+      { action: 'create', event_id: null },
+      { action: 'create', event_id: null },
+      { action: 'update', event_id: null },
+    ]);
+  });
+  await flow.shot('audit-locations');
+
+  await flow.check(11, 'No step scrolls sideways', async () => {
     expectNoHorizontalOverflow(flow);
   });
-  await flow.check(11, 'No uncaught page errors during the whole walk', async () => {
+  await flow.check(12, 'No uncaught page errors during the whole walk', async () => {
     expect(flow.pageErrors).toEqual([]);
   });
 });

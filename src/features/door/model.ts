@@ -24,7 +24,7 @@ export interface DoorGuest {
   tierColor: string;
   tierIcon: IconName;
   addedByName: string;
-  /** What `addedByName` is (spec #62a) — render through kit ActorName. */
+  /** What `addedByName` is (spec #64a) — render through kit ActorName. */
   addedByKind?: ActorKind;
   addedAt: string;
   /** Last 4 digits of the phone number, or null (decision #27). */
@@ -114,7 +114,7 @@ export function indexCheckIns(checkIns: CheckInRow[]): Map<string, CheckInRow> {
   return map;
 }
 
-/** An actor id's kind on the door (spec #62a): the snapshot's own kind; a label
+/** An actor id's kind on the door (spec #64a): the snapshot's own kind; a label
  *  without one (older persisted snapshot) is a member's name; no label at all
  *  is unknown. */
 function kindAt(id: string, profiles: Record<string, string>, kinds?: Record<string, ActorKind>): ActorKind {

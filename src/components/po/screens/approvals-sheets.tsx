@@ -30,7 +30,7 @@ export type DenyTarget = {
   name: string;
   eventId: string;
   plus?: number;
-  /** quota: what `name` (the requester) is (spec #62a); render through kit ActorPhrase. */
+  /** quota: what `name` (the requester) is (spec #64a); render through kit ActorPhrase. */
   nameKind?: ActorKind;
 };
 

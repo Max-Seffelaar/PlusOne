@@ -23,7 +23,7 @@ export interface PerTier {
 }
 export interface PerUser {
   who: string;
-  /** What `who` is (spec #62a): a null name from the RPC is PlusOne support,
+  /** What `who` is (spec #64a): a null name from the RPC is PlusOne support,
    *  a blank one "Unnamed", anything else a member's own text. */
   whoKind: ActorKind;
   /** Heads added (gross, INCLUDING later-removed): the unit is heads (1 + plus-ones). */

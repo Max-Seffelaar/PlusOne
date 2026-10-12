@@ -260,7 +260,7 @@ export type FeedEntry =
       t: string;
       msg: string;
       accent: boolean;
-      /** A message that names an actor (spec #62a): `template` still holds the
+      /** A message that names an actor (spec #64a): `template` still holds the
        *  `{slot}` placeholder so the screen renders the actor through kit
        *  ActorPhrase; `msg` is the same sentence as plain text. */
       actor?: { template: string; slot: string; name: string; kind: ActorKind };

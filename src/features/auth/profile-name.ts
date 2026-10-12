@@ -1,4 +1,4 @@
-// The who-did-what labels (spec #62a) and a blank name are not a name a user
+// The who-did-what labels (spec #64a) and a blank name are not a name a user
 // may take. This is the SECOND layer. The first is structural: every surface
 // renders PlusOne's own labels as a typed chip (kit `ActorName`, see
 // src/lib/po/actor-kind.ts), which no name text can produce; a member's name is

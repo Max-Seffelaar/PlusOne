@@ -1,4 +1,4 @@
-// Who-did-what labels (spec #62a, decision Max 2026-10-11) — ONE rule for every
+// Who-did-what labels (spec #64a, decision Max 2026-10-11) — ONE rule for every
 // company-facing surface that names an actor: the audit feed, the data export,
 // the door ("checked in by"), guest lists ("added by"), quota requests, recap.
 //

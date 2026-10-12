@@ -1,4 +1,4 @@
--- One label, one rule for who-did-what (spec #62(a), decision Max 2026-10-11).
+-- One label, one rule for who-did-what (spec #64(a), decision Max 2026-10-11).
 --
 -- Every company-facing surface that names an actor (audit feed, data export,
 -- door "checked in by", guest list "added by", quota-request requester, recap)
@@ -154,7 +154,7 @@ end;
 $$;
 
 comment on function public.venue_actor_names(uuid, uuid[]) is
-  'Who-did-what labels for one venue (spec #62a): full_name for current and '
+  'Who-did-what labels for one venue (spec #64a): full_name for current and '
   'former members/crew, is_support (null name) for a platform admin without a '
   'membership/crew tie there. Only ids with a footprint in that venue come back; '
   'members see the venue, crew their own events, anyone else nothing. Max 500 ids.';

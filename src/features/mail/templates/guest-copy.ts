@@ -66,6 +66,9 @@ export const guestMailShared = {
   calendarIcs: 'Apple or Outlook (.ics)',
   calendarGoogle: 'Google Calendar',
   houseRules: 'House rules: {house_rules}',
+  // z8uq9m4a5n (decision Max 2026-10-11): the event's info for guests, its
+  // own block under this label. Picked in the PR's copy review.
+  guestInfoLabel: 'Good to know',
   note: 'Note from the team: "{remark}"',
   statusButton: 'Check your status',
   statusFallback: 'Button not working? Open {status_url}',
@@ -80,7 +83,7 @@ export const guestMailShared = {
 };
 
 /** The building blocks of a mail body, in the order the copy deck shows them. */
-export type GuestMailBlock = 'intro' | 'note' | 'details' | 'calendar' | 'after' | 'houseRules' | 'status';
+export type GuestMailBlock = 'intro' | 'note' | 'details' | 'guestInfo' | 'calendar' | 'after' | 'houseRules' | 'status';
 
 export interface GuestMailCopy {
   subject: string | ByPlusOnes;
@@ -102,7 +105,7 @@ export const guestMailCopy: Record<GuestMailType, GuestMailCopy> = {
     preheader: '{event_date}, doors {event_time}. Give your name at the door.',
     intro: "You're on the guest list for {event_name}.",
     after: "At the door, give your name. You don't need a QR code or a screenshot.",
-    blocks: ['intro', 'details', 'calendar', 'after', 'houseRules', 'status'],
+    blocks: ['intro', 'details', 'guestInfo', 'calendar', 'after', 'houseRules', 'status'],
     reason: 'onList',
     staysOnList: true,
     noteRequired: false,
@@ -134,7 +137,7 @@ export const guestMailCopy: Record<GuestMailType, GuestMailCopy> = {
       many: "{event_name} has new details. You're still on the list with +{n}.",
     },
     after: 'Give your name at the door, as planned.',
-    blocks: ['intro', 'details', 'calendar', 'after', 'status'],
+    blocks: ['intro', 'details', 'guestInfo', 'calendar', 'after', 'status'],
     reason: 'onList',
     staysOnList: true,
     noteRequired: false,
@@ -166,7 +169,7 @@ export const guestMailCopy: Record<GuestMailType, GuestMailCopy> = {
     subject: "Reminder: you're on the list for {event_name}",
     preheader: '{event_date}, doors {event_time}, {location}.',
     intro: "You're on the list for {event_name}.",
-    blocks: ['intro', 'details', 'calendar', 'status'],
+    blocks: ['intro', 'details', 'guestInfo', 'calendar', 'status'],
     reason: 'onList',
     staysOnList: true,
     noteRequired: false,
@@ -184,7 +187,7 @@ export const guestMailCopy: Record<GuestMailType, GuestMailCopy> = {
       many: "Your request is approved. You're on the guest list for {event_name}, {total} people in total.",
     },
     after: 'Give your name at the door.',
-    blocks: ['intro', 'details', 'note', 'calendar', 'after', 'status'],
+    blocks: ['intro', 'details', 'guestInfo', 'note', 'calendar', 'after', 'status'],
     reason: 'asked',
     staysOnList: true,
     noteRequired: false,
@@ -195,7 +198,7 @@ export const guestMailCopy: Record<GuestMailType, GuestMailCopy> = {
     intro:
       "You're on the list for {event_name}. We couldn't fit all {asked} people you asked for, so your spot covers {people}.",
     after: 'Give your name at the door.',
-    blocks: ['intro', 'note', 'details', 'calendar', 'after', 'status'],
+    blocks: ['intro', 'note', 'details', 'guestInfo', 'calendar', 'after', 'status'],
     reason: 'asked',
     staysOnList: true,
     noteRequired: true,

@@ -229,7 +229,7 @@ const selectRowHit = "relative before:absolute before:-inset-[14px] before:conte
 
 /** "Event · Added by Sanne" as ONE truncating caption (kit ActorCaption): a
  *  member's name truncates with the text, PlusOne's own labels are a compact
- *  chip that is never clipped (spec #62a, review #466 V1). */
+ *  chip that is never clipped (spec #64a, review #466 V1). */
 function EventAndSource({
   g,
   className,
