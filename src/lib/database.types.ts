@@ -648,6 +648,7 @@ export type Database = {
           created_at: string
           default_member_quota: number
           ends_at: string | null
+          guest_info: string | null
           house_rules: string | null
           id: string
           landing_active: boolean
@@ -673,6 +674,7 @@ export type Database = {
           created_at?: string
           default_member_quota: number
           ends_at?: string | null
+          guest_info?: string | null
           house_rules?: string | null
           id?: string
           landing_active?: boolean
@@ -698,6 +700,7 @@ export type Database = {
           created_at?: string
           default_member_quota?: number
           ends_at?: string | null
+          guest_info?: string | null
           house_rules?: string | null
           id?: string
           landing_active?: boolean
@@ -2564,6 +2567,7 @@ export type Database = {
           guest_id: string | null
           guest_name: string | null
           id: string | null
+          location_name: string | null
           new_tier_name: string | null
           old_tier_name: string | null
           request_name: string | null

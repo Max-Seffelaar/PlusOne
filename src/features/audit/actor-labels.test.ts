@@ -1,5 +1,5 @@
 /**
- * Who-did-what labels (spec #62a): the one rule every company-facing surface
+ * Who-did-what labels (spec #64a): the one rule every company-facing surface
  * uses — a current or former member/crew is named, a PlusOne operator without a
  * tie is "PlusOne support", no actor is "System". The names come from the
  * venue_actor_names RPC, chunked to ≤120 ids per call (CLAUDE.md scale rule).

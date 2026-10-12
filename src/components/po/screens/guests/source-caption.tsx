@@ -9,7 +9,7 @@ import { ActorCaption } from '../../kit';
  * Where a guest came from ("Added by Sanne", "At the door by PlusOne support",
  * "Sign-up link · Joeri") as ONE truncating caption. The actor goes through
  * the kit's ActorCaption: a member's name truncates with the text, PlusOne's
- * own labels are a compact chip that is never clipped (spec #62a, review #466
+ * own labels are a compact chip that is never clipped (spec #64a, review #466
  * rounds 3–5).
  */
 export function GuestSourceCaption({ className, ...props }: GuestSourceInput & { className?: string }): JSX.Element {

@@ -3,7 +3,7 @@ import { acceptConsent, adminClient } from '../e2e/helpers/supabase-admin';
 
 /**
  * Flow: the who-did-what chip on the DOOR row holds at phone width
- * (spec #62a, review #466 V1b). A guest with a long name and a long custom tier,
+ * (spec #64a, review #466 V1b). A guest with a long name and a long custom tier,
  * added with no adder (a request-link sign-up → the compact "System" chip), on
  * the offline-outbox door. At 375/390 the row must not scroll sideways, the
  * chip must stay inside its caption (border intact, it may collapse to the

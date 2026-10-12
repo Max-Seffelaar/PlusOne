@@ -5,7 +5,7 @@
  *  expired, anonymized or throttled token all render the identical "Nothing
  *  here." with no event info. A found token shows the event, where the spot
  *  stands (on the list / in / off the list / event canceled), the spot itself
- *  while it holds, the house rules, the calendar links and the company's
+ *  while it holds, the house rules, the info for guests, the calendar links and the company's
  *  guest-facing contact. Every value is a React text node, never HTML. No
  *  hooks: renders on the server. Bearer URL, so outbound links carry
  *  `noreferrer`. */
@@ -87,6 +87,13 @@ export function GuestStatus({ view, icsHref }: { view: GuestStatusView | null; i
           <div className="mt-[20px] rounded-[14px] border border-line bg-elev2 px-4 py-[13px] text-left">
             <div className="mb-[6px] font-body text-[11.5px] font-bold uppercase tracking-[0.04em] text-faint">{g.houseRulesLabel}</div>
             <p className="m-0 whitespace-pre-line break-words text-[14.5px] leading-[1.5] text-text">{view.houseRules}</p>
+          </div>
+        )}
+
+        {view.guestInfo && (
+          <div data-testid="guest-status-info" className="mt-[20px] rounded-[14px] border border-line bg-elev2 px-4 py-[13px] text-left">
+            <div className="mb-[6px] font-body text-[11.5px] font-bold uppercase tracking-[0.04em] text-faint">{g.guestInfoLabel}</div>
+            <p className="m-0 whitespace-pre-line break-words text-[14.5px] leading-[1.5] text-text">{view.guestInfo}</p>
           </div>
         )}
 

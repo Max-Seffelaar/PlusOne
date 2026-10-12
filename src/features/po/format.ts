@@ -88,10 +88,10 @@ export function toDateInput(iso: string): string {
 /** Just the projection `guestSourceLabel` reads — any Guest/appearance fits. */
 export interface GuestSourceInput {
   source: GuestSource;
-  /** Who added them, by the one who-did-what rule (#62a): a member's name or
+  /** Who added them, by the one who-did-what rule (#64a): a member's name or
    *  "PlusOne support"; null when unknown. */
   addedByName?: string | null;
-  /** What the adder is (spec #62a). Decides the rendering; the label text
+  /** What the adder is (spec #64a). Decides the rendering; the label text
    *  never does (a user could name themselves anything). Omitted = member. */
   addedByKind?: ActorKind | null;
   /** Non-default request link label (or its influencer); null for the default

@@ -537,7 +537,7 @@ export interface PoProfileEvent {
   /** Provenance for this appearance (item J) — feed straight to `guestSourceLabel`. */
   source: GuestSource;
   addedByName: string | null;
-  /** What the adder is (spec #62a) — feed to `guestSourceLabel`. */
+  /** What the adder is (spec #64a) — feed to `guestSourceLabel`. */
   addedByKind: ActorKind | null;
   linkLabel: string | null;
 }
@@ -551,7 +551,7 @@ export interface PoProfileTimelineItem {
   event: string;
   /** Resolved actor name; '' when unknown (the screen renders a fallback). */
   who: string;
-  /** What `who` is (spec #62a): 'unknown' when '', 'system' without an actor. */
+  /** What `who` is (spec #64a): 'unknown' when '', 'system' without an actor. */
   whoKind: ActorKind;
   /** kind='added' with no actor: the system added them through a request link
    *  (guests.added_by NULL) — the screen names the link, not a person. */
@@ -625,7 +625,7 @@ export function toPoContactProfile(
     promoteGuestId?: string | null;
     originEventId?: string | null;
     restricted?: boolean;
-    /** Each actor id's kind (spec #62a) — only 'member' is a person's own text. */
+    /** Each actor id's kind (spec #64a) — only 'member' is a person's own text. */
     actorKinds?: Readonly<Record<string, ActorKind>>;
     /** Injected clock for the per-event phase (deterministic tests). */
     nowMs?: number;
@@ -634,7 +634,7 @@ export function toPoContactProfile(
   const isContact = opts.isContact ?? true;
   const actorKinds = opts.actorKinds ?? {};
   // An id with a label but no kind (an older payload) is a member's name; one
-  // without a label is unknown (spec #62a).
+  // without a label is unknown (spec #64a).
   const kindOf = (id: string): ActorKind => actorKinds[id] ?? (actorNames[id] != null ? 'member' : 'unknown');
   const originEventId = opts.originEventId ?? null;
   const nowMs = opts.nowMs ?? Date.now();
@@ -891,7 +891,7 @@ export interface PoQuotaRequest {
   /** Event this request belongs to (for grouping + per-event invalidation). */
   eventId: string;
   who: string;
-  /** What `who` is (spec #62a) — render through kit ActorName. */
+  /** What `who` is (spec #64a) — render through kit ActorName. */
   whoKind: ActorKind;
   /** Extra slots requested (#5) — shown as "+N". */
   extra: number;
