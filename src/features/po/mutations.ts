@@ -138,10 +138,11 @@ import {
 } from '@/features/platform/invite-actions';
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
-import type { CheckinArrival, PoRequestLink } from './queries';
+import { fetchGuests, type CheckinArrival, type PoRequestLink } from './queries';
 import { poKeys } from './keys';
+import { createClient } from '@/lib/supabase/client';
 import { classifyAddResult, type BulkAddRowResult } from './bulk';
-import { optimisticGuest, type OptimisticAddArgs } from './adapters';
+import { optimisticGuest, tierRole, toPoGuest, type OptimisticAddArgs } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
 import { supabaseGateway } from '@/features/door/outbox/gateway';
 import { getDeviceId, getDoorClient } from '@/features/door/offline/device';
@@ -189,9 +190,35 @@ export const VENUE_GUESTS_PREFIX = [...poKeys.all, 'venue-guests'] as const;
 
 function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+  invalidateAddDerived(qc, eventId);
+}
+
+/** Everything an add moves except the event's own guest list. */
+function invalidateAddDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
   void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+}
+
+/**
+ * Swap the optimistic row of a just-added guest for the server's row — one
+ * single-row read (with its "added by" / source provenance) instead of
+ * re-downloading the whole event (Snelheid P2, finding 14). Newest first, like
+ * usePoGuests orders the list. Returns false when it couldn't (no client id, a
+ * failed read, a row RLS doesn't show): the caller falls back to the refetch.
+ */
+async function patchAddedGuest(qc: QueryClient, eventId: string, guestId: string | undefined): Promise<boolean> {
+  if (!guestId) return false;
+  try {
+    const [row] = await fetchGuests(createClient(), eventId, { guestId });
+    if (!row) return false;
+    const tier = qc.getQueryData<Tier[]>(poKeys.tiers(eventId))?.find((t) => t.id === row.tier_id);
+    const guest = toPoGuest(row, { role: tierRole(tier?.name ?? '').role, tierName: tier?.name, tierColor: tier?.color });
+    qc.setQueryData<Guest[]>(poKeys.guests(eventId), (old) => [guest, ...(old ?? []).filter((g) => g.id !== guestId)]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // The settings cluster reuses the EXISTING (prev, FormData) → ActionState server
@@ -222,11 +249,18 @@ export function usePoAddGuest(eventId: string) {
       ]),
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prev);
+      invalidateAfterAdd(qc, eventId);
     },
-    // Reconcile with the server (real ids, role, audit) regardless of outcome —
-    // our own key-invalidation, never Next's revalidatePath (that won't touch
-    // the client React Query cache the po surface reads from).
-    onSettled: () => invalidateAfterAdd(qc, eventId),
+    // Reconcile with the server (real row, role, provenance): the one new row,
+    // not the whole list; the derived counts refetch. Our own key-invalidation,
+    // never Next's revalidatePath (that won't touch the client React Query
+    // cache the po surface reads from).
+    onSuccess: async (_res, input) => {
+      invalidateAddDerived(qc, eventId);
+      if (!(await patchAddedGuest(qc, eventId, input.id))) {
+        void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      }
+    },
   });
 }
 

@@ -187,19 +187,24 @@ export async function fetchEvents(
  * a whole venue pages every guest of every event to the browser. Use the
  * windowed + server-searched {@link fetchVenueGuestsWindow} for that (86ey9e8hz).
  */
-export async function fetchGuests(client: Client, eventId: string): Promise<PoVenueGuestRow[]> {
-  const raw = await fetchAllRanged<PoVenueGuestRaw & { venue_id: string }>((from, to) =>
-    client
+export async function fetchGuests(
+  client: Client,
+  eventId: string,
+  /** One row of the list (Snelheid P2): patch a just-added guest into the cache
+   *  instead of re-downloading the event. Same shape, same status filter. */
+  opts: { guestId?: string } = {},
+): Promise<PoVenueGuestRow[]> {
+  const raw = await fetchAllRanged<PoVenueGuestRaw & { venue_id: string }>((from, to) => {
+    let query = client
       .from('guests')
       .select(
         `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, venue_id, ${GUEST_SOURCE_SELECT}`,
       )
       .eq('event_id', eventId)
-      .in('status', [...ON_LIST, 'refused'])
-      .order('created_at', { ascending: true })
-      .order('id')
-      .range(from, to),
-  );
+      .in('status', [...ON_LIST, 'refused']);
+    if (opts.guestId) query = query.eq('id', opts.guestId);
+    return query.order('created_at', { ascending: true }).order('id').range(from, to);
+  });
   // One event = one venue; the adders are a team-sized set (chunked anyway).
   const venueId = raw[0]?.venue_id;
   const labels = venueId

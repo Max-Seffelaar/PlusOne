@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2 #14 + own organizer scope (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-minor`. No migration.
+
+- **Guest add patches one row:** `usePoAddGuest` swaps its optimistic row for the server's row through a single-row read (`fetchGuests(…, { guestId })`, same select and status filter, with "added by" provenance) instead of re-downloading the event; tiers, quota and the venue-wide list still refresh, and a failed read falls back to the list refetch. Measured (`scripts/perf/p2-measure-minor.mjs`, 1 000-guest event, admin through RLS): 4 requests / 485 kB / 90 ms → 2 / 1 kB / 17 ms.
+- **No second tiers read:** `usePoGuests` takes tier names/colours from the event's `poKeys.tiers` query (`qc.fetchQuery`, 30 s fresh; one shared `fetchPoTiers`) instead of reading `guest_tiers` next to `usePoTiers`.
+- **Stats poll only when live:** `EventView` passed `isLive` unconditionally, so an upcoming event's detail polled the 5-RPC stats bundle every 15 s; it now passes `ev.phase === 'live'`.
+- **Own organizer scope (P1-review follow-up):** `assignOrganizer` / `removeOrganizer` re-render the `/app` layout when the target is the caller (`revalidateOwnCrewScope`), so the venue switcher's crew access set follows; `no-dead-revalidate-path.test.ts` allows exactly that one call in `src/features/events`. `inviteExternalCrew` only creates an invite (a company never inserts a crew row, #24), so it cannot change the caller's scope and gets no call.
+- **Not done:** bulk-paste contact matching in one RPC needs a new SQL function, i.e. a migration slot this work stream was not assigned (only `20261017120200`/`120300`); left for a follow-up.
+- **Tests:** `guest-add-patch.test.tsx` (one-row patch, newest first, fallback; tiers reused); `no-dead-revalidate-path.test.ts`; flow `guest-add-patch` (4 checks × 4 variants).
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.

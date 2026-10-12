@@ -21,7 +21,6 @@ import {
   fetchPastEventStats,
   fetchRecapGuests,
   fetchRecentCheckins,
-  fetchTiers,
   fetchTiersWithUsage,
   fetchGuests,
   fetchVenueGuestsWindow,
@@ -536,11 +535,15 @@ export function usePoTiers(eventId: string, options?: { refetchInterval?: number
     queryKey: poKeys.tiers(eventId),
     enabled: !!eventId,
     refetchInterval: options?.refetchInterval,
-    queryFn: async () => {
-      const rows = await fetchTiersWithUsage(createClient(), eventId);
-      return rows.map((r) => toPoTier(r, r.used));
-    },
+    queryFn: () => fetchPoTiers(eventId),
   });
+}
+
+/** The `poKeys.tiers` query function — shared by usePoTiers and usePoGuests'
+ *  tier lookup, so one key always holds one shape. */
+async function fetchPoTiers(eventId: string): Promise<Tier[]> {
+  const rows = await fetchTiersWithUsage(createClient(), eventId);
+  return rows.map((r) => toPoTier(r, r.used));
 }
 
 // ── Event templates (86exyp8gn) ──────────────────────────────────────────────
@@ -676,15 +679,18 @@ function sortGuestsNewestFirst<T extends { created_at: string; id: string }>(row
 
 /** Guests for an event, with each role badge resolved from its tier. */
 export function usePoGuests(eventId: string, options?: { refetchInterval?: number }) {
+  const qc = useQueryClient();
   return useQuery<Guest[]>({
     queryKey: poKeys.guests(eventId),
     enabled: !!eventId,
     refetchInterval: options?.refetchInterval,
     queryFn: async () => {
-      const client = createClient();
+      // The tier names/colours come from the event's tiers query (Snelheid P2,
+      // finding 14): the screens that list guests mount usePoTiers too, so a
+      // fresh copy is reused instead of reading guest_tiers a second time.
       const [guests, tiers] = await Promise.all([
-        fetchGuests(client, eventId),
-        fetchTiers(client, { eventId }),
+        fetchGuests(createClient(), eventId),
+        qc.fetchQuery({ queryKey: poKeys.tiers(eventId), queryFn: () => fetchPoTiers(eventId), staleTime: 30_000 }),
       ]);
       const tierById = new Map(tiers.map((t) => [t.id, t]));
       return sortGuestsNewestFirst(guests).map((g) =>

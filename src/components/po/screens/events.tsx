@@ -486,7 +486,9 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             </div>
           )}
         </div>
-        {id && <EventActivitySection eventId={id} isLive phase={ev.phase} />}
+        {/* The stats panel polls its 5-RPC bundle only while the event is live
+            (Snelheid P2, finding 14): an upcoming event's numbers don't move. */}
+        {id && <EventActivitySection eventId={id} isLive={ev.phase === 'live'} phase={ev.phase} />}
       </Scroll>
     </div>
   );
