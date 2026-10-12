@@ -428,15 +428,18 @@ export interface EventHeadcount {
  * `guests_select` visibility, so a staff member's tile still only counts their
  * own added guests, exactly like the row-by-row read it replaces.
  *
- * `sinceIso` (86ey9e8gt) is an optional lower bound on the event's `starts_at`,
- * mirroring `fetchEvents`'s window — omit for every event ever (today's
- * behaviour), pass it from a poll that should stay flat as the venue ages.
+ * The scope mirrors `fetchEvents`'s: `sinceIso` (86ey9e8gt) is an optional
+ * lower bound on the event's `starts_at` — omit for every event ever, pass it
+ * from a poll that should stay flat as the venue ages. `eventId` (Snelheid P2)
+ * aggregates that one event only, so a single-event read never scans the rest
+ * of the venue's history and can run in parallel with the event row.
  */
 export async function fetchEventHeadcounts(
   client: Client,
   venueId: string,
-  sinceIso?: string
+  scope: { sinceIso?: string; eventId?: string } = {}
 ): Promise<Map<string, EventHeadcount>> {
+  const { sinceIso, eventId } = scope;
   const counts = new Map<string, EventHeadcount>();
   // Throw, don't swallow: a silently-eaten error here rendered every stat tile
   // as a plausible-looking 0 for days when prod missed the RPC's migration
@@ -444,6 +447,7 @@ export async function fetchEventHeadcounts(
   const { data, error } = await client.rpc('venue_event_headcounts', {
     p_venue_id: venueId,
     ...(sinceIso ? { p_since: sinceIso } : {}),
+    ...(eventId ? { p_event_id: eventId } : {}),
   });
   if (error) throw error;
   for (const row of data ?? []) {

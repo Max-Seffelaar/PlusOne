@@ -289,7 +289,7 @@ export function usePoHomeEvents() {
       // not an N+1 per card, so the board can gate Edit/Lock per event.
       const [rows, heads, organizerIds] = await Promise.all([
         fetchEvents(client, venueId, { sinceIso }),
-        fetchEventHeadcounts(client, venueId, sinceIso),
+        fetchEventHeadcounts(client, venueId, { sinceIso }),
         isAdmin || !userId ? Promise.resolve(new Set<string>()) : fetchOrganizerEventIds(client, venueId, userId),
       ]);
       const now = Date.now();
@@ -406,9 +406,13 @@ export function usePoEvent(eventId: string) {
     queryFn: async () => {
       if (!venueId || !eventId) return null;
       const client = createClient();
-      const [row] = await fetchEvents(client, venueId, { eventId });
+      // Both reads know the id up front, so they run in parallel; the headcount
+      // aggregates this one event, not every event after it (Snelheid P2).
+      const [[row], heads] = await Promise.all([
+        fetchEvents(client, venueId, { eventId }),
+        fetchEventHeadcounts(client, venueId, { eventId }),
+      ]);
       if (!row) return null;
-      const heads = await fetchEventHeadcounts(client, venueId, row.starts_at);
       const c = heads.get(row.id) ?? { registered: 0, present: 0 };
       return toPoEvent(row, { guests: c.registered, inside: c.present });
     },
