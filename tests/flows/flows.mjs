@@ -327,9 +327,12 @@ export const FLOWS = {
     ],
   },
   'billing-mails': {
-    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause',
+    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause, Billing ?venue= deep link',
     paths: [
       'supabase/migrations/20261013170000_billing_mail_types.sql',
+      'supabase/migrations/20261015135000_billing_mail_unknown_outcome.sql',
+      'src/components/po/screens/settings/billing',
+      'src/components/po/routes.ts',
       'src/features/billing/mail-',
       'src/features/mail/',
       'src/app/api/webhooks/billing-mails/',

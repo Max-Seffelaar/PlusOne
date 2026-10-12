@@ -97,6 +97,7 @@ function payload(mail: OutgoingMail): Record<string, unknown> {
 
 function failureFor(status: number, name: string | null): MailFailureCode {
   if (status === 429) return failureFor429(name);
+  if (status === 409) return 'idempotency_conflict';
   return status >= 500 ? 'provider_unavailable' : 'provider_rejected';
 }
 

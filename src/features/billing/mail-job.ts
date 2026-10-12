@@ -194,7 +194,13 @@ async function deliver(
     }
 
     const rendered = renderBillingMail(
-      { type: d.type, firstName: recipient.firstName, companyName: parsed.company, trialEndsAt: d.trialEndsAt },
+      {
+        type: d.type,
+        firstName: recipient.firstName,
+        companyName: parsed.company,
+        trialEndsAt: d.trialEndsAt,
+        venueId: d.venueId,
+      },
       deps.appUrl
     );
     let result: SendResult;
@@ -261,7 +267,15 @@ export async function runBillingMails(token: string | null, deps: BillingMailDep
   const started = clock();
   const outOfTime = () => clock() - started > RUN_BUDGET_MS;
 
-  const deliveries: Delivery[] = [];
+  // Stripe mails first (review #446 D3): a payment that failed is the most
+  // urgent thing a company hears from us, so it never waits an hour behind
+  // trial reminders when a run hits its time budget.
+  const deliveries: Delivery[] = begin.events.map((event) => ({
+    venueId: event.venueId,
+    type: event.type,
+    dedupeKey: `stripe:${event.stripeEventId}`,
+    trialEndsAt: null,
+  }));
   for (const trial of begin.trials) {
     const due = dueBillingMails(
       {
@@ -276,14 +290,6 @@ export async function runBillingMails(token: string | null, deps: BillingMailDep
     for (const type of due) {
       deliveries.push({ venueId: trial.venueId, type, dedupeKey: type, trialEndsAt: trial.trialEndsAt });
     }
-  }
-  for (const event of begin.events) {
-    deliveries.push({
-      venueId: event.venueId,
-      type: event.type,
-      dedupeKey: `stripe:${event.stripeEventId}`,
-      trialEndsAt: null,
-    });
   }
 
   for (const [i, d] of deliveries.entries()) {

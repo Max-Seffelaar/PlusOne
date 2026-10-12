@@ -2567,6 +2567,7 @@ export type Database = {
           guest_id: string | null
           guest_name: string | null
           id: string | null
+          location_name: string | null
           new_tier_name: string | null
           old_tier_name: string | null
           request_name: string | null

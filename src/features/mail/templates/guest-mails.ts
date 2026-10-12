@@ -14,13 +14,12 @@
 // person" vs "n people" everywhere, "Entry:" vs "Entry per person:".
 
 import { fmt } from '@/lib/i18n';
+import { GUEST_INFO_MAX } from '@/features/events/schemas';
 import { escapeHtml, plainLine } from '../templates';
 import { googleCalendarUrl, multiLine, type CalendarEvent } from '../ics';
 import { guestMailCopy, guestMailShared, type ByPlusOnes, type GuestMailType } from './guest-copy';
 
 const NAME_MAX = 80;
-/** events_guest_info_check caps the column at 1000 characters. */
-const GUEST_INFO_MAX = 1000;
 /** The sender's display name stays short in an inbox list. */
 const SENDER_EVENT_MAX = 40;
 const TZ = 'Europe/Amsterdam';
