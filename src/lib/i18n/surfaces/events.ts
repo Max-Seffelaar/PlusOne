@@ -16,6 +16,8 @@ export const events = {
   loadEventsError: "Couldn't load events. Try again in a moment.",
   emptyUpcoming: 'No upcoming events. Create one and start the list.',
   emptyPast: 'No past events yet.',
+  /** Past view: loads the next page of events older than the last 30 days (Snelheid P2). */
+  showOlder: 'Show older events',
   /** {place} = the event's own location, else the company address (z8uq9m2vqc). */
   cardDoors: 'Doors {time} · {place}',
   cardTurnoutSuffix: '% attendance',

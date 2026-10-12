@@ -133,16 +133,33 @@ export type PoVenueGuestRow = PoGuestRow & Pick<Tables['guests']['Row'], 'event_
 export async function fetchEvents(
   client: Client,
   venueId: string,
-  scope: { sinceIso?: string; eventId?: string } = {},
+  scope: {
+    sinceIso?: string;
+    eventId?: string;
+    /** Keyset cursor for paging back through history (Snelheid P2): events
+     *  strictly before this (starts_at, id) in the list's newest-first order.
+     *  `id` null = everything starting before `startsAt`. */
+    before?: { startsAt: string; id: string | null };
+    limit?: number;
+  } = {},
 ): Promise<PoEventRow[]> {
   let query = client
     .from('events')
     .select('id, name, starts_at, ends_at, status, cancelled_at, list_locked, location_name, location_address, venues(name, address_line, postal_code, city)')
     .eq('venue_id', venueId)
-    .order('starts_at', { ascending: false });
+    .order('starts_at', { ascending: false })
+    // Tiebreaker so a keyset page never skips or repeats events that share a start.
+    .order('id', { ascending: false });
   if (scope.sinceIso) query = query.gte('starts_at', scope.sinceIso);
   // One event (Snelheid P1): the event-detail read, same row shape as the list.
   if (scope.eventId) query = query.eq('id', scope.eventId);
+  if (scope.before) {
+    const { startsAt, id } = scope.before;
+    query = id
+      ? query.or(`starts_at.lt."${startsAt}",and(starts_at.eq."${startsAt}",id.lt.${id})`)
+      : query.lt('starts_at', startsAt);
+  }
+  if (scope.limit) query = query.limit(scope.limit);
   const { data, error } = await query;
   if (error) throw error;
 

@@ -69,12 +69,13 @@ describe('usePoEvent notFound (86ey9e9vc review round 2, finding 5)', () => {
     H.venueId = 'v1';
     H.fetches = 0;
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
-    client.setQueryData(poKeys.events('v1'), [{ id: 'e1', name: 'From list' }]);
+    // The venue list cache holds the event WINDOW (Snelheid P2): raw rows + headcounts.
+    client.setQueryData(poKeys.events('v1'), { rows: [{ id: 'e1' }], heads: {}, sinceIso: '', fetchedAt: 0 });
     const seeded = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
     const { result } = renderHook(() => usePoEvent('e1'), { wrapper: seeded });
-    expect(result.current.event).toMatchObject({ id: 'e1', name: 'From list' });
+    expect(result.current.event).toMatchObject({ id: 'e1' });
     expect(result.current.isLoading).toBe(false);
     expect(H.fetches).toBe(0);
   });

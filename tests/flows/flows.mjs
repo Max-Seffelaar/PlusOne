@@ -264,6 +264,18 @@ export const FLOWS = {
       'src/app/r/',
     ],
   },
+  'events-window': {
+    title: 'Snelheid P2 #4 + #12 (z8uq9m2xz2) — one event window (upcoming + 30 days) shared by Home and Events, Past pages back on request, door candidates windowed',
+    paths: [
+      'src/features/po/hooks.ts',
+      'src/features/po/keys.ts',
+      'src/features/po/queries.ts',
+      'src/features/po/mutations.ts',
+      'src/components/po/screens/events.tsx',
+      'src/components/po/screens/home',
+      'src/components/po/door-branch.tsx',
+    ],
+  },
   'door-checkin': {
     title: 'Door check-in D — Check in all / Check in 1 (3/4), one row, undo refused with the setting off',
     paths: [

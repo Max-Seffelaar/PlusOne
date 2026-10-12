@@ -12,6 +12,7 @@ import {
   usePoEventDetail,
   usePoEventForEdit,
   usePoEvents,
+  usePoPastEvents,
   useBillingBlocked,
   usePoTiers,
   usePoCrew,
@@ -68,9 +69,13 @@ export function Events(): JSX.Element {
   // (z8uq9m0hw3, item 1). A pure user_manager/finance would only reach a
   // quick-add that says "no rights".
   const canAddGuest = canManageGuests(roles) || canManageTemplates;
-  // Inline name search (z8uq9m0hw3, item 2). Client-side over the loaded list:
-  // usePoEvents isn't windowed (the venue's events, not their guests), so this
-  // filters what's already on screen and adds no query.
+  // Older events (Snelheid P2, finding 4): usePoEvents holds the upcoming events
+  // plus the last 30 days; Past pages further back one tap at a time.
+  const [olderOn, setOlderOn] = useState(false);
+  const past = usePoPastEvents(when === 'past' && olderOn);
+  // Inline name search (z8uq9m0hw3, item 2). Client-side over what is loaded
+  // (the window, plus any older pages), so it filters what's on screen and adds
+  // no query.
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
@@ -78,7 +83,14 @@ export function Events(): JSX.Element {
     setSearchOpen(false);
     setQuery('');
   };
-  const evs = (data ?? []).filter((e) => e.when === when && (!q || e.name.toLowerCase().includes(q)));
+  const windowIds = new Set(data.map((e) => e.id));
+  const older = when === 'past' && olderOn ? (past.data?.pages ?? []).flatMap((p) => p.events).filter((e) => !windowIds.has(e.id)) : [];
+  const evs = [...data, ...older].filter((e) => e.when === when && (!q || e.name.toLowerCase().includes(q)));
+  const canShowOlder = when === 'past' && !isLoading && !isError && (!olderOn || past.hasNextPage || past.isLoading);
+  const showOlder = (): void => {
+    if (!olderOn) setOlderOn(true);
+    else void past.fetchNextPage();
+  };
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
@@ -215,6 +227,14 @@ export function Events(): JSX.Element {
             </div>
           ))
         )}
+        {canShowOlder && (
+          <div className="mt-3 flex justify-center">
+            <Btn sm kind="ghost" icon="clock" disabled={past.isFetching} onClick={showOlder}>
+              {past.isFetching ? t.events.loadingEvents : t.events.showOlder}
+            </Btn>
+          </div>
+        )}
+        {when === 'past' && olderOn && past.isError && <Empty text={t.events.loadEventsError} />}
       </Scroll>
     </div>
   );

@@ -2,7 +2,7 @@
 /**
  * Events tab (z8uq9m0hw3):
  * - item 2: the header search icon opens an inline field that filters the
- *   Upcoming / Past list by event name (client-side, the list isn't windowed).
+ *   Upcoming / Past list by event name (client-side over what is loaded).
  * - item 1: "Add guest" is role-hidden like Home's "New guest" (M9, K-7).
  */
 import '@testing-library/jest-dom';
@@ -35,8 +35,23 @@ const EVENTS = [
   ev('e3', 'Opening Night', 'past'),
 ];
 
+// Older pages behind the 30-day window (Snelheid P2): one page with one event.
+const fetchNextPage = vi.fn();
+let pastEnabledCalls: boolean[] = [];
+
 vi.mock('@/features/po/hooks', () => ({
   usePoEvents: () => ({ data: EVENTS, isLoading: false, isError: false }),
+  usePoPastEvents: (enabled: boolean) => {
+    pastEnabledCalls.push(enabled);
+    return {
+      data: enabled ? { pages: [{ events: [ev('e9', 'Old Rave', 'past')], next: null }] } : undefined,
+      hasNextPage: false,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      fetchNextPage,
+    };
+  },
   usePoCanManageTemplates: () => roles.includes('admin') || organizes,
   useBillingBlocked: () => ({ blocked: false }),
 }));
@@ -48,6 +63,7 @@ import { Events } from './events';
 beforeEach(() => {
   roles = ['admin'];
   organizes = false;
+  pastEnabledCalls = [];
   vi.clearAllMocks();
 });
 afterEach(cleanup);
@@ -128,5 +144,23 @@ describe('Events tab Add guest (item 1)', () => {
       expect(screen.queryByRole('button', { name: t.events.addGuest })).not.toBeInTheDocument();
       cleanup();
     }
+  });
+});
+
+describe('Events tab Past paging (Snelheid P2)', () => {
+  it('loads older events only on request, then hides the button when there are no more', () => {
+    render(<Events />);
+    // Upcoming: no older-events button, and the page query stays disabled.
+    expect(screen.queryByRole('button', { name: t.events.showOlder })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t.events.tabPast }));
+    expect(screen.getByText('Opening Night')).toBeInTheDocument();
+    expect(screen.queryByText('Old Rave')).toBeNull();
+    expect(pastEnabledCalls.every((e) => !e)).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: t.events.showOlder }));
+    expect(screen.getByText('Old Rave')).toBeInTheDocument();
+    expect(screen.getByText('Opening Night')).toBeInTheDocument();
+    // The last page said "no more": the button is gone.
+    expect(screen.queryByRole('button', { name: t.events.showOlder })).toBeNull();
   });
 });

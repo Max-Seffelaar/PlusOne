@@ -8,6 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2 #4 + #12: one event window for Home and Events (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-events-window`. No migration.
+
+- **What grew with venue age:** `usePoEvents` (Events tab and ~13 pickers) read every event plus a headcount aggregate over every guest the venue ever had; Home read its own 7-day copy (poll 10 s) and the desktop door auto-open read every event again for its candidates. Three event reads, two headcount aggregates, two of them full history.
+- **Fix:** one window query (`poKeys.events`: every upcoming event + the last 30 days, with headcounts for exactly those) stored as raw rows + plain-object heads, and `select` per shape: `usePoEvents` → `PoEvent[]`, `usePoHomeEvents` → the board (7-day slice, live-first, organizer gate from `usePoOrganizerEventIds`, now = the fetch time so the poll still re-sorts). `poKeys.home` is now an alias of the events key, so every existing Home invalidation hits the shared query. `usePoEvent` seeds from the window. `usePoDoorCandidates` keeps its own key and query state (N7 `hasData`/`fetchStatus`/`isError` exactly as before, no door re-render on Home's poll) and reads the window's `sinceIso`. Past pages further back on "Show older events" (`usePoPastEvents`, keyset on `(starts_at, id)`, 30 per page, keyed on the window's lower bound so pages continue exactly where it stops). `fetchEvents` gains an `id` tiebreak, a `before` cursor and a `limit`.
+- **staleTime:** `usePoEvents` 30 s → 5 min, **after** every write that moves a headcount invalidates the `['po','events']` prefix (`EVENTS_PREFIX`: add, bulk add, edit, tier change, remove, cockpit check-in/out, approve/decide).
+- **Measured** (`scripts/perf/p2-measure-events.mjs`, `p2-seed.mjs` venue, 300 events, admin through RLS, median of 5): Home 3 requests / 130 kB / 434 rows → 3 / 68 kB / 270; then tapping Events 2 requests / 126 kB / 600 rows → 0 (shared cache). Trade-off: Home's 10 s poll reads the 30-day window instead of 7 days (28 → 38 kB, 134 → 180 rows).
+- **Tests:** `events.tab.test.tsx` (Past paging), `mutations.eventsInvalidate.test.tsx`, `hooks.usePoEvent.test.tsx` seeds the window shape, i18n snapshot (+1 string); flow `events-window` (5 checks × 4 variants); `pnpm e2e:smoke` 12/12 locally (incl. `door-offline-reload`, `app-home-events-visible`).
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
