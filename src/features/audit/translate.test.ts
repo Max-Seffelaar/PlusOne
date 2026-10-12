@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { describeAuditEntry, formatWhen, type AuditFeedRow } from './translate';
+import { auditPersonIds, describeAuditEntry, formatWhen, type AuditFeedRow } from './translate';
+import { ActorLabels } from './actor-labels';
 
 // Minimal audit_feed row factory — only the fields the translator reads.
 function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
   return {
     id: 'a1',
-    actor_id: null,
+    actor_id: 'u-max',
     actor_name: 'Max',
     venue_id: 'v1',
     event_id: 'e1',
@@ -144,7 +145,7 @@ describe('describeAuditEntry', () => {
         diff: { before: { roles: ['staff'] }, after: { roles: ['staff', 'doorhost'] } },
       })
     );
-    expect(line.text).toBe("changed Lisa's roles (staff → staff, doorhost)");
+    expect(line.text).toBe("changed Lisa's roles (Staff → Staff, Door host)");
   });
 
   it('describes a landing-page request decision (#12)', () => {
@@ -188,6 +189,7 @@ describe('describeAuditEntry', () => {
       row({
         entity_type: 'guest_requests',
         action: 'approve',
+        actor_id: null,
         actor_name: null,
         guest_name: null,
         request_name: 'Demo Autogast',
@@ -211,7 +213,139 @@ describe('describeAuditEntry', () => {
   });
 
   it('falls back to "System" for a null actor', () => {
-    expect(describeAuditEntry(row({ actor_name: null })).actor).toBe('System');
+    expect(describeAuditEntry(row({ actor_id: null, actor_name: null })).actor).toBe('System');
+  });
+
+  // ── Who did it: one rule (spec #64a) ──────────────────────────────────────
+  // The view's actor_name/subject_name are RLS-scoped (can_view_profile), so a
+  // former member or a PlusOne operator comes back null there; the labels from
+  // venue_actor_names win.
+  describe('actor labels (#64a)', () => {
+    const labels = new ActorLabels()
+      .setActor('u-former', 'Lisa van den Berg', 'member')
+      .setActor('u-op', 'PlusOne support', 'support');
+
+    it('names a former member the view could no longer resolve', () => {
+      const line = describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), labels);
+      expect(line.actor).toBe('Lisa van den Berg');
+    });
+
+    it('shows an operator without a tie as PlusOne support, even if the view named them', () => {
+      const line = describeAuditEntry(row({ actor_id: 'u-op', actor_name: 'Secret Operator' }), labels);
+      expect(line.actor).toBe('PlusOne support');
+    });
+
+    it('keeps "System" for no actor, whatever the labels', () => {
+      expect(describeAuditEntry(row({ actor_id: null, actor_name: null }), labels).actor).toBe('System');
+    });
+
+    it('labels the subject of a membership change the same way', () => {
+      const line = describeAuditEntry(
+        row({
+          entity_type: 'venue_memberships',
+          action: 'delete',
+          subject_user_id: 'u-former',
+          subject_name: null,
+          guest_name: null,
+        }),
+        labels,
+      );
+      expect(line.text).toBe("removed Lisa van den Berg's access");
+    });
+
+    it('falls back to the view name without a label (RPC not deployed yet)', () => {
+      expect(describeAuditEntry(row({ actor_id: 'u-max' }), new Map()).actor).toBe('Max');
+    });
+
+    it('carries the actor KIND so the screen renders labels typed (review #466 r3)', () => {
+      expect(describeAuditEntry(row({ actor_id: 'u-op', actor_name: null }), labels).actorKind).toBe('support');
+      expect(describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), labels).actorKind).toBe('member');
+      expect(describeAuditEntry(row({ actor_id: null, actor_name: null }), labels).actorKind).toBe('system');
+      expect(describeAuditEntry(row({ actor_id: 'u-x', actor_name: null }), labels).actorKind).toBe('unknown');
+    });
+
+    it('a member NAMED "System" (with an invisible suffix) is kind member, never system', () => {
+      const lri = String.fromCodePoint(0x2066);
+      const named = new ActorLabels().setActor('u-sys', `System${lri}`, 'member');
+      const line = describeAuditEntry(row({ actor_id: 'u-sys', actor_name: null }), named);
+      expect(line.actor).toBe(`System${lri}`);
+      expect(line.actorKind).toBe('member');
+    });
+
+    it('carries the SUBJECT as a ref with its kind, slotted in the template (review #466 r4)', () => {
+      const line = describeAuditEntry(
+        row({ entity_type: 'venue_memberships', action: 'delete', subject_user_id: 'u-op', subject_name: null, guest_name: null }),
+        labels,
+      );
+      expect(line.subject).toEqual({ text: 'PlusOne support', kind: 'support' });
+      expect(line.subjectParts).toEqual({ before: 'removed ', after: "'s access" });
+      expect(line.text).toBe("removed PlusOne support's access");
+    });
+
+    it('an unresolved subject is the i18n "a user", kind unknown; no subject → no template', () => {
+      const line = describeAuditEntry(
+        row({ entity_type: 'quotas', action: 'quota_grant', subject_user_id: 'u-x', subject_name: null, guest_name: null,
+              diff: { before: null, after: { default_count: 5 } } }),
+        new ActorLabels(),
+      );
+      expect(line.subject).toEqual({ text: 'a user', kind: 'unknown' });
+      expect(line.text).toBe('granted a user an venue quota of 5');
+      expect(describeAuditEntry(row({ action: 'delete' }), labels).subject).toBeUndefined();
+    });
+
+    it('a guest NAMED "{subject}" cannot forge or hide a subject (review #466 r5)', () => {
+      // A guest line: no subject entity, so no subject at all, and the name is literal text.
+      const guestLine = describeAuditEntry(row({ action: 'delete', guest_name: '{subject}' }), labels);
+      expect(guestLine.subject).toBeUndefined();
+      expect(guestLine.text).toBe('removed {subject} (soft delete)');
+      // A quota-request deny whose free-text reason says "{subject}": the real
+      // requester stays the subject, the reason stays text.
+      const deny = describeAuditEntry(
+        row({
+          entity_type: 'quota_requests', action: 'deny', subject_user_id: 'u-former', subject_name: null, guest_name: null,
+          diff: { before: null, after: { decision_reason: '{subject} tried this' } },
+        }),
+        labels,
+      );
+      expect(deny.subject).toEqual({ text: 'Lisa van den Berg', kind: 'member' });
+      expect(deny.subjectParts).toEqual({ before: 'denied the quota request from ', after: ', {subject} tried this' });
+    });
+
+    it('a member name containing replacement patterns ($&, $`, $\') is inserted literally', () => {
+      const name = 'A$&B$`C$\'D';
+      const tricky = new ActorLabels().setActor('u-t', name, 'member');
+      const line = describeAuditEntry(
+        row({ entity_type: 'venue_memberships', action: 'delete', subject_user_id: 'u-t', subject_name: null, guest_name: null }),
+        tricky,
+      );
+      expect(line.text).toBe(`removed ${name}'s access`);
+      expect(line.subject?.text).toBe(name);
+    });
+
+    it('the RLS-name fallback goes through the same blank → "Unnamed" rule', () => {
+      const blank = String.fromCodePoint(0x3164);
+      const line = describeAuditEntry(row({ actor_id: 'u-max', actor_name: blank }), new ActorLabels());
+      expect(line.actor).toBe('Unnamed');
+      expect(line.actorKind).toBe('unnamed');
+      expect(describeAuditEntry(row({ actor_id: 'u-max' }), new ActorLabels()).actorKind).toBe('member');
+    });
+
+    it('never calls a real actor "System" when labels are missing: "Unknown" (review #466 N2)', () => {
+      // A former member / operator: RLS hides the view name, and the label RPC failed.
+      const line = describeAuditEntry(row({ actor_id: 'u-former', actor_name: null }), new Map());
+      expect(line.actor).toBe('Unknown');
+      expect(line.actor).not.toBe('System');
+    });
+
+    it('collects actor and subject ids once, skipping nulls', () => {
+      expect(
+        auditPersonIds([
+          row({ actor_id: 'u-max', subject_user_id: 'u-former' }),
+          row({ actor_id: 'u-max', subject_user_id: null }),
+          row({ actor_id: null }),
+        ]),
+      ).toEqual(['u-max', 'u-former']);
+    });
   });
 
   it('describes request_links actions (W3)', () => {
@@ -255,6 +389,465 @@ describe('describeAuditEntry', () => {
       })
     );
     expect(archived.text).toBe('archived a request link');
+  });
+});
+
+// ── Tables audited after the first phases (z8uq audit-fallback-copy) ────────
+// Rows shaped like the trigger output (audit_trigger: full snapshot on create,
+// changed fields only on update) and the SECURITY DEFINER RPCs' direct rows.
+describe('describeAuditEntry: every audited table reads as a sentence', () => {
+  // A company-scoped row: no event, no guest.
+  const company = (overrides: Partial<AuditFeedRow>) =>
+    row({ event_id: null, event_name: null, guest_id: null, guest_name: null, ...overrides });
+
+  describe('subscriptions', () => {
+    it('the onboarding insert starts the free trial (was "create on subscriptions")', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'create',
+          diff: { before: null, after: { status: 'trialing', plan_id: 'pro', trial_ends_at: null, stripe_customer_id: null } },
+        }),
+      );
+      expect(line.text).toBe('started the free trial');
+      expect(line.entity).toBe('the subscription');
+    });
+
+    it('an insert with a trial end names the date', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'create',
+          diff: { before: null, after: { status: 'trialing', trial_ends_at: '2026-10-26T23:00:00+00:00' } },
+        }),
+      );
+      expect(line.text).toBe('started the free trial, until 27 Oct 2026');
+    });
+
+    it('a comped insert or flip is "always free"', () => {
+      expect(
+        describeAuditEntry(
+          company({ entity_type: 'subscriptions', action: 'create', diff: { before: null, after: { status: 'comped' } } }),
+        ).text,
+      ).toBe('marked the company as always free');
+      // set_venue_comped(true): status + trial_ends_at cleared.
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'subscriptions',
+            action: 'update',
+            diff: {
+              before: { status: 'trialing', trial_ends_at: '2026-11-01T00:00:00+00:00' },
+              after: { status: 'comped', trial_ends_at: null },
+            },
+          }),
+        ).text,
+      ).toBe('marked the company as always free');
+    });
+
+    it('set_venue_comped(false) on a comped company is a fresh trial', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          diff: {
+            before: { status: 'comped', trial_ends_at: null },
+            after: { status: 'trialing', trial_ends_at: '2026-10-25T10:00:00+00:00' },
+          },
+        }),
+      );
+      expect(line.text).toBe('turned off always free, trial until 25 Oct 2026');
+    });
+
+    it('set_venue_trial_end names the new end date', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          diff: {
+            before: { trial_ends_at: '2026-10-20T10:00:00+00:00' },
+            after: { trial_ends_at: '2026-12-31T10:00:00+00:00' },
+          },
+        }),
+      );
+      expect(line.text).toBe('set the trial to end on 31 Dec 2026');
+    });
+
+    it('the ADE invite row (diff.source) says why the trial got longer', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          diff: {
+            before: { trial_ends_at: null },
+            after: { trial_ends_at: '2026-10-26T23:00:00+00:00' },
+            source: 'platform_invite_ade',
+            platform_invite_id: 'pi-1',
+          },
+        }),
+      );
+      expect(line.text).toBe('extended the trial to 27 Oct 2026 with a free until end of ADE invite');
+    });
+
+    it('a webhook status change reads as a status, by System', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'subscriptions',
+          action: 'update',
+          actor_id: null,
+          actor_name: null,
+          diff: {
+            before: { status: 'trialing', stripe_subscription_id: null },
+            after: { status: 'past_due', stripe_subscription_id: 'sub_123' },
+          },
+        }),
+      );
+      expect(line.actor).toBe('System');
+      expect(line.text).toBe('set the subscription to payment overdue');
+    });
+
+    it('a billing interval switch, and a bookkeeping-only update', () => {
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'subscriptions',
+            action: 'update',
+            diff: { before: { billing_interval: 'month' }, after: { billing_interval: 'year' } },
+          }),
+        ).text,
+      ).toBe('switched billing to yearly');
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'subscriptions',
+            action: 'update',
+            diff: { before: { stripe_customer_id: null }, after: { stripe_customer_id: 'cus_1' } },
+          }),
+        ).text,
+      ).toBe('updated the subscription');
+    });
+  });
+
+  describe('contacts', () => {
+    it('a new contact is named (was "create on contacts")', () => {
+      const line = describeAuditEntry(
+        company({
+          entity_type: 'contacts',
+          action: 'create',
+          diff: {
+            before: null,
+            after: { full_name: 'Lotte de Wit', email: 'lotte@example.test', phone: '+31600000000', source: 'manual' },
+          },
+        }),
+      );
+      expect(line.text).toBe('added a contact: Lotte de Wit');
+      expect(line.text).not.toMatch(/@|\+316/);
+      expect(line.entity).toBe('Lotte de Wit');
+    });
+
+    it('an update names the contact only when the name is in the diff', () => {
+      expect(
+        describeAuditEntry(
+          company({ entity_type: 'contacts', action: 'update', diff: { before: { note: null }, after: { note: 'VIP' } } }),
+        ).text,
+      ).toBe('updated a contact');
+      expect(
+        describeAuditEntry(
+          company({
+            entity_type: 'contacts',
+            action: 'update',
+            diff: { before: { full_name: 'Lotte Wit' }, after: { full_name: 'Lotte de Wit' } },
+          }),
+        ).text,
+      ).toBe('updated the contact Lotte de Wit');
+    });
+
+    it('anonymization never prints the pre-anonymization name', () => {
+      // The anonymizing UPDATE still carries the real name in `before`.
+      const update = describeAuditEntry(
+        company({
+          entity_type: 'contacts',
+          action: 'update',
+          diff: {
+            before: { full_name: 'Lotte de Wit', anonymized_at: null },
+            after: { full_name: 'Contact #12', anonymized_at: '2027-06-01T03:00:00Z' },
+          },
+        }),
+      );
+      expect(update.text).toBe('anonymized a contact');
+      const job = describeAuditEntry(
+        company({
+          entity_type: 'contacts',
+          action: 'anonymize',
+          actor_id: null,
+          actor_name: null,
+          diff: { before: null, after: { anonymized_at: '2027-06-01T03:00:00Z', redacted_fields: ['full_name'] } },
+        }),
+      );
+      expect(job.text).toBe('anonymized a contact');
+    });
+
+    it('a stored name with replacement patterns or "{subject}" is inserted literally', () => {
+      const name = 'A$&B$`C$\'D {subject}';
+      const line = describeAuditEntry(
+        company({ entity_type: 'contacts', action: 'create', diff: { before: null, after: { full_name: name } } }),
+      );
+      expect(line.text).toBe(`added a contact: ${name}`);
+      expect(line.subjectParts).toBeUndefined();
+    });
+
+    it('a removed contact', () => {
+      expect(
+        describeAuditEntry(
+          company({ entity_type: 'contacts', action: 'delete', diff: { before: { full_name: 'Lotte de Wit' }, after: null } }),
+        ).text,
+      ).toBe('removed the contact Lotte de Wit');
+    });
+  });
+
+  describe('door: check-out and corrections', () => {
+    it('a check-out voids the check-in (was "checked in")', () => {
+      const line = describeAuditEntry(
+        row({
+          entity_type: 'check_ins',
+          action: 'update',
+          diff: { before: { voided_at: null, voided_by: null }, after: { voided_at: '2026-06-20T23:00:00Z', voided_by: 'u-max' } },
+        }),
+      );
+      expect(line.text).toBe('checked out Juri Braakman');
+    });
+
+    it('a partial check-out puts the smaller party back in', () => {
+      const line = describeAuditEntry(
+        row({
+          entity_type: 'check_ins',
+          action: 'update',
+          diff: {
+            before: { voided_at: '2026-06-20T23:00:00Z', plus_ones_arrived: 3 },
+            after: { voided_at: null, plus_ones_arrived: 1 },
+          },
+        }),
+      );
+      expect(line.text).toBe('checked Juri Braakman back in +1');
+    });
+
+    it('an arrivals-only correction, and a refusal update', () => {
+      expect(
+        describeAuditEntry(
+          row({ entity_type: 'check_ins', action: 'update', diff: { before: { plus_ones_arrived: 1 }, after: { plus_ones_arrived: 2 } } }),
+        ).text,
+      ).toBe("changed Juri Braakman's check-in to +2");
+      expect(
+        describeAuditEntry(
+          row({ entity_type: 'refusals', action: 'update', diff: { before: { reason: 'x' }, after: { reason: 'y' } } }),
+        ).text,
+      ).toBe('changed the refusal for Juri Braakman');
+    });
+  });
+
+  it('retention anonymization of a guest and a request', () => {
+    expect(
+      describeAuditEntry(
+        row({ action: 'anonymize', actor_id: null, actor_name: null, guest_name: 'Guest #4', diff: { before: null, after: { anonymized_at: '2027-01-01T00:00:00Z' } } }),
+      ).text,
+    ).toBe('anonymized Guest #4');
+    expect(
+      describeAuditEntry(
+        row({
+          entity_type: 'guest_requests',
+          action: 'anonymize',
+          guest_name: null,
+          request_name: 'Request #9',
+          diff: { before: null, after: { anonymized_at: '2027-01-01T00:00:00Z' } },
+        }),
+      ).text,
+    ).toBe('anonymized the request from Request #9');
+  });
+
+  it('the per-event default crew quota', () => {
+    const line = describeAuditEntry(
+      row({
+        entity_type: 'events',
+        action: 'update',
+        guest_name: null,
+        diff: { before: { default_member_quota: 5 }, after: { default_member_quota: 8 } },
+      }),
+    );
+    expect(line.text).toBe('set the default crew quota for FRENZY to 8');
+  });
+
+  describe('invites', () => {
+    const invite = (action: string, diff: AuditFeedRow['diff']) =>
+      describeAuditEntry(company({ entity_type: 'invites', action, diff })).text;
+
+    it('names the roles, never the e-mail address', () => {
+      const text = invite('create', {
+        before: null,
+        after: { email: 'new.hire@example.test', roles: ['doorhost', 'user_manager'], event_ids: [] },
+      });
+      expect(text).toBe('invited someone to the team (User manager, Door host)');
+      expect(text).not.toContain('@');
+      expect(invite('create', { before: null, after: { email: 'dj@example.test', roles: [], event_ids: ['e1'] } })).toBe(
+        'invited someone to the external crew',
+      );
+    });
+
+    it('accept, decline, resend, cancel', () => {
+      expect(invite('update', { before: { accepted_at: null }, after: { accepted_at: '2026-10-01T10:00:00Z' } })).toBe(
+        'accepted the invite',
+      );
+      expect(invite('update', { before: { declined_at: null }, after: { declined_at: '2026-10-01T10:00:00Z' } })).toBe(
+        'declined the invite',
+      );
+      expect(invite('update', { before: { expires_at: '2026-10-01T10:00:00Z' }, after: { expires_at: '2026-10-08T10:00:00Z' } })).toBe(
+        'resent an invite',
+      );
+      expect(invite('delete', { before: { email: 'x@example.test', roles: ['staff'] }, after: null })).toBe('canceled an invite');
+    });
+  });
+
+  it('influencers, templates, and template tiers are named', () => {
+    const t1 = describeAuditEntry(
+      company({ entity_type: 'influencers', action: 'create', diff: { before: null, after: { name: 'Lotte', handle: '@lotte' } } }),
+    );
+    expect(t1.text).toBe('added the influencer Lotte');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'influencers', action: 'update', diff: { before: { archived_at: null }, after: { archived_at: '2026-10-01T00:00:00Z' } } }),
+      ).text,
+    ).toBe('archived an influencer');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'event_templates', action: 'create', diff: { before: null, after: { name: 'Friday club night' } } }),
+      ).text,
+    ).toBe('created the template Friday club night');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'event_templates', action: 'update', diff: { before: { capacity: 200 }, after: { capacity: 250 } } }),
+      ).text,
+    ).toBe('updated a template');
+    expect(
+      describeAuditEntry(
+        company({ entity_type: 'event_template_tiers', action: 'delete', diff: { before: { name: 'VIP' }, after: null } }),
+      ).text,
+    ).toBe('removed tier VIP from a template');
+  });
+
+  it('platform invites and platform admin rights (Platform tab)', () => {
+    const pi = (action: string, diff: AuditFeedRow['diff']) =>
+      describeAuditEntry(company({ venue_id: null, entity_type: 'platform_invites', action, diff })).text;
+    expect(pi('create', { before: null, after: { email: 'owner@example.test', free_until_ade: true } })).toBe(
+      'sent a platform invite, free until end of ADE',
+    );
+    expect(pi('create', { before: null, after: { email: 'owner@example.test', free_until_ade: false } })).toBe(
+      'sent a platform invite',
+    );
+    expect(pi('update', { before: { revoked_at: null }, after: { revoked_at: '2026-10-01T00:00:00Z' } })).toBe(
+      'revoked a platform invite',
+    );
+    expect(pi('update', { before: { ade_trial_venue_id: null }, after: { ade_trial_venue_id: 'v9' } })).toBe(
+      'used a free until end of ADE invite',
+    );
+    expect(pi('update', { before: { last_sent_at: null }, after: { last_sent_at: '2026-10-01T00:00:00Z' } })).toBe(
+      'resent a platform invite',
+    );
+
+    const admin = (action: string) =>
+      describeAuditEntry(
+        company({
+          venue_id: null,
+          entity_type: 'user_profiles',
+          action,
+          diff: { before: { is_platform_admin: false }, after: { is_platform_admin: true } },
+        }),
+      ).text;
+    expect(admin('platform_admin_grant')).toBe('granted platform admin rights');
+    expect(admin('platform_admin_revoke')).toBe('revoked platform admin rights');
+  });
+
+  describe('fallback', () => {
+    it('a table without its own case reads as a plain verb, never "<action> on <table>"', () => {
+      // A table name that can never be real (company_locations gets its own case in #467).
+      const line = (action: string) =>
+        describeAuditEntry(company({ entity_type: 'zz_future_table', action, diff: { before: null, after: { name: 'Main room' } } }));
+      expect(line('create').text).toBe('added a record');
+      expect(line('update').text).toBe('updated a record');
+      expect(line('delete').text).toBe('removed a record');
+      expect(line('merge').text).toBe('made a change');
+      expect(line('create').entity).toBe('a record');
+    });
+
+    it('no audited table x action ever prints a raw table name or action verb', () => {
+      // Every table with an audit trigger or a direct audit_log writer
+      // (supabase/migrations), and every action the trigger/RPCs emit.
+      const tables = [
+        'guests', 'guest_tiers', 'quotas', 'event_quotas', 'quota_requests', 'check_ins', 'refusals',
+        'venue_memberships', 'events', 'venues', 'invites', 'guest_requests', 'contacts', 'event_templates',
+        'event_template_tiers', 'request_links', 'influencers', 'subscriptions', 'platform_invites',
+        'user_profiles', 'company_locations', 'zz_future_table',
+      ];
+      const actions = [
+        'create', 'update', 'delete', 'check_in', 'refuse', 'tier_change', 'quota_grant', 'approve', 'deny',
+        'lock', 'unlock', 'anonymize', 'export', 'platform_admin_grant', 'platform_admin_revoke',
+      ];
+      // Every role in both diff sides, so any line that lists roles is exercised.
+      const allRoles = ['admin', 'user_manager', 'finance', 'staff', 'doorhost'];
+      const rawRoleKey = /\b(admin|user_manager|finance|staff|doorhost)\b/; // lowercase enum values
+      const diffs = [
+        { before: {}, after: {} },
+        { before: { roles: ['staff'] }, after: { roles: allRoles } },
+        { before: null, after: { roles: allRoles } },
+        // The events location update and a company_locations rename + archive (#467).
+        {
+          before: { location_name: null, location_address: null },
+          after: { location_name: 'Main room', location_address: 'Keizersgracht 1' },
+        },
+        {
+          before: { name: 'Old room', archived_at: null },
+          after: { name: 'Main room', archived_at: '2026-10-01T00:00:00Z' },
+        },
+      ];
+      for (const entity_type of tables) {
+        for (const action of actions) {
+          for (const diff of diffs) {
+            const { text } = describeAuditEntry(row({ entity_type, action, diff }));
+            const where = `${entity_type} × ${action} × ${JSON.stringify(diff)}`;
+            expect(text, where).not.toContain(entity_type);
+            expect(text, where).not.toMatch(/_/);
+            expect(text, where).not.toMatch(new RegExp(`^${action} on `));
+            // "platform admin rights" is copy, not a role key.
+            expect(text.replace(/platform admin/g, ''), where).not.toMatch(rawRoleKey);
+          }
+        }
+      }
+    });
+
+    it('lists roles with the app role labels, never the enum keys', () => {
+      const membership = describeAuditEntry(
+        company({
+          entity_type: 'venue_memberships',
+          action: 'create',
+          subject_name: 'Noor van Dijk',
+          subject_user_id: 'u-noor',
+          diff: { before: null, after: { user_id: 'u-noor', roles: ['user_manager'] } },
+        }),
+      );
+      expect(membership.text).toBe('gave Noor van Dijk access (User manager)');
+      const multi = describeAuditEntry(
+        company({
+          entity_type: 'venue_memberships',
+          action: 'create',
+          subject_name: 'Sam',
+          diff: { before: null, after: { roles: ['staff', 'doorhost'] } },
+        }),
+      );
+      // UI role order (VENUE_ROLES), not the array's order.
+      expect(multi.text).toBe('gave Sam access (Staff, Door host)');
+      const unknown = describeAuditEntry(
+        company({ entity_type: 'invites', action: 'create', diff: { before: null, after: { roles: ['night_manager'] } } }),
+      );
+      expect(unknown.text).toBe('invited someone to the team (night manager)');
+    });
   });
 });
 

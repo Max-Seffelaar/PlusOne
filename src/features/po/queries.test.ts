@@ -700,6 +700,7 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
   const appearanceRow = (addedBy: string | null) => ({
     id: 'g1',
     event_id: 'e1',
+    venue_id: 'v1',
     plus_ones: 0,
     status: 'approved',
     tier_id: null,
@@ -720,7 +721,20 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
 
   function makeClient(opts: { contact: unknown; guest: unknown; appearances: unknown[] }) {
     const inCalls: unknown[][] = [];
+    // venue_actor_names calls (#64a): the profile's actor labels, venue-scoped.
+    const rpcCalls: { venue: unknown; ids: unknown[] }[] = [];
     const client = {
+      rpc: vi.fn((name: string, args: { p_venue_id: unknown; p_ids: unknown[] }) => {
+        if (name !== 'venue_actor_names') throw new Error(`unexpected rpc ${name}`);
+        rpcCalls.push({ venue: args.p_venue_id, ids: args.p_ids });
+        if (args.p_ids.some((id) => typeof id !== 'string')) {
+          return Promise.resolve({ data: null, error: { code: '22P02' } });
+        }
+        return Promise.resolve({
+          data: args.p_ids.map((id) => ({ user_id: id, display_name: `Name ${String(id)}`, is_support: false })),
+          error: null,
+        });
+      }),
       from: vi.fn((table: string) => {
         // One self-returning chain per call; terminal = maybeSingle() or await.
         const result =
@@ -743,7 +757,7 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
         return chain;
       }),
     } as never;
-    return { client, inCalls };
+    return { client, inCalls, rpcCalls };
   }
 
   const contact = {
@@ -759,28 +773,33 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
     created_at: '2026-10-01T10:00:00Z',
   };
 
-  it('contact path: resolves the profile and never sends null to .in()', async () => {
-    const { client, inCalls } = makeClient({ contact, guest: null, appearances: [appearanceRow(null)] });
+  it('contact path: resolves the profile and never sends a null actor id', async () => {
+    const { client, inCalls, rpcCalls } = makeClient({ contact, guest: null, appearances: [appearanceRow(null)] });
     const data = await fetchPersonProfile(client, { contactId: 'c1' });
     expect(data.header?.id).toBe('c1');
     expect(data.appearances[0].addedBy).toBeNull();
-    expect(inCalls).toEqual([['u-door']]);
+    // Labels come from venue_actor_names for the guest's venue, never user_profiles.
+    expect(rpcCalls).toEqual([{ venue: 'v1', ids: ['u-door'] }]);
+    expect(inCalls).toEqual([]);
     expect(data.actorNames).toEqual({ 'u-door': 'Name u-door' });
   });
 
   it('guest path (name-only guest): same — no null actor id reaches .in()', async () => {
     const guest = { id: 'g1', contact_id: null, full_name: 'Jayden', email: null, phone: null, note: null, created_at: '2026-10-01T10:00:00Z' };
-    const { client, inCalls } = makeClient({ contact: null, guest, appearances: [appearanceRow(null)] });
+    const { client, inCalls, rpcCalls } = makeClient({ contact: null, guest, appearances: [appearanceRow(null)] });
     const data = await fetchPersonProfile(client, { guestId: 'g1' });
     expect(data.header?.id).toBe('g1');
     for (const ids of inCalls) expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+    for (const c of rpcCalls) expect(c.ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+    expect(data.actorNames).toEqual({ 'u-door': 'Name u-door' });
   });
 
-  it('skips the user_profiles read entirely when the only actor is the system', async () => {
+  it('skips the label lookup entirely when the only actor is the system', async () => {
     const row = { ...appearanceRow(null), check_ins: [] };
-    const { client, inCalls } = makeClient({ contact, guest: null, appearances: [row] });
+    const { client, inCalls, rpcCalls } = makeClient({ contact, guest: null, appearances: [row] });
     const data = await fetchPersonProfile(client, { contactId: 'c1' });
     expect(inCalls).toEqual([]);
+    expect(rpcCalls).toEqual([]);
     expect(data.actorNames).toEqual({});
   });
 });

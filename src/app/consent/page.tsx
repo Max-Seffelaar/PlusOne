@@ -31,7 +31,7 @@ export default async function ConsentPage({
   // exactly the "needs details" case.
   const supabase = await createClient();
   const { data: profile } = await supabase
-    .from('user_profiles')
+    .rpc('my_profile')
     .select('first_name, last_name')
     .eq('id', user.id)
     .maybeSingle();

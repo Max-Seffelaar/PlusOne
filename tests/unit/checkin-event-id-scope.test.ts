@@ -77,7 +77,7 @@ describe('fetchRecentCheckins — filters event_id directly, keeps the guests em
     expect(calls).toContainEqual({
       table: 'check_ins',
       method: 'select',
-      args: ['checked_at, plus_ones_arrived, checked_by, guests!inner(id, full_name)'],
+      args: ['checked_at, plus_ones_arrived, checked_by, venue_id, guests!inner(id, full_name)'],
     });
     expect(calls).toContainEqual({ table: 'check_ins', method: 'eq', args: ['event_id', EVENT_ID] });
     neverFiltersOnGuestsEventId(calls);

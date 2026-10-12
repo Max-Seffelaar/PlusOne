@@ -11,13 +11,30 @@
  *
  * The real react-day-picker is rendered (through next/dynamic), so the caption
  * assertions run against the shipped dropdown caption, not a stub.
+ *
+ * Isolation (flake fix, 2026-10-12): under full-suite load the first open paid
+ * the cold react-day-picker import inside the 5 s test budget and timed out.
+ * Vitest then moves on but never cancels the test body, so the abandoned test
+ * kept going and — through the global `screen` — typed "17-10-2026" into the
+ * NEXT test's field, which then read October instead of September. So: every
+ * query is scoped to the test's own render container (an abandoned test can
+ * only touch its own, already unmounted tree), the calendar chunk is warmed
+ * once up front, and the clock is pinned so "today" and the dropdown range
+ * (last year … three years out) never depend on the day the suite runs.
  */
 import '@testing-library/jest-dom';
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+import { render, cleanup, fireEvent, waitFor, within, type BoundFunctions, type queries } from '@testing-library/react';
 import { DateField } from './datetime-field';
 
-beforeAll(() => {
+// Pinned "today": June 2026 — a month none of the assertions expect, so a
+// calendar that fell back to today would fail loudly instead of passing by luck.
+const TODAY = new Date(2026, 5, 15, 12, 0, 0);
+
+beforeAll(async () => {
+  // Only Date is faked: timers stay real so waitFor and the lazy import work.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(TODAY);
   // useIsDesktop: typing is a desktop affordance (touch keeps the input readOnly).
   vi.stubGlobal(
     'matchMedia',
@@ -33,13 +50,31 @@ beforeAll(() => {
         dispatchEvent: () => false,
       }) as unknown as MediaQueryList,
   );
+  // Warm the lazily loaded calendar chunk (next/dynamic) here, under the hook's
+  // own generous timeout, instead of inside the first test's 5 s budget.
+  await import('./daypicker');
+}, 30_000);
+
+afterAll(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 afterEach(cleanup);
 
+type Scope = BoundFunctions<typeof queries>;
+
+/** Render into this test's own container and return queries scoped to it. */
+function renderField(ui: Parameters<typeof render>[0]): Scope {
+  const { container } = render(ui);
+  return within(container);
+}
+
+const dateInput = (q: Scope): HTMLElement => q.getByRole('combobox', { name: /date/i });
+
 /** The month/year the dropdown caption is showing. */
-function caption(): { month: string; year: string } {
-  const selects = screen.getAllByRole('combobox').filter((el) => el.tagName === 'SELECT') as HTMLSelectElement[];
+function caption(q: Scope): { month: string; year: string } {
+  const selects = q.getAllByRole('combobox').filter((el) => el.tagName === 'SELECT') as HTMLSelectElement[];
   const [monthSel, yearSel] = selects;
   return {
     month: monthSel.options[monthSel.selectedIndex]?.text ?? '',
@@ -47,22 +82,22 @@ function caption(): { month: string; year: string } {
   };
 }
 
-async function openCalendar(): Promise<void> {
-  fireEvent.click(screen.getByRole('combobox', { name: /date/i }));
-  await waitFor(() => expect(screen.getAllByRole('combobox').some((el) => el.tagName === 'SELECT')).toBe(true));
+async function openCalendar(q: Scope): Promise<void> {
+  fireEvent.click(dateInput(q));
+  await waitFor(() => expect(q.getAllByRole('combobox').some((el) => el.tagName === 'SELECT')).toBe(true));
 }
 
 describe('DateField calendar', () => {
   it('opens on the selected value and follows a typed date to its month', async () => {
     const onChange = vi.fn();
-    render(<DateField value="2026-09-05" onChange={onChange} />);
-    await openCalendar();
-    expect(caption()).toEqual({ month: 'September', year: '2026' });
+    const q = renderField(<DateField value="2026-09-05" onChange={onChange} />);
+    await openCalendar(q);
+    expect(caption(q)).toEqual({ month: 'September', year: '2026' });
 
-    const input = screen.getByRole('combobox', { name: /date/i });
+    const input = dateInput(q);
     fireEvent.change(input, { target: { value: '17-10-2026' } });
 
-    await waitFor(() => expect(caption()).toEqual({ month: 'October', year: '2026' }));
+    await waitFor(() => expect(caption(q)).toEqual({ month: 'October', year: '2026' }));
     // Typing alone does not commit — Enter/blur does (unchanged contract).
     expect(onChange).not.toHaveBeenCalled();
 
@@ -71,21 +106,72 @@ describe('DateField calendar', () => {
   });
 
   it('leaves the visible month alone while the typed text cannot be read', async () => {
-    render(<DateField value="2026-09-05" onChange={vi.fn()} />);
-    await openCalendar();
-    fireEvent.change(screen.getByRole('combobox', { name: /date/i }), { target: { value: '17-' } });
-    expect(caption()).toEqual({ month: 'September', year: '2026' });
+    const q = renderField(<DateField value="2026-09-05" onChange={vi.fn()} />);
+    await openCalendar(q);
+    fireEvent.change(dateInput(q), { target: { value: '17-' } });
+    expect(caption(q)).toEqual({ month: 'September', year: '2026' });
   });
 
   it('opens on the anchor month when the field itself is empty', async () => {
-    render(<DateField value="" anchor="2027-03-14" onChange={vi.fn()} />);
-    await openCalendar();
-    expect(caption()).toEqual({ month: 'March', year: '2027' });
+    const q = renderField(<DateField value="" anchor="2027-03-14" onChange={vi.fn()} />);
+    await openCalendar(q);
+    expect(caption(q)).toEqual({ month: 'March', year: '2027' });
   });
 
   it('prefers its own value over the anchor', async () => {
-    render(<DateField value="2026-12-31" anchor="2027-03-14" onChange={vi.fn()} />);
-    await openCalendar();
-    expect(caption()).toEqual({ month: 'December', year: '2026' });
+    const q = renderField(<DateField value="2026-12-31" anchor="2027-03-14" onChange={vi.fn()} />);
+    await openCalendar(q);
+    expect(caption(q)).toEqual({ month: 'December', year: '2026' });
+  });
+
+  it('every calendar tap target is 44px on touch; the compact size only behind a fine pointer (T1)', async () => {
+    const q = renderField(<DateField value="2026-09-05" onChange={vi.fn()} />);
+    await openCalendar(q);
+    // jsdom has no layout, so the size is read from the classes. The base
+    // (unprefixed) token is what a touch device gets; any shrink must sit
+    // behind `lg:[@media(pointer:fine)]:` (an iPad never matches it).
+    const FINE = 'lg:[@media(pointer:fine)]:';
+    const base = (el: HTMLElement): string[] => el.className.split(/\s+/).filter((c) => !c.includes(':'));
+    const px = (cls: string[], prop: string): number => {
+      const hit = cls.map((c) => new RegExp(`^${prop}-\\[(\\d+)px\\]$`).exec(c)).find(Boolean);
+      return hit ? Number(hit[1]) : 0;
+    };
+    const unfenced = (el: HTMLElement): string[] =>
+      el.className.split(/\s+/).filter((c) => /:(?:min-)?[hw]-/.test(c) && !c.startsWith(FINE));
+
+    const grid = q.getByRole('grid');
+    const days = within(grid).getAllByRole('button');
+    expect(days.length).toBeGreaterThanOrEqual(28);
+    for (const day of days) {
+      expect(px(base(day), 'h'), day.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(44);
+      expect(px(base(day), 'w'), day.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(44);
+      expect(unfenced(day)).toEqual([]);
+    }
+
+    const nav = [q.getByRole('button', { name: /previous/i }), q.getByRole('button', { name: /next/i })];
+    for (const btn of nav) {
+      expect(px(base(btn), 'h')).toBeGreaterThanOrEqual(44);
+      expect(px(base(btn), 'w')).toBeGreaterThanOrEqual(44);
+      expect(unfenced(btn)).toEqual([]);
+    }
+
+    // Footer text buttons grow with min-h/min-w instead of a fixed box.
+    for (const name of [/today/i, /clear/i]) {
+      const btn = q.getByRole('button', { name });
+      expect(px(base(btn), 'min-h')).toBeGreaterThanOrEqual(44);
+      expect(px(base(btn), 'min-w')).toBeGreaterThanOrEqual(44);
+      expect(unfenced(btn)).toEqual([]);
+    }
+
+    // Width budget on a 375px phone with a 16px gutter (343px): 7 columns of
+    // (44px + 2 x 1px cell padding) + 2 x 8px root padding + 2px border = 340px.
+    expect(base(days[0].parentElement as HTMLElement)).toContain('p-px');
+    expect(base(grid.closest('.select-none') as HTMLElement)).toContain('p-2');
+  });
+
+  it('falls back to today only when there is neither a value nor an anchor', async () => {
+    const q = renderField(<DateField value="" onChange={vi.fn()} />);
+    await openCalendar(q);
+    expect(caption(q)).toEqual({ month: 'June', year: '2026' });
   });
 });

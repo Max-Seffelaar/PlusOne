@@ -22,7 +22,7 @@ import { canManageGuests, canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
 import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
-import { BillingLockNote, Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Scroll, Top, cardPress, hitRingY4, press } from '../kit';
+import { ActorCaption, BillingLockNote, Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Scroll, Top, cardPress, hitRingY4, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
 import { ExportEventRow } from './settings/export';
@@ -468,7 +468,13 @@ export function EventView({ id }: { id?: string }): JSX.Element {
                               {g.name}
                               {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
                             </div>
-                            <div className="mt-0.5 truncate text-[12px] text-faint">{fmt(t.events.by, { by: g.by })}</div>
+                            <ActorCaption
+                              template={t.events.by}
+                              slot="by"
+                              name={g.by}
+                              kind={g.byKind}
+                              className="mt-0.5 text-[12px] text-faint"
+                            />
                           </div>
                           <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
                         </div>
