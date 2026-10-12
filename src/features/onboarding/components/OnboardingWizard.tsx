@@ -9,6 +9,7 @@
  *  only shows when starting fresh (no venue yet). A person with open invites
  *  (z8uq9m2yvp) first accepts or declines them in InviteStep. */
 import { type JSX, useState } from 'react';
+import { analytics } from '@/features/analytics/provider';
 import { WelkomStep } from './steps/WelkomStep';
 import { InviteStep, type OnboardingInvite } from './steps/InviteStep';
 import { VenueStep } from './steps/VenueStep';
@@ -54,6 +55,7 @@ export function OnboardingWizard({
       demoAccount={demoAccount}
       onCreated={(id) => {
         setVenueId(id);
+        analytics.capture({ event: 'onboarding_step_completed', step: 'company' });
         setStep('team');
       }}
     />
@@ -63,7 +65,13 @@ export function OnboardingWizard({
     case 'invites':
       return <InviteStep invites={invites} onSkip={() => setStep('welkom')} />;
     case 'welkom':
-      return <WelkomStep owner={owner} onNext={() => setStep('venue')} />;
+      return <WelkomStep
+          owner={owner}
+          onNext={() => {
+            analytics.capture({ event: 'onboarding_step_completed', step: 'welcome' });
+            setStep('venue');
+          }}
+        />;
     case 'team':
       return venueId ? <TeamStep venueId={venueId} demoAccount={demoAccount} /> : venueStep;
     case 'venue':

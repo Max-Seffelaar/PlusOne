@@ -13,6 +13,7 @@ import { t } from '@/lib/i18n';
 import { Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
 import { inviteUserAction } from '@/features/auth/invite-actions';
 import { completeOnboardingAction } from '@/features/billing/actions';
+import { analytics } from '@/features/analytics/provider';
 import { WizardShell, WizardPanel } from '../WizardShell';
 
 type Role = 'user_manager' | 'staff';
@@ -51,6 +52,10 @@ export function TeamStep({ venueId, demoAccount = false }: { venueId: string; de
       setError(res.message ?? c.finishError);
       return;
     }
+    // Held in memory until the /app gate identifies the user (or drops them
+    // when they opted out); /onboarding itself sends nothing.
+    analytics.capture({ event: 'onboarding_step_completed', step: 'team' });
+    analytics.capture({ event: 'onboarding_completed' });
     // Land on Home (Max, 3/7 test round): a fresh owner should arrive at the
     // dashboard and orient first — not be pushed straight into event creation.
     router.push('/app');
