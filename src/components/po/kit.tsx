@@ -14,6 +14,7 @@ import { TERMS_URL, PRIVACY_URL, DPA_URL } from '@/lib/legal';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
+import type { ActorKind } from '@/lib/po/actor-kind';
 import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
 
@@ -1607,6 +1608,192 @@ export function DpaCheck({
           {c.dpaDoc}
         </ExternalLink>
       </div>
+    </div>
+  );
+}
+
+// ── Who did it (spec #64a, review #466 rounds 3–5) ──────────────────────────
+// A member's name is user-controlled text and renders PLAIN — never with a
+// border, background or icon. PlusOne's own labels ("PlusOne support",
+// "System", "Unknown", "Unnamed") render as a CHIP: a bordered pill (lavender
+// outline for support, a visible neutral outline for the rest) with an icon.
+// The chip names itself for screen readers ON the element (role="img" +
+// aria-label "<label>, PlusOne label"), so no text inside a name can add or
+// fake that hint. Text alone cannot produce a chip, so a styled look-alike
+// name still reads as a plain name next to the real label.
+//
+//   ActorName     one actor; size 'full' (tables, stats, audit) or 'compact'
+//                 (captions, door rows: icon + a short label, never clipped)
+//   ActorPhrase   a catalogue sentence with the actor in its {slot}
+//   ActorCaption  a one-line TRUNCATING caption with an actor in it: a flex row
+//                 whose text truncates while the compact chip stays whole
+//   ActorAvatar   the avatar next to an actor: initials for a member, the
+//                 kind's icon (styled like the chip) for anything else
+
+const ACTOR_KIND_ICON: Record<Exclude<ActorKind, 'member'>, IconName> = {
+  support: 'shield',
+  system: 'cog',
+  unknown: 'user',
+  unnamed: 'user',
+};
+
+// OPAQUE fills (never a translucent tint): the chip must stay readable on any
+// row colour, e.g. a tier-coloured door row. Neutral boundary = `faint` (40%
+// white): >= 3:1 against bg-elev, bg-elev2 and their hover (WCAG 1.4.11).
+function actorChipTone(kind: Exclude<ActorKind, 'member'>): string {
+  return kind === 'support' ? 'border-acc bg-elev text-acc' : 'border-faint bg-elev2 text-dim';
+}
+
+/** The chip's accessible name: the full label plus the hint, on the element. */
+function actorChipLabel(name: string): string {
+  return fmt(t.shared.actor.chipAria, { label: name });
+}
+
+/** One actor: plain name for a member, the typed chip for anything else. The
+ *  full chip shrinks and truncates its own text (min-w-0 + truncate); the
+ *  compact chip (icon + short label) shrinks to "icon + Sup…" and then to the
+ *  icon alone, border intact — never past its container (review #466 V1b). */
+export function ActorName({
+  name,
+  kind = 'member',
+  size = 'full',
+  className,
+}: {
+  name: string;
+  /** Omitted = member (plain), so existing call sites keep their rendering. */
+  kind?: ActorKind;
+  /** 'compact' = icon + short label (t.shared.actor.short), full label in the
+   *  title and the accessible name. For captions and door rows. */
+  size?: 'full' | 'compact';
+  className?: string;
+}): JSX.Element {
+  if (kind === 'member') return className ? <span className={className}>{name}</span> : <>{name}</>;
+  const compact = size === 'compact';
+  return (
+    <span
+      data-actor-kind={kind}
+      data-actor-size={size}
+      role="img"
+      aria-label={actorChipLabel(name)}
+      // title only where the visible text differs from the label (compact):
+      // with aria-label set, a title becomes the description and is read twice.
+      title={compact ? name : undefined}
+      className={cn(
+        'inline-flex items-center gap-[3px] rounded-full border align-middle',
+        'text-[0.9em] font-semibold not-italic leading-[1.35]',
+        // compact: may shrink down to icon-only (min-w = padding + icon +
+        // border) but its border stays intact; the label truncates inside.
+        compact ? 'min-w-[22px] max-w-full shrink overflow-hidden px-[5px]' : 'min-w-0 max-w-full px-[6px]',
+        actorChipTone(kind),
+        className,
+      )}
+    >
+      <Icon name={ACTOR_KIND_ICON[kind]} size={10} sw={2.2} />
+      <span className="min-w-0 truncate">{compact ? t.shared.actor.short[kind] : name}</span>
+    </span>
+  );
+}
+
+/** A catalogue sentence with the actor dropped into its `{slot}` placeholder,
+ *  rendered through {@link ActorName} (e.g. "added by {by}"). The template must
+ *  be catalogue text, never user text. */
+export function ActorPhrase({
+  template,
+  slot,
+  name,
+  kind,
+  size,
+}: {
+  template: string;
+  slot: string;
+  name: string;
+  kind?: ActorKind;
+  size?: 'full' | 'compact';
+}): JSX.Element {
+  const marker = `{${slot}}`;
+  const at = template.indexOf(marker);
+  if (at < 0) return <>{template}</>;
+  return (
+    <>
+      {template.slice(0, at)}
+      <ActorName name={name} kind={kind} size={size} />
+      {template.slice(at + marker.length)}
+    </>
+  );
+}
+
+/**
+ * A one-line caption that names an actor and truncates: "Launch · Added by
+ * {name}", "· by {name} · ••1234". A member's name is part of the truncating
+ * text; any other kind is a COMPACT chip. Text before and after it truncates
+ * with an ellipsis; when even that is not enough the chip collapses to its
+ * icon, border intact; the caption clips (overflow-hidden) rather than spill
+ * under a neighbour (review #466 V1). `lead`/`tail` are plain text around the
+ * catalogue `template`. Give the caption a fair min-width where it sits next to
+ * a truncating name (the door row does).
+ */
+export function ActorCaption({
+  template,
+  slot,
+  name,
+  kind = 'member',
+  lead = '',
+  tail = '',
+  className,
+  textClassName,
+}: {
+  template: string;
+  slot: string;
+  name: string;
+  kind?: ActorKind;
+  lead?: string;
+  tail?: string;
+  className?: string;
+  /** Applied to the TEXT only (e.g. `opacity-70`), never to the chip — an
+   *  inherited opacity would wash the chip out on a coloured row. */
+  textClassName?: string;
+}): JSX.Element {
+  const marker = `{${slot}}`;
+  const at = template.indexOf(marker);
+  if (at < 0 || kind === 'member') {
+    const text = at < 0 ? `${lead}${template}${tail}` : `${lead}${template.slice(0, at)}${name}${template.slice(at + marker.length)}${tail}`;
+    return (
+      <span data-actor-caption="text" className={cn('block min-w-0 truncate', className, textClassName)}>
+        {text}
+      </span>
+    );
+  }
+  const before = `${lead}${template.slice(0, at)}`.trimEnd();
+  const after = `${template.slice(at + marker.length)}${tail}`.trimStart();
+  return (
+    <span data-actor-caption="chip" className={cn('flex min-w-0 items-center gap-[0.3em] overflow-hidden', className)}>
+      {before ? <span className={cn('min-w-0 truncate', textClassName)}>{before}</span> : null}
+      <ActorName name={name} kind={kind} size="compact" />
+      {after ? <span className={cn('min-w-0 truncate', textClassName)}>{after}</span> : null}
+    </span>
+  );
+}
+
+/** The avatar next to an actor: initials for a member (kit Avatar), the kind's
+ *  icon for PlusOne's labels — so the avatar carries the distinction too. */
+export function ActorAvatar({
+  name,
+  kind = 'member',
+  size = 44,
+}: {
+  name: string;
+  kind?: ActorKind;
+  size?: number;
+}): JSX.Element {
+  if (kind === 'member') return <Avatar name={name} size={size} />;
+  return (
+    <div
+      data-actor-avatar={kind}
+      aria-hidden="true"
+      className={cn('flex shrink-0 items-center justify-center border', actorChipTone(kind))}
+      style={{ width: size, height: size, borderRadius: size * 0.32 }}
+    >
+      <Icon name={ACTOR_KIND_ICON[kind]} size={Math.round(size * 0.5)} sw={2} />
     </div>
   );
 }

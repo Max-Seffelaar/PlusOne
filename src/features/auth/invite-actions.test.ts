@@ -95,14 +95,19 @@ function makeClient(opts: {
     if (table === 'venue_memberships') return membershipsChain;
     if (table === 'invites') return invitesChain;
     if (table === 'venues') return venuesChain;
-    if (table === 'user_profiles') return profilesChain;
     throw new Error(`unexpected table ${table}`);
+  });
+  // getMyProfile() reads the inviter's own row through my_profile().
+  const rpc = vi.fn((name: string) => {
+    if (name === 'my_profile') return profilesChain;
+    throw new Error(`unexpected rpc ${name}`);
   });
 
   return {
     client: {
       auth: { getUser: vi.fn(async () => ({ data: { user: opts.user ?? { id: USER_ID } } })) },
       from,
+      rpc,
     },
     callLog,
   };

@@ -15,11 +15,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { formatCompanyAddress, resolveEventLocation } from '@/features/po/adapters';
-import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
-
-/** Max ids per `.in()` chunk (CLAUDE.md scale rule) — keeps the profiles lookup
- *  below well under Kong's URI length even at a 1500-guest event. */
-const PROFILE_ID_CHUNK_SIZE = 120;
+import { fetchAllRanged } from '@/lib/supabase/paging';
+import { fetchActorLabelsSafe } from '@/features/audit/actor-labels';
+import type { ActorKind } from '@/lib/po/actor-kind';
 
 /** FULL guests row — the shape a realtime payload or a server row arrives in,
  *  before it is projected to the narrow snapshot shape below (P-IDB7). */
@@ -130,8 +128,14 @@ export interface DoorSnapshot {
   tiers: TierRow[];
   checkIns: CheckInRow[];
   refusals: RefusalRow[];
-  /** user_id → full_name, for "toegevoegd door" / "ingecheckt door". */
+  /** user_id → label, for "toegevoegd door" / "ingecheckt door", by the
+   *  who-did-what rule (#64a): a current or former member's name, or
+   *  "PlusOne support" for an operator without a tie to the company. */
   profiles: Record<string, string>;
+  /** What each `profiles` label is (spec #64a): only 'member' is a person's
+   *  own text; render through kit ActorName. Optional: a snapshot persisted by
+   *  an older bundle has none (its labels then read as members). */
+  profileKinds?: Record<string, ActorKind>;
   fetchedAt: string;
 }
 
@@ -233,15 +237,12 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   } = await client.auth.getUser();
   if (user) ids.add(user.id);
 
-  // Chunked (CLAUDE.md scale rule): a busy event's added_by/checked_by/acknowledged_by
-  // set can exceed the ≤120-id budget for a single `.in()` well before it exceeds
-  // PostgREST's 1000-row cap, so this chunks rather than ranges.
-  const profileRows: { id: string; full_name: string }[] = [];
-  for (const chunk of chunkIds([...ids], PROFILE_ID_CHUNK_SIZE)) {
-    const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', chunk);
-    if (error) throw error;
-    profileRows.push(...(data ?? []));
-  }
+  // venue_actor_names (#64a): a former member who worked this door stays
+  // named, an operator reads "PlusOne support". Chunked to <=120 ids per call
+  // (CLAUDE.md scale rule). The SAFE variant: a failing label RPC must never
+  // take the door down (#25, door speed); the snapshot then loads without
+  // labels and the screens say "Unknown".
+  const labels = await fetchActorLabelsSafe(client, event.venue_id, ids);
 
   return {
     event: {
@@ -263,8 +264,26 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
     tiers: tiers ?? [],
     checkIns,
     refusals,
-    profiles: Object.fromEntries(profileRows.map((p) => [p.id, p.full_name])),
+    profiles: Object.fromEntries(labels),
+    profileKinds: Object.fromEntries(labels.kinds),
     fetchedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Keep the actor labels the door already had (review #466 N3). A refetch made
+ * while the label RPC fails (or answers for fewer ids) would otherwise replace
+ * every "added by" / "checked in by" with "Unknown". New labels win; labels the
+ * new snapshot lacks are kept from the previous snapshot of the SAME event —
+ * the persisted IndexedDB copy after a cold start. Labels only; the guest
+ * list, check-ins and the outbox are untouched.
+ */
+export function mergeDoorProfiles(prev: DoorSnapshot | undefined, next: DoorSnapshot): DoorSnapshot {
+  if (!prev || prev.event.id !== next.event.id) return next;
+  return {
+    ...next,
+    profiles: { ...prev.profiles, ...next.profiles },
+    profileKinds: { ...(prev.profileKinds ?? {}), ...(next.profileKinds ?? {}) },
   };
 }
 

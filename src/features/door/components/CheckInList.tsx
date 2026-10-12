@@ -31,7 +31,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { hasFinePointer } from '@/lib/platform';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Label, StatusDot, Top, Seg, cardPress, hitRingY6 } from '@/components/po/kit';
+import { ActorCaption, Avatar, Label, StatusDot, Top, Seg, cardPress, hitRingY6 } from '@/components/po/kit';
 import { useDoor, useDoorFilters } from '../DoorProvider';
 import type { DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
@@ -358,9 +358,18 @@ function guestRow(
             {fmt(t.door.partlyInside, { arrived: 1 + (g.arrived ?? 0), total: 1 + g.plus, n: remaining })}
           </span>
         ) : (
-          <span className="min-w-0 truncate text-[11px] opacity-70" style={{ flexShrink: 3 }}>
-            · {t.door.logBy} {g.addedByName}
-            {g.last4 && ` · ••${g.last4}`}
+          // A fair share for "· by {actor}" (review #466 V1b): the name truncates
+          // first; the caption keeps >= 4.5rem so "· by" + the compact chip
+          // ("⬡ Sup…", at worst "⬡") stay readable at 375px.
+          <span className="min-w-[4.5rem] text-[11px]" style={{ flexShrink: 3 }}>
+            <ActorCaption
+              template={`· ${t.door.logBy} {name}`}
+              slot="name"
+              name={g.addedByName}
+              kind={g.addedByKind}
+              tail={g.last4 ? ` · ••${g.last4}` : ''}
+              textClassName="opacity-70"
+            />
           </span>
         )}
         {isDuplicate && (

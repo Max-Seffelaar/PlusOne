@@ -29,7 +29,7 @@ import { Field, Spinner } from './kit';
 const PoDayPicker = dynamic(() => import('./daypicker').then((m) => m.PoDayPicker), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[300px] w-[286px] items-center justify-center">
+    <div className="flex h-[360px] w-[338px] items-center justify-center lg:[@media(pointer:fine)]:h-[300px] lg:[@media(pointer:fine)]:w-[290px]">
       <Spinner />
     </div>
   ),
@@ -277,7 +277,7 @@ export function DateField({
               setOpen(false);
             }}
           />
-          <div className="flex items-center justify-between border-t border-line2 px-3 py-2">
+          <div className="flex items-center justify-between border-t border-line2 px-2 py-1 lg:[@media(pointer:fine)]:px-3 lg:[@media(pointer:fine)]:py-2">
             <button
               type="button"
               onClick={() => {
@@ -285,7 +285,7 @@ export function DateField({
                 onChange(toYmd(new Date()));
                 setOpen(false);
               }}
-              className="cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-acc transition-[filter] hover:brightness-[1.2]"
+              className="min-h-[44px] min-w-[44px] cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-acc lg:[@media(pointer:fine)]:min-h-0 lg:[@media(pointer:fine)]:min-w-0 transition-[filter] hover:brightness-[1.2]"
             >
               {t.shared.datetime.today}
             </button>
@@ -297,7 +297,7 @@ export function DateField({
                   onChange('');
                   setOpen(false);
                 }}
-                className="cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
+                className="min-h-[44px] min-w-[44px] cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-dim lg:[@media(pointer:fine)]:min-h-0 lg:[@media(pointer:fine)]:min-w-0 transition-[filter] hover:brightness-[1.2]"
               >
                 {t.shared.datetime.clear}
               </button>
