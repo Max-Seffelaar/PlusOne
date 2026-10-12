@@ -5,7 +5,7 @@
 -- column grant applies inside it: whatever it returns is the boundary. Claims:
 --   * the "added by" stats never name a PlusOne platform admin who has no
 --     membership or crew tie at THAT venue (support work), while their counts
---     still add up — venue-relative, like venue_actor_names (spec #62a): also
+--     still add up — venue-relative, like venue_actor_names (spec #64a): also
 --     for a caller who shares another venue with them, and for the operator
 --     reading their own stats;
 --   * everyone else keeps their name — the operator once they are a real

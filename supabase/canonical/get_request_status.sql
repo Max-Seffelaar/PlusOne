@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20261015120000_request_decision_split.sql:335.
+-- Newest source: supabase/migrations/20261015140000_location_audit.sql:68.
 
 create or replace function public.get_request_status(p_token_hash text, p_ip_hash text)
 returns jsonb
@@ -73,12 +73,7 @@ begin
       -- any decline). Own token only: the mirror branch selects null for it.
       case when v_row.status in ('approved', 'denied') then v_row.decision_message end,
     'location_name', nullif(btrim(v_row.location_name), ''),
-    'location_address', nullif(btrim(v_row.location_address), ''),
-    -- Contract pending: always null since z8uq9m444c. Kept so the app version
-    -- deployed before this migration parses the payload; dropped later.
-    'venue_address_line', null,
-    'venue_postal_code', null,
-    'venue_city', null
+    'location_address', nullif(btrim(v_row.location_address), '')
   );
 end;
 $$;

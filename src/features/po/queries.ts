@@ -841,6 +841,8 @@ export interface EventEditRow {
   venueAddress: string | null;
   /** Where guests reply (guest mail 6c); null on older events until their first save. */
   contactEmail: string | null;
+  /** Info for guests (z8uq9m4a5n): mails with a spot, status page, calendar. */
+  guestInfo: string | null;
 }
 
 /** A single event with the editable fields + the caller's organizer scope (EventEdit). */
@@ -853,7 +855,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, venue_id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, contact_email, venues(name, allow_uncheck, address_line, postal_code, city)'
+        'id, venue_id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, location_name, location_address, contact_email, guest_info, venues(name, allow_uncheck, address_line, postal_code, city)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -891,6 +893,7 @@ export async function fetchEventForEdit(
     locationAddress: e.location_address,
     venueAddress: formatCompanyAddress(e.venues),
     contactEmail: e.contact_email,
+    guestInfo: e.guest_info,
   };
 }
 

@@ -12,7 +12,7 @@
 --
 --    Rule now: the name is null when the adder is a platform admin with no
 --    membership at THIS venue and no crew tie to its events — venue-relative,
---    exactly the is_support rule of venue_actor_names (#466, spec #62a), so
+--    exactly the is_support rule of venue_actor_names (#466, spec #64a), so
 --    stats, audit feed, door and export label the same person the same way
 --    (also for the operator reading their own stats, and for a caller who
 --    happens to share another venue with them). Everyone else keeps their name, former
@@ -29,7 +29,7 @@
 --    It returned, per session, `aal` (whether that member signed in with MFA,
 --    the same class of information as user_profiles.mfa_snooze_until, closed
 --    in 20261016120100) and the raw `ip`. Both are now always null (decision
---    Max 2026-10-11, spec #62b):
+--    Max 2026-10-11, spec #64b):
 --      * the remote-logout list needs which session (device + last active),
 --        not where it came from or how it was secured — data minimisation,
 --        GDPR art. 5(1)(c); an IP address is personal data;

@@ -67,4 +67,18 @@ describe('toGuestStatusView', () => {
     expect(toGuestStatusView(payload({ state: 'weird' }))).toBeNull();
     expect(toGuestStatusView(payload({ event: { ...payload().event, starts_at: 'nope' } }))).toBeNull();
   });
+
+  it('carries the info for guests into the page and the calendar while the spot holds (z8uq9m4a5n)', () => {
+    const ev = { ...payload().event, guest_info: 'Park at P2.\r\nEntrance on the side street.\u0007' };
+    const v = toGuestStatusView(payload({ event: ev }));
+    expect(v?.guestInfo).toBe('Park at P2.\nEntrance on the side street.');
+    expect(v?.calendar.description).toBe('Park at P2.\nEntrance on the side street.');
+    for (const state of ['off_list', 'canceled']) {
+      const off = toGuestStatusView(payload({ state, event: ev }));
+      expect(off?.guestInfo, state).toBeNull();
+      expect(off?.calendar.description, state).toBeNull();
+    }
+    // A payload from before the migration (no key) still parses.
+    expect(toGuestStatusView(payload())?.guestInfo).toBeNull();
+  });
 });

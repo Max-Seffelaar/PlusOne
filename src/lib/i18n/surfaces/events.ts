@@ -95,6 +95,11 @@ export const events = {
   locationAddressPlaceholder: 'Street and number, city',
   locationNameTooLong: 'That location name is too long.',
   houseRulesTooLong: 'Keep the house rules under 500 characters.',
+  // Info for guests (z8uq9m4a5n): mails with a spot, status page, calendar.
+  guestInfoLabel: 'Info for guests (optional)',
+  guestInfoPlaceholder: 'e.g. Park at P2. Entrance on the side street. Dress code: all black.',
+  guestInfoHint: 'Shown to guests in their email and calendar: parking, entrance, dress code.',
+  guestInfoTooLong: 'Keep the info for guests under 1,000 characters.',
   locationAddressTooLong: 'That address is too long.',
   locationAria: 'Location',
   /** Template create path: the event exists, the follow-up location write failed. */
