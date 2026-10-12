@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { Bricolage_Grotesque, Hanken_Grotesk } from 'next/font/google';
 import './globals.css';
 import { NativeAppLinks } from '@/components/native-app-links';
+import { PublicConsent } from '@/features/analytics/PublicConsent';
 
 // Display: Bricolage Grotesque (600/700/800), body/UI: Hanken Grotesk (400–700).
 // Exposed as CSS variables consumed by the Tailwind `font-display` / `font-body` utilities.
@@ -60,6 +61,9 @@ export default function RootLayout({
         {/* Native shell only (no-op on the web): universal links / App Links for /auth/* (S4). */}
         <NativeAppLinks />
         {children}
+        {/* Cookie banner + consent-gated analytics on the public pages only
+            (/, /login, /e/<slug>); null everywhere else and in the native shell. */}
+        <PublicConsent />
       </body>
     </html>
   );

@@ -17,6 +17,7 @@ import { useIsDemoAccount } from '../../app-shell-data';
 import { PushSettingsRow } from '../../push-settings-card';
 import { canReceivePush } from '../../push-client';
 import { NotificationPrefsSection } from './notification-prefs';
+import { AnalyticsOptOutSection } from './analytics-opt-out';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { DELETE_ACCOUNT_URL } from '@/lib/legal';
 import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './_shared';
@@ -292,6 +293,7 @@ export function Profile(): JSX.Element {
         </div>
 
         <NotificationPrefsSection canDecideRequests={roles.includes('admin') || organizesHere} isAdmin={roles.includes('admin')} />
+        <AnalyticsOptOutSection />
         <div className="mb-[18px]" />
 
         <Label className="mb-[10px]">{t.settings.profile.sessionsLabel}</Label>

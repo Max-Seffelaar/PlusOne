@@ -2,6 +2,7 @@ import type { JSX, ReactNode } from 'react';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { NativeBackButton } from '@/components/po/native-back-button';
 import { RegisterServiceWorker } from '@/components/register-sw';
+import { DoorAnalyticsGate } from '@/features/analytics/DoorAnalyticsGate';
 
 // Full-bleed door shell — deliberately NOT the (app) dashboard chrome. The route
 // is still protected by middleware (a session is required; doorhost has no MFA
@@ -10,6 +11,9 @@ export default function DoorLayout({ children }: { children: ReactNode }): JSX.E
   return (
     <DoorQueryProvider>
       <RegisterServiceWorker />
+      {/* Product analytics: resolved client-side, never server-rendered into this
+          PII-free cached shell. No-op without a PostHog key. */}
+      <DoorAnalyticsGate />
       {/* Native shell back button (N3): /door/<id> → picker, picker → minimize. */}
       <NativeBackButton />
       {children}

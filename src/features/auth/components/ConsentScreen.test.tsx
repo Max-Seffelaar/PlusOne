@@ -47,3 +47,14 @@ describe('ConsentScreen — external links (N1 leftover)', () => {
     expect(checkbox.checked).toBe(false);
   });
 });
+
+describe('ConsentScreen — product analytics disclosure (PostHog, decision 1)', () => {
+  it.each([false, true])('shows the disclosure line, not a checkbox (needsDetails %s)', (needsDetails) => {
+    const { unmount } = render(<ConsentScreen next="/app" email="max@example.com" needsDetails={needsDetails} />);
+    expect(screen.getByTestId('consent-analytics')).toHaveTextContent(t.auth.consentAnalytics);
+    expect(t.auth.consentAnalytics).toMatch(/Profile/);
+    // Still exactly one checkbox: the Terms + Privacy agreement.
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+    unmount();
+  });
+});

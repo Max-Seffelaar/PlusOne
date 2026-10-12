@@ -124,6 +124,11 @@ export function ConsentScreen({
         )}
 
         <ConsentCheck checked={agreed} onChange={setAgreed} copy={t.auth} className="mt-7" />
+        {/* Product analytics disclosure (PostHog, decision 1): on by default for
+            signed-in users, off-switch in Profile. A line, not a checkbox. */}
+        <p data-testid="consent-analytics" className="mt-3 pl-0.5 text-[12px] leading-[1.45] text-faint">
+          {t.auth.consentAnalytics}
+        </p>
 
         {error && <div className="mt-3 text-[13.5px] leading-[1.45] text-[#ff9b9b]">{error}</div>}
 

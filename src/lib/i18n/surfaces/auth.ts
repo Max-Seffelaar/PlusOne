@@ -82,6 +82,10 @@ export const auth = {
   consentMid: ' and ',
   consentPrivacy: 'Privacy Policy',
   consentPost: '.',
+  // Product analytics disclosure (PostHog, decision 1: on by default, opt-out in
+  // Profile). A line, not a checkbox.
+  consentAnalytics:
+    'We count which features get used, to make PlusOne better. Guest data stays out of it. You can turn this off in Profile.',
   consentSubmit: 'Agree & continue',
   consentBusy: 'Working…',
   consentError: 'Something went wrong.',

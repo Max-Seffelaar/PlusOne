@@ -5,6 +5,8 @@ import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { AppShellDataProvider } from '@/components/po/app-shell-data';
 import { PlusOneAppClient } from '@/components/po/app-client';
 import { RegisterServiceWorker } from '@/components/register-sw';
+import { AnalyticsGate } from '@/features/analytics/AnalyticsGate';
+import { getAnalyticsOptOut } from '@/features/analytics/server-opt-out';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
@@ -83,12 +85,15 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   // starting a third one). Its error is swallowed HERE only: the cached
   // promise is the same, so `recommendMfaIfDue` still sees — and throws — it
   // exactly where it did before.
-  const [onboarding, memberships, organizerVenues, profileRow] = await Promise.all([
+  const [onboarding, memberships, organizerVenues, profileRow, analyticsOptOut] = await Promise.all([
     // Never for the demo account (see the gate below), so it is not even read.
     isDemoReviewUser(user) ? null : getOnboardingState(),
     getMyMemberships(),
     getOrganizerVenues().catch(() => []),
     getMyProfile(),
+    // In-app analytics opt-out (PostHog, decision 1). No query without a key;
+    // fails closed (= not tracked). Its own read, see server-opt-out.ts.
+    getAnalyticsOptOut(user.id),
     getAuthContext().catch(() => null),
   ]);
 
@@ -218,6 +223,15 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
             so the worker must register here too, not only on `/door`. Renders
             null and reads no query — a sibling of the shell, never its parent. */}
         <RegisterServiceWorker />
+        {/* Product analytics (PostHog): enable + identify, or stay off. Renders
+            null and reads no query — a sibling of the shell like the worker. */}
+        <AnalyticsGate
+          userId={user.id}
+          venueId={identity.venueId}
+          roles={identity.roles}
+          optedOut={analyticsOptOut}
+          surface="po"
+        />
         {/* Always null today (`page.tsx` renders nothing) — kept so the route
             slot stays honest and a future nested /app page still has a home. */}
         {children}

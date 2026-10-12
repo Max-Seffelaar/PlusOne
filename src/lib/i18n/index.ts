@@ -20,6 +20,7 @@ import { platform } from './surfaces/platform';
 import { mail } from './surfaces/mail';
 import { guestStatus } from './surfaces/guest-status';
 import { notifications } from './surfaces/notifications';
+import { privacy } from './surfaces/privacy';
 
 /**
  * Active UI dictionary — the composed "message catalogus". EN-only for now; to add
@@ -55,6 +56,7 @@ export const t = {
   mail,
   guestStatus,
   notifications,
+  privacy,
 };
 
 /** Fill {placeholders} in a copy string. Unknown keys are left as `{key}`. */

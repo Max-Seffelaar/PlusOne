@@ -23,6 +23,7 @@
 import { type JSX, useCallback, useEffect, useMemo, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { setTag as sentrySetTag, addBreadcrumb as sentryAddBreadcrumb } from '@/lib/observability/sentry-client';
+import { analytics } from '@/features/analytics/provider';
 import { usePoIsDoorOrganizer } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useAppShellData } from './app-shell-data';
@@ -62,6 +63,12 @@ import type { DoorOverlay } from './screens/door';
 // Door sub-nav (`pushDoorState`) bypasses `router.push` entirely and sets the
 // flag directly.
 let hasPushedThisSession = false;
+
+// The screen id last sent as `screen_viewed`. Module scope for the same reason as
+// the flag above (one per browser tab, reset by a real page load), and so React
+// StrictMode's dev-only double effect, or a remount on the way back into /app,
+// never counts one landing twice. A different screen always differs from it.
+let lastScreenViewed: string | null = null;
 
 /**
  * Remount probe (86ey9uc87). Counts how often the shell MOUNTS, on `window` so
@@ -144,9 +151,17 @@ export function PlusOneApp(): JSX.Element {
   // Sentry po-screen context (fase 4.2): tag the active screen + a navigation
   // breadcrumb centrally, from the URL-derived key — every push/tab/back/replace
   // flows through the router, so this fires on every real navigation for free.
+  // Product analytics rides the same key (PostHog `screen_viewed`, plan §10): one
+  // event per screen/tab the URL lands on, the id only — never the path. The
+  // adapter is a no-op without a key and holds this in memory until the
+  // AnalyticsGate (a layout sibling, not this file) has identified the user.
   useEffect(() => {
     sentrySetTag('po.screen', activeScreenKey);
     sentryAddBreadcrumb({ category: 'navigation', message: activeScreenKey, level: 'info' });
+    if (lastScreenViewed !== activeScreenKey) {
+      lastScreenViewed = activeScreenKey;
+      analytics.capture({ event: 'screen_viewed', screen: activeScreenKey });
+    }
   }, [activeScreenKey]);
 
   // One navigation per user gesture: several po cards are clickable rows that ALSO

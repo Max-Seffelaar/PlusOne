@@ -22,6 +22,7 @@ import {
   resumePush,
   unregisterPushForSignOut,
 } from '@/features/notifications/push-client';
+import { analytics } from '@/features/analytics/provider';
 
 /**
  * Thrown when signing out would destroy door writes that never reached the
@@ -123,6 +124,9 @@ async function wipeDevice(): Promise<void> {
   await clearDeviceCaches();
   outbox.reset();
   clearPushPrefs();
+  // Product analytics (PostHog): forget this device's distinct id so the next
+  // person on a shared tablet is never merged into this user. No-op without a key.
+  analytics.reset();
 }
 
 /** Real sign-out (T1 #7/#15): end the Supabase session, wipe this device, land on
