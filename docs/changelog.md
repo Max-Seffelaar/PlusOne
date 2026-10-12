@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2, 9-DB: set-based RLS on the hot tables + one check_ins UPDATE policy (z8uq9m2xz2)
+
+Milestone **≥5** (perf audit 2026-10 finding 13 + advisor `multiple_permissive_policies`). High-risk surface (RLS, SECURITY DEFINER helpers): fresh-session `/code-review` + `/security-review` before merge. Branch `claude/z8uq9m2xz2-rls-set-based`.
+
+- **`20261017120000_rls_set_based_helpers.sql`:** four constant-argument SECURITY DEFINER helpers (`my_venue_ids()`, `my_venue_ids_with_roles(roles)`, `my_event_ids_with_roles(roles)`, `my_organized_event_ids()`) and the 12 policies on `guests`, `check_ins`, `refusals`, `guest_requests`, `events` rewritten as `x in (select helper(const))` plus `(select is_platform_admin())`. Each rewrite is a local substitution of the old helper by its definition, so the platform-admin disjunct stays inside an AND where the old helper sat inside one (`guest_requests_decide`, `guests_update`, `guests_insert`). `has_venue_role(event_venue(e), R)` became `e in my_event_ids_with_roles(R)`, not `venue_id in …`: `set_event_scope` only fills a NULL `venue_id`, so the policy keeps deciding via the event. The old helpers stay (expand-only, ~50 other policies and RPCs use them).
+- **`20261017120100_check_ins_update_policy_merge.sql`:** `check_ins_update_door` + `check_ins_update_own_device` → one `check_ins_update` whose USING/WITH CHECK are the ORs of the two (permissive policies combine per clause). The RESTRICTIVE `check_ins_void_requires_uncheck` is untouched.
+- **Proof:** `supabase/tests/database/rls_set_based_parity.test.sql` runs ~270 probes per persona (9 personas, 5 tables, select/update/insert, every write rolled back by a sentinel exception) under the new policies, restores the old policy text in the same transaction, runs them again and requires identical outcomes. 35 more assertions pin the new matrix to absolute numbers. A deliberate mutation (P hoisted out of `guest_requests_decide`'s AND; staff branch widened in `guests_select`) fails the diff assertion.
+- **Measured** (`scripts/perf/rls-set-based-seed.sql` + `-explain.sql`, local stack, staff Tom, `guests?event_id=eq.…`, warm): 150 guests 18.8–19.3 ms → 0.5–1.4 ms; 25 000 guests 3156–4145 ms → 5.2–5.5 ms (buffers 175 527 → 532). Same visible rows (15 / 2 500).
+- **Advisors (splinter, local):** `multiple_permissive_policies` 1 → 0, `auth_rls_initplan` 0 → 0; `authenticated_security_definer_function_executable` 99 → 103 (the four helpers, same class as `has_venue_role`; each returns only the caller's own ids).
+- **Tests:** `pnpm db:test` 116 files / 3 305 assertions green on a plain `supabase db reset` (after `pnpm db:fresh` the dev-mfa platform flag on admin@ fails ~12 unrelated assertions, as CLAUDE.md documents); `pnpm db:test:concurrency` green; lint, tsc clean.
+- **Left:** the other ~50 helper-per-row policies (quotas, tiers, contacts, …) can move table by table when a read there gets hot; the door-code comments in `src/features/door/outbox/gateway.ts` still name `check_ins_update_door` (door code is outside this PR's fence).
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
