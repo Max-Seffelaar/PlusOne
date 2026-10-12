@@ -33,7 +33,9 @@ function supabaseWith(result: { data: unknown; error: unknown } | 'throw') {
   return { rpc: vi.fn(() => chain) } as never;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 afterEach(() => {
   delete process.env.POSTHOG_KEY;
   delete process.env.POSTHOG_HOST;

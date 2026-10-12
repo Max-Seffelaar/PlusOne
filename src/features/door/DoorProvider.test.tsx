@@ -756,7 +756,9 @@ describe('DoorProvider — product analytics at enqueue (PostHog PR 2)', () => {
   beforeEach(() => {
     A.captured.length = 0;
   });
-  afterEach(() => setOnline(true));
+  afterEach(() => {
+    setOnline(true);
+  });
 
   it('one door_checkin per arrival (a "+1" top-up is not a second one), flagged offline', async () => {
     const h = renderDoor();
