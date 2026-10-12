@@ -3157,7 +3157,12 @@ export type Database = {
         Returns: undefined
       }
       mask_email: { Args: { p_email: string }; Returns: string }
+      my_event_ids_with_roles: {
+        Args: { p_roles: Database["public"]["Enums"]["venue_role"][] }
+        Returns: string[]
+      }
       my_notification_prefs: { Args: never; Returns: Json }
+      my_organized_event_ids: { Args: never; Returns: string[] }
       my_pending_invites: {
         Args: never
         Returns: {
@@ -3181,6 +3186,11 @@ export type Database = {
           terms_accepted_at: string
           terms_version: string
         }[]
+      }
+      my_venue_ids: { Args: never; Returns: string[] }
+      my_venue_ids_with_roles: {
+        Args: { p_roles: Database["public"]["Enums"]["venue_role"][] }
+        Returns: string[]
       }
       notification_bundle_slot: {
         Args: { p_kind: string; p_source: string; p_venue: string }
