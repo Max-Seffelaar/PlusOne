@@ -57,6 +57,8 @@
     "clsx": "^2.1.1",
     "next": "^15.0.0",
     "next-pwa": "^5.4.6",
+    "posthog-js": "^1.438.7",
+    "posthog-node": "^5.55.2",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-day-picker": "^10.0.1",
