@@ -6,8 +6,8 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  * Flow: info for guests + the live Google Calendar link (z8uq9m4a5n; decision
  * Max 2026-10-11), in all four variants.
  *
- *   admin@ → the event's edit screen: "Info for guests" (empty, with its
- *   hint) → type a location and multi-line info → Save → add a guest with an
+ *   admin@ → the event's edit screen: one "For your guests" block with House
+ *   rules + "Info for guests" (empty, with hints) → type a location and multi-line info → Save → add a guest with an
  *   email → Mailpit: "Good to know" with the text, the Google link points at
  *   /s/[token]/google → the location changes AFTER the mail → that link
  *   redirects to Google with the NEW location and the details → the status
@@ -40,6 +40,9 @@ async function eventChangedMails(eventId: string): Promise<number> {
   }
 }
 const INFO = 'Park at P2.\nEntrance on the side street.';
+// House rules share the block (z8uq9m4a5n follow-up) and follow the info in the calendar.
+const RULES = '21+, bring ID.';
+const DETAILS = `${INFO}\n\nHouse rules:\n${RULES}`;
 const PLACE = 'Club Vesper';
 const ADDRESS = 'Keizersgracht 1, Amsterdam';
 const MOVED = 'Paradiso, Weteringschans 6';
@@ -99,26 +102,36 @@ test('guest info: form → mail "Good to know" → live Google link → status p
     .insert({ event_id: eventId, name: 'Regular', color: '#8A8A93', aliases: [] });
   if (tierError) throw new Error(`guest-info tier: ${tierError.message}`);
 
-  // ── Edit: Info for guests ─────────────────────────────────────────────────
+  // ── Edit: the "For your guests" block ─────────────────────────────────────
   await page.goto(`/auth/dev-login?email=${encodeURIComponent(ADMIN)}&next=/app/events/${eventId}/edit`);
-  const info = page.getByRole('textbox', { name: 'Info for guests (optional)' });
+  const block = page.getByRole('region', { name: 'For your guests' });
+  const rules = block.getByRole('textbox', { name: 'House rules (optional)' });
+  const info = block.getByRole('textbox', { name: 'Info for guests (optional)' });
   await expect(info).toBeVisible({ timeout: 20_000 });
-  await flow.check(1, 'The edit screen has "Info for guests", empty, with the hint on what guests see', async () => {
+  await flow.check(1, 'One "For your guests" block holds House rules and Info for guests, empty, each with its hint, both ≥44px tall', async () => {
+    await expect(rules).toHaveValue('');
     await expect(info).toHaveValue('');
-    await expect(page.getByText('Shown to guests in their email and calendar: parking, entrance, dress code.')).toBeVisible();
+    await expect(block.getByText('Rules at the door, like age, ID or dress code.', { exact: false })).toBeVisible();
+    await expect(block.getByText('Practical stuff like parking, the entrance or the cloakroom.', { exact: false })).toBeVisible();
+    for (const box of [await rules.boundingBox(), await info.boundingBox()]) {
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    // House rules come first, the info under it.
+    expect((await rules.boundingBox())!.y).toBeLessThan((await info.boundingBox())!.y);
   });
 
   await page.getByRole('textbox', { name: 'Location name' }).fill(PLACE);
   await page.getByRole('combobox', { name: 'Location address' }).fill(ADDRESS);
   await page.keyboard.press('Escape');
+  await rules.fill(RULES);
   await info.fill(INFO);
-  await info.scrollIntoViewIfNeeded();
+  await block.scrollIntoViewIfNeeded();
   await flow.shot('edit-info-for-guests');
   await page.getByRole('button', { name: 'Save event' }).click();
-  await flow.check(2, 'Save stores the info (line breaks kept) and the location (DB truth)', async () => {
+  await flow.check(2, 'One Save stores the house rules, the info (line breaks kept) and the location (DB truth)', async () => {
     await expect
-      .poll(async () => (await adminClient().from('events').select('guest_info, location_name').eq('id', eventId).single()).data)
-      .toEqual({ guest_info: INFO, location_name: PLACE });
+      .poll(async () => (await adminClient().from('events').select('house_rules, guest_info, location_name').eq('id', eventId).single()).data)
+      .toEqual({ house_rules: RULES, guest_info: INFO, location_name: PLACE });
   });
 
   // ── Add a guest with an email ─────────────────────────────────────────────
@@ -147,13 +160,13 @@ test('guest info: form → mail "Good to know" → live Google link → status p
   // The location moves AFTER the mail went out: the link must follow it.
   await adminClient().from('events').update({ location_name: 'Paradiso', location_address: 'Weteringschans 6' }).eq('id', eventId);
   await page.context().clearCookies();
-  await flow.check(5, '/s/[token]/google answers 302 to Google with the CURRENT location and the details, no token in it', async () => {
+  await flow.check(5, '/s/[token]/google answers 302 to Google with the CURRENT location and details = info + house rules, no token in it', async () => {
     const res = await page.request.get(google ?? '/s/missing/google', { maxRedirects: 0 });
     expect(res.status()).toBe(302);
     const to = new URL(res.headers()['location'] ?? '');
     expect(to.origin).toBe('https://calendar.google.com');
     expect(to.searchParams.get('location')).toBe(MOVED);
-    expect(to.searchParams.get('details')).toBe(INFO);
+    expect(to.searchParams.get('details')).toBe(DETAILS);
     expect(to.searchParams.get('text')).toBe(eventName);
     expect(to.toString()).not.toContain(google?.split('/')[2] ?? 'x');
     expect(res.headers()['referrer-policy']).toBe('no-referrer');
@@ -171,24 +184,24 @@ test('guest info: form → mail "Good to know" → live Google link → status p
     await expect(block).toContainText('Entrance on the side street.');
     await expect(page.getByText(MOVED)).toBeVisible();
   });
-  await flow.check(7, 'The .ics carries the info as DESCRIPTION', async () => {
+  await flow.check(7, 'The .ics DESCRIPTION carries the info, then the house rules (escaped)', async () => {
     const body = (await (await page.request.get(`${statusPath}/calendar.ics`)).text()).replace(/\r\n /g, '');
-    expect(body).toContain('DESCRIPTION:Park at P2.\\nEntrance on the side street.');
+    expect(body).toContain('DESCRIPTION:Park at P2.\\nEntrance on the side street.\\n\\nHouse rules:\\n21+\\, bring ID.');
   });
 
   // ── Editing only the info sends no mail ───────────────────────────────────
   await page.goto(`/auth/dev-login?email=${encodeURIComponent(ADMIN)}&next=/app/events/${eventId}/edit`);
   const info2 = page.getByRole('textbox', { name: 'Info for guests (optional)' });
   await expect(info2).toHaveValue(INFO, { timeout: 20_000 });
-  await info2.fill('Dress code: all black.');
+  await info2.fill('Cloakroom by the bar.');
   await page.getByRole('button', { name: 'Save event' }).click();
   await flow.check(8, 'Changing only the info saves, queues no "New details" mail, and the live link picks it up', async () => {
     await expect
       .poll(async () => (await adminClient().from('events').select('guest_info').eq('id', eventId).single()).data?.guest_info)
-      .toBe('Dress code: all black.');
+      .toBe('Cloakroom by the bar.');
     expect(await eventChangedMails(eventId)).toBe(0);
     const res = await page.request.get(google ?? '/s/missing/google', { maxRedirects: 0 });
-    expect(new URL(res.headers()['location'] ?? '').searchParams.get('details')).toBe('Dress code: all black.');
+    expect(new URL(res.headers()['location'] ?? '').searchParams.get('details')).toBe(`Cloakroom by the bar.\n\nHouse rules:\n${RULES}`);
   });
 
   await flow.check(9, 'A made-up token on /google gets the same bare 404 as the .ics, no redirect', async () => {

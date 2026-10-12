@@ -163,6 +163,8 @@ export const FLOWS = {
       'src/app/s/',
       'src/components/po/guest-status.tsx',
       'src/components/po/screens/events/edit.tsx',
+      'src/components/po/screens/events/guest-mail.tsx',
+      'src/features/po/guest-mail.ts',
       'supabase/migrations/20261015160000_event_guest_info.sql',
     ],
   },
