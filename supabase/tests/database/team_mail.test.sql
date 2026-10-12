@@ -182,6 +182,17 @@ update public.user_notification_prefs set notification_prefs = '{}' where user_i
 -- D. The email claim
 -- ---------------------------------------------------------------------------
 
+-- team_mails_claim also hands out the daily summary between 09:00 and 11:59
+-- Europe/Amsterdam (once per user per day, team_digest_deliveries). D, E and I
+-- count the event mails a claim returns, so inside that window they would also
+-- get (and use budget on) a summary, and F would find today's summary already
+-- delivered. Mark today's summary as delivered for every user while the
+-- claims run, whatever the clock says; F removes these rows again first.
+select pg_temp.as_owner();
+insert into public.team_digest_deliveries (user_id, local_date)
+select p.id, (now() at time zone 'Europe/Amsterdam')::date from public.user_profiles p
+on conflict do nothing;
+
 select pg_temp.login_service();
 insert into claims select 'd1', public.team_mails_claim(50);
 select is(jsonb_array_length((select j -> 'mails' from claims where k = 'd1')), 1,
@@ -437,6 +448,10 @@ select throws_ok($$ select public.set_my_notification_prefs('{"requests": {"emai
 -- ---------------------------------------------------------------------------
 
 select pg_temp.as_owner();
+-- Undo D's "already delivered today" rows: no claim could have added one of
+-- its own, so the table is empty again and F tests the real due rule.
+delete from public.team_digest_deliveries
+ where local_date = (now() at time zone 'Europe/Amsterdam')::date;
 select ok(
   exists (select 1 from public.team_digest_due(current_date, 100) d where d.user_id = '11111111-1111-4111-8111-111111111111'),
   'F1 the admin with open requests is due a summary');
