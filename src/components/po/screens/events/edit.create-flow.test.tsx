@@ -13,7 +13,7 @@
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { t } from '@/lib/i18n';
 
 const NEW_ID = 'e0000000-0000-4000-8000-0000000000aa';
@@ -245,6 +245,19 @@ describe('EventEdit location fields', () => {
     expect(createEvent.mock.calls[0][0]).toMatchObject({ guestInfo: 'Park at P2.\nSide entrance.' });
   });
 
+  it('saves the house rules with a new event, in the same block as the info for guests (z8uq9m4a5n)', async () => {
+    render(<EventEdit isNew />);
+    const block = screen.getByRole('region', { name: t.events.guestMail.blockTitle });
+    expect(within(block).getByRole('textbox', { name: t.events.guestMail.houseRulesLabel })).toBeInTheDocument();
+    expect(within(block).getByRole('textbox', { name: t.events.guestInfoLabel })).toBeInTheDocument();
+    fireEvent.change(within(block).getByRole('textbox', { name: t.events.guestMail.houseRulesLabel }), {
+      target: { value: ' 21+, bring ID ' },
+    });
+    fillAndCreate();
+    await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
+    expect(createEvent.mock.calls[0][0]).toMatchObject({ houseRules: '21+, bring ID', guestInfo: null });
+  });
+
   it('an empty info for guests saves as none', async () => {
     render(<EventEdit isNew />);
     fillAndCreate();
@@ -263,6 +276,7 @@ describe('EventEdit location fields', () => {
       eventId: NEW_ID,
       locationName: 'Paradiso',
       locationAddress: 'Wibautstraat 150, 1091 GR Amsterdam',
+      houseRules: null,
       guestInfo: null,
       contactEmail: 'night@club.test',
     });
@@ -327,7 +341,7 @@ describe('EventEdit template location prefill', () => {
     fillAndCreate();
     await waitFor(() => expect(createFromTemplate).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
-    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: 'Weteringschans 6', guestInfo: null, contactEmail: 'night@club.test' });
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: 'Weteringschans 6', houseRules: null, guestInfo: null, contactEmail: 'night@club.test' });
   });
 
   // Review #419: a chip tap never overwrites a location the user typed.
@@ -391,7 +405,7 @@ describe('EventEdit template location prefill', () => {
     fireEvent.change(screen.getByRole('combobox', { name: t.events.locationAddressAria }), { target: { value: '' } });
     fillAndCreate();
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
-    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null, guestInfo: null, contactEmail: 'night@club.test' });
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null, houseRules: null, guestInfo: null, contactEmail: 'night@club.test' });
   });
 
   it('a template create writes the info for guests in the follow-up update (templates carry none)', async () => {
