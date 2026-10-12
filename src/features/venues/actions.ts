@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
+import { captureServerEvent } from '@/features/analytics/server';
 import { getSessionUser, getAuthContext } from '@/lib/auth/context';
 import {
   getMyMemberships,
@@ -445,6 +446,10 @@ export async function createVenueAction(input: CreateVenueInput): Promise<Create
     p_terms_version: TERMS_VERSION,
   });
   if (error || !data) return mapMutationError(error);
+
+  // Product analytics (PostHog): skipped when the caller opted out or without a
+  // key; never fails the action.
+  await captureServerEvent(supabase, ctx.user.id, { event: 'venue_created', venue_id: data });
 
   // A new membership changes the nav + onboarding gate everywhere.
   revalidatePath('/', 'layout');

@@ -1,5 +1,6 @@
 'use server';
 
+import { captureServerEvent, serverAnalyticsConfigured } from '@/features/analytics/server';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
@@ -65,6 +66,18 @@ export async function acceptTermsAction(details?: AccountDetails): Promise<Actio
   const { error: profileError } = await supabase.rpc('ensure_my_profile');
   if (profileError) console.error('acceptTerms: ensure_my_profile failed', profileError.message);
 
+  // Product analytics (PostHog): `user_signed_up` only for the FIRST consent,
+  // not a re-accept after a TERMS_VERSION bump. Read before the write; no read
+  // at all without a key.
+  const firstConsent = serverAnalyticsConfigured()
+    ? await supabase
+        .rpc('my_profile')
+        .select('terms_accepted_at')
+        .eq('id', user.id)
+        .maybeSingle()
+        .then(({ data, error: e }) => !e && data != null && data.terms_accepted_at === null)
+    : false;
+
   const { error, count } = await supabase
     .from('user_profiles')
     .update(
@@ -97,6 +110,14 @@ export async function acceptTermsAction(details?: AccountDetails): Promise<Actio
       console.error('acceptTerms: profile insert failed', insertError.message);
       return { ok: false, error: "Couldn't save your consent. Please try again." };
     }
+  }
+
+  if (firstConsent) {
+    // 'invite' when a team/crew invite is waiting for this person; otherwise
+    // they came in to start a company ('onboarding'). Ids only, never the e-mail.
+    const { data: pending } = await supabase.rpc('my_pending_invites');
+    const via = Array.isArray(pending) && pending.length > 0 ? 'invite' : 'onboarding';
+    await captureServerEvent(supabase, user.id, { event: 'user_signed_up', via });
   }
 
   // The gate is re-evaluated server-side on the next navigation.
