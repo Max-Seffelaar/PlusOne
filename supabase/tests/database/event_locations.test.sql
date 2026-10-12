@@ -305,7 +305,7 @@ reset role;
 select pg_temp.login_anon();
 select is(
   pg_temp.keys(public.get_request_status('tok-el-ada', 'ip-el-1')),
-  'approved_plus_ones,decision_message,ends_at,event_name,found,full_name,location_address,location_name,plus_ones,starts_at,status,venue_address_line,venue_city,venue_postal_code',
+  'approved_plus_ones,decision_message,ends_at,event_name,found,full_name,location_address,location_name,plus_ones,starts_at,status',
   'C5 a found payload has exactly the documented keys');
 select ok(
   (select r ->> 'status' = 'approved'
@@ -314,16 +314,16 @@ select ok(
      from public.get_request_status('tok-el-ada', 'ip-el-2') r),
   'C6 approved: the event''s own location (name + address)');
 select ok(
-  (select r ->> 'venue_address_line' is null and r ->> 'venue_postal_code' is null and r ->> 'venue_city' is null
+  (select not (r ?| array['venue_address_line', 'venue_postal_code', 'venue_city'])
      from public.get_request_status('tok-el-ada', 'ip-el-3') r),
-  'C7 approved: the legacy venue_* keys are null (expand–contract)');
+  'C7 approved: the legacy venue_* keys are gone (contract, z8uq9m49k2)');
 select ok(
   (select r::text !~ 'Wibautstraat|1091 GR'
      from public.get_request_status('tok-el-ada', 'ip-el-4') r),
   'C8 approved: the company address appears nowhere in the payload');
 select ok(
   (select r ->> 'status' = 'pending' and r ->> 'location_name' = 'Paradiso'
-          and r ->> 'venue_address_line' is null and r::text !~ 'Wibautstraat'
+          and not (r ? 'venue_address_line') and r::text !~ 'Wibautstraat'
      from public.get_request_status('tok-el-pam', 'ip-el-5') r),
   'C9 pending: the event location too (it is on the share link), no company address');
 select ok(
@@ -333,7 +333,7 @@ select ok(
   'C10 denied: the event location, still no deny reason, no company address');
 select ok(
   (select r ->> 'found' = 'true' and r ->> 'location_name' is null and r ->> 'location_address' is null
-          and r ->> 'venue_address_line' is null and r::text !~ 'Wibautstraat|Club Vesper'
+          and not (r ? 'venue_address_line') and r::text !~ 'Wibautstraat|Club Vesper'
      from public.get_request_status('tok-el-bram', 'ip-el-7') r),
   'C11 an event without its own location: null location, and NO fallback to the company');
 select is(
@@ -348,7 +348,7 @@ select is(
   'ok', 'C13 a second submission on Pam''s e-mail is silently deduped (a mirror)');
 select ok(
   (select r ->> 'full_name' = 'Mirror Mia' and r ->> 'location_name' = 'Paradiso'
-          and r ->> 'venue_address_line' is null and r::text !~ 'Wibautstraat'
+          and not (r ? 'venue_address_line') and r::text !~ 'Wibautstraat'
      from public.get_request_status('tok-el-mia', 'ip-el-m2') r),
   'C14 the mirror token gets the event location (public on the link) and no company address');
 select is(

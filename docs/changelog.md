@@ -8,6 +8,21 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-11 — Event locations follow-up: audit trail on location changes + drop venue_* keys (z8uq9m49k2)
+
+Milestone **Now**. Follow-up of 3b (#452); spec #58 amended.
+
+- **Migration `20261015140000_location_audit`**:
+  - `audit_events` (the one consolidated events trigger) also fires on `location_name` / `location_address`, so a location change is one `update` row with actor and changed-columns diff. A name-only edit still writes nothing.
+  - `company_locations` gets the standard AFTER INSERT/UPDATE/DELETE trigger on `audit_trigger()` (create = snapshot, update incl. archive/un-archive = changed columns, delete = snapshot). `audit_trigger()` itself is unchanged (K10).
+  - Contract: `get_request_status` no longer returns `venue_address_line` / `venue_postal_code` / `venue_city` (always null since #452). Canonical body updated.
+- **Who read the keys** (grep before the drop): only the Zod schema (optional, never rendered), tests, and the dev fixture backend `scripts/dev/fake-supabase.mjs`, which still mimicked the old company-address payload. All three updated; the deployed app parses the new payload unchanged.
+- **Audit feed**: `translate.ts` names the new rows ("added / renamed / archived / restored the location …", "set the location of FRENZY to …", "cleared the location of …").
+- **Tests**: pgTAP `location_audit.test.sql` (23: trigger shape, one events trigger, create/rename/archive/un-archive/no-op/delete rows with actor + diff, event location set/cleared, gated name-only edit, organizer as actor, admin reads the rows while staff and the organizer read none in audit_log or audit_feed, no forged rows); `event_locations` C5/C7 and `partial_approval` now assert the keys are absent. Full suite after merging main (incl. task 7 #457, whose `get_request_status` body this migration builds on) 105 files / 2932. Vitest 313 files / 3666.
+- **Max's test 10 ❌ (location writes missing from Settings → Audit log)**: the rows were in the database; the screen replayed its cached feed. No write invalidated the audit query, and the global 30 s `staleTime` meant reopening the log shortly after a visit showed the old list. `usePoAuditFeed` now refetches on every open (`refetchOnMount: 'always'`, one capped query), and the location mutations also invalidate the venue's audit keys. Second gap found by the new flow step: an archive diff holds only `archived_at`, so the line read "archived a saved location". `audit_feed` (same migration, column appended, still `security_invoker`) now resolves the location's current name as `location_name`, and the translator falls back to it. Flow `event-locations` Q10 (audit log → Company settings → archive → back, client-side inside the staleTime) failed on all four variants before the fix and passes after; pgTAP D8/D9; vitest for the fallback. Totals: pgTAP 106 files / 3001, Vitest 318 / 3714. Delta review (APPROVE, one defence-in-depth nit): the `audit_feed` name join also requires `cl.venue_id = b.venue_id`, so a mis-scoped audit row never resolves another company's location name, not even for a platform admin (pgTAP D10/D11; 106 files / 3003). **Local retest needs `pnpm db:fresh`**: the migration file changed after it was applied.
+
+---
+
 ## 2026-10-11 — Fase 17 + Fase 14: plan review for the share sheet (S6) and door payments / Tap to Pay (86exxuvye, 86exxuuu7)
 
 Docs only, branch `claude/serene-hawking-cyxjlc`, milestone **Now** (proposal; Max confirms in `payments-plan-claude-code.md` §9). Max wants the native app built with Tap to Pay at the door and the OS share sheet (iOS has no Web Share Target). Question: does the Capacitor plan cover it?

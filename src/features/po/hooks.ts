@@ -1544,6 +1544,11 @@ export function usePoAuditFeed(
     enabled: !!venueId && (options?.enabled ?? true),
     // Only the home's mini-feed passes an interval; the full audit screen omits it.
     refetchInterval: options?.refetchInterval,
+    // A log must show what just happened: most writes (event edits, saved
+    // locations, guests) never invalidate this key, so opening the screen within
+    // the 30 s staleTime would replay the cached feed without them (#467 test 10).
+    // One capped query per open.
+    refetchOnMount: 'always',
     queryFn: () => fetchPoAuditFeed(createClient(), { venueId: venueId ?? '', ...filters }),
   });
 }
