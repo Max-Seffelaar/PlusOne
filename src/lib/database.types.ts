@@ -2385,6 +2385,7 @@ export type Database = {
           email: string
           first_name: string | null
           full_name: string
+          has_joined: boolean | null
           id: string
           is_platform_admin: boolean
           last_name: string | null
@@ -2399,6 +2400,7 @@ export type Database = {
           email: string
           first_name?: string | null
           full_name: string
+          has_joined?: boolean | null
           id: string
           is_platform_admin?: boolean
           last_name?: string | null
@@ -2413,6 +2415,7 @@ export type Database = {
           email?: string
           first_name?: string | null
           full_name?: string
+          has_joined?: boolean | null
           id?: string
           is_platform_admin?: boolean
           last_name?: string | null
@@ -3163,6 +3166,20 @@ export type Database = {
           event_name: string
           id: string
           roles: Database["public"]["Enums"]["venue_role"][]
+        }[]
+      }
+      my_profile: {
+        Args: never
+        Returns: {
+          email: string
+          first_name: string
+          full_name: string
+          id: string
+          last_name: string
+          mfa_snooze_until: string
+          phone: string
+          terms_accepted_at: string
+          terms_version: string
         }[]
       }
       notification_bundle_slot: {
