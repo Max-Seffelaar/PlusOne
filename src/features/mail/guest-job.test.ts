@@ -104,6 +104,22 @@ describe('buildGuestMail', () => {
     expect(m.text).toContain('Guest · You +1 (2 people)');
   });
 
+  it('links the live Google route and carries the info for guests (z8uq9m4a5n)', () => {
+    const ev = { ...claimed().event, guest_info: 'Park at P2.\nEntrance on the side street.' };
+    const parsed = parseClaimedMail(claimed({ event: ev }))!;
+    expect(parsed.event.description).toBe('Park at P2.\nEntrance on the side street.');
+    const m = buildGuestMail(parsed, 'https://app.plus-one.io');
+    expect(m.html).toContain(`href="https://app.plus-one.io/s/${STATUS}/google"`);
+    expect(m.html).not.toContain('calendar.google.com');
+    expect(m.text).toContain('Good to know:\nPark at P2.\nEntrance on the side street.');
+  });
+
+  it('an older claim without guest_info still parses (no block)', () => {
+    const parsed = parseClaimedMail(claimed())!;
+    expect(parsed.event.description).toBeNull();
+    expect(buildGuestMail(parsed, 'https://app.plus-one.io').text).not.toContain('Good to know');
+  });
+
   it('a mail without a status token has no status button and no calendar', () => {
     const m = buildGuestMail(
       parseClaimedMail(claimed({ type: 'guest_removed', spot: null, plus_ones: 2, remark: 'Sorry.', links: { status: null, unsubscribe: UNSUB, reply: REPLY } }))!,

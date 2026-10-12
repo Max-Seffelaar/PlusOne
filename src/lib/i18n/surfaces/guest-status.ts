@@ -18,6 +18,7 @@ export const guestStatus = {
   canceledTitle: 'This event is canceled',
   canceledBody: "It won't go ahead, so the guest list is closed too.",
   houseRulesLabel: 'House rules',
+  guestInfoLabel: 'Good to know',
   calendarLabel: 'Add to calendar',
   contactLabel: 'Questions?',
   contactBody: 'Mail {company} at {contact_email}.',

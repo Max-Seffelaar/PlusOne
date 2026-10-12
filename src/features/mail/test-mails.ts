@@ -76,6 +76,7 @@ export function buildTestMail(type: TestMailType, to: string, appUrl: string, ma
         location: 'Demo Hall, Herengracht 1, 1015 BA Amsterdam',
         updatedAt: null,
         houseRules: 'Bring a valid ID. Doors close at 01:00.',
+        description: 'Park at P2, the entrance is on the side street.\nDress code: all black.',
       },
       companyName: COMPANY,
       contactEmail: 'support@plus-one.io',
