@@ -1,6 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import type { User } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
 import { AUTH_COOKIE_MAX_AGE } from './cookie-options';
 import { requiredServerEnv } from '../env';
@@ -17,10 +16,80 @@ export interface MfaGate {
 // No-gate default: a route that should not redirect for MFA.
 const OPEN_GATE: MfaGate = { isAal2: true, hasFactor: false, requiresMfa: false };
 
+/**
+ * Who the middleware routes on: the subject and e-mail of a verified token.
+ * Deliberately not a full `User` — the middleware only decides "signed in or
+ * not" (and the demo-account check). Every route, layout and server action that
+ * reads data or authorizes still calls getUser() itself (CLAUDE.md security
+ * checklist); RLS is the boundary.
+ */
+export interface MiddlewareUser {
+  id: string;
+  email?: string;
+}
+
+type AuthClient = Pick<ReturnType<typeof createServerClient<Database>>['auth'], 'getSession' | 'getClaims' | 'getUser'>;
+
+/** True when the access token is signed with an asymmetric key that getClaims() can verify locally. */
+function isAsymmetricToken(accessToken: string): boolean {
+  try {
+    const part = accessToken.split('.')[0] ?? '';
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='));
+    const header = JSON.parse(json) as { alg?: unknown; kid?: unknown };
+    return typeof header.alg === 'string' && !header.alg.startsWith('HS') && typeof header.kid === 'string' && header.kid !== '';
+  } catch {
+    return false;
+  }
+}
+
+async function userFromGoTrue(auth: AuthClient): Promise<MiddlewareUser | null> {
+  const {
+    data: { user },
+  } = await auth.getUser();
+  return user ? { id: user.id, email: user.email } : null;
+}
+
+/**
+ * Resolve the signed-in user for routing (perf audit finding 9). Fast path:
+ * getClaims() verifies the access token's signature and `exp` locally against
+ * the project's JWKS (cached per instance for 10 minutes), so a request costs
+ * no GoTrue round-trip. Any other case is the previous behaviour, unchanged: a
+ * strict route, a symmetric (HS256) token as on the local stack, no session, a
+ * JWKS fetch error, a bad signature or an expired token all go to getUser().
+ * getSession() first runs the same cookie refresh getUser() used to trigger,
+ * so token rotation is untouched. What the fast path does NOT see until the
+ * token expires (≤ the JWT expiry): a revoked session (sign-out elsewhere,
+ * remote logout), a revoked refresh token, a deleted or banned user. The same
+ * token is already accepted by PostgREST and Realtime until `exp`, so a
+ * middleware getUser() never closed that window; layouts, pages with server
+ * data and every server action keep their own getUser().
+ */
+export async function resolveMiddlewareUser(auth: AuthClient, { strict = false }: { strict?: boolean } = {}): Promise<MiddlewareUser | null> {
+  if (strict) return userFromGoTrue(auth);
+  const {
+    data: { session },
+  } = await auth.getSession();
+  if (!session?.access_token || !isAsymmetricToken(session.access_token)) return userFromGoTrue(auth);
+  try {
+    const { data, error } = await auth.getClaims();
+    const sub = data?.claims?.sub;
+    if (!error && data && typeof sub === 'string' && sub !== '') {
+      const email = data.claims.email;
+      return { id: sub, email: typeof email === 'string' ? email : undefined };
+    }
+  } catch {
+    // Fall through to GoTrue: never fail open, never fail closed on a JWKS outage.
+  }
+  return userFromGoTrue(auth);
+}
+
 // Canonical @supabase/ssr middleware helper: refreshes the auth cookies on
-// every request and returns the verified user. getUser() (not getSession) hits
-// the Auth server, so the session is always validated server-side — never
-// trust an unverified cookie (CLAUDE.md security checklist).
+// every request and returns the verified user via resolveMiddlewareUser above
+// (local JWT verification, getUser() fallback). Never trust an unverified
+// cookie: getSession() alone is never the answer (CLAUDE.md security checklist).
+// `strict` forces getUser() for routes where the middleware ACTS on "signed in"
+// (redirecting away from /login and /): a revoked-but-unexpired token there
+// would bounce between /login and the /app layout's own getUser().
 //
 // When `checkMfa` is set and there is a user, it also computes the MFA gate
 // using the SAME authenticated client (the one getUser succeeds on), so the
@@ -28,8 +97,8 @@ const OPEN_GATE: MfaGate = { isAal2: true, hasFactor: false, requiresMfa: false 
 // the role lookup is skipped once the session is already AAL2.
 export async function updateSession(
   request: NextRequest,
-  { checkMfa = false }: { checkMfa?: boolean } = {}
-): Promise<{ response: NextResponse; user: User | null; gate: MfaGate; demoSessionEnded?: true }> {
+  { checkMfa = false, strict = false }: { checkMfa?: boolean; strict?: boolean } = {}
+): Promise<{ response: NextResponse; user: MiddlewareUser | null; gate: MfaGate; demoSessionEnded?: true }> {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(
@@ -53,9 +122,7 @@ export async function updateSession(
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await resolveMiddlewareUser(supabase.auth, { strict });
 
   // Store-review demo account (86ey6bfug) outside its review window: end the
   // session on EVERY route the middleware covers (/door/*, server actions, …),

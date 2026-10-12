@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2, 9-AUTH A: middleware verifies the token locally (z8uq9m2xz2)
+
+Milestone **≥5** (perf audit 2026-10-06, finding 9). High-risk (middleware = auth): fresh-session `/code-review` + `/security-review` before merge. No migration. Branch `claude/z8uq9m2xz2-middleware-getclaims`.
+
+- **What:** `updateSession` (`src/lib/supabase/middleware.ts`) resolves the user through `resolveMiddlewareUser`: `getSession()` (the same cookie refresh as before) → when the access token is asymmetric (`alg` not `HS*`, a `kid`) `getClaims()` verifies signature and `exp` against the project JWKS (module-cached 10 min) → no GoTrue call. Every other case calls `getUser()` exactly as before: symmetric token, no session, JWKS fetch error, bad signature, expired token, missing `sub`. Layout, data pages and server actions keep their own `getUser()`.
+- **Strict routes:** `/login` and `/` still use `getUser()` (`src/middleware.ts` passes `strict`). They are where the middleware acts on "signed in" (redirect to `/app`); a revoked-but-unexpired token accepted there would loop between `/login` and the `/app` layout's `getUser()`. Verified locally: after a global sign-out, `/app` (document and RSC) gets the layout's redirect to `/login`, `/login` renders 200.
+- **Accepted residual:** a session revoked server-side (sign-out elsewhere, remote logout, deleted/banned user) passes the middleware until its access token expires (≤ JWT expiry). PostgREST and Realtime already accept that token until `exp`, so the old middleware `getUser()` never closed the window; the layout/actions still refuse it.
+- **Local stack:** CLI 2.119 signs user sessions with ES256 (JWKS at `/auth/v1/.well-known/jwks.json`), so the fast path runs locally too; the HS256 fallback is covered by unit tests (`src/lib/supabase/middleware-claims.test.ts`, real ES256 keys via WebCrypto, only `fetch` stubbed).
+- **Measured (local, in-process `updateSession`, N=300):** `getUser()` p50 66 ms / p95 79 ms → `getClaims()` p50 0.95 ms / p95 1.6 ms, 0 GoTrue calls. Prod check after deploy: Vercel → Observability → Middleware duration (P75) and Sentry `http.client` spans to `/auth/v1/user` per RSC navigation (expected 0).
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
