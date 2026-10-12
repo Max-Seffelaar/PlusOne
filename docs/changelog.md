@@ -8,6 +8,15 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2 #6: Regulars + address book server-side (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5** (perf audit finding 6). Branch `claude/z8uq9m2xz2-regulars-rpc`. Migration `20261017120200_contact_event_counts`.
+
+- **What was slow:** the Guests tab's Regulars filter downloaded the whole address book, and every contact list counted "N× on a list" in the browser with a sequential loop over 120-id `guests.in('contact_id', …)` chunks (29 requests / 838 kB / ~550 ms on a 3 000-contact venue, refetched after every contact write).
+- **Fix:** `contact_event_counts(p_venue_id, p_permanent_only)` — one GROUP BY, SECURITY INVOKER (role-relative through guests/contacts RLS), venue-scoped in SQL, explicit execute grant matrix. `fetchContacts` takes a scope (`{ search, permanentOnly }`) instead of a new fetcher; rows and counts run in parallel. `usePoPermanentContacts` has its own key under the `['po','contacts',venueId]` prefix, so every contacts write still refreshes it.
+- **Measured** (`scripts/perf/p2-measure-contacts.mjs` on the `p2-seed.mjs` venue, admin through RLS, median of 5): Regulars 29 → 2 requests, 838 → 59 kB, 574 → 76 ms; address book 29 → 6 requests, 838 → 595 kB, 549 → 309 ms.
+- **Tests:** pgTAP `contact_event_counts.test.sql` (15: invoker, grants, admin = superuser truth, distinct events, removed rows, permanent-only, organizer and staff = their own direct RLS read, cross-venue, anon); `queries.test.ts` pins one RPC and no `.in()`; flow `guests-regulars` (6 checks × 4 variants).
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.

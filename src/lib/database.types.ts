@@ -2761,6 +2761,13 @@ export type Database = {
         Args: { p_key: string; p_max: number; p_window_min: number }
         Returns: boolean
       }
+      contact_event_counts: {
+        Args: { p_permanent_only?: boolean; p_venue_id: string }
+        Returns: {
+          contact_id: string
+          event_count: number
+        }[]
+      }
       contact_marketing_opt_ins: {
         Args: { p_venue_id: string }
         Returns: {

@@ -179,6 +179,16 @@ export const FLOWS = {
       'supabase/migrations/20261013180500_event_contact_email.sql',
     ],
   },
+  'guests-regulars': {
+    title: 'Snelheid P2 #6 (z8uq9m2xz2) — Regulars filter + address book read server-side: starred-only contacts read, one contact_event_counts RPC, no contact id lists',
+    paths: [
+      'src/features/po/queries.ts',
+      'src/features/po/hooks.ts',
+      'src/features/po/keys.ts',
+      'src/components/po/screens/guests/',
+      'supabase/migrations/20261017120200_contact_event_counts.sql',
+    ],
+  },
   'onboarding-ade-trial': {
     title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
     paths: [

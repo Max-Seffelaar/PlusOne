@@ -5,7 +5,7 @@ import { auditPersonIds, describeAuditEntry, type AuditLine } from '@/features/a
 import { ActorLabels, actorRef, fetchActorLabelsSafe } from '@/features/audit/actor-labels';
 import type { ActorKind } from '@/lib/po/actor-kind';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
-import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
+import { fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
 import { formatCompanyAddress } from '@/features/po/adapters';
 import { requestedHeadsOf } from '@/features/po/funnel';
@@ -1337,52 +1337,53 @@ export type PoContactRow = {
   eventCount: number;
 };
 
-/** Distinct-events-per-contact map, scoped by RLS to what the caller can read. */
-async function contactEventCounts(client: Client, contactIds: string[]): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-  if (contactIds.length === 0) return counts;
-
-  // A venue can have >1000 contacts, so the `.in('contact_id', …)` filter is
-  // chunked to ≤120 ids per request (CLAUDE.md scale rule) — a ~210-id `.in()`
-  // list already hits ~7.8 kB and throws HTTP 414 (Kong's URI length limit), well
-  // under PostgREST's 1000-row cap; each chunk's guest rows can themselves exceed
-  // 1000, so every chunk is ranged too. `.order('id')` keys the paging.
-  const seen = new Map<string, Set<string>>();
-  for (const chunk of chunkIds(contactIds, 120)) {
-    const rows = await fetchAllRanged<Pick<Tables['guests']['Row'], 'contact_id' | 'event_id'>>((from, to) =>
-      client
-        .from('guests')
-        .select('contact_id, event_id')
-        .in('contact_id', chunk)
-        .neq('status', 'removed')
-        .order('id')
-        .range(from, to),
-    );
-    for (const g of rows) {
-      if (!g.contact_id) continue;
-      const set = seen.get(g.contact_id) ?? new Set<string>();
-      set.add(g.event_id);
-      seen.set(g.contact_id, set);
-    }
-  }
-  for (const [cid, set] of seen) counts.set(cid, set.size);
-  return counts;
+/**
+ * Distinct-events-per-contact map, scoped by RLS to what the caller can read —
+ * ONE GROUP BY on the database (`contact_event_counts`, SECURITY INVOKER,
+ * Snelheid P2 finding 6) instead of a client loop over 120-id chunks. Venue-
+ * scoped in SQL, so no id list ever crosses the wire. Ranged: one row per
+ * contact with appearances, which can pass 1 000.
+ */
+async function contactEventCounts(
+  client: Client,
+  venueId: string,
+  permanentOnly: boolean,
+): Promise<Map<string, number>> {
+  const rows = await fetchAllRanged<{ contact_id: string; event_count: number }>((from, to) =>
+    client
+      .rpc('contact_event_counts', { p_venue_id: venueId, p_permanent_only: permanentOnly })
+      .select('contact_id, event_count')
+      .range(from, to),
+  );
+  return new Map(rows.map((r) => [r.contact_id, r.event_count]));
 }
 
 /** The contacts-table row this screen reads, before the eventCount is joined on. */
 type ContactBaseRow = Omit<PoContactRow, 'eventCount'>;
 
+/** Which slice of the address book `fetchContacts` reads. */
+export type ContactsScope = {
+  /** Server-side name search (ilike). */
+  search?: string;
+  /** Starred contacts only — the Guests tab's "Regulars" filter (uses the
+   *  partial index contacts_venue_permanent_idx). */
+  permanentOnly?: boolean;
+};
+
 /** The venue address book (managers), newest-name-first, with per-contact event counts. */
 export async function fetchContacts(
   client: Client,
   venueId: string,
-  search?: string
+  scope: ContactsScope = {}
 ): Promise<PoContactRow[]> {
-  const term = search?.trim();
+  const term = scope.search?.trim();
+  const permanentOnly = scope.permanentOnly ?? false;
   // Ranged: a venue address book can hold >1000 contacts. The full filter (incl.
   // the optional name search) is rebuilt per page since builders are one-shot;
   // `full_name` isn't unique, so `.order('id')` is the deterministic tiebreaker.
-  const rows = await fetchAllRanged<ContactBaseRow>((from, to) => {
+  // The rows and the counts are independent venue-scoped reads, so they run in
+  // parallel: two round-trips' worth of latency, not a chain.
+  const rowsPromise = fetchAllRanged<ContactBaseRow>((from, to) => {
     let query = client
       .from('contacts')
       .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent')
@@ -1391,10 +1392,14 @@ export async function fetchContacts(
       .order('full_name')
       .order('id');
     if (term) query = query.ilike('full_name', `%${term}%`);
+    if (permanentOnly) query = query.eq('is_permanent', true);
     return query.range(from, to);
   });
 
-  const counts = await contactEventCounts(client, rows.map((c) => c.id));
+  const [rows, counts] = await Promise.all([
+    rowsPromise,
+    contactEventCounts(client, venueId, permanentOnly),
+  ]);
   return rows.map((c) => ({ ...c, eventCount: counts.get(c.id) ?? 0 }));
 }
 

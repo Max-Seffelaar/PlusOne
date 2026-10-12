@@ -1093,7 +1093,7 @@ export function usePoContacts(search = '') {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      const rows = await fetchContacts(createClient(), venueId, search);
+      const rows = await fetchContacts(createClient(), venueId, { search });
       return rows.map(toPoContact);
     },
   });
@@ -1139,10 +1139,24 @@ export function usePoContactNameMatches(names: string[]) {
   });
 }
 
-/** Permanent contacts only (the Guests tab's "Regulars" filter) — derived from the unsearched list. */
+/**
+ * Permanent contacts only (the Guests tab's "Regulars" filter). Filtered on the
+ * server (`is_permanent`, partial index) with counts from one GROUP BY RPC, so
+ * the Guests tab no longer downloads the whole address book (Snelheid P2 #6).
+ * Every contacts write invalidates the ['po','contacts',venueId] prefix, which
+ * covers this key too.
+ */
 export function usePoPermanentContacts() {
-  const query = usePoContacts('');
-  return { ...query, data: query.data?.filter((c) => c.vast) };
+  const { venueId } = usePoIdentity();
+  return useQuery<PoContact[]>({
+    queryKey: poKeys.permanentContacts(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => {
+      if (!venueId) return [];
+      const rows = await fetchContacts(createClient(), venueId, { permanentOnly: true });
+      return rows.map(toPoContact);
+    },
+  });
 }
 
 /** Contact ids opted in to venue updates (legal v0.3 decision 2), as a Set —
