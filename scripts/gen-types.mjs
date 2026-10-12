@@ -6,8 +6,10 @@
 // pg-meta container directly. Requires `supabase start` to be running.
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { supabaseContainer } from './lib/supabase-project.mjs';
 
-const CONTAINER = 'supabase_pg_meta_PlusOne_Guestlist';
+// pg-meta container of THIS checkout's stack (supabase/config.toml project_id).
+const CONTAINER = supabaseContainer('pg_meta', new URL('../supabase/config.toml', import.meta.url));
 const TYPEGEN_URL =
   'http://localhost:8080/generators/typescript?included_schemas=public&detect_one_to_one_relationships=true';
 
