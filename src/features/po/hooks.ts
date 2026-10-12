@@ -935,14 +935,33 @@ export function usePoQuota(eventId: string) {
 // [...all,'quota-requests'] prefix, which matches these venue keys, so a
 // decided request drops off on success.
 
-/** Pending landing-page guest requests across the active venue's events. */
+/**
+ * Landing-page guest requests for the active venue: every pending one, plus the
+ * declined / auto-approved history of events in the recent window (the same
+ * 7-day past window as Home — Snelheid P2 finding 5). The "via" labels come
+ * from the venue links query's cache (the inbox's link filter and Home's empty
+ * card read the same key), fetched in parallel when it is missing or older than
+ * a minute — never an id list. Mounted by Home and Requests (and the desktop
+ * door picker's board); the More row and the nav badge use the head count.
+ */
 export function usePoGuestRequests() {
   const { venueId } = usePoIdentity();
+  const qc = useQueryClient();
   return useQuery<PoGuestRequest[]>({
     queryKey: poKeys.requests(venueId ?? ''),
     enabled: !!venueId,
     queryFn: async () => {
-      const rows = await fetchGuestRequests(createClient(), venueId ?? '');
+      const client = createClient();
+      const vid = venueId ?? '';
+      const rows = await fetchGuestRequests(client, vid, {
+        decidedSinceIso: recentEventsSinceIso(),
+        links: () =>
+          qc.fetchQuery({
+            queryKey: poKeys.venueLinks(vid),
+            queryFn: () => fetchVenueRequestLinks(client, vid),
+            staleTime: 60_000,
+          }),
+      });
       return rows.map((r) => toPoGuestRequest(r));
     },
   });
@@ -1008,15 +1027,20 @@ export function usePoRequestLinks(eventId: string) {
   });
 }
 
-/** Every non-archived link across the active venue's events (lean, for filters). */
+/** Every non-archived link across the active venue's events (lean, for filters).
+ *  The base read also carries archived links (request labels); `select` drops them. */
 export function usePoVenueLinks() {
   const { venueId } = usePoIdentity();
   return useQuery<PoLinkOption[]>({
     queryKey: poKeys.venueLinks(venueId ?? ''),
     enabled: !!venueId,
     queryFn: () => fetchVenueRequestLinks(createClient(), venueId ?? ''),
+    select: liveLinks,
   });
 }
+
+// Module-level so React Query memoises the filtered list per data change.
+const liveLinks = (links: PoLinkOption[]): PoLinkOption[] => links.filter((l) => !l.archived);
 
 /** The active venue's influencer roster (non-archived), with link counts. */
 export function usePoInfluencers() {

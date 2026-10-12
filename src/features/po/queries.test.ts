@@ -466,9 +466,10 @@ describe('fetchVenueRequestLinks (86ey9e9wv, A2)', () => {
       [
         {
           data: [
-            { id: 'l1', event_id: 'e1', is_default: true, label: null, influencer_id: null },
-            { id: 'l2', event_id: 'e1', is_default: false, label: 'Fallback label', influencer_id: 'inf-1' },
-            { id: 'l3', event_id: 'e1', is_default: false, label: null, influencer_id: 'inf-2' },
+            { id: 'l1', event_id: 'e1', is_default: true, label: null, influencer_id: null, archived_at: null },
+            { id: 'l2', event_id: 'e1', is_default: false, label: 'Fallback label', influencer_id: 'inf-1', archived_at: null },
+            // Archived links stay in the base read (request labels), flagged (Snelheid P2).
+            { id: 'l3', event_id: 'e1', is_default: false, label: null, influencer_id: 'inf-2', archived_at: '2026-10-01T00:00:00Z' },
           ],
           error: null,
         },
@@ -481,9 +482,9 @@ describe('fetchVenueRequestLinks (86ey9e9wv, A2)', () => {
 
     expect(capture.influencersEq).toEqual([['venue_id', 'venue-1']]);
     expect(rows).toEqual([
-      { id: 'l1', eventId: 'e1', isDefault: true, label: null },
-      { id: 'l2', eventId: 'e1', isDefault: false, label: 'Jayden Promo' },
-      { id: 'l3', eventId: 'e1', isDefault: false, label: null }, // unresolved influencer -> null, not the (absent) stored label
+      { id: 'l1', eventId: 'e1', isDefault: true, label: null, archived: false },
+      { id: 'l2', eventId: 'e1', isDefault: false, label: 'Jayden Promo', archived: false },
+      { id: 'l3', eventId: 'e1', isDefault: false, label: null, archived: true }, // unresolved influencer -> null, not the (absent) stored label
     ]);
   });
 });

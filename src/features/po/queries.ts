@@ -585,75 +585,76 @@ export type PoGuestRequestRow = Pick<
   viaStandard: boolean;
 };
 
-interface LinkIdentity {
-  label: string | null;
-  isDefault: boolean;
-}
+const GUEST_REQUEST_COLUMNS =
+  'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, decision_message, request_link_id, decided_via, marketing_opt_in' as const;
 
-/** Resolve request_link_id → "via" label (influencer name ?? label) in two
- *  RLS-safe round-trips (no FK-embed guessing — mirrors fetchQuotaRequests).
- *  The default link resolves to a null label: it has no influencer and no
- *  label, and is flagged `isDefault` instead. */
-async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, LinkIdentity>> {
-  const labels = new Map<string, LinkIdentity>();
-  if (linkIds.length === 0) return labels;
-  const { data: links, error } = await client
-    .from('request_links')
-    .select('id, label, influencer_id, is_default')
-    .in('id', linkIds);
-  if (error) throw error;
-  const rows = links ?? [];
-  const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
-  const infRes = infIds.length
-    ? await client.from('influencers').select('id, name').in('id', infIds)
-    : { data: [] as { id: string; name: string }[], error: null };
-  if (infRes.error) throw infRes.error;
-  const influencers = infRes.data ?? [];
-  const nameById = new Map(influencers.map((i) => [i.id, i.name]));
-  for (const l of rows) {
-    labels.set(l.id, {
-      label: l.is_default ? null : (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null,
-      isDefault: l.is_default,
-    });
-  }
-  return labels;
-}
+type GuestRequestBaseRow = Omit<PoGuestRequestRow, 'viaLabel' | 'viaStandard'>;
 
 /**
- * Landing-page requests across the given events — still-open (pending),
- * already-DENIED, and AUTO-APPROVED (the read-only trace of what an auto-approve
- * link let straight onto the list), oldest first. The screen shows the open ones
- * as the queue, the denied ones in a "Declined" section (an admin can still add
- * the person after all — re-approve, #12), and the auto-approved ones in their own
+ * Landing-page requests for the venue — still-open (pending), already-DENIED,
+ * and AUTO-APPROVED (the read-only trace of what an auto-approve link let
+ * straight onto the list), oldest first. The screen shows the open ones as the
+ * queue, the denied ones in a "Declined" section (an admin can still add the
+ * person after all — re-approve, #12), and the auto-approved ones in their own
  * collapsed section. Manually-approved requests stay excluded (they're on the
- * list already, decided by a human). Each row carries its request link resolved
- * to a "via" label. RLS limits visibility to admin/finance/organizer.
+ * list already, decided by a human). RLS limits visibility to
+ * admin/finance/organizer.
+ *
+ * Snelheid P2 (perf audit finding 5):
+ *  - every row carries its request link resolved to a "via" label from the
+ *    venue-scoped links list (`fetchVenueRequestLinks`, or the caller's cached
+ *    copy via `links`), never a `.in('id', linkIds)` id list — that one 414'd
+ *    past ~205 events with requests in the retention window;
+ *  - `decidedSinceIso` windows the HISTORY (denied + auto-approved) to events
+ *    starting at or after it; pending requests are always all loaded, because
+ *    they are the work queue. Both reads are ranged (past 1 000 rows) and run in
+ *    parallel with the links.
  */
 export async function fetchGuestRequests(
   client: Client,
-  venueId: string
+  venueId: string,
+  opts: { decidedSinceIso?: string; links?: () => Promise<PoLinkOption[]> } = {}
 ): Promise<PoGuestRequestRow[]> {
-  const { data, error } = await client
-    .from('guest_requests')
-    .select(
-      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, decision_message, request_link_id, decided_via, marketing_opt_in'
-    )
-    .eq('venue_id', venueId)
-    // z8uq9m0hw6: an anonymized request (#29, past the retention window) is no
-    // longer decidable (approve_guest_request answers P0002), so it has no
-    // place in the inbox either.
-    .is('anonymized_at', null)
-    .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')
-    .order('created_at', { ascending: true });
-  if (error) throw error;
+  const { decidedSinceIso } = opts;
+  const links = opts.links ?? (() => fetchVenueRequestLinks(client, venueId));
+  // z8uq9m0hw6: an anonymized request (#29, past the retention window) is no
+  // longer decidable (approve_guest_request answers P0002), so it has no place
+  // in the inbox either. `.order('id')` keys the paging (created_at can tie).
+  const [pending, decided, linkList] = await Promise.all([
+    fetchAllRanged<GuestRequestBaseRow>((from, to) =>
+      client
+        .from('guest_requests')
+        .select(GUEST_REQUEST_COLUMNS)
+        .eq('venue_id', venueId)
+        .is('anonymized_at', null)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .order('id')
+        .range(from, to)
+    ),
+    fetchAllRanged<GuestRequestBaseRow & { events: unknown }>((from, to) => {
+      let query = client
+        .from('guest_requests')
+        // Inner embed on the (non-null) event FK: it only adds the start time
+        // the history window filters on.
+        .select(`${GUEST_REQUEST_COLUMNS}, events!inner(starts_at)`)
+        .eq('venue_id', venueId)
+        .is('anonymized_at', null)
+        .or('status.eq.denied,and(status.eq.approved,decided_via.eq.auto)');
+      if (decidedSinceIso) query = query.gte('events.starts_at', decidedSinceIso);
+      return query.order('created_at', { ascending: true }).order('id').range(from, to);
+    }),
+    links(),
+  ]);
 
-  const rows = data ?? [];
-  const linkIds = [...new Set(rows.map((r) => r.request_link_id).filter((x): x is string => !!x))];
-  const labels = await fetchLinkLabels(client, linkIds);
-  return rows.map((r) => {
-    const link = r.request_link_id ? labels.get(r.request_link_id) : undefined;
-    return { ...r, viaLabel: link?.label ?? null, viaStandard: link?.isDefault ?? false };
-  });
+  const linkById = new Map(linkList.map((l) => [l.id, l]));
+  return [...pending, ...decided.map(({ events: _events, ...r }) => r)]
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+    .map((r) => {
+      const link = r.request_link_id ? linkById.get(r.request_link_id) : undefined;
+      // The default link has no influencer and no label: it is flagged instead.
+      return { ...r, viaLabel: link && !link.isDefault ? link.label : null, viaStandard: link?.isDefault ?? false };
+    });
 }
 
 /** People asked / approved / declined / waiting (Requests E, z8uq9m2vga). */
@@ -2324,12 +2325,17 @@ export interface PoLinkOption {
   isDefault: boolean;
   /** Influencer name ?? label; null for the default link. */
   label: string | null;
+  /** Archived links stay in the base read for request labels; filter UIs drop them. */
+  archived: boolean;
 }
 
-type VenueLinkRow = Pick<Tables['request_links']['Row'], 'id' | 'event_id' | 'is_default' | 'label' | 'influencer_id'>;
+type VenueLinkRow = Pick<Tables['request_links']['Row'], 'id' | 'event_id' | 'is_default' | 'label' | 'influencer_id' | 'archived_at'>;
 
 /**
- * Every non-archived link at a venue (lean — no funnel numbers). `request_links`
+ * Every link at a venue, archived ones flagged (lean — no funnel numbers). The
+ * archived ones are there for the requests inbox: a request keeps the "via"
+ * label of the link it came through after that link is archived (Snelheid P2);
+ * the filter UIs drop them with `select` (usePoVenueLinks). `request_links`
  * already carries `venue_id`, so this never needed the eventIds indirection
  * (SCALE-5) — one venue_id, no `usePoEvents()` dependency at all. Links never
  * archive automatically (86ey9e9wv) — a long-lived venue can accumulate past
@@ -2349,9 +2355,8 @@ export async function fetchVenueRequestLinks(client: Client, venueId: string): P
     fetchAllRanged<VenueLinkRow>((from, to) =>
       client
         .from('request_links')
-        .select('id, event_id, is_default, label, influencer_id')
+        .select('id, event_id, is_default, label, influencer_id, archived_at')
         .eq('venue_id', venueId)
-        .is('archived_at', null)
         .order('created_at', { ascending: true })
         .order('id')
         .range(from, to)
@@ -2366,6 +2371,7 @@ export async function fetchVenueRequestLinks(client: Client, venueId: string): P
     eventId: l.event_id,
     isDefault: l.is_default,
     label: (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null,
+    archived: l.archived_at !== null,
   }));
 }
 

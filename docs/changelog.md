@@ -8,6 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Snelheid P2 #5: requests list without id lists, windowed (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5** (perf audit finding 5, list half; the badge was P1). Branch `claude/z8uq9m2xz2-requests-list`. No migration.
+
+- **What broke at scale:** `fetchGuestRequests` read every pending/denied/auto row in one unranged call (silently capped at 1 000), then `request_links.in('id', <every link id>)`: on a 300-event venue the URL is 11.8 kB and the read fails with HTTP 414, taking Home's request tiles and the Requests inbox down with it.
+- **Fix:** the "via" labels come from the venue-scoped `fetchVenueRequestLinks`, through the same React Query key the inbox's link filter and Home's empty card already read (`fetchQuery`, 60 s fresh), in parallel with the requests. That base read now carries archived links too (flagged), so a request keeps its label after its link is archived; `usePoVenueLinks` drops them with `select`. Pending requests are always all loaded (ranged); the declined / auto-approved history is windowed to events from the last 7 days on (`RECENT_EVENTS_WINDOW_MS`, Home's window, via an `events!inner(starts_at)` embed). More's Requests row uses the pending head count (`usePoOpenRequestCount`, the badge's key) instead of the full list.
+- **Measured** (`scripts/perf/p2-measure-requests.mjs`, `p2-seed.mjs` venue, admin through RLS): before 2 requests then **414 URI too long** (11 801-char URL); after 4 requests, longest URL 510 chars, 367 rows, ~29 ms.
+- **Behaviour change for Max to confirm:** declined and auto-approved requests of events that ended more than a week ago no longer show in the inbox (the decision counts RPC is unchanged).
+- **Tests:** `guest-requests.query.test.ts` (no `.in()`, archived/default/unknown labels, window only on the history); flow `requests-list` (6 checks × 4 variants).
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
