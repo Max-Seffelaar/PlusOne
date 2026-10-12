@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Analytics PH (PostHog), PR 2 instrumentation (onboarding programme task 10)
+
+Branch `claude/posthog-instrumentation` on top of `claude/posthog-foundation`. No migration, still no key: every capture is a no-op until `NEXT_PUBLIC_POSTHOG_KEY` / `POSTHOG_KEY` are set.
+
+- **Mutation hooks** (`src/features/po/mutations.ts`, in `onSuccess`): `event_created` (plain + from template), `guest_added` (quick add / door source / contact), `guests_added_bulk`, `guest_removed`, `list_lock_toggled` (both lock hooks), `extra_slots_requested`, `request_approved` / `request_denied` (the decide hook: anyone got a spot = approved), `member_invited`. Ids, enums and counts only; names, e-mail, notes and motivations stay out (unit test with PII strings in every input).
+- **Onboarding:** `onboarding_step_completed` (welcome / company / team) + `onboarding_completed`. `/onboarding` has no gate, so these wait in the adapter's memory queue and go out after the `/app` gate identifies the user (or are dropped on opt-out).
+- **Door** (`DoorProvider`, at enqueue, never in the outbox or its replay): `door_checkin` (a first arrival or a revive; a "+1" top-up is not a second check-in), `door_checkin_voided`, `door_refusal` (never the reason), `door_guest_added` (never the name), each with `captured_offline`.
+- **Server** (`src/features/analytics/server.ts`, `import 'server-only'`, posthog-node loaded lazily): `user_signed_up` on the FIRST consent only (`via`: a waiting team/crew invite = `invite`, else `onboarding`), `venue_created` in `createVenueAction`. `captureImmediate` + `shutdown` with a 2 s bound; the caller's opt-out is read via `my_profile()` and fails closed; never throws; no query at all without `POSTHOG_KEY`.
+- **Public:** `landing_viewed` on `/`, only with banner analytics consent, once per page load.
+
+---
+
 ## 2026-10-12 — Analytics PH (PostHog), PR 1 foundation (onboarding programme task 10, golf F)
 
 Onboarding programme October 2026, last task of golf F (§2, after task 9 and Max's go), shipped **without a key** (decision Max 2026-10-12: build everything first; go + key later). ClickUp: no own task yet (86ey3x371 is the plan, complete); the orchestrator fills the id in. Branch `claude/posthog-foundation`. High-risk (new column grant on `user_profiles`, consent, middleware matcher, service worker, `next.config.js` rewrites + `skipTrailingSlashRedirect`) → fresh-session `/code-review` + `/security-review` before merge.

@@ -26,6 +26,8 @@ import { hasConsent, onConsentChange, readConsent } from './consent';
 import { analytics } from './provider';
 import { isBannerRoute, isPublicAnalyticsRoute } from './public-routes';
 
+let landingSent = false;
+
 const CookieBanner = dynamic(() => import('./CookieBanner'), { ssr: false });
 
 export function PublicConsent(): JSX.Element | null {
@@ -38,7 +40,15 @@ export function PublicConsent(): JSX.Element | null {
 
     const apply = (): void => {
       if (!analyticsConfigured() || !isPublicAnalyticsRoute(pathname)) return;
-      if (hasConsent('analytics')) void analytics.enable();
+      if (hasConsent('analytics')) {
+        void analytics.enable();
+        // The one public event, and only with consent (decision 2). Once per
+        // page load; queued until the anonymous enable above has loaded.
+        if (pathname === '/' && !landingSent) {
+          landingSent = true;
+          analytics.capture({ event: 'landing_viewed' });
+        }
+      }
       else if (analytics.isEnabled()) analytics.disable();
       // Declined: nothing captured on this page may ever leave, not even after
       // a later in-app identify. Not `disable()` while idle — that would also
