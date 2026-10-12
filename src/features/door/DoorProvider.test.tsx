@@ -49,6 +49,11 @@ vi.mock('./offline/device', () => ({
   getDoorClient: () => H.client,
 }));
 vi.mock('./outbox/gateway', () => ({ supabaseGateway: () => H.gateway }));
+// Product analytics (PostHog PR 2): record captures instead of sending them.
+const A = vi.hoisted(() => ({ captured: [] as Record<string, unknown>[] }));
+vi.mock('@/features/analytics/provider', () => ({
+  analytics: { capture: (e: Record<string, unknown>) => A.captured.push(e) },
+}));
 vi.mock('./queries', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./queries')>();
   return { ...actual, fetchDoorSnapshot: () => H.fetchSnapshot!(), fetchEventQuota: async () => null };
@@ -743,5 +748,62 @@ describe('DoorProvider — owner stamp without a network (86ey9et0h)', () => {
     await waitFor(() => {
       expect(outbox.getSnapshot().find((e) => e.kind === 'check_in')?.ownerId).toBe(UID);
     });
+  });
+});
+
+describe('DoorProvider — product analytics at enqueue (PostHog PR 2)', () => {
+  const setOnline = (v: boolean) => Object.defineProperty(window.navigator, 'onLine', { value: v, configurable: true });
+  beforeEach(() => {
+    A.captured.length = 0;
+  });
+  afterEach(() => setOnline(true));
+
+  it('one door_checkin per arrival (a "+1" top-up is not a second one), flagged offline', async () => {
+    const h = renderDoor();
+    await settle();
+    setOnline(false);
+    await act(async () => {
+      h.api().checkInOne(GUEST_C);
+    });
+    await act(async () => {
+      h.api().checkInOne(GUEST_C);
+    });
+    const checkins = A.captured.filter((e) => e.event === 'door_checkin');
+    expect(checkins).toEqual([{ event: 'door_checkin', event_id: EVENT_ID, total_people: 1, captured_offline: true }]);
+  });
+
+  it('a refusal sends the event id only — never the reason, never a name', async () => {
+    const h = renderDoor();
+    await settle();
+    await act(async () => {
+      h.api().refuse(GUEST_A, 'Anna was too drunk, called her a taxi');
+    });
+    expect(A.captured).toEqual([{ event: 'door_refusal', event_id: EVENT_ID, captured_offline: false }]);
+  });
+
+  it('an on-the-spot add sends +N, never the typed name', async () => {
+    const h = renderDoor();
+    await settle();
+    await act(async () => {
+      h.api().addOnSpot({ name: 'Walk In Willem', plusOnes: 2, tierId: '018f0000-0000-7000-8000-000000000001' });
+    });
+    expect(A.captured).toEqual([{ event: 'door_guest_added', event_id: EVENT_ID, plus_ones: 2, captured_offline: false }]);
+    expect(JSON.stringify(A.captured)).not.toMatch(/Willem/);
+  });
+
+  it('never captures from the outbox replay: syncing adds no events', async () => {
+    const h = renderDoor();
+    await settle();
+    setOnline(false);
+    await act(async () => {
+      h.api().checkInOne(GUEST_A);
+    });
+    const before = A.captured.length;
+    setOnline(true);
+    await act(async () => {
+      h.sync().forceSync();
+    });
+    await waitFor(() => expect(h.api().pendingCount).toBe(0));
+    expect(A.captured.length).toBe(before);
   });
 });

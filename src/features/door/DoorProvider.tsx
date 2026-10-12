@@ -47,6 +47,7 @@ import {
 } from './queries';
 import { buildDoorView, buildTasks, type DoorGuest, type DoorTask, type DoorView } from './model';
 import type { Filter } from './components/checkin-items';
+import { analytics } from '@/features/analytics/provider';
 
 /**
  * Check-in list filters (search / segment / tier chips). They live HERE, not in
@@ -75,6 +76,12 @@ const TOAST_MS = 2600;
 const MAX_COALESCED_RERUNS = 3;
 
 const isOnline = (): boolean => typeof navigator === 'undefined' || navigator.onLine;
+
+// Product analytics is captured at ENQUEUE time (plan §9), never from the outbox
+// or its replay: the outbox stays analytics-free, a replay can't double count,
+// and the timestamp is the tap. Ids and counts only — the guest's name and the
+// refusal reason never leave. Not the audit trail: check_ins + audit_log are.
+const capturedOffline = (): boolean => !isOnline();
 
 export interface AddOnSpotInput {
   name: string;
@@ -594,6 +601,10 @@ export function DoorProvider({
         };
         return { ...s, checkIns: [...s.checkIns, fresh] };
       };
+      // A first check-in, not a top-up of someone already inside.
+      if (!row) {
+        analytics.capture({ event: 'door_checkin', event_id: eventId, total_people: 1 + target, captured_offline: capturedOffline() });
+      }
       const toastMsg = `${g?.name ?? 'Guest'} · ${fmt(t.door.partyCount, { inside: 1 + target, total: 1 + allotment })} inside ✓`;
       // Two taps offline = one row online: a still-pending entry for this same
       // row is overwritten in place (last wins) rather than queued twice.
@@ -639,6 +650,7 @@ export function DoorProvider({
         return;
       }
       const ts = new Date().toISOString();
+      analytics.capture({ event: 'door_checkin_voided', event_id: eventId, captured_offline: capturedOffline() });
       enqueueDoorWrite(
         // The observed row id travels with the entry: replayed hours later it
         // must still mean "undo THAT check-in", not "undo whatever check-in this
@@ -653,7 +665,7 @@ export function DoorProvider({
         `${g.name} · check-in reversed`,
       );
     },
-    [enqueueDoorWrite, meId, showToast],
+    [enqueueDoorWrite, eventId, meId, showToast],
   );
 
   // "Opnieuw inchecken": revive a voided check-in (clears voided_at, re-sets
@@ -668,6 +680,7 @@ export function DoorProvider({
       if (!g || !row?.voided_at) return;
       const plusArrived = Math.min(g.plus, Math.max(0, totalPeople - 1));
       const ts = new Date().toISOString();
+      analytics.capture({ event: 'door_checkin', event_id: eventId, total_people: 1 + plusArrived, captured_offline: capturedOffline() });
       enqueueDoorWrite(
         {
           kind: 'check_in_revive',
@@ -684,7 +697,7 @@ export function DoorProvider({
         `${g.name}${plusArrived > 0 ? ` +${plusArrived}` : ''} · back inside ✓`,
       );
     },
-    [enqueueDoorWrite, meId, readSnapshot],
+    [enqueueDoorWrite, eventId, meId, readSnapshot],
   );
   reviveRef.current = reviveCheckIn;
 
@@ -693,6 +706,8 @@ export function DoorProvider({
       const id = uuidv7();
       const ts = new Date().toISOString();
       const g = guestMapRef.current.get(guestId);
+      // Never the reason: free text, often with the guest's name in it.
+      analytics.capture({ event: 'door_refusal', event_id: eventId, captured_offline: capturedOffline() });
       enqueueDoorWrite(
         { kind: 'refusal', payload: { id, guestId, reason, clientTimestamp: ts } },
         (s) => ({
@@ -758,6 +773,7 @@ export function DoorProvider({
       }
       const id = uuidv7();
       const ts = new Date().toISOString();
+      analytics.capture({ event: 'door_guest_added', event_id: eventId, plus_ones: parsed.data.plusOnes, captured_offline: capturedOffline() });
       enqueueDoorWrite(
         { kind: 'add_guest', payload: { id, tierId: parsed.data.tierId, fullName: parsed.data.fullName, plusOnes: parsed.data.plusOnes } },
         (s) => {
