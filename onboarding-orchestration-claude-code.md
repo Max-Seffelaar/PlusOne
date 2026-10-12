@@ -266,13 +266,15 @@ Besluiten Max 2026-10-12 (startprompt golf F):
 - **Eerst de wachtrij, dan golf-F-merges:** #459 → #460 → #461 → #464 → #466 → #469 → #470, plus #474 (geen migratie). Golf-F-PR's mergen pas als die allemaal in main staan; bouwen mag al.
 - **Taak 8 nieuw slot `20261016160000`:** `20261016120000` is bezet door #459; de wachtrij bezet `20261016120000`–`…150000`. `20261017120000`/`…120100` (taak 9) zijn vrij.
 - **Script- en prod-push-vorm vast** (§1).
+- **Antwoorden startcheck (Max 2026-10-12):** (1) #470 en #474 mergeable maken via een worker; (2) asymmetrische JWT-signing-keys staan **aan**, dus de getClaims-PR van taak 9 gaat door; (3) PostHog (taak 10) later; (4) 7c Kit Select **parallel** aan 8 (geen bestandsoverlap).
 
 | Taak | Worker-sessie | PR | Status | Prod |
 |---|---|---|---|---|
 | 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | — | gestart 2026-10-12; merget na de wachtrij (overlap met #466 `fetchQuotaRequests`-labels en #469 quota-policies: worker merget main vóór zijn laatste push) | `20261016160000` |
-| 7c Kit Select ([z8uq9m4a2w](https://app.clickup.com/t/z8uq9m4a2w)) | — | — | wacht op besluit Max (parallel aan 8 of na 10) | geen migratie |
-| 9 Snelheid P2 ([z8uq9m2xz2](https://app.clickup.com/t/z8uq9m2xz2)) | — | — | wacht op merge 8; getClaims-PR alleen als asymmetrische JWT-keys aan staan | `20261017120000`, `…120100` |
-| 10 Analytics PH | — | — | wacht op 9, Max' go, PostHog-key en een ClickUp-id (de oude taak `86ey3x371` is het plan, staat op complete) | n.n.b. |
+| 7c Kit Select ([z8uq9m4a2w](https://app.clickup.com/t/z8uq9m4a2w)) | `session_014QHVZGmNf9anTyWc3TZ8T4` | — | gestart 2026-10-12, parallel aan 8; merget na de wachtrij | geen migratie |
+| Wachtrij-fix #470 + #474 | `session_01RfXsXyEkhkrGYWnriBSd9v` | [#470](https://github.com/Max-Seffelaar/PlusOne/pull/470), [#474](https://github.com/Max-Seffelaar/PlusOne/pull/474) | gestart 2026-10-12: main (en voor #470 de laatste #466-head) erin mergen, flow-shots-fout van #470 op phone/iPad root-causen | geen migratie |
+| 9 Snelheid P2 ([z8uq9m2xz2](https://app.clickup.com/t/z8uq9m2xz2)) | — | — | wacht op merge 8; JWT-keys asymmetrisch (Max), getClaims-PR gaat door | `20261017120000`, `…120100` |
+| 10 Analytics PH | — | — | **later** (Max 2026-10-12); dan nog go, PostHog-key en een ClickUp-id (de oude taak `86ey3x371` is het plan, staat op complete) | n.n.b. |
 
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
