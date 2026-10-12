@@ -346,3 +346,53 @@ describe('a request decision split over tiers', () => {
     expect(r.text).toContain('Guest: 2 people');
   });
 });
+
+describe('info for guests (z8uq9m4a5n)', () => {
+  const INFO = 'Park at P2.\nEntrance on the side street.';
+  const withInfo = (description: string | null) => ({ ...content().event, description });
+  const SHOWS: GuestMailType[] = [
+    'guest_on_list',
+    'guest_request_approved',
+    'guest_request_partly',
+    'guest_reminder',
+    'guest_event_changed',
+  ];
+
+  it('shows a "Good to know" block in the mails with a spot that carry details', () => {
+    for (const type of SHOWS) {
+      const r = renderGuestMail(content({ type, askedPeople: 3, remark: 'ok', event: withInfo(INFO) }));
+      expect(r.text, type).toContain('Good to know:\nPark at P2.\nEntrance on the side street.');
+      expect(r.html, type).toContain('Good to know');
+      expect(r.html, type).toContain('Park at P2.<br>Entrance on the side street.');
+    }
+  });
+
+  it('no block in the other mails, and none without text', () => {
+    for (const type of ['guest_plus_ones', 'guest_event_canceled', 'guest_removed', 'guest_request_declined'] as const) {
+      const r = renderGuestMail(content({ type, remark: 'ok', tiers: type === 'guest_plus_ones' ? content().tiers : null, event: withInfo(INFO) }));
+      expect(r.text, type).not.toContain('Good to know');
+      expect(r.html, type).not.toContain('Park at P2');
+    }
+    expect(renderGuestMail(content()).text).not.toContain('Good to know');
+    expect(renderGuestMail(content({ event: withInfo('   \n ') })).text).not.toContain('Good to know');
+  });
+
+  it('escapes markup and never lets a CR/LF or control character through as markup', () => {
+    const r = renderGuestMail(
+      content({ event: withInfo('<script>alert(1)</script>\r\n<a href="javascript:x">click</a>\u0000&amp;') }),
+    );
+    expect(r.html).not.toContain('<script>');
+    expect(r.html).not.toContain('<a href="javascript');
+    expect(r.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;<br>&lt;a href=&quot;javascript:x&quot;&gt;click&lt;/a&gt; &amp;amp;');
+    expect(r.html).not.toContain('\u0000');
+    expect(r.subject).not.toContain('script');
+  });
+
+  it('links the live Google route when the job passes one', () => {
+    const google = `${STATUS}/google`;
+    const r = renderGuestMail(content({ links: { statusUrl: STATUS, icsUrl: ICS, googleUrl: google, unsubscribeUrl: UNSUB } }));
+    expect(r.html).toContain(`href="${google}"`);
+    expect(r.text).toContain(`Google Calendar: ${google}`);
+    expect(r.html).not.toContain('calendar.google.com');
+  });
+});

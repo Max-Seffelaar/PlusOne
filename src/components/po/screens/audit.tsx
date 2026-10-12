@@ -479,7 +479,7 @@ function TimelineRow({ line, last }: { line: AuditLine; last: boolean }): JSX.El
 
 
 /** The line's phrase, with the subject (quota / membership target) rendered
- *  through ActorName so a PlusOne label is a chip there too (spec #62a). The
+ *  through ActorName so a PlusOne label is a chip there too (spec #64a). The
  *  sentence comes pre-split (subjectParts): no template a name could inject. */
 function LineText({ line }: { line: AuditLine }): JSX.Element {
   if (line.subject && line.subjectParts) {

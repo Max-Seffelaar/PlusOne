@@ -92,9 +92,9 @@ export interface Guest {
   /** Where the name came from (guests.source). Rendered through
    *  `guestSourceLabel` (src/features/po/format.ts) — never read raw in a screen. */
   source?: GuestSource;
-  /** Who added them, by the who-did-what rule (#62a); null when unknown. */
+  /** Who added them, by the who-did-what rule (#64a); null when unknown. */
   addedByName?: string | null;
-  /** What the adder is (spec #62a): only 'member' is a person's own text. */
+  /** What the adder is (spec #64a): only 'member' is a person's own text. */
   addedByKind?: ActorKind | null;
   /** Non-default request link (label or influencer) behind a landing sign-up. */
   linkLabel?: string | null;
@@ -235,7 +235,7 @@ export interface RecapGuest {
   tierColor?: string;
   at?: string;
   by?: string;
-  /** What `by` is (spec #62a) — render through kit ActorPhrase. */
+  /** What `by` is (spec #64a) — render through kit ActorPhrase. */
   byKind?: ActorKind;
 }
 

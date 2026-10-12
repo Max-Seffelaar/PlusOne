@@ -1666,8 +1666,15 @@ export function usePoUpdateVenueSettings() {
 }
 
 // ── Saved company locations (z8uq9m444c) ─────────────────────────────────────
-// Admin-only writes (RLS). Each invalidates the location list; events keep
-// their own copy, so no event query needs a refresh.
+// Admin-only writes (RLS). Each invalidates the location list and the venue's
+// audit feed (the write is audited since z8uq9m49k2); events keep their own
+// copy, so no event query needs a refresh.
+
+function invalidateLocationReads(qc: ReturnType<typeof useQueryClient>, venueId: string | null): void {
+  if (!venueId) return;
+  void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
+  void qc.invalidateQueries({ queryKey: poKeys.auditVenue(venueId) });
+}
 
 export function usePoCreateCompanyLocation() {
   const qc = useQueryClient();
@@ -1679,9 +1686,7 @@ export function usePoCreateCompanyLocation() {
       if (!res.ok) throw new Error(res.message);
       return res.locationId;
     },
-    onSuccess: () => {
-      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
-    },
+    onSuccess: () => invalidateLocationReads(qc, venueId),
   });
 }
 
@@ -1690,9 +1695,7 @@ export function usePoUpdateCompanyLocation() {
   const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (input: UpdateCompanyLocationInput) => throwOnError(await updateCompanyLocationAction(input)),
-    onSuccess: () => {
-      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
-    },
+    onSuccess: () => invalidateLocationReads(qc, venueId),
   });
 }
 
@@ -1701,9 +1704,7 @@ export function usePoArchiveCompanyLocation() {
   const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (locationId: string) => throwOnError(await archiveCompanyLocationAction({ locationId })),
-    onSuccess: () => {
-      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.companyLocations(venueId) });
-    },
+    onSuccess: () => invalidateLocationReads(qc, venueId),
   });
 }
 

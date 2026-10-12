@@ -1,4 +1,4 @@
--- venue_actor_names hardening (review round 1 of #466; spec #62(a)).
+-- venue_actor_names hardening (review round 1 of #466; spec #64(a)).
 --
 -- 1. Forged footprint (P1). The past-membership branch also accepted the
 --    subject of a `quotas` / `event_quotas` audit row. quotas_insert_admin and
@@ -113,7 +113,7 @@ as $$
 $$;
 
 comment on function public.profile_name_key(text) is
-  'Display-name comparison key (spec #62a): NFKC, every default-ignorable / '
+  'Display-name comparison key (spec #64a): NFKC, every default-ignorable / '
   'control / format character removed, Unicode spaces (and U+2800) collapsed to '
   'one space, lower-cased, trimmed. Used by user_profiles_full_name_not_reserved '
   'and the new-row sanitizer.';
@@ -276,7 +276,7 @@ end;
 $$;
 
 comment on function public.venue_actor_names(uuid, uuid[]) is
-  'Who-did-what labels for one venue (spec #62a): full_name for current and '
+  'Who-did-what labels for one venue (spec #64a): full_name for current and '
   'former members/crew, is_support (null name) for a platform admin without a '
   'membership/crew tie there. Only ids with an unforgeable footprint in that '
   'venue come back; members see the venue, crew their own events, anyone else '

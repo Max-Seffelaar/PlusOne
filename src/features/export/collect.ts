@@ -94,7 +94,7 @@ export const GUEST_HEADERS = [
   'event_name', 'event_date', 'full_name', 'email', 'phone', 'plus_ones', 'tier', 'door_price',
   'currency', 'status',
   'note', 'source', 'created_at', 'created_by', 'checked_in_at',
-  // Appended (spec #62a, decision Max): every pre-existing column keeps its
+  // Appended (spec #64a, decision Max): every pre-existing column keeps its
   // position, so anything that reads this file by column index keeps working.
   'created_by_type',
 ] as const;
@@ -214,7 +214,7 @@ export async function collectVenueExport(
   if (checkIns.length + refusals.length > EXPORT_MAX_ROWS) throw new ExportTooLargeError('door');
 
   // ── Actor names (team-sized id list, chunked) ───────────────────────────────
-  // The who-did-what rule (spec #62a, decision Max 2026-10-11): a current OR
+  // The who-did-what rule (spec #64a, decision Max 2026-10-11): a current OR
   // former member/crew is named — the export is the venue's own record of who
   // did what, and that must survive someone leaving (#24); a PlusOne platform
   // admin without a tie to the venue is "PlusOne support"; an action without an
@@ -227,7 +227,7 @@ export async function collectVenueExport(
   for (const r of refusals) actorIds.add(r.refused_by);
   const labels = await fetchActorLabels(client, venueId, actorIds);
   // Two cells per actor: the label (in its original column), and its TYPE
-  // (member | plusone_support | system | unknown; spec #62a, review #466 r3),
+  // (member | plusone_support | system | unknown; spec #64a, review #466 r3),
   // appended as the LAST column of the row so every existing column keeps its
   // position (decision Max). The type keeps the export unambiguous whatever
   // someone's name is — a member called "System" is `member`. An id the venue

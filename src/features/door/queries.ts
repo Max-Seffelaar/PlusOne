@@ -129,10 +129,10 @@ export interface DoorSnapshot {
   checkIns: CheckInRow[];
   refusals: RefusalRow[];
   /** user_id → label, for "toegevoegd door" / "ingecheckt door", by the
-   *  who-did-what rule (#62a): a current or former member's name, or
+   *  who-did-what rule (#64a): a current or former member's name, or
    *  "PlusOne support" for an operator without a tie to the company. */
   profiles: Record<string, string>;
-  /** What each `profiles` label is (spec #62a): only 'member' is a person's
+  /** What each `profiles` label is (spec #64a): only 'member' is a person's
    *  own text; render through kit ActorName. Optional: a snapshot persisted by
    *  an older bundle has none (its labels then read as members). */
   profileKinds?: Record<string, ActorKind>;
@@ -237,7 +237,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   } = await client.auth.getUser();
   if (user) ids.add(user.id);
 
-  // venue_actor_names (#62a): a former member who worked this door stays
+  // venue_actor_names (#64a): a former member who worked this door stays
   // named, an operator reads "PlusOne support". Chunked to <=120 ids per call
   // (CLAUDE.md scale rule). The SAFE variant: a failing label RPC must never
   // take the door down (#25, door speed); the snapshot then loads without

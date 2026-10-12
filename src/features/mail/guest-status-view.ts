@@ -10,7 +10,7 @@ import { formatWeekdayDate } from '@/features/po/format';
 import { formatEventTimes } from '@/features/requests/status-view';
 import { CONTACT_CHANNELS, type ContactChannel } from '@/features/venues/contact-schema';
 import type { CalendarEvent } from './ics';
-import { formatPrice, locationLine, peopleLabel } from './templates/guest-mails';
+import { cleanGuestInfo, formatPrice, locationLine, peopleLabel } from './templates/guest-mails';
 import { guestMailShared } from './templates/guest-copy';
 import { fmt } from '@/lib/i18n';
 
@@ -31,6 +31,8 @@ const payloadSchema = z.object({
     location_name: z.string().nullable(),
     location_address: z.string().nullable(),
     house_rules: z.string().nullable(),
+    // z8uq9m4a5n; optional so a payload from before the migration still parses.
+    guest_info: z.string().nullable().optional(),
     updated_at: iso.nullable(),
   }),
   company: z.object({
@@ -54,6 +56,8 @@ export interface GuestStatusView {
   spotLine: string | null;
   priceLine: string | null;
   houseRules: string | null;
+  /** The event's info for guests (z8uq9m4a5n), line breaks kept; only while the spot holds. */
+  guestInfo: string | null;
   company: string;
   contactEmail: string | null;
   website: string | null;
@@ -88,6 +92,7 @@ export function toGuestStatusView(raw: unknown): GuestStatusView | null {
   }
 
   const location = locationLine(d.event.location_name, d.event.location_address);
+  const guestInfo = holds ? cleanGuestInfo(d.event.guest_info) : null;
   return {
     state: d.state,
     firstName: d.first_name,
@@ -98,6 +103,7 @@ export function toGuestStatusView(raw: unknown): GuestStatusView | null {
     spotLine,
     priceLine,
     houseRules: holds ? d.event.house_rules : null,
+    guestInfo,
     company: d.company.name,
     contactEmail: d.company.contact_email,
     website: d.company.website && /^https?:\/\//i.test(d.company.website) ? d.company.website : null,
@@ -109,6 +115,7 @@ export function toGuestStatusView(raw: unknown): GuestStatusView | null {
       endsAt: d.event.ends_at,
       location,
       updatedAt: d.event.updated_at,
+      description: guestInfo,
     },
   };
 }

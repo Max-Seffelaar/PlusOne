@@ -4,7 +4,7 @@
 // Pure, no I/O, so it is trivially unit-testable and runs on server and client
 // alike. The DB (audit_feed view) already resolved guest/tier names; the
 // actor and subject (people) labels come from `venue_actor_names` via
-// fetchActorLabels (spec #62a — the view's RLS-scoped actor_name/subject_name
+// fetchActorLabels (spec #64a — the view's RLS-scoped actor_name/subject_name
 // hide former members and PlusOne support, so they are only a fallback here).
 // We compose the sentence and read the small JSONB diff for numbers
 // (plus_ones, quota, reason). Output matches the mock AuditEntry API
@@ -23,7 +23,7 @@ export type AuditFeedRow = Database['public']['Views']['audit_feed']['Row'];
 export interface AuditLine {
   id: string;
   actor: string;
-  /** What `actor` is (spec #62a): only 'member' is a person's own text; the
+  /** What `actor` is (spec #64a): only 'member' is a person's own text; the
    *  rest render as a typed label (kit ActorName). */
   actorKind: ActorKind;
   /** The person the line is ABOUT (quota / quota-request / membership target),
@@ -86,7 +86,7 @@ const SOMEONE = 'a guest';
 // ── Phrases from the catalogue (t.audit.line) ────────────────────────────────
 // Every table audited since the first phases, plus the generic fallback. Names
 // slotted in here are data (a contact, influencer, template, or tier name),
-// never a person who acted: actors and subjects stay typed refs (#62a).
+// never a person who acted: actors and subjects stay typed refs (#64a).
 
 type Phrase = { text: string; entity: string };
 const L = t.audit.line;
@@ -457,12 +457,39 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
         if (after.allow_uncheck === false) return { text: `turned off check-out for ${ev}`, entity: ev };
         return { text: `set check-out to follow the venue default for ${ev}`, entity: ev };
       }
+      // Public event location (z8uq9m444c; audited since z8uq9m49k2). The diff
+      // holds only the changed columns, so an address-only edit names only the
+      // new address.
+      if (after && ('location_name' in after || 'location_address' in after)) {
+        const loc = [str(after.location_name), str(after.location_address)].filter(Boolean).join(', ');
+        return loc
+          ? { text: `set the location of ${ev} to ${loc}`, entity: ev }
+          : { text: `cleared the location of ${ev}`, entity: ev };
+      }
       // Per-event default crew quota (T10 / C7).
       const defaultQuota = num(after?.default_member_quota);
       if (defaultQuota !== null) {
         return { text: fmt(L.eventDefaultQuota, { event: ev, count: defaultQuota }), entity: ev };
       }
       return { text: 'updated the event', entity: ev };
+    }
+
+    case 'company_locations': {
+      // Saved locations in Company settings (z8uq9m444c; audited since z8uq9m49k2).
+      // An update diff holds only the changed columns, so the name may be absent:
+      // then the location's current name, which audit_feed resolves.
+      const name = str(after?.name) ?? str(before?.name) ?? str(row.location_name);
+      const the = name ? `the location ${name}` : 'a saved location';
+      const entity = name ?? 'a saved location';
+      if (action === 'create') return { text: `added ${the}`, entity };
+      if (action === 'delete') return { text: `removed ${the}`, entity };
+      if (after && 'archived_at' in after) {
+        return { text: str(after.archived_at) ? `archived ${the}` : `restored ${the}`, entity };
+      }
+      if (after && 'name' in after && str(before?.name) && name) {
+        return { text: `renamed the location ${str(before?.name)} to ${name}`, entity };
+      }
+      return { text: `updated ${the}`, entity };
     }
 
     case 'venues': {
@@ -535,7 +562,7 @@ export function auditPersonIds(rows: readonly AuditFeedRow[]): string[] {
 
 /**
  * One feed row → one log line. `labels` (actor id → label, from
- * fetchActorLabels) applies the who-did-what rule (#62a): a null actor is
+ * fetchActorLabels) applies the who-did-what rule (#64a): a null actor is
  * "System", a resolved id is the member's name or "PlusOne support". Without a
  * label (none passed, the RPC failed, or not deployed yet) the view's
  * RLS-scoped name is the fallback, and then "Unknown" — never "System": a real

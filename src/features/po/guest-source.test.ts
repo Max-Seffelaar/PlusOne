@@ -17,7 +17,7 @@ import { ActorLabels } from '@/features/audit/actor-labels';
 
 const s = t.guests.source;
 
-// added_by → label comes from the venue's actor labels (venue_actor_names, #62a).
+// added_by → label comes from the venue's actor labels (venue_actor_names, #64a).
 const labels = new ActorLabels()
   .setActor('u-sanne', 'Sanne de Vries', 'member')
   .setActor('u-op', t.shared.actor.support, 'support')
@@ -240,7 +240,7 @@ describe('the venue-wide guest read carries provenance', () => {
 
     expect(capture.select).toContain('source');
     expect(capture.select).toContain('added_by');
-    // The adder is labelled via venue_actor_names (#62a), never an RLS-scoped
+    // The adder is labelled via venue_actor_names (#64a), never an RLS-scoped
     // user_profiles embed (it hid former members and named operators).
     expect(capture.select).not.toContain('user_profiles');
     expect(capture.select).toContain('request_links(label, is_default, influencers(name))');

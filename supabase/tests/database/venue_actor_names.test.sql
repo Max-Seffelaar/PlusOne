@@ -1,4 +1,4 @@
--- pgTAP — venue_actor_names: one who-did-what rule (20261016140000, spec #62a).
+-- pgTAP — venue_actor_names: one who-did-what rule (20261016140000, spec #64a).
 --
 -- Claims:
 --   * current AND former members/crew are named (full_name only);
