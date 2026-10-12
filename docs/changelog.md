@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
+
+Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
+
+- **Office-hours with Max** on the plan from PR #465: four named prospects (LOFI Amsterdam, Boothstock, Solar, Maassilo) asked for card payment at the door on the same device as the list; status quo is a separate card device + manual tick-off. Nine premises agreed; an independent cold read (Claude subagent) challenged decision 16 (no Connect); Max kept it. Design doc `docs/designs/fase-14-deurbetalingen-office-hours.md` **APPROVED** after two spec-review rounds (score 7/10, convergence).
+- **Approach C "ledger first, batch later":** P1 core → P2 one tokenised payment per guest row on two surfaces (door QR from a pre-minted `/pay/[token]` in the door snapshot, mail link), no open shop in v1 (P2b) → P4a ledger + weekly statement + self-billing PDF + manual SEPA → first live euro → P3 Tap to Pay when entitlement + store land; P4b/P2b/P6 on triggers. Max's own rules: pay per heads checked in now; pre-minted QR tokens at event start; cash via the outbox; client-generated token for post-start rows; walk-in sale in v1; iDEAL + cards + wallets with disputes in P2; fee as constant + two company columns; platform kill switch; manual refund fallback with hard visibility (logged shortcut). Route B (separate reader) rejected for good. Correction: no ticket mail, only "report at the entrance".
+- **CEO review (HOLD SCOPE)** written as plan §10: decision ledger L1–L16 (all approved), reality rows 7/7, sections 1–11 with diagrams, error/rescue map (20 paths, 0 critical gaps), threat model (13 threats), 15 implementation tasks T1–T15, `TODOS.md` created with 5 deferred items. Outside voice unavailable in this host (Codex not installed). Verdict: CEO CLEARED, eng review required (next).
+- **Fact checks:** Maestro is being phased out in NL (no new cards since 2023-07-01, national switch to Debit Mastercard started 2025-12, gone by 2027); Stripe lists Maestro as supported on Terminal incl. Tap to Pay on iPhone, contactless-in-NL to confirm in the Stripe meeting; iPad has no NFC reader (Stripe support), Android tablets only with NFC/GMS/Android 13+. Competitor check: INTIX and Eventbrite do Tap to Pay door sales on ticketing; nobody on a named guest list with quota/+N in NL.
+- **Folded into the docs (T12):** plan §4/§6 (P2/P2b, P4a/P4b, P5 → P2, `entry_payments` cash via outbox, door flow), spec #62 (a)(b)(c) corrected + new (l), CLAUDE.md door-payments bullet + open work, Capacitor plan §5 route B. Still open for Max: ClickUp split/retag (T13), Stripe meeting, lawyer, accountant, Apple entitlement (P0).
+
+---
+
 ## 2026-10-12 — House rules + info for guests in one block, house rules in the calendar (z8uq9m4a5n follow-up)
 
 Milestone **Now** (ADE). Decision Max 2026-10-12 (option A). UI + copy only, no migration. Spec #63 amended.
