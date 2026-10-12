@@ -82,6 +82,8 @@ export const poKeys = {
   // guest. All under ['po'] so a venue switch clears them with the rest.
   audit: (venueId: string, filters: Record<string, unknown>) =>
     [...poKeys.all, 'audit', venueId, filters] as const,
+  /** Prefix of every audit-feed key for one venue (any filters) — to invalidate. */
+  auditVenue: (venueId: string) => [...poKeys.all, 'audit', venueId] as const,
   auditOptions: (venueId: string) => [...poKeys.all, 'audit-options', venueId] as const,
   guestHistory: (guestId: string) => [...poKeys.all, 'guest-history', guestId] as const,
   // Note: the per-event Activity section (86ey21vnd) used to have its own

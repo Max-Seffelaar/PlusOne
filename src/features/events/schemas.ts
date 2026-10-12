@@ -52,6 +52,18 @@ const locationAddress = locationField(LOCATION_ADDRESS_MAX, t.events.locationAdd
 // events_house_rules_len in 20261013180100.
 export const HOUSE_RULES_MAX = 500;
 const houseRules = locationField(HOUSE_RULES_MAX, t.events.houseRulesTooLong);
+// Info for guests (z8uq9m4a5n): multi-line free text, trimmed, '' -> null.
+// Control characters other than tab and line breaks are dropped (the DB check
+// events_guest_info_check refuses them); the cap matches it.
+export const GUEST_INFO_MAX = 1000;
+const guestInfo = z
+  .string()
+  // eslint-disable-next-line no-control-regex -- dropping control chars is the point
+  .transform((v) => v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim())
+  .refine((v) => v.length <= GUEST_INFO_MAX, t.events.guestInfoTooLong)
+  .transform((v) => (v === '' ? null : v))
+  .nullable()
+  .optional();
 
 // The event's contact address (guest mail 6c): where guests reply. Required on
 // create and when saving an event that has none; the same strict syntax as
@@ -77,6 +89,7 @@ export const createEventSchema = z
     locationName,
     locationAddress,
     houseRules,
+    guestInfo,
     contactEmail: contactEmailField,
     // New events open their sign-up link by default (z8uq9m0hw3, item 6). The
     // column default stays false; createEvent always writes this value.
@@ -97,6 +110,7 @@ export const updateEventSchema = z
     locationName,
     locationAddress,
     houseRules,
+    guestInfo,
     // Optional in the input, but an event can't be saved without one: the
     // action refuses a save that leaves the event with no address.
     contactEmail: contactEmailField.optional(),

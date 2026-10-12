@@ -54,6 +54,7 @@ function timeline(over: Partial<PlatformBillingMails> = {}): PlatformBillingMail
         delivered: 1,
         failed: 0,
         bounced: 1,
+        unknown: 0,
       },
     ],
     ...over,
@@ -129,8 +130,25 @@ describe('billingMailStatusLine', () => {
         delivered: 0,
         failed: 0,
         bounced: 0,
+        unknown: 0,
       })
     ).toBe('1 recipient · 1 sent');
+  });
+
+  it('a Resend 409 shows as unknown, not failed (review #446 D1)', () => {
+    expect(
+      billingMailStatusLine({
+        type: 'billing_payment_failed',
+        key: 'stripe:evt_2',
+        firstAt: '2026-10-09T10:00:00Z',
+        recipients: 2,
+        sending: 0,
+        delivered: 0,
+        failed: 1,
+        bounced: 0,
+        unknown: 1,
+      })
+    ).toBe('2 recipients · 1 failed · 1 unknown');
   });
 });
 
@@ -146,7 +164,7 @@ describe('toPlatformBillingMails', () => {
     });
     expect(tl.subscription).toMatchObject({ status: 'trialing', trialEndsAt: '2026-10-15T10:00:00Z', paused: false });
     expect(tl.mails).toEqual([
-      { type: 'billing_trial_day7', key: 'billing_trial_day7', firstAt: '2026-10-08T10:00:00Z', recipients: 1, sending: 0, delivered: 1, failed: 0, bounced: 0 },
+      { type: 'billing_trial_day7', key: 'billing_trial_day7', firstAt: '2026-10-08T10:00:00Z', recipients: 1, sending: 0, delivered: 1, failed: 0, bounced: 0, unknown: 0 },
     ]);
   });
 

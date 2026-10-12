@@ -154,6 +154,18 @@ export const FLOWS = {
       'supabase/migrations/20261015130000_mail_delivery_status.sql',
     ],
   },
+  'guest-info': {
+    title: 'Guest info + live calendar link (z8uq9m4a5n) — Info for guests on the event → "Good to know" in the mail → /s/[token]/google follows a later location edit → status page + .ics → no extra mail',
+    paths: [
+      'src/features/events/',
+      'src/features/mail/',
+      'src/features/po/queries.ts',
+      'src/app/s/',
+      'src/components/po/guest-status.tsx',
+      'src/components/po/screens/events/edit.tsx',
+      'supabase/migrations/20261015160000_event_guest_info.sql',
+    ],
+  },
   'event-contact': {
     title: 'Gastcommunicatie F (6c) — event contact email: required, never pre-filled, domain-checked → guest mail reply-to + footer use the event address',
     paths: [
@@ -315,9 +327,12 @@ export const FLOWS = {
     ],
   },
   'billing-mails': {
-    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause',
+    title: 'Billing-mails B1 — job run → Mailpit, Platform → Companies billing-mail timeline + pause, Billing ?venue= deep link',
     paths: [
       'supabase/migrations/20261013170000_billing_mail_types.sql',
+      'supabase/migrations/20261015135000_billing_mail_unknown_outcome.sql',
+      'src/components/po/screens/settings/billing',
+      'src/components/po/routes.ts',
       'src/features/billing/mail-',
       'src/features/mail/',
       'src/app/api/webhooks/billing-mails/',

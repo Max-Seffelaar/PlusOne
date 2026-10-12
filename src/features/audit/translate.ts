@@ -223,7 +223,34 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
         if (after.allow_uncheck === false) return { text: `turned off check-out for ${ev}`, entity: ev };
         return { text: `set check-out to follow the venue default for ${ev}`, entity: ev };
       }
+      // Public event location (z8uq9m444c; audited since z8uq9m49k2). The diff
+      // holds only the changed columns, so an address-only edit names only the
+      // new address.
+      if (after && ('location_name' in after || 'location_address' in after)) {
+        const loc = [str(after.location_name), str(after.location_address)].filter(Boolean).join(', ');
+        return loc
+          ? { text: `set the location of ${ev} to ${loc}`, entity: ev }
+          : { text: `cleared the location of ${ev}`, entity: ev };
+      }
       return { text: 'updated the event', entity: ev };
+    }
+
+    case 'company_locations': {
+      // Saved locations in Company settings (z8uq9m444c; audited since z8uq9m49k2).
+      // An update diff holds only the changed columns, so the name may be absent:
+      // then the location's current name, which audit_feed resolves.
+      const name = str(after?.name) ?? str(before?.name) ?? str(row.location_name);
+      const the = name ? `the location ${name}` : 'a saved location';
+      const entity = name ?? 'a saved location';
+      if (action === 'create') return { text: `added ${the}`, entity };
+      if (action === 'delete') return { text: `removed ${the}`, entity };
+      if (after && 'archived_at' in after) {
+        return { text: str(after.archived_at) ? `archived ${the}` : `restored ${the}`, entity };
+      }
+      if (after && 'name' in after && str(before?.name) && name) {
+        return { text: `renamed the location ${str(before?.name)} to ${name}`, entity };
+      }
+      return { text: `updated ${the}`, entity };
     }
 
     case 'venues': {

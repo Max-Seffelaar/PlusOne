@@ -76,6 +76,7 @@ export function buildTestMail(type: TestMailType, to: string, appUrl: string, ma
         location: 'Demo Hall, Herengracht 1, 1015 BA Amsterdam',
         updatedAt: null,
         houseRules: 'Bring a valid ID. Doors close at 01:00.',
+        description: 'Park at P2, the entrance is on the side street.\nDress code: all black.',
       },
       companyName: COMPANY,
       contactEmail: 'support@plus-one.io',
@@ -140,6 +141,8 @@ export function buildTestMail(type: TestMailType, to: string, appUrl: string, ma
       firstName: 'Max',
       companyName: COMPANY,
       trialEndsAt: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+      // Made-up company: the button is the plain Billing URL, no ?venue=.
+      venueId: null,
     },
     base,
   );
