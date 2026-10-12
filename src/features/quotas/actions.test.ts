@@ -9,6 +9,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { decideQuotaRequest } from './actions';
 import { createClient } from '@/lib/supabase/server';
 import { t } from '@/lib/i18n';
+import { INSUFFICIENT_PRIVILEGE_MESSAGE } from '@/lib/db-errors';
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
@@ -115,5 +116,16 @@ describe('decideQuotaRequest — only granted columns reach quota_requests', () 
 
     expect(res).toMatchObject({ ok: false, code: 'P0002' });
     expect(res).not.toMatchObject({ message: 'Verzoek niet gevonden.' });
+  });
+
+  it('an approve refused because the requester left the company (42501) shows the generic no-rights copy', async () => {
+    const { rpc } = mockSupabase();
+    rpc.mockResolvedValueOnce({
+      error: { code: '42501', message: 'Deze aanvrager hoort niet meer bij deze company.' },
+    } as never);
+
+    const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'approved' });
+
+    expect(res).toEqual({ ok: false, code: '42501', message: INSUFFICIENT_PRIVILEGE_MESSAGE });
   });
 });
