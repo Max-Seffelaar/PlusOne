@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Analytics PH (PostHog), PR 1 foundation (onboarding programme task 10, golf F)
+
+Onboarding programme October 2026, last task of golf F (§2, after task 9 and Max's go), shipped **without a key** (decision Max 2026-10-12: build everything first; go + key later). ClickUp: no own task yet (86ey3x371 is the plan, complete); the orchestrator fills the id in. Branch `claude/posthog-foundation`. High-risk (new column grant on `user_profiles`, consent, middleware matcher, service worker, `next.config.js` rewrites + `skipTrailingSlashRedirect`) → fresh-session `/code-review` + `/security-review` before merge.
+
+- **Migration `20261018120000_analytics_opt_out`:** `user_profiles.analytics_opt_out_at timestamptz` (null = tracked). `grant update (analytics_opt_out_at)` to authenticated; row scope from the existing `user_profiles_update_self`. No column SELECT (colleagues never learn who opted out; `grant_matrix` 4c unchanged), no INSERT. `my_profile()` dropped + recreated with one trailing column (same body/shape/grants) so the owner still reads it after the #460 column-SELECT narrowing. pgTAP `analytics_opt_out.test.sql` (38): every seed role sets and clears its own row, never a colleague's (platform admin included), direct SELECT refused, anon refused.
+- **Adapter `src/features/analytics/`:** typed catalog (`events.ts`, full taxonomy v1 + PII lint), category consent manager (`plusone.consent.v1`, versioned, corrupt-tolerant, subscribable for later pixels), the `analytics` singleton (idle → starting → on/off; memory queue before the gate decides; no key = no-op from the first call), `posthog-client.ts` as the only (dynamic) importer of posthog-js (confinement test), all automatic capture/replay/flags/external scripts off, URL properties stripped of query + hash.
+- **Surfaces:** `PublicConsent` in the root layout (banner on `/`, `/login`, `/e/<slug>`, lazy chunk; anonymous analytics only on `/` and `/login`; never in the native shell or a signed-in surface). `AnalyticsGate` as a layout sibling in `/app` (DB opt-out wins; enable → identify → register → group → `app_opened`); a client-side gate on `/door/<id>` (that HTML is PII-free cached, so nothing is server-rendered into it). `screen_viewed` on the shell's URL-derived screen key, deduped. `analytics.reset()` in `signOutDevice`. Consent-screen disclosure line; Profile → Privacy → Product analytics switch (`setAnalyticsOptOutAction`).
+- **Proxy:** `/ingest` rewrites to PostHog EU, excluded from the middleware matcher (like `/monitoring`) and from the service worker. `skipTrailingSlashRedirect` turned Next's `/x/` → `/x` redirect off app-wide, which made `/login/` loop (exact-match public check); the middleware now does that 308 itself for every route it sees, so behaviour outside `/ingest` is unchanged (unit-tested).
+- **Opt-out read is separate from `getMyProfile()`** on purpose: Vercel deploys before the prod push, and a missing column inside the shared profile read would have failed the consent gate for everyone. The separate read fails closed (= not tracked) and does not even run without a key.
+- **Verified locally:** flow `analytics-consent` green on all four variants (zero `/ingest` requests without a key); with a throwaway key on a second dev server: identify carries only the UUID + roles + venue, `app_opened` / `screen_viewed` carry ids only, nothing is sent after the Profile opt-out, and PostHog's device identity is cleared.
+- **Left for Max:** PostHog EU project + key, Vercel env, DPA, legal round (subprocessor C → A, cookie policy with three categories). PR 2 (instrumentation) and PR 3 (docs) follow on their own branches.
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
