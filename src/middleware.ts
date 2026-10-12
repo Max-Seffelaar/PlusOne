@@ -32,6 +32,20 @@ function redirectWithCookies(url: URL, source: NextResponse): NextResponse {
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+
+  // Trailing slash → 308 to the slash-less path, before anything else. Next does
+  // this itself by default, but next.config.js turns it off app-wide
+  // (`skipTrailingSlashRedirect`, required by the PostHog `/ingest` proxy). Without
+  // this line `/login/` misses the exact-match public check and redirects to
+  // `/login/?next=…` forever. `/ingest` is excluded from the matcher, so it keeps
+  // its slash; every route this middleware sees behaves exactly as before.
+  // Built from `request.url`, not a nextUrl clone (that re-adds the slash).
+  if (pathname.length > 1 && pathname.endsWith('/')) {
+    const target = new URL(request.url);
+    target.pathname = pathname.replace(/\/+$/, '') || '/';
+    return NextResponse.redirect(target, 308);
+  }
+
   const publicRoute = isPublic(pathname);
 
   // MFA is fully OPTIONAL since T1 PR (c) (decision #20 refinement, 2026-07-02):
@@ -109,12 +123,18 @@ export const config = {
   // only requester left would be a stale SW re-importing it, and that request
   // is meant to fail.
   //
+  // `ingest(?:/|$)` is the PostHog reverse proxy (next.config.js rewrites,
+  // docs/posthog-implementation-plan.md §6): same reason and same anchor as
+  // `monitoring` — the auth gate would 307 every anonymous landing-page event
+  // to /login, and it needs no session. The rewrite only forwards to PostHog
+  // EU ingestion; no app route lives under /ingest.
+  //
   // `.well-known/` MUST stay excluded (Fase 17 S4): Apple's and Google's
   // verifiers fetch the app-link association files with no session and treat a
   // redirect as "no association" — a 307 to /login would silently disable
   // universal links / App Links. Matcher-level for the same reason as
   // `monitoring`: no session refresh for a crawler request.
   matcher: [
-    '/((?!_next/static|\\.well-known/|_next/image|monitoring(?:/|$)|favicon.ico|manifest.json|sw.js|service-worker.js|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
+    '/((?!_next/static|\\.well-known/|_next/image|monitoring(?:/|$)|ingest(?:/|$)|favicon.ico|manifest.json|sw.js|service-worker.js|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
   ],
 };

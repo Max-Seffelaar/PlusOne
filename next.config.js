@@ -97,6 +97,24 @@ const nextConfig = {
       dynamic: 300,
     },
   },
+  // PostHog reverse proxy (docs/posthog-implementation-plan.md §6): the browser
+  // only ever talks to this origin (`api_host: '/ingest'`), so the production
+  // CSP needs no PostHog host and adblockers don't drop product analytics.
+  // Static first — order matters. The middleware matcher excludes `/ingest`
+  // (no auth gate, no session refresh) and the service worker never caches it.
+  // posthog-js is configured to load no external scripts, so the static rule
+  // is a safety net, not a path in use. Nothing reaches these rewrites without
+  // NEXT_PUBLIC_POSTHOG_KEY: no key, no posthog-js, no request.
+  rewrites: async () => [
+    { source: '/ingest/static/:path*', destination: 'https://eu-assets.i.posthog.com/static/:path*' },
+    { source: '/ingest/:path*', destination: 'https://eu.i.posthog.com/:path*' },
+  ],
+  // Required by the proxy: posthog-js posts to trailing-slash paths
+  // (`/ingest/e/`), which Next would otherwise 308 to the slash-less path — and
+  // a redirected POST loses its body. Global by nature: a trailing-slash URL
+  // elsewhere is no longer redirected to its slash-less twin, it is served (or
+  // 404s) as is. Smoke-tested on /, /login/, /app/, /door/ (PR body).
+  skipTrailingSlashRedirect: true,
   // The desktop "(app)" dashboard shell was retired — there is one responsive
   // surface now (po `/app`). Its old routes fold into /app. /eventday followed
   // in the T9 fold: the Event-dag cockpit is now the desktop Deur tab inside /app.

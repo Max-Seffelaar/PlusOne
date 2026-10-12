@@ -298,3 +298,45 @@ describe('middleware — a shared guest list never rides along in next=', () => 
     expect(new URL(res.headers.get('location')!).searchParams.get('next')).toBe('/app/contacts?text=a%20b');
   });
 });
+
+// next.config.js sets `skipTrailingSlashRedirect` for the PostHog `/ingest`
+// proxy, which turns Next's own `/x/` → `/x` redirect off app-wide. The
+// middleware restores it for every route it sees (it never sees /ingest).
+describe('middleware — trailing slash (PostHog proxy, skipTrailingSlashRedirect)', () => {
+  beforeEach(() => updateSessionMock.mockReset());
+
+  it.each([
+    ['/login/', '/login', ''],
+    ['/app/profile/', '/app/profile', ''],
+    ['/e/club-vesper/', '/e/club-vesper', ''],
+    ['/u/token/?one-click=1', '/u/token', '?one-click=1'],
+    ['/api/health//', '/api/health', ''],
+  ])('%s → 308 %s%s, before any session work', async (input, path, search) => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    const res = await middleware(new NextRequest(`http://localhost:3000${input}`));
+    expect(res.status).toBe(308);
+    const location = new URL(res.headers.get('location')!);
+    expect(location.pathname).toBe(path);
+    expect(location.search).toBe(search);
+    expect(updateSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves / alone', async () => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    const res = await middleware(new NextRequest('http://localhost:3000/'));
+    expect(res.status).not.toBe(308);
+  });
+
+  it('the matcher keeps /ingest (and its trailing slash) away from the middleware', async () => {
+    const { config } = await loadMiddleware();
+    const re = new RegExp(`^${config.matcher[0]}$`);
+    expect(re.test('/ingest/e/')).toBe(false);
+    expect(re.test('/ingest')).toBe(false);
+    expect(re.test('/ingest/static/array.js')).toBe(false);
+    // the anchor: a future /ingest-something route is still auth-gated
+    expect(re.test('/ingest-report')).toBe(true);
+    expect(re.test('/login/')).toBe(true);
+  });
+});

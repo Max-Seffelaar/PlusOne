@@ -504,6 +504,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return; // never cache writes / auth POSTs
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // Supabase & co → network only
+  if (url.pathname.startsWith('/ingest')) return; // PostHog proxy → network only, never cached
 
   // App-shell navigations: network-first, fall back to cache (offline boot).
   if (request.mode === 'navigate') {
