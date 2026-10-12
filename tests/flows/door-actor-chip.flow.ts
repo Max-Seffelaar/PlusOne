@@ -15,6 +15,28 @@ import { acceptConsent, adminClient } from '../e2e/helpers/supabase-admin';
 
 const VENUE = 'aa000000-0000-7000-8000-000000000001'; // Club Vesper
 
+/** Events this flow provisioned. They start in the past and run for hours, so
+ *  until afterAll ends them they are the venue's "next upcoming" event — and a
+ *  later flow in the same job that defaults to that event (share.flow Q3) would
+ *  land on this one and its lone custom tier instead of the seed event. */
+const provisioned: string[] = [];
+
+test.afterAll(async () => {
+  if (provisioned.length === 0) return;
+  // Soft cleanup (rule #3: nothing is deleted): move the window into the past
+  // so the event drops out of every "upcoming" list.
+  const now = Date.now();
+  const { error } = await adminClient()
+    .from('events')
+    .update({
+      starts_at: new Date(now - 3 * 3600_000).toISOString(),
+      ends_at: new Date(now - 60_000).toISOString(),
+      status: 'closed',
+    })
+    .in('id', provisioned);
+  if (error) throw new Error(`door-actor-chip flow cleanup: ${error.message}`);
+});
+
 async function provision(variant: string): Promise<{ eventId: string; name: string }> {
   const a = adminClient();
   const tag = `${variant.split('-')[0]}${Date.now().toString(36).slice(-4)}`;
@@ -33,6 +55,7 @@ async function provision(variant: string): Promise<{ eventId: string; name: stri
     .select('id')
     .single();
   if (evErr || !ev) throw new Error(`flow setup: event (${evErr?.message})`);
+  provisioned.push(ev.id);
   const { data: tier, error: tErr } = await a
     .from('guest_tiers')
     .insert({ event_id: ev.id, name: 'VIP + fles op tafel extra lang', color: '#D4AF7A' })
