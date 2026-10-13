@@ -31,7 +31,7 @@ import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll } from '../../kit';
+import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll, ToggleRow } from '../../kit';
 import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
@@ -64,6 +64,9 @@ interface QuickAddForm {
   contactPhoneErr: string | null;
   /** The user tapped "Not the same" on the offered contact match (K2). */
   contactLinkOff: boolean;
+  /** Send the typed guest with the quota request (z8uq9m2xyp): on approval
+   *  they go on the list on this user's name. On by default. */
+  reqWithGuest: boolean;
 }
 
 const FORM_RESET: QuickAddForm = {
@@ -74,6 +77,7 @@ const FORM_RESET: QuickAddForm = {
   contactCountry: 'NL',
   contactPhoneErr: null,
   contactLinkOff: false,
+  reqWithGuest: true,
 };
 
 function PreviewChip({ icon, dot, label }: { icon?: Parameters<typeof Icon>[0]['name']; dot?: string; label: string }): JSX.Element {
@@ -133,11 +137,12 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const committingRef = useRef(false);
 
   // Destructure for ergonomic use in the render body below.
-  const { choice, reqOpen, contactEmail, contactPhone, contactCountry, contactPhoneErr, contactLinkOff } = form;
+  const { choice, reqOpen, contactEmail, contactPhone, contactCountry, contactPhoneErr, contactLinkOff, reqWithGuest } = form;
 
   // Per-field setters that keep the rest of the form intact.
   const setChoice = (v: AmbiguityChoice | null) => setForm((f) => ({ ...f, choice: v }));
   const setReqOpen = (v: boolean) => setForm((f) => ({ ...f, reqOpen: v }));
+  const setReqWithGuest = (v: boolean) => setForm((f) => ({ ...f, reqWithGuest: v }));
   const setContactEmail = (v: string) => setForm((f) => ({ ...f, contactEmail: v }));
   const setContactPhone = (v: string | undefined) => setForm((f) => ({ ...f, contactPhone: v }));
   const setContactCountry = (v: CountryCode) => setForm((f) => ({ ...f, contactCountry: v }));
@@ -182,6 +187,12 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   // via canManage (they add up to their quota — quota still gates the insert below).
   const canAdd = canManageGuests(roles) || canManage;
   const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
+  // The guest as typed ("Lisa de Vries +1"), named in the quota request (z8uq9m2xyp).
+  const reqGuestLabel = effPlus > 0 ? `${effName} +${effPlus}` : effName;
+  const reqGuest =
+    reqWithGuest && effName && effTierId
+      ? { name: effName, plusOnes: effPlus, tierId: effTierId, phone: parsed?.phone ?? contactPhone ?? null }
+      : undefined;
   const needsAsk = !!isAmbiguous && !choice;
   // Bare name on a multi-tier event: don't silently assign the default — ask which tier.
   const needsTierPick = parsed?.status === 'ok' && parsed.matchedVia === 'default' && tiers.length > 1 && !choice && !clientDupe;
@@ -564,7 +575,11 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               reqExtra.isSuccess ? (
                 <div className="mt-[10px] flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                   <Icon name="check" size={16} stroke="#B5A6FF" />
-                  <span className="flex-1">{t.guests.add.requestSent}</span>
+                  <span className="flex-1" data-testid="quota-request-sent">
+                    {reqExtra.variables?.guest
+                      ? fmt(t.guests.add.requestSentWithGuest, { guest: reqGuestLabel })
+                      : t.guests.add.requestSent}
+                  </span>
                 </div>
               ) : reqOpen ? (
                 <div className="mt-[10px] flex flex-col gap-[10px] rounded-[16px] border border-line bg-elev p-[14px]">
@@ -580,6 +595,14 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                     placeholder={t.guests.add.requestMotivPlaceholder}
                     className="w-full resize-none rounded-[12px] border border-line bg-bg px-[13px] py-[11px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
                   />
+                  <div className="rounded-[12px] border border-line bg-bg px-[13px]" data-testid="quota-request-with-guest">
+                    <ToggleRow
+                      title={fmt(t.guests.add.requestWithGuest, { guest: reqGuestLabel })}
+                      on={reqWithGuest}
+                      set={setReqWithGuest}
+                      last
+                    />
+                  </div>
                   {reqExtra.isError && (
                     <p className="text-[12.5px] text-acc" role="alert">
                       {reqExtra.error?.message ?? t.guests.add.requestSendFailed}
@@ -596,6 +619,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                           eventId: evId,
                           requestedExtra: reqShortfall,
                           motivation: reqMotiv.trim(),
+                          guest: reqGuest,
                         })
                       }
                     >

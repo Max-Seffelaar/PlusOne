@@ -122,6 +122,20 @@ export const FLOWS = {
       'src/components/po/screens/events/guest-mail.tsx',
     ],
   },
+  'quota-request-guest': {
+    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ approves → guest on the list → Home Updates card (Got it / Add guests / decline reason)',
+    paths: [
+      'src/features/quotas/',
+      'src/features/po/queries.ts',
+      'src/features/po/adapters.ts',
+      'src/features/po/hooks.ts',
+      'src/features/po/mutations.ts',
+      'src/components/po/screens/home',
+      'src/components/po/screens/guests/quick-add.tsx',
+      'src/components/po/screens/approvals',
+      'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
+    ],
+  },
   'team-mail': {
     title: 'Gastcommunicatie F (6b) — Profile → Notifications (per role, saves) → quota request + decision mails → /n unsubscribe',
     paths: [

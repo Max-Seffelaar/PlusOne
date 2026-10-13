@@ -42,6 +42,11 @@ export const poKeys = {
   // matches the venue key regardless of which event a decided request belonged to.
   requests: (venueId: string) => [...poKeys.all, 'requests', venueId] as const,
   quotaRequests: (venueId: string) => [...poKeys.all, 'quota-requests', venueId] as const,
+  /** Home Updates card (z8uq9m2xyp): the user's own decided, unseen quota
+   *  requests. Under the 'quota-requests' prefix, so every quota-request
+   *  mutation (file / decide / seen) invalidates it too. */
+  myQuotaUpdates: (venueId: string, userId: string) =>
+    [...poKeys.all, 'quota-requests', 'mine', venueId, userId] as const,
   // Address book (S3) — contacts scope to a venue; the optional search term keys
   // distinct cached lists, so invalidating the ['po','contacts',venueId] prefix
   // refreshes every variant after a star/import/add write.

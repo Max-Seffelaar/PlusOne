@@ -153,4 +153,15 @@ export const home = {
   // toasts
   toastListOpen: '{name} · list open',
   toastListLocked: '{name} · list locked',
+  // ── Updates card (z8uq9m2xyp): a decision on the user's own quota request ──
+  updatesTitle: 'Updates',
+  updateRaised: 'Your quota for {event} went up by +{n}',
+  updateRaisedGuest: '{guest} is on the list for {event}',
+  updateRaisedGuestSub: 'Your quota went up by +{n}.',
+  updateDeclined: 'Your request for {event} was declined',
+  updateDeclinedReason: 'Reason: {reason}',
+  updateGotIt: 'Got it',
+  updateAddGuests: 'Add guests',
+  updateViewList: 'View list',
+  updateFailed: "Couldn't update this. Try again.",
 } as const;

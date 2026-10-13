@@ -27,8 +27,8 @@ import type {
   ApproveGuestRequestInput,
   DecideGuestRequestInput,
 } from '@/features/requests/schemas';
-import { decideQuotaRequest, requestExtraSlots } from '@/features/quotas/actions';
-import type { DecideQuotaRequestInput, QuotaRequestInput } from '@/features/quotas/schemas';
+import { decideQuotaRequest, markQuotaRequestSeen, requestExtraSlots } from '@/features/quotas/actions';
+import type { DecideQuotaRequestInput, MarkQuotaRequestSeenInput, QuotaRequestInput } from '@/features/quotas/schemas';
 import {
   importContacts,
   addContactToEvent,
@@ -830,11 +830,31 @@ export function usePoDecideRequest() {
 export function usePoDecideQuota() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: DecideQuotaRequestInput & { eventId?: string }) =>
+    mutationFn: async (input: DecideQuotaRequestInput & { eventId?: string; hasGuest?: boolean }) =>
       throwOnError(await decideQuotaRequest(input)),
     onSuccess: (_res, input) => {
       void qc.invalidateQueries({ queryKey: QUOTA_REQUESTS_KEY });
-      if (input.eventId) void qc.invalidateQueries({ queryKey: poKeys.quota(input.eventId) });
+      if (input.eventId) {
+        void qc.invalidateQueries({ queryKey: poKeys.quota(input.eventId) });
+        // An approval that names a guest (z8uq9m2xyp) adds them to the list.
+        if (input.decision === 'approved' && input.hasGuest) {
+          void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
+          void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
+          void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        }
+      }
+    },
+  });
+}
+
+/** The requester dismisses a decision on Home (z8uq9m2xyp). Invalidates the
+ *  'quota-requests' prefix, which holds the Updates card's own key. */
+export function usePoMarkQuotaSeen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: MarkQuotaRequestSeenInput) => throwOnError(await markQuotaRequestSeen(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: QUOTA_REQUESTS_KEY });
     },
   });
 }

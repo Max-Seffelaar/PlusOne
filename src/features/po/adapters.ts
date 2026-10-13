@@ -8,6 +8,7 @@ import type {
   PoContactRow,
   PoGuestRequestRow,
   PoQuotaRequestRow,
+  PoMyQuotaUpdateRow,
   RecapGuestRow,
   PoInviteRow,
   PoVenueCrewRow,
@@ -897,6 +898,15 @@ export interface PoQuotaRequest {
   extra: number;
   reason: string;
   at: string;
+  /** "Lisa de Vries +1" when the request names a guest (z8uq9m2xyp), else null. */
+  guestLabel: string | null;
+  /** The named guest's tier name; null when none or the tier is gone. */
+  guestTier: string | null;
+}
+
+/** "Lisa de Vries +1" / "Lisa de Vries" — one format for card, sheet and Home. */
+export function quotaGuestLabel(guest: { name: string; plusOnes: number }): string {
+  return guest.plusOnes > 0 ? `${guest.name} +${guest.plusOnes}` : guest.name;
 }
 
 export function toPoQuotaRequest(row: PoQuotaRequestRow, now?: Date): PoQuotaRequest {
@@ -908,6 +918,36 @@ export function toPoQuotaRequest(row: PoQuotaRequestRow, now?: Date): PoQuotaReq
     extra: row.requestedExtra,
     reason: row.motivation ?? '',
     at: relativeTime(row.created_at, now),
+    guestLabel: row.guest ? quotaGuestLabel(row.guest) : null,
+    guestTier: row.guest?.tierName ?? null,
+  };
+}
+
+/** One card on Home's Updates list (z8uq9m2xyp). */
+export interface PoQuotaUpdate {
+  id: string;
+  eventId: string;
+  eventName: string;
+  extra: number;
+  kind: 'raised' | 'fulfilled' | 'declined';
+  /** The named guest ("Lisa de Vries +1") — set on a fulfilled update. */
+  guestLabel: string | null;
+  /** Decline reason; null on an approval. */
+  reason: string | null;
+  at: string;
+}
+
+export function toPoQuotaUpdate(row: PoMyQuotaUpdateRow, now?: Date): PoQuotaUpdate {
+  const kind = row.status === 'denied' ? 'declined' : row.guestId ? 'fulfilled' : 'raised';
+  return {
+    id: row.id,
+    eventId: row.eventId,
+    eventName: row.eventName,
+    extra: row.requestedExtra,
+    kind,
+    guestLabel: kind === 'fulfilled' && row.guest ? quotaGuestLabel(row.guest) : null,
+    reason: kind === 'declined' ? row.decisionReason?.trim() || null : null,
+    at: relativeTime(row.decidedAt, now),
   };
 }
 
