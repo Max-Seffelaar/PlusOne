@@ -148,16 +148,24 @@ import { getDeviceId, getDoorClient } from '@/features/door/offline/device';
 import { classifyError } from '@/features/door/outbox/replay';
 import { v7 as uuidv7 } from 'uuid';
 import { amsterdamHM, flipGuestStatus } from './eventday/cockpit';
+import { FieldActionError } from '@/lib/field-error';
 
 interface ActionLike {
   ok: boolean;
   message?: string;
+  /** The form field a MutationError is about (z8uq9m5eb7). */
+  field?: string;
 }
 
-/** Surface a server action's MutationError as a thrown error for React Query. */
+/** Surface a server action's MutationError as a thrown error for React Query;
+ *  a FieldActionError keeps the field it named, for the form to point at. */
 function throwOnError<T extends ActionLike>(res: T): T {
-  if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+  if (!res.ok) throw actionError(res);
   return res;
+}
+
+function actionError(res: ActionLike): FieldActionError {
+  return new FieldActionError(res.message ?? 'Er ging iets mis.', res.field);
 }
 
 /**
@@ -999,7 +1007,7 @@ export function usePoCreateEvent() {
   return useMutation({
     mutationFn: async (input: CreateEventInput): Promise<string> => {
       const res = await createEvent(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return res.eventId;
     },
     onSuccess: () => {
@@ -1124,7 +1132,7 @@ export function usePoCreateTemplate() {
   return useMutation({
     mutationFn: async (input: CreateTemplateInput): Promise<string> => {
       const res = await createTemplate(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return res.templateId;
     },
     onSuccess: () => {
@@ -1196,7 +1204,7 @@ export function usePoCreateEventFromTemplate() {
     // stick (6c); the form retries it and says so if that fails too.
     mutationFn: async (input: CreateEventFromTemplateInput): Promise<{ eventId: string; contactSaved: boolean }> => {
       const res = await createEventFromTemplate(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return { eventId: res.eventId, contactSaved: res.contactSaved !== false };
     },
     onSuccess: () => {

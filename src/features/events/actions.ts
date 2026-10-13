@@ -7,7 +7,7 @@ import { getAuthContext, getMyProfile } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
-import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
+import { mapMutationError, unauthorized, invalidInput, invalidIssues, notFound, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { queueEventMail } from '@/features/mail/guest-queue';
 import { buildEventSlug } from './slug';
@@ -82,7 +82,7 @@ export type CreateEventResult = { ok: true; eventId: string; contactSaved?: bool
 /** The organiser's contact address must sit on a domain that takes mail (6c; DNS, fail-open). */
 async function contactDomainRefused(contactEmail: string): Promise<MutationError | null> {
   return (await checkMailDomain(contactEmail)) === 'no_mail_domain'
-    ? invalidInput(t.events.contactEmail.noDomain)
+    ? invalidInput(t.events.contactEmail.noDomain, 'contactEmail')
     : null;
 }
 type UserClient = Awaited<ReturnType<typeof createClient>>;
@@ -108,7 +108,7 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 /** Create an event (admin only — RLS events_insert_admin). Slug auto-generated. */
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules, guestInfo, contactEmail } =
     parsed.data;
 
@@ -171,7 +171,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
  */
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules, guestInfo, contactEmail } =
     parsed.data;
 
@@ -192,7 +192,7 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     .eq('id', eventId)
     .maybeSingle();
   if (current) {
-    if (contactEmail === undefined && !current.contact_email) return invalidInput(t.events.contactEmail.required);
+    if (contactEmail === undefined && !current.contact_email) return invalidInput(t.events.contactEmail.required, 'contactEmail');
     if (contactEmail !== undefined && contactEmail !== current.contact_email && (await canEditEvent(supabase, eventId, current.venue_id))) {
       const refused = await contactDomainRefused(contactEmail);
       if (refused) return refused;
@@ -920,7 +920,7 @@ type TemplateTierInsert = Database['public']['Tables']['event_template_tiers']['
 /** Create a template (admin or venue-organizer — RLS event_templates_insert). */
 export async function createTemplate(input: CreateTemplateInput): Promise<CreateTemplateResult> {
   const parsed = createTemplateSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { venueId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress } = parsed.data;
 
   const supabase = await createClient();
@@ -953,7 +953,7 @@ export async function createTemplate(input: CreateTemplateInput): Promise<Create
 /** Edit a template (partial; admin or venue-organizer — RLS). */
 export async function updateTemplate(input: UpdateTemplateInput): Promise<ActionResult> {
   const parsed = updateTemplateSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { templateId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress } = parsed.data;
 
   const supabase = await createClient();
@@ -1083,7 +1083,7 @@ export async function createEventFromTemplate(
   input: CreateEventFromTemplateInput,
 ): Promise<CreateEventResult> {
   const parsed = createEventFromTemplateSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { templateId, name, startsAt, endsAt, contactEmail } = parsed.data;
 
   const supabase = await createClient();
