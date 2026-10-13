@@ -5,7 +5,7 @@ import { auditPersonIds, describeAuditEntry, type AuditLine } from '@/features/a
 import { ActorLabels, actorRef, fetchActorLabelsSafe } from '@/features/audit/actor-labels';
 import type { ActorKind } from '@/lib/po/actor-kind';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
-import { fetchAllRanged } from '@/lib/supabase/paging';
+import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 import { eventPhase } from '@/features/po/event-phase';
 import { formatCompanyAddress } from '@/features/po/adapters';
 import { requestedHeadsOf } from '@/features/po/funnel';
