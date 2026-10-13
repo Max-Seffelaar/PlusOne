@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
+
+Golf F, task 8. Branch `claude/z8uq9m2xyp-quota-flow`, migration
+`20261016180000_quota_request_guest_payload` (slot moved twice by the
+orchestrator: …120000 → #459, …160000/…170000 → #479/#480). Spec #66 (#65 is
+claimed by the open PostHog branches), #5 amended.
+
+- **DB:** `quota_requests.guest_payload` (shape CHECK + tier-of-this-event insert
+  guard, no UPDATE grant), `guest_id` (fulfilled = `approved` + `guest_id`; no new
+  enum value, expand-only), `seen_at` (column grant + policy
+  `quota_requests_seen_own`; a guard trigger keeps that permissive policy from
+  changing a decision). A decline needs a visible reason on every path (AFTER
+  UPDATE guard, 23514). `approve_quota_request` = the #469 body + one guest
+  insert on the requester's name through the ordinary triggers (45001/45002/
+  45005), list lock for the requester (45007), tier gone (45008); any failure
+  rolls back the override too. Payload retention: nightly
+  `run_quota_request_payload_retention` (pg_cron 03:40) + a trigger that takes the
+  payload along when the created guest is anonymized; audit diffs scrubbed.
+- **App:** Add guest's "Request more slots" panel sends the typed guest
+  (toggle, on by default); the Requests → Quota card shows "For: {guest} · {tier}";
+  Home gets `QuotaUpdatesCard` (`home-updates.tsx`; one line in `home.tsx`);
+  approve errors map to "nothing changed" copy.
+- **Tests:** pgTAP `quota_requests_guest_payload.test.sql` (77: payload, approve,
+  rollbacks, lock, decline reason, seen_at, role matrix, retention); fixtures in
+  `push_outbox`/`team_mail` now decline with a reason, `quota_requests_column_grant`
+  A2 lists `seen_at`. Vitest: schemas, actions, adapters. Flow
+  `quota-request-guest` (14 checks); `team-mail` flow switches the new guest
+  toggle off and declines its leftovers with a reason.
+- **Gotchas:** `decision_reason` is now mandatory on a quota decline in the DB, so
+  any script or fixture that declines without one fails with 23514. The Updates
+  card reads its own small query, so it adds nothing to Home's board queries
+  (PR #490 also changes `home.tsx`).
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
