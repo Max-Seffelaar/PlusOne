@@ -133,7 +133,7 @@ export const FLOWS = {
     ],
   },
   'quota-request-guest': {
-    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ approves → guest on the list → Home Updates card (Got it / Add guests / decline reason)',
+    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ adjusts (tier, +N, trim) and approves → guest on the list → Home Updates card (approved with changes / Got it / Add guests / decline reason)',
     paths: [
       'src/features/quotas/',
       'src/features/po/queries.ts',
@@ -144,6 +144,8 @@ export const FLOWS = {
       'src/components/po/screens/guests/quick-add.tsx',
       'src/components/po/screens/approvals',
       'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
+      'supabase/migrations/20261018120000_quota_request_adjust.sql',
+      'src/components/po/kit.tsx',
     ],
   },
   'team-mail': {

@@ -8,6 +8,38 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Quota approval: adjust the guest before approving (z8uq9m5kux)
+
+Follow-up to Max's test of the golf-F train (#502). Branch
+`claude/z8uq9m5kux-quota-adjust`, migration `20261018120000_quota_request_adjust`.
+Spec #67 (refines #66 and #5).
+
+- **DB:** `approve_quota_request(p_request_id, p_extra, p_tier_id, p_plus_ones)`:
+  the three new arguments default to "as asked" and only go down (extra
+  1..requested, plus-ones 0..asked); the tier must be on the request's own event.
+  Checked after the admin check (22023 + hint). The 1-argument function is dropped
+  and recreated with defaults (precedent 20261017120300): one function, so no
+  PGRST203, and the deployed app's `{p_request_id}` call is unchanged. New
+  `approved_extra` / `approved_tier_id` / `approved_plus_ones` record the grant
+  (no client grant, the INSERT guard refuses them, CHECKs: approved rows only,
+  extra ≤ requested, tier and +N together). `team_mails_claim` re-created with one
+  line changed: the decision mail reports `coalesce(approved_extra,
+  requested_extra)`.
+- **App:** `decideQuotaRequest` takes an optional `adjust` and sends only the
+  arguments that changed (a plain approval is still the 1-argument call). The
+  quota card's Approve opens the Requests E approve sheet (`AssignSheet`, now a
+  frame with a landing and a quota body); kit: `CountStepper` gains `min`,
+  `DecisionSummary` is shared by both bodies. Home: the granted numbers, plus
+  "Approved with changes: …". Audit feed: "approved N more spots for X".
+- **Tests:** pgTAP `quota_request_adjust.test.sql` (55); the old `(uuid)`
+  signature pins in `quota_requests_column_grant` / `quota_requests_guest_payload`
+  moved to the new signature; `push_outbox` D's status bounce clears
+  `approved_extra` (new CHECK). Vitest: action, adapters, audit. Flow
+  `quota-request-guest` extended (checks 5, 7, 8 changed; 15–18 new).
+- **Deploy order:** the app sends extra arguments only when something was
+  adjusted, so a plain approval works on either schema. An adjusted approval
+  needs the migration, so push the schema before anyone uses the sheet.
+
 ## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
 
 Golf F, task 8. Branch `claude/z8uq9m2xyp-quota-flow`, migration

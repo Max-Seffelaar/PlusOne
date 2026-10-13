@@ -2,12 +2,16 @@ import { test, expect, expectNoHorizontalOverflow } from './harness';
 import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
 
 /**
- * Flow: Quota-aanvraag Q (z8uq9m2xyp), in all four variants.
+ * Flow: Quota-aanvraag Q (z8uq9m2xyp) + adjust before approving (z8uq9m5kux),
+ * in all four variants.
  *
  *   staff@ → Add guest over quota → "Request more slots" with the typed guest
  *   on (the default) → admin@ → Requests → Quota: the card says who the slots
- *   are for → Approve → the guest is on the list on staff@'s name → staff@ →
- *   Home: the Updates card (fulfilled, raised, declined with its reason) →
+ *   are for → Approve opens the approve sheet → one plus-one less, VIP instead
+ *   of Regular → the guest is on the list on staff@'s name, as adjusted; the
+ *   quota-only request is trimmed 2 → 1 in the same sheet → staff@ →
+ *   Home: the Updates card (fulfilled, raised, declined with its reason; the
+ *   two approvals say "Approved with changes") →
  *   "Got it" and "Add guests" each dismiss their row, and it stays gone after
  *   a reload.
  *
@@ -27,6 +31,7 @@ const VENUE = 'aa000000-0000-7000-8000-000000000001';
 const EVENT = 'ee000000-0000-7000-8000-000000000001';
 const EVENT_NAME = 'PLUSONE Launch Night';
 const REGULAR = 'dd000000-0000-7000-8000-000000000001';
+const VIP = 'dd000000-0000-7000-8000-000000000002';
 
 test.beforeAll(async () => {
   for (const email of [ADMIN, STAFF]) {
@@ -137,12 +142,38 @@ test('quota request: name the guest, approve adds them, Home tells the requester
     await expect(guestCard.getByTestId('quota-request-guest')).toHaveText(`For: ${guestLabel} · Regular`);
   });
 
+  // z8uq9m5kux: Approve opens the approve sheet, at "as asked".
   await guestCard.getByRole('button', { name: `Approve +${guestReq.requested_extra}` }).click();
+  const summary = page.getByTestId('quota-adjust-summary');
+  await expect(summary).toBeVisible();
+  await flow.shot('admin-approve-sheet-as-asked');
+  await flow.check(15, 'The approve sheet opens at "as asked": +N spots, the guest\'s +N, Regular picked', async () => {
+    await expect(summary).toHaveText(
+      `+${guestReq.requested_extra} of ${guestReq.requested_extra} spots · ${guestLabel} on Regular`,
+    );
+    await expect(page.getByTestId('quota-adjust-plus')).toContainText(String(plus));
+  });
+  await flow.check(16, 'Spots and plus-ones can only go down: both + buttons are disabled at "as asked"', async () => {
+    await expect(page.getByRole('button', { name: 'One spot more' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'One plus-one more' })).toBeDisabled();
+  });
+
+  // One plus-one less, and VIP instead of Regular.
+  const adjustedPlus = plus - 1;
+  const adjustedLabel = adjustedPlus > 0 ? `${guestName} +${adjustedPlus}` : guestName;
+  await page.getByRole('button', { name: 'One plus-one less' }).click();
+  await page.getByTestId('quota-adjust-tiers').getByRole('button').filter({ hasText: /^VIPNo max$/ }).click();
+  await expect(summary).toHaveText(
+    `+${guestReq.requested_extra} of ${guestReq.requested_extra} spots · ${adjustedLabel} on VIP`,
+  );
+  await flow.shot('admin-approve-sheet-adjusted');
+  // The card behind the sheet has the same label: click the sheet's own button.
+  await summary.locator('..').getByRole('button', { name: `Approve +${guestReq.requested_extra}`, exact: true }).click();
   await expect
     .poll(async () => (await adminClient().from('quota_requests').select('status').eq('id', guestReq.id).single()).data?.status)
     .toBe('approved');
 
-  await flow.check(5, 'Database: approved with guest_id; the guest is on the list with the right tier and +N, added by staff@', async () => {
+  await flow.check(5, 'Database: approved with guest_id; the guest is on the list on VIP with one plus-one less, added by staff@', async () => {
     const { data: req } = await adminClient().from('quota_requests').select('guest_id').eq('id', guestReq.id).single();
     const guestId = (req as { guest_id: string | null }).guest_id;
     expect(guestId).not.toBeNull();
@@ -151,7 +182,21 @@ test('quota request: name the guest, approve adds them, Home tells the requester
       .select('full_name, plus_ones, tier_id, added_by, status')
       .eq('id', guestId ?? '')
       .single();
-    expect(g).toEqual({ full_name: guestName, plus_ones: plus, tier_id: REGULAR, added_by: STAFF_ID, status: 'approved' });
+    expect(g).toEqual({ full_name: guestName, plus_ones: adjustedPlus, tier_id: VIP, added_by: STAFF_ID, status: 'approved' });
+  });
+
+  await flow.check(17, 'Database: approved_* record the adjustment; the payload keeps what was asked', async () => {
+    const { data } = await adminClient()
+      .from('quota_requests')
+      .select('approved_extra, approved_tier_id, approved_plus_ones, guest_payload')
+      .eq('id', guestReq.id)
+      .single();
+    expect(data).toMatchObject({
+      approved_extra: guestReq.requested_extra,
+      approved_tier_id: VIP,
+      approved_plus_ones: adjustedPlus,
+      guest_payload: { plus_ones: plus, tier_id: REGULAR },
+    });
   });
 
   // The quota-only request, approved in the UI too.
@@ -160,8 +205,21 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   await flow.check(6, 'A request without a guest shows no "For:" line', async () => {
     await expect(raisedCard.getByTestId('quota-request-guest')).toHaveCount(0);
   });
+  // Trim the quota-only request: 2 asked, 1 granted.
   await raisedCard.getByRole('button', { name: 'Approve +2' }).click();
+  await page.getByRole('button', { name: 'One spot less' }).click();
+  await expect(page.getByTestId('quota-adjust-summary')).toHaveText('+1 of 2 spots');
+  await page.getByTestId('quota-adjust-summary').locator('..').getByRole('button', { name: 'Approve +1', exact: true }).click();
   await expect(raisedCard).toBeHidden();
+  await flow.check(18, 'Database: the trimmed request raised the quota by 1, not 2', async () => {
+    const { data } = await adminClient()
+      .from('quota_requests')
+      .select('status, requested_extra, approved_extra')
+      .eq('user_id', STAFF_ID)
+      .eq('motivation', raisedMotivation)
+      .single();
+    expect(data).toEqual({ status: 'approved', requested_extra: 2, approved_extra: 1 });
+  });
 
   // The decline (with its reason) as a fixture: the Home card is under test here.
   const declined = await adminClient()
@@ -182,12 +240,16 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   const raisedRow = card.locator('[data-testid="quota-update"][data-kind="raised"]');
   const declinedRow = card.locator('[data-testid="quota-update"][data-kind="declined"]');
 
-  await flow.check(7, 'Home shows "{guest} is on the list for {event}" with "Your quota went up by +N."', async () => {
-    await expect(fulfilledRow).toContainText(`${guestLabel} is on the list for ${EVENT_NAME}`);
+  await flow.check(7, 'Home shows "{guest} is on the list for {event}" (the granted +N) and "Approved with changes: … on VIP."', async () => {
+    await expect(fulfilledRow).toContainText(`${adjustedLabel} is on the list for ${EVENT_NAME}`);
     await expect(fulfilledRow).toContainText(`Your quota went up by +${guestReq.requested_extra}.`);
+    await expect(fulfilledRow.getByTestId('quota-update-changes')).toHaveText(
+      `Approved with changes: +${adjustedPlus} instead of +${plus}, on VIP.`,
+    );
   });
-  await flow.check(8, 'Home shows "Your quota for {event} went up by +2" with "Add guests"', async () => {
-    await expect(raisedRow).toContainText(`Your quota for ${EVENT_NAME} went up by +2`);
+  await flow.check(8, 'Home shows "Your quota for {event} went up by +1" with "Approved with changes: +1 spot instead of +2." and "Add guests"', async () => {
+    await expect(raisedRow).toContainText(`Your quota for ${EVENT_NAME} went up by +1`);
+    await expect(raisedRow.getByTestId('quota-update-changes')).toHaveText('Approved with changes: +1 spot instead of +2.');
     await expect(raisedRow.getByRole('button', { name: 'Add guests' })).toBeVisible();
   });
   await flow.check(9, 'Home shows the decline with its reason, and no add button', async () => {
