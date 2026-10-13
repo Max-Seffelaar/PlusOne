@@ -146,7 +146,13 @@ test('team mail: preferences in Profile, quota request + decision mails, unsubsc
   const approve = page.getByRole('button', { name: `Approve +${extra}` }).first();
   await expect(approve).toBeVisible({ timeout: 20_000 });
   await flow.shot('quota-request');
+  // Approve opens the approve sheet (z8uq9m5kux); confirm it as asked.
   await approve.click();
+  await page
+    .getByTestId('quota-adjust-summary')
+    .locator('..')
+    .getByRole('button', { name: `Approve +${extra}`, exact: true })
+    .click();
   await expect
     .poll(async () => (await adminClient().from('quota_requests').select('status').eq('id', requestId).single()).data?.status)
     .toBe('approved');
