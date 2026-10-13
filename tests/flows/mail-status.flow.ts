@@ -1,5 +1,5 @@
 import pg from 'pg';
-import { test, expect, expectNoHorizontalOverflow } from './harness';
+import { test, expect, expectNoHorizontalOverflow, pickKitOption } from './harness';
 import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
 
 /**
@@ -205,7 +205,7 @@ test('mail status: guest list states, resend, bounce rule, platform mail log, te
   // Only to a platform admin (review #463): admin@ is one for this flow.
   const before = await countMails(ADMIN, /^\[Test\] /);
   const card = page.getByTestId('test-mail');
-  await card.getByLabel('Send to').selectOption({ label: `Max de Vries · ${ADMIN}` });
+  await pickKitOption(card.getByRole('combobox', { name: 'Send to' }), { label: `Max de Vries · ${ADMIN}` });
   await flow.shot('test-mail');
   await card.getByRole('button', { name: 'Send test' }).click();
   await flow.check(9, 'A test mail goes to a platform admin picked from the list: "Test mail sent."', async () => {
