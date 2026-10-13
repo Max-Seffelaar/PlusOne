@@ -37,6 +37,12 @@ export const LAST_ADMIN = 'P0LA1';
  *  this generic message, without re-typing (and risking drift from) the string. */
 export const INSUFFICIENT_PRIVILEGE_MESSAGE = "You don't have rights for this.";
 
+/** The team-invite refusal for an address with an open invite (`inviteUserAction`).
+ *  Exported so the action and EXPECTED_MESSAGES share one string: it carries a
+ *  curly apostrophe (U+2019), and a retyped straight one would silently stop
+ *  matching and turn a user-facing rule back into a Sentry issue (z8uq9m5enh). */
+export const OPEN_INVITE_EXISTS_MESSAGE = 'There’s already an open invite for this email.';
+
 /** The copy for LAST_ADMIN — the same sentence the venues actions' own early
  *  last-admin check returns, so the app check and the DB trigger read alike. */
 export const LAST_ADMIN_MESSAGE = 'This is the last admin. Make someone else an admin first.';
@@ -123,6 +129,7 @@ const EXPECTED_CODES = new Set<string>([
 const EXPECTED_MESSAGES: readonly (string | RegExp)[] = [
   INSUFFICIENT_PRIVILEGE_MESSAGE,
   LAST_ADMIN_MESSAGE,
+  OPEN_INVITE_EXISTS_MESSAGE,
   'This already exists.',
   'Check the details you entered.',
   'Your session expired. Log in again.',
