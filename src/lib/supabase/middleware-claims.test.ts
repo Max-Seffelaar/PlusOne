@@ -68,8 +68,12 @@ function cookieName(): string {
   return `sb-${new URL(projectUrl).hostname.split('.')[0]}-auth-token`;
 }
 
+// GoTrue stamps its API version; auth-js only reads `code` from versioned responses.
 const json = (status: number, body: unknown): Response =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', 'x-supabase-api-version': '2024-01-01' },
+  });
 
 beforeAll(async () => {
   signingKey = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair;
@@ -279,5 +283,25 @@ describe('resolveMiddlewareUser — forged tokens never fail open', () => {
     const res = await run(sessionCookie(await es256(claims(-60)), 3600));
     expect(res.user).toBeNull();
     expect(calls.token).toBe(0);
+  });
+});
+
+// Delta review of #483: auth-js turns ANY non-5xx JSON error into an
+// AuthApiError, including the JWKS fetch's. Those must fall back to getUser()
+// exactly like a JWKS outage — a null here would loop /app ↔ /login.
+describe('resolveMiddlewareUser — JWKS 4xx falls back to GoTrue (no loop)', () => {
+  it.each([429, 404, 400, 401, 403])('JWKS %i → getUser(), signed-in user kept', async (status) => {
+    jwksStatus = status;
+    const res = await run(sessionCookie(await es256()));
+    expect(res.user).toEqual(USER);
+    expect(calls.jwks).toBe(1);
+    expect(calls.user).toBe(1);
+  });
+
+  it('JWKS 429 AND GoTrue rejects → no user (still never fails open)', async () => {
+    jwksStatus = 429;
+    userStatus = 401;
+    const res = await run(sessionCookie(await es256()));
+    expect(res.user).toBeNull();
   });
 });

@@ -43,6 +43,18 @@ function isAsymmetricToken(accessToken: string): boolean {
   }
 }
 
+/** GoTrue error codes that mean "this access token is not valid", never "the request failed". */
+const TOKEN_VERDICT_CODES = new Set(['bad_jwt', 'user_not_found', 'user_banned', 'session_expired']);
+
+function isGoTrueTokenVerdict(error: unknown): boolean {
+  return (
+    isAuthApiError(error) &&
+    (error.status === 401 || error.status === 403) &&
+    typeof error.code === 'string' &&
+    TOKEN_VERDICT_CODES.has(error.code)
+  );
+}
+
 async function userFromGoTrue(auth: AuthClient): Promise<MiddlewareUser | null> {
   const {
     data: { user },
@@ -70,8 +82,9 @@ async function userFromGoTrue(auth: AuthClient): Promise<MiddlewareUser | null> 
  * until `exp` (its page segment serves no data).
  *
  * An unknown `kid` makes auth-js ask GoTrue itself (getUser(token)); when
- * GoTrue already answered with an API error we take that answer instead of
- * asking a second time.
+ * GoTrue answered with a token verdict (401/403 + bad_jwt, user_not_found, …)
+ * we take that answer instead of asking a second time. Any other error —
+ * including a 4xx from the JWKS endpoint — falls back to getUser().
  */
 export async function resolveMiddlewareUser(auth: AuthClient, { strict = false }: { strict?: boolean } = {}): Promise<MiddlewareUser | null> {
   if (strict) return userFromGoTrue(auth);
@@ -86,10 +99,13 @@ export async function resolveMiddlewareUser(auth: AuthClient, { strict = false }
       const email = data.claims.email;
       return { id: sub, email: typeof email === 'string' ? email : undefined };
     }
-    // GoTrue already refused this token (unknown kid → auth-js asked it): same
-    // answer a second getUser() would give. A missing session (session_not_found)
-    // is not an AuthApiError, so it still takes the getUser() path below.
-    if (isAuthApiError(error)) return null;
+    // GoTrue already refused THIS TOKEN (unknown kid → auth-js asked /user):
+    // the same answer a second getUser() would give. Only a token verdict counts
+    // — auth-js turns ANY non-5xx JSON error into an AuthApiError, including a
+    // 4xx from the JWKS fetch (429/404/…), and that must fall back to getUser()
+    // like every other JWKS failure (a null there loops /app ↔ /login). A missing
+    // session (session_not_found) is not an AuthApiError and also falls back.
+    if (isGoTrueTokenVerdict(error)) return null;
   } catch {
     // Fall through to GoTrue: never fail open, never fail closed on a JWKS outage.
   }
