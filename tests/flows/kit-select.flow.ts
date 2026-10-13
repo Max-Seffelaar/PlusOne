@@ -83,7 +83,7 @@ test('kit-select: popover on a fine pointer, bottom sheet on touch, picks and ke
   await expect(list).toBeVisible();
   await flow.shot(popover ? 'audit-popover' : 'audit-sheet');
 
-  await flow.check(3, 'Fine pointer ≥1024: a popover right under the field, no backdrop, no Cancel. Touch: a bottom sheet on the screen edge, at most 560px wide, with Cancel', async () => {
+  await flow.check(3, 'Fine pointer ≥1024: a popover right under the field, no backdrop, no Cancel. Touch: a bottom sheet on the viewport edge (over the tab bar), at most 560px wide, with Cancel', async () => {
     await expect(company).toHaveAttribute('aria-expanded', 'true');
     const p = await box(panel);
     const vp = await viewport(page);

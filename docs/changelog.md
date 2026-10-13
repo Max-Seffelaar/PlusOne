@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Kit Select: PlusOne dropdown (z8uq9m4a2w)
+
+Milestone **Now** (polish, golf F 7c). No migration.
+
+- **Why:** the kit `Select` was a native `<select>`; the OS drew the list (white on Windows, wheel on iPhone, dialog on Android). #463 only made the options readable.
+- **What:** `Select` in `src/components/po/kit.tsx` is now a select-only combobox with the same API (value, onChange, options, placeholder, ariaLabel, icon, className), so the call sites (platform mail log ×5, access log, audit, bulk paste ×2) are untouched. One panel for both densities, as in InfoTip: a popover right under the field with a fine pointer from `lg:` (36px rows), a bottom sheet everywhere else (max 560px, 44px rows, field label as title, Cancel, backdrop, safe-area padding). Selected row: `bg-acc-dim`, lavender text, check. Focus stays on the trigger (`aria-activedescendant`); ↑↓ Home End PgUp PgDn, Enter/Space, Esc/Tab, type-ahead. The Android back button closes the sheet (`useNativeBackIntercept`).
+- **Decision, touch:** a sheet, not the native picker. The native list differs per device and never shows the accent row, and the longest lists (companies on the Platform screens) scroll better as 44px rows than on a wheel.
+- **New string:** `shared.kit.selectCancel` = "Cancel".
+- **Tests:** `kit.select.test.tsx` (11: aria wiring, click/keyboard pick, no onChange on the same value, Escape does not bubble, type-ahead + cycling, outside tap / Cancel / Android back, sheet vs popover classes). Flow `kit-select` (Q1–Q12) on Platform → Audit and Mail log. `share` and `mail-status` flows pick through the new `pickKitOption` harness helper, since `selectOption` only works on a native select. `design-system.md` gets the Dropdown rule.
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
