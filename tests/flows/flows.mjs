@@ -182,6 +182,15 @@ export const FLOWS = {
       'supabase/migrations/20261013180500_event_contact_email.sql',
     ],
   },
+  'platform-reinvite': {
+    title: 'Platform invites — "Send invite" on an address with an open invite re-sends it (rate-limited inside 60 s), a double click sends once (z8uq9m5enh)',
+    paths: [
+      'src/components/po/screens/platform.tsx',
+      'src/features/platform/invite-actions.ts',
+      'src/features/auth/invite-mail.ts',
+      'src/features/po/mutations.ts',
+    ],
+  },
   'onboarding-ade-trial': {
     title: 'Onboarding A — "Free until end of ADE" platform invite → company invite mail → wizard (DPA) → trial until 27 Oct, audited on the inviter',
     paths: [
