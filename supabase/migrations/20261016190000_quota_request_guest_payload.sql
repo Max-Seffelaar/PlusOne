@@ -1,8 +1,8 @@
 -- Quota-aanvraag Q (z8uq9m2xyp): the requester hears back, can name the guest
 -- the extra slots are for, and that guest is on the list the moment the
 -- request is approved. Decisions Max 2026-10-06 (both halves now; naming the
--- guest is optional). Slot moved to 20261016180000 by the golf-F orchestrator
--- (…120000 taken by #459, …160000/…170000 by #479/#480).
+-- guest is optional). Slot 20261016190000, assigned by the golf-F orchestrator
+-- (…120000 taken by #459, …170000 by #480, …180000 by #479 template_guest_texts).
 --
 -- WHAT THIS ADDS
 --

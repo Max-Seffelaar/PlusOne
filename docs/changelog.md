@@ -11,8 +11,8 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
 
 Golf F, task 8. Branch `claude/z8uq9m2xyp-quota-flow`, migration
-`20261016180000_quota_request_guest_payload` (slot moved twice by the
-orchestrator: …120000 → #459, …160000/…170000 → #479/#480). Spec #66 (#65 is
+`20261016190000_quota_request_guest_payload` (slot moved three times by the
+orchestrator: …120000 → #459, …170000 → #480, …160000/…180000 → #479). Spec #66 (#65 is
 claimed by the open PostHog branches), #5 amended.
 
 - **DB:** `quota_requests.guest_payload` (shape CHECK + tier-of-this-event insert

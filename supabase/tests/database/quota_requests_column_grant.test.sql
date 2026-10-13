@@ -111,7 +111,7 @@ select is(
       and a.attnum > 0 and not a.attisdropped
       and has_column_privilege('authenticated', a.attrelid, a.attnum, 'UPDATE')),
   'decided_at,decided_by,decision_reason,seen_at,status',
-  'A2 authenticated may UPDATE exactly the four columns the deny path writes, plus seen_at (the requester''s "Got it", 20261016180000)');
+  'A2 authenticated may UPDATE exactly the four columns the deny path writes, plus seen_at (the requester''s "Got it", 20261016190000)');
 
 select ok(
   has_table_privilege('authenticated', 'public.quota_requests', 'SELECT')

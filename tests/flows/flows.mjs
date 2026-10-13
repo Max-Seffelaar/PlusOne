@@ -133,7 +133,7 @@ export const FLOWS = {
       'src/components/po/screens/home',
       'src/components/po/screens/guests/quick-add.tsx',
       'src/components/po/screens/approvals',
-      'supabase/migrations/20261016180000_quota_request_guest_payload.sql',
+      'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
     ],
   },
   'team-mail': {
