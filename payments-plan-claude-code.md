@@ -1536,7 +1536,7 @@ Scope (Max, D1 = A): alle zeven passes; zwaartepunt Charge-sheet (Deur-tab + coc
 Step 0: design-compleetheid **5/10** (regels compleet, UI één zin per oppervlak). Een 10 = per oppervlak eerst/tweede/derde, volledige stateset incl. offline/noodrem/deelbetaling/sessieverloop, de hoofden-keuze en "nog niet bevestigd" als concrete controls, QR-maat en -contrast, responsive per viewport, screenreader-labels, Engelse copy.
 
 **Twee productregels van Max uit deze review (bindend, gelden voor elk oppervlak):**
-1. **De doorhost bepaalt het aantal, de gast betaalt alleen (D9.1-correctie).** De deur-QR draagt `?heads=k`; op `/pay` kan de gast via de deur-QR níets wijzigen — geen plus/min, geen tickets wegklikken — hij ziet "2 people · €45.00" als tekst en één knop Pay. Alleen de maillink (vooruitbetalen thuis, niemand bepaalt een aantal) heeft een aantal-keuze (D10.1). Dit vervangt in het design-doc "de pagina … laat de gast k verlagen".
+1. **De doorhost bepaalt het aantal, de gast betaalt alleen (D9.1-correctie).** De deur-QR draagt `?heads=k`; op `/pay` kan de gast via de deur-QR níets wijzigen — geen plus/min, geen tickets wegklikken — hij ziet "2 people · €45.00" als tekst en één knop Pay. Ook de maillink heeft geen keuze (herzien door Max tijdens de mockup-review, 2026-10-13; vervangt D10.1 = A): wie online betaalt, betaalt de hele plek — alle nog ongedekte hoofden van 1 + N — omdat de organisator wil weten met hoeveel iemand komt; met 4 tickets betaal je er 4, anders kloppen de aantallen niet. Dit vervangt in het design-doc "de pagina … laat de gast k verlagen" en "via de maillink kiest de gast zelf".
 2. **Aan de organisatiekant tonen we alleen wat de organisatie verdient (D9.3-correctie).** Ticket €20.00 + servicefee €2.50: de gast betaalt €22.50 op zijn eigen telefoon en bon; de doorhost, de deurlijst, Settings → Payments en de cockpit tonen €20.00 (× hoofden). PlusOne's servicefee, de ondergrens en eventuele kickbacks (de ophoging die de company houdt) verschijnen nergens in de app-UI van de organisatie, alleen op de financiële documenten (weekstaat, self-billing-factuur, uitbetalingsdocument). Eén uitzondering: de Cash-knop toont het te innen totaal (D10.3), omdat de doorhost dat geld fysiek aanneemt.
 
 Rekenvoorbeeld in dit hoofdstuk: ticket €20.00, servicefee €2.50 per hoofd (illustratief; de echte fee volgt de ondergrens + ophoging), 2 personen → organisatiekant €40.00, gast €45.00.
@@ -1548,7 +1548,7 @@ Gaten: het plan zette de stepper bovenaan en het bedrag nergens; Charge had geen
 - **D3.1 Charge-sheet-volgorde:** bedrag → QR → compacte hoofden-rij → acties. Bedrag in display 34px als anker (organisatiekant: ticket × hoofden, regel 2 hierboven), QR direct eronder, hoofden als `CountStepper`-rij (44px-hit op touch), knoppen in de `BottomBar`. Past op 390×844 zonder scrollen.
 - **D3.2 Geen zichtbare timer:** de check-in-knop staat er vanaf t = 0 als `Check in 2 · not confirmed yet`; zodra realtime de betaling bevestigt flipt het label naar `Check in 2 · paid` (entrance alleen `translateY`). De 10 s uit §10.19 blijft bestaan als achtergrond-gratie op de outbox-uitkomst (webhook wint bij sync), nooit als aftelklok. Dit vervangt "na 10 s de keuze" in §10.19:701 en "online wacht de deur eerst tot 10 s" in het design-doc.
 - **D3.3 Plek in de BottomBar:** op een betaalbare rij met ongedekte hoofden wordt **Charge de primaire knop** (`Charge · €40.00 · 2`, icoon `money`); de bar blijft twee knoppen hoog. `Check in all` verhuist in de Charge-sheet (als `Check in k · not confirmed yet / paid`). Zodra gedekte hoofden = hoofden buiten, keert de huidige bar terug. De gestreepte `payBanner` (`GuestDetail.tsx:185–190`, "Paid guest list. Collect payment at the door.") wordt één live regel `€20.00 per person · 2 of 4 paid` (`text-[13.5px] text-text`; niets betaald: `· nothing paid yet`; alles betaald: `Paid · 4 people` met check-icoon in accent).
-- **D3.4 `/pay`-anker:** het bedrag dat de gast betaalt is de H1 (display 40px, het enige anker); venue + datum als eyebrow erboven; `2 people · Max · VIP` als sub; het aantal als tekst (deur-QR) of als hoofden-rij (maillink, D10.1); bedragblok met de regel "Service fee"; één knop `Pay €45.00`; PlusOne alleen in de `LandingFooter`. Hergebruikt het `/r/[token]`-frame (`LandingWrap`, `request-status.tsx`).
+- **D3.4 `/pay`-anker:** het bedrag dat de gast betaalt is de H1 (display 40px, het enige anker); venue + datum als eyebrow erboven; `2 people · Max · VIP` als sub; het aantal altijd als tekst (deur-QR: k van de doorhost; maillink: de hele plek, alle ongedekte hoofden); bedragblok met de regel "Service fee"; één knop `Pay €45.00`; PlusOne alleen in de `LandingFooter`. Hergebruikt het `/r/[token]`-frame (`LandingWrap`, `request-status.tsx`).
 
 Wireframe Charge-sheet (390px, outbox-deur; cockpit: zie Pass 6):
 
@@ -1581,7 +1581,7 @@ Wireframe GuestDetail-BottomBar op een betaalbare rij (ongedekt > 0):
 ```
 Een hoofd dat via "one at a time" binnenkomt zonder dekking krijgt dezelfde outbox-uitkomst "nog niet bevestigd" (toast `Checked in · not confirmed yet`, D11.2).
 
-Wireframe `/pay/[token]?heads=2` via de deur-QR (390px; de maillink-variant vervangt de aantal-regel door een `CountStepper`, default 1, cap 1 + N − gedekt):
+Wireframe `/pay/[token]?heads=2` via de deur-QR (390px; de maillink-variant toont `5 people · your whole spot` als tekst — geen stepper, herzien 2026-10-13):
 
 ```
 ┌ LandingWrap (px-4, kolom ≤ 390) ────────────────────────┐
@@ -1639,7 +1639,7 @@ Deurrij-chip             | zie Pass 5 (drie states: te betalen / deels betaald /
       removed/refused    | (zelfde regel als request-status.tsx:48–61; geen onderscheid, geen uitleg)
 /pay · 503 kill switch   | enige onderscheiden fout: "Online payment is paused." + "Pay at the door."
 /pay · cap lowered       | k boven het plafond → pagina toont het nieuwe aantal vóór betalen met één regel
-                         | "2 of your 3 spots are still open." (deur-QR: aantal als tekst; maillink: plus-knop disabled)
+                         | "2 of your 3 spots are still open." (beide varianten: aantal als tekst, geen control)
 /pay · already paid      | "Already paid · 2 people." + "Show this at the door." (zelfde succes-frame)
 /pay · checking          | na redirect: tegel + "Checking payment…" ≤ 5 s → valt terug op "Almost there"-poll
 /pay · success           | ALLEEN na serverlezing van entry_payments.status / sessie-status (nooit ?success):
@@ -1787,7 +1787,7 @@ Alle onderstaande beslissingen zijn genomen (Max, 2026-10-13); de tabel noemt pe
 BESLISSING                                        | BESLUIT                                                     | ANDERS WAS GEBEURD
 --------------------------------------------------|-------------------------------------------------------------|--------------------------------------------
 Aantal op /pay via de deur-QR                     | VAST: doorhost bepaalt k, gast kan niets wijzigen (Max, D9.1-correctie) | gast klikt tickets weg; deur weet niet wat betaald is
-Aantal op /pay via de maillink                    | D10.1 = A: gast kiest 1 … 1 + N − gedekt (default 1)         | +4-gast moet alles ineens betalen of niets
+Aantal op /pay via de maillink                    | HERZIEN (Max, mockup-review 2026-10-13): geen keuze, de gast betaalt de hele plek (alle ongedekte hoofden); D10.1 = A vervallen | organisator weet niet met hoeveel iemand komt
 Moment van de Checkout-sessie                     | D10.2 = A: pas bij de Pay-tik ("Opening checkout…" ≤ 2 s); pagina rendert server-side zonder sessie | elke open van de link reserveert 30 min hoofden
 Wat de organisatiekant aan bedragen ziet          | Max (D9.3-correctie): alleen ticketbedragen; fee/kickback alleen op documenten | onze marge zichtbaar in Settings en op de deur
 Cash: met of zonder onze servicefee               | Max (D10.3): per company instelbaar, `cash_fee_mode` 'fee' | 'none'; bij 'fee' toont de Cash-knop het te innen totaal | óf fee uit eigen zak van de organisatie, óf gratis sluiproute
@@ -1836,7 +1836,7 @@ Synthesized from this review's findings. Each task derives from a specific findi
   - Surfaced by: 12.7 D9.4
   - Files: `src/features/door/model.ts`, `queries.ts`, `offline/persister.ts`, `sync/useDoorSync.ts`
   - Verify: vitest op de adapter; `DOOR_CACHE_BUSTER` bump (T8)
-- [ ] **T29 (P1, human: ~2d / CC: ~45min)** — `/pay/[token]` — server-gerenderde pagina (RPC `get_pay_page`, SECURITY DEFINER, zelfde throttle als `get_request_status`, minimale payload: voornaam, venue, event, tier, ticket × k, servicefee, totaal, gedekt/plafond, status); deur-variant (`?heads=k`, aantal als tekst) vs maillink-variant (`CountStepper`); sessie-RPC pas bij Pay; states uit 12.2 (neutraal not-found, 503 apart, Almost-there-poll ≤ 60 s, already-paid, checking ≤ 5 s); succes alleen na serverlezing, copy per herkomst; `publicRouteViewport`.
+- [ ] **T29 (P1, human: ~2d / CC: ~45min)** — `/pay/[token]` — server-gerenderde pagina (RPC `get_pay_page`, SECURITY DEFINER, zelfde throttle als `get_request_status`, minimale payload: voornaam, venue, event, tier, ticket × k, servicefee, totaal, gedekt/plafond, status); deur-variant (`?heads=k`) en maillink-variant (k = alle ongedekte hoofden, server-side), beide zonder aantal-control; sessie-RPC pas bij Pay; states uit 12.2 (neutraal not-found, 503 apart, Almost-there-poll ≤ 60 s, already-paid, checking ≤ 5 s); succes alleen na serverlezing, copy per herkomst; `publicRouteViewport`.
   - Surfaced by: 12.1 D3.4, 12.2 D4.1/D4.3/D4.4, 12.3 D5.1, 12.7 D10.1/D10.2 + Max' regel 1
   - Files: `src/app/pay/[token]/page.tsx`, `src/components/po/pay-page.tsx`, `src/lib/i18n/surfaces/landing.ts` (`t.landing.pay.*`), migratie `get_pay_page` + pgTAP (throttle, neutrale output voor ongeldig/verwijderd)
   - Verify: `pnpm qa:flows pay-page` (Q1–Q10), pgTAP, `tests/e2e/layout` entry voor `/pay`
@@ -1867,7 +1867,7 @@ Geen designer-afbeeldingen (geen API-key). Wel een HTML-mockup uit `/design-html
 
 | Screen/Section | Mockup Path | Direction | Notes |
 |----------------|-------------|-----------|-------|
-| Alle frames (A–K) | `C:/Users/Maxse/.gstack/projects/Max-Seffelaar-PlusOne/designs/door-payments-20261013/finalized.html` | één pagina met 11 frames: A GuestDetail betaalbare rij · B–E Charge-sheet (waiting / paid / partial / offline) · F–J `/pay` (deur-QR, maillink, paid, not found, 503) · K cockpit-dialoog | bedragen €20.00 ticket / €2.50 fee pp / 2 personen; organisatiekant zonder fee; `/pay` via deur-QR zonder aantal-keuze; één bewegingsmoment (tik op de statusregel in B); cockpit-dialoog = één kolom 560 breed met QR 320 (twee kolommen bleken op 560 te smal); serve met `python -m http.server 8765` in die map |
+| Alle frames (A–K) | `C:/Users/Maxse/.gstack/projects/Max-Seffelaar-PlusOne/designs/door-payments-20261013/finalized.html` | één pagina met 11 frames: A GuestDetail betaalbare rij · B–E Charge-sheet (waiting / paid / partial / offline) · F–J `/pay` (deur-QR, maillink = hele plek zonder stepper (herzien 2026-10-13), paid, not found, 503) · K cockpit-dialoog | bedragen €20.00 ticket / €2.50 fee pp / 2 personen; organisatiekant zonder fee; `/pay` via deur-QR zonder aantal-keuze; één bewegingsmoment (tik op de statusregel in B); cockpit-dialoog = één kolom 560 breed met QR 320 (twee kolommen bleken op 560 te smal); serve met `python -m http.server 8765` in die map |
 
 Metadata: `finalized.json` naast het bestand. Na Max' feedback: iteraties als surgical edits in hetzelfde bestand, daarna deze tabel bijwerken naar "approved".
 
