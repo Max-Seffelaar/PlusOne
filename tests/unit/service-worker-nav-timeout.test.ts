@@ -136,6 +136,18 @@ function loadSw() {
     });
     return state;
   }
+  /** A write: the page's fetch of a server action (POST). The SW never responds to it. */
+  function post(path: string) {
+    let responded = false;
+    listeners.get('fetch')!({
+      request: { url: new URL(path, ORIGIN).href, method: 'POST', mode: 'cors' },
+      respondWith: () => {
+        responded = true;
+      },
+      waitUntil: () => undefined,
+    });
+    if (responded) throw new Error('the SW must not answer a write');
+  }
   function message(data: unknown) {
     listeners.get('message')!({ data, waitUntil: () => undefined });
   }
@@ -144,7 +156,7 @@ function loadSw() {
     network.set(new URL(path, ORIGIN).href, d);
     return d;
   }
-  return { storage, navigate, message, slow, network };
+  return { storage, navigate, message, slow, network, post };
 }
 
 const flush = () => vi.advanceTimersByTimeAsync(0);
@@ -288,11 +300,116 @@ describe('service worker — navigation timeout (finding 11)', () => {
     expect(sw.storage.holding('/login')).toEqual([]);
   });
 
-  it('/ on lie-fi with a signed-in /app shell → the Deur tab, as offline', async () => {
+  it('/ on lie-fi with a signed-in /app shell → Home (/app), like the middleware; not the Deur tab', async () => {
     const sw = await swWithCached(['/app']);
     sw.slow('/');
     const nav = sw.navigate('/');
     await vi.advanceTimersByTimeAsync(TIMEOUT);
+    expect(nav.value?.tag).toBe(`redirect:${ORIGIN}/app`);
+  });
+
+  it('/ OFFLINE (fetch fails) still opens the Deur tab', async () => {
+    const sw = await swWithCached(['/app']);
+    sw.slow('/').reject(new TypeError('offline'));
+    const nav = sw.navigate('/');
+    await flush();
     expect(nav.value?.tag).toBe(`redirect:${ORIGIN}/app/door`);
+  });
+});
+
+// 86eykm7rk / #487 review: a deliberate state change (venue switch, onboarding)
+// is a server action (same-origin POST) followed by a hard navigation to /app
+// that exists to fetch a NEW render. The timeout must never answer that
+// navigation with the /app cached before the write.
+describe('service worker — navigation timeout after a write (86eykm7rk)', () => {
+  it('venue switch on lie-fi: the pre-switch /app is NOT served at the timeout; the new render is', async () => {
+    const sw = await swWithCached(['/app']);
+    sw.post('/app'); // switchActiveVenueAction
+    const d = sw.slow('/app');
+    const nav = sw.navigate('/app'); // window.location.assign('/app')
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 3);
+    expect(nav.settled).toBe(false);
+    d.resolve(res('after-switch'));
+    await flush();
+    expect(nav.value?.tag).toBe('after-switch');
+    expect(sw.storage.get(SESSION, '/app')?.tag).toBe('after-switch');
+  });
+
+  it('once a page rendered after the write is cached, the timeout serves it again', async () => {
+    const sw = await swWithCached(['/app']);
+    sw.post('/app');
+    sw.slow('/app').resolve(res('after-switch'));
+    sw.navigate('/app');
+    await flush();
+    const d2 = sw.slow('/app');
+    const nav = sw.navigate('/app');
+    await vi.advanceTimersByTimeAsync(TIMEOUT);
+    expect(nav.value?.tag).toBe('after-switch');
+    d2.resolve(res('later'));
+    await flush();
+  });
+
+  it('a navigation that STARTED before the write and lands after it does not count as fresh', async () => {
+    const sw = await swWithCached(['/app']);
+    const early = sw.slow('/app/guests');
+    sw.navigate('/app/guests'); // in flight
+    sw.post('/app'); // the write happens meanwhile
+    early.resolve(res('pre-write-guests'));
+    await flush();
+    sw.slow('/app');
+    const nav = sw.navigate('/app');
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
+    expect(nav.settled).toBe(false);
+  });
+
+  it('a seed-session after the write refreshes /app and makes it servable again', async () => {
+    const sw = await swWithCached(['/app']);
+    sw.post('/app');
+    sw.message({ type: 'seed-session', paths: ['/app'] });
+    await flush();
+    sw.slow('/app');
+    const nav = sw.navigate('/app');
+    await vi.advanceTimersByTimeAsync(TIMEOUT);
+    expect(nav.value?.tag).toBe('net:/app');
+  });
+
+  it('after a write the PII-free door page is still served at the timeout, the session picker is not', async () => {
+    const sw = await swWithCached(['/door', '/door/e1']);
+    sw.post('/app');
+    sw.slow('/door/e1');
+    const door = sw.navigate('/door/e1');
+    await vi.advanceTimersByTimeAsync(TIMEOUT);
+    expect(door.value?.tag).toBe('net:/door/e1');
+    sw.slow('/door/e2'); // falls back to the /door picker (SESSION)
+    const other = sw.navigate('/door/e2');
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
+    expect(other.settled).toBe(false);
+  });
+
+  it('/ on lie-fi after a write → waits (no redirect into a stale /app)', async () => {
+    const sw = await swWithCached(['/app']);
+    sw.post('/app');
+    sw.slow('/');
+    const nav = sw.navigate('/');
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
+    expect(nav.settled).toBe(false);
+  });
+
+  it('OFFLINE after a write still boots the cached /app (offline path unchanged)', async () => {
+    const sw = await swWithCached(['/app']);
+    sw.post('/app');
+    sw.slow('/app').reject(new TypeError('offline'));
+    const nav = sw.navigate('/app');
+    await flush();
+    expect(nav.value?.tag).toBe('net:/app');
+  });
+
+  it('a cross-origin write (Supabase REST) does not count', async () => {
+    const sw = await swWithCached(['/app']);
+    sw.post('https://abc.supabase.co/rest/v1/guests');
+    sw.slow('/app');
+    const nav = sw.navigate('/app');
+    await vi.advanceTimersByTimeAsync(TIMEOUT);
+    expect(nav.value?.tag).toBe('net:/app');
   });
 });

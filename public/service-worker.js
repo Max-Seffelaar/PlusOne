@@ -116,6 +116,30 @@ const SEED_ASSETS_MAX = SHELL_MAX_ENTRIES;
 // navigations carry the new epoch and cache normally.
 let sessionEpoch = 0;
 
+// Write counter for the navigation timeout (finding 11 review, 86eykm7rk). A
+// same-origin write (a server action is a POST to the page URL) can change what
+// the server renders for `/app`: `switchActiveVenueAction` writes the active
+// venue cookie and then hard-navigates to `/app` precisely to get a NEW render.
+// `writeSeq` counts the writes this worker has seen; `freshSeq` is the write
+// count at the start of the newest navigation/seed whose SESSION page was
+// actually stored. The timeout may answer from SESSION_CACHE only while
+// `freshSeq >= writeSeq` — the cached `/app` was rendered after the last write.
+// Otherwise the timeout waits for the network, exactly as before the timeout
+// existed. The offline path (a fetch that FAILS) is unchanged. In memory on
+// purpose: a write and the navigation that follows it are milliseconds apart
+// and the worker is awake for both; a cold worker starts "fresh", which keeps
+// the lie-fi benefit for a PWA launch hours later.
+let writeSeq = 0;
+let freshSeq = 0;
+
+function markFresh(seqAtStart) {
+  if (seqAtStart > freshSeq) freshSeq = seqAtStart;
+}
+
+function sessionIsCurrent() {
+  return freshSeq >= writeSeq;
+}
+
 // Paths already re-fetched by `seed-shell` in this worker instance. A deploy
 // replaces the script, which resets this — so the shell refreshes per version
 // without a network hit on every screen mount.
@@ -296,20 +320,22 @@ function trimShell(cache) {
  * commits (most aggressive on WebKit/iPad, which is the door's device class).
  * `waitUntil` extends the worker's life; it does not delay the response.
  */
+/** Resolves `true` once the response is stored, `false` when it was refused. */
 function putInCache(cacheName, request, response, epochAtStart) {
-  if (!isStorable(response)) return Promise.resolve();
+  if (!isStorable(response)) return Promise.resolve(false);
   // Sign-out landed while this response was in flight — see `sessionEpoch`.
   if (cacheName === SESSION_CACHE && epochAtStart !== undefined && epochAtStart !== sessionEpoch) {
-    return Promise.resolve();
+    return Promise.resolve(false);
   }
   return caches
     .open(cacheName)
     .then((cache) =>
       cache
         .put(request, response)
-        .then(() => (cacheName === SHELL_CACHE ? trimShell(cache) : undefined)),
+        .then(() => (cacheName === SHELL_CACHE ? trimShell(cache) : undefined))
+        .then(() => true),
     )
-    .catch(() => undefined);
+    .catch(() => false);
 }
 
 /**
@@ -441,11 +467,13 @@ function seedAssets(urls) {
 function seedSession(paths) {
   if (!paths.some((p) => p === '/app')) return Promise.resolve();
   const epochAtStart = sessionEpoch;
+  const seqAtStart = writeSeq;
   const request = new URL('/app', self.location.origin).href;
   // redirect mode 'follow': a signed-out seed lands on /login as a followed
   // redirect, which `isStorable` refuses.
   return fetch(request, { credentials: 'same-origin' })
     .then((response) => putInCache(SESSION_CACHE, request, response, epochAtStart))
+    .then((stored) => stored && markFresh(seqAtStart))
     .catch(() => undefined);
 }
 
@@ -460,12 +488,12 @@ function seedSession(paths) {
  */
 const OFFLINE_START_PATH = '/app/door';
 
-function offlineStart() {
+function offlineStart(target = OFFLINE_START_PATH) {
   return caches
     .open(SESSION_CACHE)
     .then((cache) => cache.match('/app', MATCH_OPTS))
     .then((hit) =>
-      hit ? Response.redirect(new URL(OFFLINE_START_PATH, self.location.origin).href, 302) : undefined,
+      hit ? Response.redirect(new URL(target, self.location.origin).href, 302) : undefined,
     )
     .catch(() => undefined);
 }
@@ -502,9 +530,16 @@ self.addEventListener('message', (event) => {
  * Lie-fi timeout for network-first navigations (perf audit finding 11). A venue
  * Wi-Fi that accepts the connection but never answers used to hold the boot
  * screen for the whole failed fetch before the cache fallback. Now, after
- * NAV_TIMEOUT_MS, the same fallback chain the offline path uses answers IF it
- * has something; with nothing cached we keep waiting for the network (a
- * timeout must never turn a slow load into an error page).
+ * NAV_TIMEOUT_MS a cached page answers IF there is one that is safe to show
+ * while the network may still answer (`fromCacheOnTimeout`: a SESSION page only
+ * when it was rendered after the last same-origin write, see `writeSeq`); with
+ * nothing suitable we keep waiting for the network (a timeout must never turn a
+ * slow load into an error page, nor undo a venue switch — 86eykm7rk).
+ *
+ * Accepted residual: right after a DEPLOY a slow-but-online user may boot the
+ * previous build's cached shell (old chunk hashes / server-action ids) until
+ * the late response refreshes the cache — the same thing the offline path has
+ * always done.
  *
  * The network fetch is never aborted: when it lands late, the fetch handler's
  * own `.then` still runs — it writes that response under ITS OWN request URL
@@ -513,7 +548,7 @@ self.addEventListener('message', (event) => {
  */
 const NAV_TIMEOUT_MS = 3500;
 
-function raceNavigation(network, fromCache) {
+function raceNavigation(network, fromCache, fromCacheOnTimeout) {
   return new Promise((resolve) => {
     let done = false;
     const settle = (response) => {
@@ -523,7 +558,7 @@ function raceNavigation(network, fromCache) {
       resolve(response);
     };
     const timer = setTimeout(() => {
-      fromCache()
+      fromCacheOnTimeout()
         .then((cached) => cached && settle(cached))
         .catch(() => undefined);
     }, NAV_TIMEOUT_MS);
@@ -538,7 +573,11 @@ function raceNavigation(network, fromCache) {
 self.addEventListener('fetch', (event) => {
   if (DEV) return; // dev: never intercept — always fresh from the network
   const request = event.request;
-  if (request.method !== 'GET') return; // never cache writes / auth POSTs
+  if (request.method !== 'GET') {
+    // Never cache writes / auth POSTs — but count same-origin ones (`writeSeq`).
+    if (new URL(request.url).origin === self.location.origin) writeSeq += 1;
+    return;
+  }
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // Supabase & co → network only
 
@@ -552,6 +591,7 @@ self.addEventListener('fetch', (event) => {
     const cacheName = navigationCache(url.pathname);
     const fallback = fallbackFor(url.pathname);
     const epochAtStart = sessionEpoch;
+    const seqAtStart = writeSeq;
     const network = fetch(request).then((response) => {
       if (cacheName === SESSION_CACHE && isSessionGone(response)) {
         // The session ended somewhere we don't run code (expiry, admin
@@ -561,18 +601,34 @@ self.addEventListener('fetch', (event) => {
         sessionEpoch += 1;
         event.waitUntil(caches.delete(SESSION_CACHE).catch(() => undefined));
       } else if (cacheName) {
-        event.waitUntil(putInCache(cacheName, request, response.clone(), epochAtStart));
+        event.waitUntil(
+          putInCache(cacheName, request, response.clone(), epochAtStart).then(
+            (stored) => stored && cacheName === SESSION_CACHE && markFresh(seqAtStart),
+          ),
+        );
       }
       return response;
     });
     // Keeps the worker alive for a response that lands after the timeout
     // answered from cache, so its cache write / session wipe above still runs.
     event.waitUntil(network.catch(() => undefined));
+    // Offline (the fetch failed): every bucket, as before the timeout existed.
     const fromCache = () =>
       (url.pathname === '/' ? offlineStart() : Promise.resolve(undefined))
         .then((start) => start || caches.match(request, MATCH_OPTS))
         .then((cached) => cached || (fallback ? caches.match(fallback, MATCH_OPTS) : undefined));
-    event.respondWith(raceNavigation(network, fromCache));
+    // Slow (the timeout fired, the network may still answer): only a SESSION
+    // page rendered after the last write (`sessionIsCurrent`), else the PII-free
+    // shell only, else keep waiting. `/` goes to Home like the middleware would;
+    // the Deur tab is the OFFLINE start, not the slow-network one.
+    const fromCacheOnTimeout = () => {
+      const current = sessionIsCurrent();
+      if (url.pathname === '/') return current ? offlineStart('/app') : Promise.resolve(undefined);
+      const lookup = (key) =>
+        current ? caches.match(key, MATCH_OPTS) : caches.open(SHELL_CACHE).then((c) => c.match(key, MATCH_OPTS));
+      return lookup(request).then((cached) => cached || (fallback ? lookup(fallback) : undefined));
+    };
+    event.respondWith(raceNavigation(network, fromCache, fromCacheOnTimeout));
     return;
   }
 
