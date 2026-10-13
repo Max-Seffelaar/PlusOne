@@ -20,6 +20,17 @@ Milestone **Now** (polish, golf F 7c). No migration.
 - **New string:** `shared.kit.selectCancel` = "Cancel".
 - **Tests:** `kit.select.test.tsx` (14: the error API, aria wiring, click/keyboard pick, no onChange on the same value, Escape does not bubble, type-ahead + cycling, outside tap / Cancel / Android back, portalled sheet vs in-tree popover by matchMedia, a tap inside either panel is not an outside tap). Flow `kit-select` (Q1–Q12) on Platform → Audit and Mail log. `share` and `mail-status` flows pick through the new `pickKitOption` harness helper, since `selectOption` only works on a native select. `design-system.md` gets the Dropdown rule.
 
+## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
+
+Milestone **Now** (ADE). Request Max 2026-10-12 ("guest_info in templates"). Spec #63(e) revised. Migration `20261016180000_template_guest_texts.sql` (after main's `20261016120000`…`170000`; re-slotted from `…130000` and `…160000` as main moved).
+
+- **DB:** `event_templates.house_rules` / `guest_info`, nullable, the same CHECKs as `events` (`events_house_rules_len`, `events_guest_info_check`). `create_template_from_event` copies both, `create_event_from_template` puts both on the new event; bodies are `20261007135000` plus the two columns (SECURITY DEFINER, `search_path ''`, role checks and grants unchanged). No RLS/grant change: `event_templates` has table-level grants only.
+- **App:** template create/update actions + schemas take both texts; `fetchTemplates`/`fetchTemplate` read them. The template editor shows the same "For your guests" block (`EventGuestTextFields`, new `note` prop). The event form prefills both from a picked template, like location (`locBaseline`), so the follow-up write after a template create writes the template's texts, not empty ones; a prefilled text is not "dirty".
+- **Tests:** pgTAP `template_guest_texts.test.sql` (24: columns + CHECKs equal to events, copy both ways, NULL stays NULL, organizer allowed on their own venue's event, staff/organizer/anon denied, cross-tenant RLS 0 rows on a venue-2 template, a venue-1 organizer can't template a venue-2 event, function hygiene). Flow `guest-info` Q11–Q12 (Save as template keeps both → new event from it starts with and saves both).
+- Deliberate: an event-scoped organizer can write the guest texts on the company's templates (RLS `organizes_event_at_venue`), the same trust as template location; the admin sees the prefilled text before saving.
+- **Deploy order:** Max pushes `20261016180000` right after the merge; between deploy and push the Templates screen, template editor and the event form's template picker error (no shim, same as `20261007135000`).
+- `contact_email` stays per event (out of scope).
+
 ---
 
 ## 2026-10-12 — Privacy train landed (#477) + contract step
