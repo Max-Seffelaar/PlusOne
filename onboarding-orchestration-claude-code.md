@@ -277,6 +277,7 @@ Besluiten Max 2026-10-12 (startprompt golf F):
 |---|---|---|---|---|---|
 | 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | [#494](https://github.com/Max-Seffelaar/PlusOne/pull/494) | opgeleverd 2026-10-13 (head `96f5c36`; main incl. #479/#495 gemerged; `supabase db reset` + `pnpm db:test` groen, 117 files / 3368 asserts; flows quota-request-guest + team-mail 4/4) | `session_011fDzCADzZQsv7TqTGCRUza` | `20261016190000` |
 | 7c Kit Select ([z8uq9m4a2w](https://app.clickup.com/t/z8uq9m4a2w)) | `session_014QHVZGmNf9anTyWc3TZ8T4` | [#496](https://github.com/Max-Seffelaar/PlusOne/pull/496) | opgeleverd 2026-10-13 (head `beb7ac4`; popover ≥1024 + fijne pointer, anders sheet; `invalid`/`describedBy`/`id` op de trigger); orchestrator-diff OK, 3 nits; CI loopt | orchestrator | — |
+| 11 Sentry-ruis S2 + platform-invite = resend ([z8uq9m5enh](https://app.clickup.com/t/z8uq9m5enh)) | A `session_01FcGwXZUgz7TdVPishNFLkX`, B `session_012Mjtk6ZhCb1BRbxrAooTbs` | — | in bouw sinds 2026-10-13; A en B parallel | A: orchestrator; B: reviewer na oplevering | — |
 | Form errors point at the field ([z8uq9m5eb7](https://app.clickup.com/t/z8uq9m5eb7)) — toegevoegd door Max 2026-10-13 (uit zijn test van #479) | `session_018bSTsV383wC4WesbUnSJFD` | — | in bouw; kit-patroon (invalid-state + scroll/focus-helper) + `{ ok:false, message, field? }` uit `invalidInput`; eerst event-formulier, dan templates; laag risico (CI = vloer). Kit-API gedeeld met 7c: `invalid`, `describedBy`, `id` op Field/TextArea/Select; 7c doet Select, deze taak Field/TextArea. Overlap met #479 (events/edit.tsx, templates.tsx) | orchestrator | — |
 | Wachtrij-fix #470 + #474 | `session_01RfXsXyEkhkrGYWnriBSd9v` | #470, #474 | **gemerged** (in train #477) | — | — |
 | 9-DB set-based RLS + check_ins-merge | `session_01KjaQGWqaVqbDWYdsqMqEn9` | [#482](https://github.com/Max-Seffelaar/PlusOne/pull/482) | opgeleverd, CI groen | `session_01HnHACPtcNn6jXNHP1YawAW` | `20261017120000`, `…120100` |
@@ -494,6 +495,10 @@ GOLF F — sequentieel: 7 → 8 → 9 → 10. Wacht op golf E gemerged.
 10  n.n.b.       Analytics PH (PostHog)             Opus    drie PR's volgens docs/posthog-implementation-plan.md (foundation, instrumentation, docs). Wacht op 9 en Max' go.
     Max vooraf: PostHog-project + key; cookie-banner-copy; subprocessor C → A in de legal-ronde.
 
+11  z8uq9m5enh   Sentry-ruis S2 + platform-invite opnieuw = resend   Opus   twee PR's, A eerst, B mag parallel; geen migratie. Toegevoegd door Max 2026-10-13 (Sentry C + D van 2026-10-12).
+    A (claude/z8uq9m5enh-sentry-network-noise): src/lib/observability/capture.ts + capture.test.ts, docs/runbook.md (Sentry triage). Geen reviewer.
+    B (claude/z8uq9m5enh-platform-reinvite): src/features/platform/invite-actions.ts + .test.ts, src/components/po/screens/platform.tsx (InviteForm), src/lib/db-errors.ts (alleen EXPECTED_MESSAGES), i18n, tests/flows (platform), gastenlijst-app-spec.md, docs/changelog.md. HIGH-RISK → reviewer-sessie.
+    Verboden: ignoreErrors/inbound filter op "Load failed", migraties, invite-mail.ts, team-invite-gedrag (alleen de message-classificatie), src/features/door/**.
 Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 ```
 
@@ -932,6 +937,13 @@ Scope-hek: per punt uit docs/perf-audit-2026-10.md één PR (pushState; windowin
 Deps: taak 8, of eerder op aanwijzing van Max. Voor getClaims: Max bevestigt asymmetrische JWT-signing-keys in het Supabase-dashboard.
 Klaar als: zie de taakbeschrijving (Network-screenshot tab-wissel; 300-events-seed laadt alleen het venster; pgTAP allowed/denied; SW-guards groen).
 ```
+
+### Taak 11 — Sentry-ruis S2 + platform-invite opnieuw = resend (z8uq9m5enh, Opus; PR B → reviewer)
+
+Volledige brief: de ClickUp-taak [z8uq9m5enh](https://app.clickup.com/t/z8uq9m5enh) en de worker-prompts van 2026-10-13 (sessies `session_01FcGwXZUgz7TdVPishNFLkX` voor A, `session_012Mjtk6ZhCb1BRbxrAooTbs` voor B). Kern:
+- **A:** postgrest-js geeft een mislukte fetch terug als plain object `{message: "TypeError: Load failed"}` en Safari plakt ` (<host>)` erachter. Eén matcher (optionele prefix `TypeError: `/`FetchError: `, optionele host-suffix) voor Error én Postgrest-object. Offline niet rapporteren, online wel met `network:true`, en een echte TypeError blijft een issue. Runbook-rij + de alertregel.
+- **B:** "Send invite" op een open adres (23505 op `platform_invites_open_unique`) wordt opnieuw versturen via één helper die gedeeld is met `resendBetaInviteAction` (budget → mail → bump, de regels uit review #437). Note/ADE van de tweede poging overschrijven niets, het budget gaat één keer, de user-scoped client wordt gebruikt en NOT_ALLOWED blijft vóór alles staan (geen existence-oracle). Plus een useRef-dubbelklik-guard in InviteForm en de team-invite-message in `EXPECTED_MESSAGES` (gekrulde apostrof).
+- **Max achteraf in Sentry:** de alertregel krijgt "tag network is not equal to true"; issue C op archive until escalating; issue D op resolve in next release na B.
 
 ## 5. Reviewer-gate (taken 0b, 0c, 0d, 0e, 2, 2b, 2c, 3, 4, 6, 7, 8, 9)
 
