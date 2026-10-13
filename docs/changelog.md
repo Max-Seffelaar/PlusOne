@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-12 — Privacy train landed (#477) + contract step
+
+Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train landed on prod in one merge: train PR #477 carried #460 (column-level SELECT on `user_profiles`), #461 (definer stats + session RPCs inside the profile boundary, spec #64b), #464 (venue present/added), #466 (one who-did-what label, `venue_actor_names`, spec #64a), #469 (quota grants only for people tied to the company), #470 (readable audit lines), #474 (DateField flake + 44px calendar on touch) and #471 (dev scripts take the container from the checkout's config). #459 (the expand step) went first on its own. One `db push` after the Vercel prod deploy of #477 was Ready. Spec numbers moved because main took #62 (door payments) and #63 (guest info): ours is **#64**.
+
+- **Rehearsal 4** (main + the complete train, isolated `PlusOne_Train` stack, fresh reset): pgTAP 115 files / 3267 assertions PASS; vitest 3923 pass with only the 11 known Windows-only failures; type-check and lint clean.
+- **Prod checks after the push** (catalog only): head `20261016150000`; `authenticated` has no table-level SELECT on `user_profiles`, only `id`, `full_name`, `email`, `has_joined`; `my_profile()`, `venue_actor_names`, the reserved-name CHECK, both quota tie policies and both key-immutability triggers present; no app-readable view without `security_invoker`; no Vercel runtime errors.
+- **Reviews:** Max accepted the independent subagent fresh reviews as the CLAUDE.md fresh-session `/code-review` + `/security-review` gate for this train.
+- **Contract step (this PR):** `20261016170000_admin_sessions_drop_ip_aal` drops and recreates `admin_list_user_sessions` without the always-null `ip`/`aal` columns (`list_own_sessions` keeps both); `fetchActorLabels` loses its PGRST202 `user_profiles` fallback now that `venue_actor_names` is on prod. pgTAP `definer_profile_scope` C2/C3 now assert the columns are absent. Same rehearsal stack: pgTAP 115 files / 3267 assertions PASS.
+- **Left:** #467's hard-coded location strings in `translate.ts` could move into the i18n catalogue (not Now).
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
