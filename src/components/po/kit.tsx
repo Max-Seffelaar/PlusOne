@@ -17,6 +17,7 @@ import type { Tier } from '@/lib/po/types';
 import type { ActorKind } from '@/lib/po/actor-kind';
 import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
+import { fieldErrorBorder, fieldErrorText, fieldScrollMargin } from './field-error-style';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
 // of one of these (some already drifted to 0.94/0.985/1.09); exported so a
@@ -192,20 +193,150 @@ export function PayChip({ pay }: { pay: string }): JSX.Element | null {
 }
 
 // ── Field error ─────────────────────────────────────────────────────────────
-// Canonical validation-error color (86eyd3men): red, never the lavender accent
-// — the accent already means "focused"/"selected" elsewhere in the UI, so an
-// invalid field styled in accent reads as active, not wrong. A dozen screens
-// hand-rolled `text-red-300 role="alert"` locally before this existed; new
-// inline-error UI should use these instead of re-picking a color.
-export const fieldErrorText = 'text-red-300';
-export const fieldErrorBorder = 'border-red-400';
+// Canonical validation-error color (86eyd3men): red, never the lavender accent.
+// The tokens live in field-error-style.ts (no import cycle via places-field).
+export { fieldErrorText, fieldErrorBorder, fieldScrollMargin };
 
-export function FieldErrorText({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+export function FieldErrorText({ children, className, id }: { children: ReactNode; className?: string; id?: string }): JSX.Element {
   return (
-    <p className={cn('text-[12.5px] leading-[1.4]', fieldErrorText, className)} role="alert">
+    <p id={id} className={cn('text-[12.5px] leading-[1.4]', fieldErrorText, className)} role="alert">
       {children}
     </p>
   );
+}
+
+// ── Field errors point at the field (z8uq9m5eb7) ─────────────────────────────
+// A failed save that is about one field scrolls to it, focuses it, gives it a
+// red border and says what is wrong right under it; editing that field clears
+// it. Only errors that name no field (network, rights, generic) stay a banner.
+// Every kit input takes the same three props — `id` and `describedBy` land on
+// the real input element, `invalid` sets aria-invalid plus the red border on
+// the box — and `useFieldErrors` hands them out per field.
+
+/** The three props every kit input takes for its error state. */
+export interface FieldErrorProps {
+  id?: string;
+  invalid?: boolean;
+  describedBy?: string;
+}
+
+/** `useFieldErrors().bind(field)`: the input props plus what to render under it. */
+export interface FieldErrorBinding {
+  id: string;
+  invalid: boolean;
+  describedBy?: string;
+  /** The id the FieldErrorText under the input carries (= describedBy while invalid). */
+  errorId: string;
+  /** The message to show under the input, while this field holds the error. */
+  message?: string;
+}
+
+/** Just the input props of a binding, to spread onto a kit input (`{...fieldInputProps(b)}`). */
+export function fieldInputProps(b?: FieldErrorBinding): FieldErrorProps {
+  return b ? { id: b.id, invalid: b.invalid, describedBy: b.describedBy } : {};
+}
+
+/** The message under an input, wired to its `describedBy`; nothing while the field is fine. */
+export function FieldErrorFor({ error, className }: { error?: FieldErrorBinding; className?: string }): JSX.Element | null {
+  if (!error?.message) return null;
+  return (
+    <FieldErrorText id={error.errorId} className={cn('mb-2 mt-1', className)}>
+      {error.message}
+    </FieldErrorText>
+  );
+}
+
+/** True when the user asked for less motion. Guarded: no window, no matchMedia → false. */
+export function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Scroll `el` into view and focus it. Centred, so neither the sticky top bar
+ * nor the fixed bottom bar (plus their safe-area insets) covers it; the input
+ * box (`data-field-shell`) is what gets centred, and its scroll-margin keeps
+ * the same clearance where a browser aligns to an edge instead. Smooth unless
+ * the user asked for reduced motion. Webview-safe: every API is feature-tested.
+ */
+export function focusAndReveal(el: HTMLElement): void {
+  const box = (typeof el.closest === 'function' ? el.closest<HTMLElement>('[data-field-shell]') : null) ?? el;
+  try {
+    el.focus({ preventScroll: true });
+  } catch {
+    el.focus();
+  }
+  if (typeof box.scrollIntoView !== 'function') return;
+  try {
+    box.scrollIntoView({ block: 'center', inline: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  } catch {
+    box.scrollIntoView();
+  }
+}
+
+/** Focus the first input marked aria-invalid under `root`; false when there is none. */
+export function focusFirstInvalid(root?: ParentNode | null): boolean {
+  const scope = root ?? (typeof document === 'undefined' ? null : document);
+  const el = scope?.querySelector<HTMLElement>('[aria-invalid="true"]');
+  if (!el) return false;
+  focusAndReveal(el);
+  return true;
+}
+
+/**
+ * A form's error state. `fail(message, field?)` puts a field error on a field
+ * the form registered in `fields` (then scrolls to it and focuses it) and any
+ * other message — no field, or a field this form doesn't render — in `banner`.
+ * Feed it a server action's `{ message, field }` (via `errorField(e)` from
+ * `@/lib/field-error`) or a client Zod issue: both land the same way.
+ */
+export function useFieldErrors<F extends string>(fields: readonly F[]): {
+  banner: string | null;
+  field: F | null;
+  fail: (message: string, field?: string | null) => void;
+  reset: () => void;
+  clear: (field: F) => void;
+  bind: (field: F) => FieldErrorBinding;
+  edit: <V>(field: F, set?: (v: V) => void) => ((v: V) => void) | undefined;
+} {
+  const base = useId();
+  const [state, setState] = useState<{ message: string; field: F | null; n: number } | null>(null);
+  const known = (f: string | null | undefined): f is F => !!f && (fields as readonly string[]).includes(f);
+  const inputId = (f: F): string => `${base}field-${f}`;
+
+  // After the commit that marked the field: every failure (n) moves there
+  // again, also a second Save on the same field.
+  const target = state?.field ? inputId(state.field) : null;
+  useEffect(() => {
+    if (!target || typeof document === 'undefined') return;
+    const el = document.getElementById(target);
+    if (el) focusAndReveal(el);
+  }, [target, state?.n]);
+
+  const clear = (f: F): void => setState((prev) => (prev?.field === f ? null : prev));
+  return {
+    banner: state && !state.field ? state.message : null,
+    field: state?.field ?? null,
+    fail: (message, field) => setState((prev) => ({ message, field: known(field) ? field : null, n: (prev?.n ?? 0) + 1 })),
+    reset: () => setState(null),
+    clear,
+    bind: (f) => {
+      const on = state?.field === f;
+      const errorId = `${inputId(f)}-error`;
+      return { id: inputId(f), invalid: on, describedBy: on ? errorId : undefined, errorId, message: on ? state.message : undefined };
+    },
+    edit: (f, set) =>
+      set
+        ? (v) => {
+            clear(f);
+            set(v);
+          }
+        : undefined,
+  };
 }
 
 // ── Btn ─────────────────────────────────────────────────────────────────────
@@ -452,6 +583,9 @@ export function Field({
   ariaLabel,
   onKeyDown,
   onBlur,
+  id,
+  invalid,
+  describedBy,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -466,9 +600,17 @@ export function Field({
   ariaLabel?: string;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
   onBlur?: () => void;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   return (
-    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
+    <div
+      data-field-shell
+      className={cn(
+        'flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]',
+        fieldScrollMargin,
+        invalid && fieldErrorBorder,
+        className,
+      )}
+    >
       {icon && (
         <span className="text-faint">
           <Icon name={icon} size={19} />
@@ -484,6 +626,9 @@ export function Field({
           inputMode={inputMode}
           maxLength={maxLength}
           aria-label={ariaLabel}
+          id={id}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           onKeyDown={onKeyDown}
           onBlur={onBlur}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
@@ -506,6 +651,9 @@ export function TextArea({
   autoFocus,
   ariaLabel,
   className,
+  id,
+  invalid,
+  describedBy,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -515,7 +663,7 @@ export function TextArea({
   autoFocus?: boolean;
   ariaLabel?: string;
   className?: string;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   return (
     <textarea
       autoFocus={autoFocus}
@@ -525,8 +673,14 @@ export function TextArea({
       maxLength={maxLength}
       rows={rows}
       aria-label={ariaLabel}
+      id={id}
+      aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
       className={cn(
         'w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[16px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc',
+        fieldScrollMargin,
+        // Red wins over the focus accent: the field the save sent you to stays marked.
+        invalid && cn(fieldErrorBorder, 'focus:border-red-400'),
         className,
       )}
     />

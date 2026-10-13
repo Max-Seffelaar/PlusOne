@@ -22,7 +22,7 @@ import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon } from './icon';
-import { Field, Spinner } from './kit';
+import { Field, Spinner, fieldErrorBorder, fieldScrollMargin, type FieldErrorProps } from './kit';
 
 // The calendar (react-day-picker) loads only when a popover first opens, so the
 // library never lands in the /app First Load JS.
@@ -165,6 +165,9 @@ export function DateField({
   onChange,
   anchor,
   className,
+  id,
+  invalid,
+  describedBy,
 }: {
   value: string;
   onChange?: (v: string) => void;
@@ -173,7 +176,7 @@ export function DateField({
    *  empty end field never opens five months away from the night itself). */
   anchor?: string;
   className?: string;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
   // Editing buffer while the user types; null = show the formatted value.
@@ -215,7 +218,14 @@ export function DateField({
       {/* Whole-field tap opens the calendar (retest Q7) — not just the icon. */}
       <div
         onClick={openPicker}
-        className={cn(fieldShell, onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default', open && 'border-acc')}
+        data-field-shell
+        className={cn(
+          fieldShell,
+          fieldScrollMargin,
+          onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default',
+          open && 'border-acc',
+          invalid && fieldErrorBorder,
+        )}
       >
         <span className="text-faint">
           <Icon name="cal" size={19} />
@@ -245,6 +255,9 @@ export function DateField({
           readOnly={!onChange || !desktop}
           placeholder={t.shared.datetime.datePlaceholder}
           aria-label={t.shared.datetime.dateAria}
+          id={id}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           role="combobox"
           aria-expanded={open}
           className={cn(
@@ -318,11 +331,14 @@ export function TimeField({
   value,
   onChange,
   className,
+  id,
+  invalid,
+  describedBy,
 }: {
   value: string;
   onChange?: (v: string) => void;
   className?: string;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState<string | null>(null);
@@ -357,7 +373,18 @@ export function TimeField({
     // field padding left too little room — the value ("10:00 PM") was cut off
     // in the narrow time column at 390px. Read-only keeps the icon: a plain
     // span has no native indicator.
-    return <Field icon={onChange ? undefined : 'clock'} type="time" value={value} onChange={onChange} className={className} />;
+    return (
+      <Field
+        icon={onChange ? undefined : 'clock'}
+        type="time"
+        value={value}
+        onChange={onChange}
+        className={className}
+        id={id}
+        invalid={invalid}
+        describedBy={describedBy}
+      />
+    );
   }
 
   return (
@@ -368,7 +395,14 @@ export function TimeField({
           setOpen(true);
           inputRef.current?.focus();
         }}
-        className={cn(fieldShell, onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default', open && 'border-acc')}
+        data-field-shell
+        className={cn(
+          fieldShell,
+          fieldScrollMargin,
+          onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default',
+          open && 'border-acc',
+          invalid && fieldErrorBorder,
+        )}
       >
         <span className="text-faint">
           <Icon name="clock" size={19} />
@@ -387,6 +421,9 @@ export function TimeField({
           readOnly={!onChange}
           placeholder={t.shared.datetime.emptyTime}
           aria-label={t.shared.datetime.hourAria}
+          id={id}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           role="combobox"
           aria-expanded={open}
           inputMode="numeric"
