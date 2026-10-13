@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
 import { sendInviteEmail } from '@/features/auth/invite-mail';
+import { INVITE_RECENTLY_SENT_MESSAGE } from '@/lib/db-errors';
+import { adeOfferOpen } from './ade';
 import { betaInviteSchema, platformInviteIdSchema } from './schemas';
 
 /**
@@ -153,10 +155,16 @@ async function resendOpenInvite(
   return 'sent';
 }
 
-/** The resend copy for every outcome but 'sent'; 'denied' never reads as a rate limit. */
+/**
+ * The resend copy for every outcome but 'sent'; 'denied' never reads as a rate
+ * limit. 'recent' (the per-address 60 s window) has its own, expected copy;
+ * 'limited' (the hourly per-admin budget) keeps RESEND_RATE_LIMITED, which
+ * stays a Sentry issue on purpose.
+ */
 function resendFailureText(outcome: Exclude<ResendOutcome, 'sent'>): string {
   if (outcome === 'denied') return NOT_ALLOWED;
   if (outcome === 'failed') return RESEND_MAIL_FAILED;
+  if (outcome === 'recent') return INVITE_RECENTLY_SENT_MESSAGE;
   return RESEND_RATE_LIMITED;
 }
 
@@ -187,12 +195,15 @@ async function reinviteOpenAddress(
   // Through RLS, matched like the unique index: lower(email), open rows only.
   // ILIKE with the wildcards escaped is the PostgREST spelling of
   // lower(email) = lower($1); `email` is already lowercased by Zod.
-  const { data: open } = await supabase
+  const { data: open, error: lookupError } = await supabase
     .from('platform_invites')
     .select('id, email, note, free_until_ade')
     .ilike('email', likeLiteral(input.email))
     .is('revoked_at', null)
     .maybeSingle();
+  // Code only, never the address: tells "the query broke" apart from "the row
+  // vanished" afterwards.
+  if (lookupError) console.error('reinviteOpenAddress: lookup failed', { code: lookupError.code });
   // Revoked in between (or invisible): nothing to resend. A retry now inserts.
   if (!open || !open.email || open.email.toLowerCase() !== input.email) {
     return { ok: false, error: GENERIC_FAILURE };
@@ -204,7 +215,10 @@ async function reinviteOpenAddress(
 
   // An empty note on the second form is "nothing new", not a different note.
   const noteDiffers = input.note != null && input.note !== open.note;
-  const kept = noteDiffers || open.free_until_ade !== input.freeUntilAde;
+  // After ADE the form hides the toggle and always sends false: no intent to
+  // change it, so only count an ADE difference while the offer is open.
+  const adeDiffers = adeOfferOpen() && open.free_until_ade !== input.freeUntilAde;
+  const kept = noteDiffers || adeDiffers;
   return { ok: true, message: kept ? REINVITE_SENT_KEPT : REINVITE_SENT };
 }
 

@@ -6,7 +6,7 @@
  * fails here instead of silently reopening the Sentry issue.
  */
 import { describe, it, expect } from 'vitest';
-import { asExpectedMutationError, OPEN_INVITE_EXISTS_MESSAGE } from './db-errors';
+import { asExpectedMutationError, INVITE_RECENTLY_SENT_MESSAGE, OPEN_INVITE_EXISTS_MESSAGE } from './db-errors';
 
 describe('open-invite refusal', () => {
   it('is the exact action copy, curly apostrophe included', () => {
@@ -22,5 +22,17 @@ describe('open-invite refusal', () => {
   it('only that exact copy: a straight apostrophe or another sentence stays reportable', () => {
     expect(asExpectedMutationError(new Error("There's already an open invite for this email."))).toBeNull();
     expect(asExpectedMutationError(new Error('There’s already an open invite for this email. Oops'))).toBeNull();
+  });
+});
+
+describe('platform invite inside the 60 s per-address window (z8uq9m5enh review)', () => {
+  it('is an expected error as the Error po/mutations.ts rethrows', () => {
+    expect(asExpectedMutationError(new Error(INVITE_RECENTLY_SENT_MESSAGE))).toEqual({
+      message: 'Too many invite emails to this address just now. Try again in a minute.',
+    });
+  });
+
+  it('the hourly per-admin budget copy stays reportable: a spent budget is the stolen-session signal', () => {
+    expect(asExpectedMutationError(new Error('Too many invite emails just now. Try again in a bit.'))).toBeNull();
   });
 });

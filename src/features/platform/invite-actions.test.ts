@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi, type Mock } from 'vitest';
 import {
   inviteBetaCustomerAction,
   resendBetaInviteAction,
@@ -373,7 +373,7 @@ describe('inviteBetaCustomerAction on an address with an open invite (z8uq9m5enh
 
     const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
 
-    expect(res).toEqual({ ok: false, error: 'Too many invite emails just now. Try again in a bit.' });
+    expect(res).toEqual({ ok: false, error: 'Too many invite emails to this address just now. Try again in a minute.' });
     expect(table.update).not.toHaveBeenCalled();
     expect(callLog.filter((c) => c === 'rpc:consume_platform_invite_throttle')).toHaveLength(1);
   });
@@ -400,11 +400,46 @@ describe('inviteBetaCustomerAction on an address with an open invite (z8uq9m5enh
     expect(table.update).not.toHaveBeenCalled();
   });
 
+  it('logs a failed lookup by code only, then answers the generic failure', async () => {
+    const { client, selectChain } = makeClient({ insertError: DUP });
+    selectChain.maybeSingle.mockResolvedValueOnce({ data: null, error: { code: 'PGRST116', message: 'x' } });
+    (createClient as Mock).mockResolvedValue(client);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(res).toEqual({ ok: false, error: 'Something went wrong. Try again.' });
+    expect(log).toHaveBeenCalledWith('reinviteOpenAddress: lookup failed', { code: 'PGRST116' });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('klant@venue.test');
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('after ADE, an ADE invite re-sent from the toggle-less form is not "different"', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-28T12:00:00+01:00'));
+    try {
+      const { client } = makeClient({ insertError: DUP, selectRow: { ...OPEN_ROW, free_until_ade: true } });
+      (createClient as Mock).mockResolvedValue(client);
+
+      const res = await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test'));
+
+      expect(res).toEqual({ ok: true, message: 'Already invited. Sent the invite again.' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     ['a different note', inviteForm('klant@venue.test', 'via Joeri'), OPEN_ROW],
     ['a different ADE choice', inviteForm('klant@venue.test', undefined, 'true'), OPEN_ROW],
     ['ADE unticked on an ADE invite', inviteForm('klant@venue.test'), { ...OPEN_ROW, free_until_ade: true }],
   ])('%s: the row keeps its own values and the message says so', async (_label, form, row) => {
+    // While the ADE offer is open (the toggle is on the form).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T12:00:00+02:00'));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const { client, table } = makeClient({ insertError: DUP, selectRow: row });
     (createClient as Mock).mockResolvedValue(client);
 

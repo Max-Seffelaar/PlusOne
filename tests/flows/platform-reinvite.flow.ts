@@ -125,7 +125,7 @@ test.describe('platform re-invite', () => {
 
     await sendInvite(page, invitee);
     await flow.check(2, 'Same address again within 60 s: the rate-limit message, no second mail, last_sent_at unchanged', async () => {
-      await expect(sendAlert(page)).toHaveText('Too many invite emails just now. Try again in a bit.');
+      await expect(sendAlert(page)).toHaveText('Too many invite emails to this address just now. Try again in a minute.');
       expect(await mailCount(invitee, 2)).toBe(1);
       const rows = await openRows(invitee);
       expect(rows).toHaveLength(1);
