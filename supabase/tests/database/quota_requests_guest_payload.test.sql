@@ -614,8 +614,8 @@ select ok(
   not has_function_privilege('authenticated', 'public.run_quota_request_payload_retention()', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.quota_requester_guest_block(uuid, uuid)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.redact_quota_request_payload_audit(uuid[])', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.approve_quota_request(uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.approve_quota_request(uuid)', 'EXECUTE'),
+  and has_function_privilege('authenticated', 'public.approve_quota_request(uuid, integer, uuid, integer)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.approve_quota_request(uuid, integer, uuid, integer)', 'EXECUTE'),
   'G8 helpers are owner-only; approve_quota_request keeps its ACL');
 
 select * from finish();

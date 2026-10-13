@@ -1849,6 +1849,9 @@ export type Database = {
       }
       quota_requests: {
         Row: {
+          approved_extra: number | null
+          approved_plus_ones: number | null
+          approved_tier_id: string | null
           created_at: string
           decided_at: string | null
           decided_by: string | null
@@ -1865,6 +1868,9 @@ export type Database = {
           venue_id: string
         }
         Insert: {
+          approved_extra?: number | null
+          approved_plus_ones?: number | null
+          approved_tier_id?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -1881,6 +1887,9 @@ export type Database = {
           venue_id: string
         }
         Update: {
+          approved_extra?: number | null
+          approved_plus_ones?: number | null
+          approved_tier_id?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -2694,7 +2703,12 @@ export type Database = {
         Returns: string
       }
       approve_quota_request: {
-        Args: { p_request_id: string }
+        Args: {
+          p_extra?: number
+          p_plus_ones?: number
+          p_request_id: string
+          p_tier_id?: string
+        }
         Returns: undefined
       }
       audit_changed: { Args: { p_new: Json; p_old: Json }; Returns: Json }
