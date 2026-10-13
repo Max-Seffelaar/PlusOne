@@ -39,12 +39,12 @@
   }
   ```
 
-  Daaronder de dev-login-links op poort 7000 en de Ctrl+Shift+R-regel. Prod-push na een merge, ook altijd als één blok, met **alle** timestamps die de dry-run moet tonen (gescheiden door spaties; de functie stopt als de lijst niet exact klopt, les 2026-10-13 bij train #502) en de merge-commit die `git log -1` hoort te tonen:
+  Daaronder de dev-login-links op poort 7000 en de Ctrl+Shift+R-regel. Prod-push na een merge, ook altijd als één blok, met **alle** timestamps die de dry-run moet tonen (als PowerShell-lijst met komma's, `'a','b'`, niet met spaties; de functie stopt als de lijst niet exact klopt, les 2026-10-13 bij train #502) en de merge-commit die `git log -1` hoort te tonen:
 
   ```powershell
   cd C:\Users\Maxse\Documents\GitHub\PlusOne
   git switch main; git pull --ff-only; git log -1 --oneline
-  Push-PlusOneProd <alle pending timestamps, gescheiden door spaties>
+  Push-PlusOneProd '<ts1>','<ts2>'   # alle pending timestamps, PowerShell-lijst met komma's
   ```
 
   `Push-PlusOneProd` is Max' eigen functie (niet in de repo); de orchestrator verifieert daarna op prod (`list_migrations` + functies/grants) en schrijft het resultaat in §2b. Workers leveren het testscript in hun eindrapport al in deze vorm.
