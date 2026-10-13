@@ -6,7 +6,7 @@
  * (CLAUDE.md security checklist: "Errors returned to the client are generic").
  */
 
-import { firstIssueField } from './field-error';
+import { firstIssueField, issueFields, type FieldMessages } from './field-error';
 
 export interface MutationError {
   ok: false;
@@ -16,6 +16,13 @@ export interface MutationError {
   message: string;
   /** The form field this is about (a schema key, never user input), when it is about one (z8uq9m5eb7). */
   field?: string;
+  /**
+   * Every field a refused input marks, with its own message, when it is more
+   * than one (z8uq9m5m8g). `field` stays the first of them, so a caller that
+   * only reads `field` keeps working; the form marks all and focuses the first
+   * in its own order.
+   */
+  fields?: FieldMessages;
 }
 
 interface PostgrestLikeError {
@@ -104,9 +111,14 @@ export const invalidInput = (message = 'Check the details you entered.', field?:
   ...(field ? { field } : {}),
 });
 
-/** A failed Zod parse as invalidInput: the first issue's message, and its field when the path names one. */
-export const invalidIssues = (error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] }): MutationError =>
-  invalidInput(error.issues[0]?.message, firstIssueField(error.issues));
+/**
+ * A failed Zod parse as invalidInput: the first issue's message, and its field
+ * when the path names one; plus every other field with an issue in `fields`.
+ */
+export const invalidIssues = (error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] }): MutationError => {
+  const fields = issueFields(error.issues);
+  return { ...invalidInput(error.issues[0]?.message, firstIssueField(error.issues)), ...(fields ? { fields } : {}) };
+};
 
 /** RLS silently filtered the row out of the write (0 rows, no Postgrest error) — not a false success. */
 export const notFound = (): MutationError => ({

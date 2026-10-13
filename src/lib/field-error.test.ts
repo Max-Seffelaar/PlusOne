@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { invalidInput, invalidIssues, mapMutationError } from './db-errors';
-import { FieldActionError, errorField, firstIssueField } from './field-error';
+import { FieldActionError, errorField, errorFields, firstIssueField, issueFields } from './field-error';
 import { createEventSchema, updateEventSchema } from '@/features/events/schemas';
 import { t } from '@/lib/i18n';
 
@@ -86,5 +86,41 @@ describe('FieldActionError', () => {
     expect(errorField(new FieldActionError('Something went wrong. Try again.'))).toBeUndefined();
     expect(errorField(new Error('x'))).toBeUndefined();
     expect(errorField('x')).toBeUndefined();
+  });
+});
+
+describe('every field with an issue (z8uq9m5m8g)', () => {
+  const schema = z.object({ a: z.string().min(1, 'A'), b: z.string().min(1, 'B'), c: z.string().min(1, 'C') });
+
+  it('invalidIssues names the first field and lists every field with its first message', () => {
+    const r = schema.safeParse({ a: '', b: 'ok', c: '' });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(invalidIssues(r.error)).toEqual({ ok: false, code: 'invalid', message: 'A', field: 'a', fields: { a: 'A', c: 'C' } });
+    }
+  });
+
+  it('one field keeps the old shape: no `fields`', () => {
+    const r = schema.safeParse({ a: 'ok', b: '', c: 'ok' });
+    if (!r.success) expect(invalidIssues(r.error)).toEqual({ ok: false, code: 'invalid', message: 'B', field: 'b' });
+  });
+
+  it('issueFields keeps the first message per key and skips root-level issues', () => {
+    expect(
+      issueFields([
+        { path: ['x'], message: 'first' },
+        { path: ['x'], message: 'second' },
+        { path: [], message: 'root' },
+        { path: ['y', 0], message: 'nested' },
+      ]),
+    ).toEqual({ x: 'first', y: 'nested' });
+    expect(issueFields([{ path: ['x'], message: 'only' }])).toBeUndefined();
+  });
+
+  it('FieldActionError carries fields; errorFields reads them, plain errors give undefined', () => {
+    const e = new FieldActionError('A', 'a', { a: 'A', c: 'C' });
+    expect(errorFields(e)).toEqual({ a: 'A', c: 'C' });
+    expect(errorFields(new Error('x'))).toBeUndefined();
+    expect(new FieldActionError('A', 'a').fields).toBeUndefined();
   });
 });
