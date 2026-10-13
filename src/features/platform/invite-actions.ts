@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
 import { sendInviteEmail } from '@/features/auth/invite-mail';
+import { INVITE_RECENTLY_SENT_MESSAGE } from '@/lib/db-errors';
+import { adeOfferOpen } from './ade';
 import { betaInviteSchema, platformInviteIdSchema } from './schemas';
 
 /**
@@ -55,9 +57,9 @@ const GENERIC_FAILURE = 'Something went wrong. Try again.';
 /**
  * The mail is the whole deliverable here — unlike a crew invite, the row grants
  * nothing, so "row written, mail not delivered" is a FAILURE the operator has to
- * see. It is also recoverable: the row holds the unique-index slot, so a plain
- * retry of the invite would only ever answer "already an open invite". Every
- * undelivered path therefore names Resend as the way out instead of "try again".
+ * see. It is also recoverable: the row holds the unique-index slot, and both
+ * Resend and a second "Send invite" for the same address re-send it
+ * (z8uq9m5enh). The copy names Resend, the button that sits on the row.
  */
 const MAIL_FAILED_USE_RESEND =
   'Invite recorded, but the email could not be delivered. Use Resend to try again.';
@@ -65,6 +67,10 @@ const MAIL_BUDGET_USE_RESEND =
   'Invite recorded, but the hourly email limit is reached. Use Resend a bit later.';
 const RESEND_MAIL_FAILED = "Couldn't send the invite email. Try again in a moment.";
 const RESEND_RATE_LIMITED = 'Too many invite emails just now. Try again in a bit.';
+/** "Send invite" on an address with an open invite = a resend (z8uq9m5enh). */
+const REINVITE_SENT = 'Already invited. Sent the invite again.';
+const REINVITE_SENT_KEPT =
+  "Already invited. Sent the invite again. Kept the first invite's note and ADE setting.";
 
 /** App-layer convenience check; RLS is the real gate on every statement. */
 async function callerIsPlatformAdmin(
@@ -106,6 +112,116 @@ async function consumeMailBudget(
   return data === true ? 'ok' : 'limited';
 }
 
+type ResendOutcome = 'sent' | 'denied' | 'limited' | 'recent' | 'failed';
+
+/**
+ * The one resend path (z8uq9m5enh): budget → mail → `last_sent_at` bump, for an
+ * open row the caller has ALREADY read through RLS. Shared by the Resend button
+ * and by "Send invite" on an address that already has an open invite, so both
+ * spend the budget exactly once and record the same audited "resent".
+ *
+ * Order (review #437): the budget before the mail (a rate-limited resend must
+ * not claim it sent something), the mail before the bump (a resend refused
+ * inside the 60-second window, or whose mail failed, must not leave an audited
+ * "resent" behind for a mail that never went out).
+ */
+async function resendOpenInvite(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  invite: { id: string; email: string }
+): Promise<ResendOutcome> {
+  const budget = await consumeMailBudget(supabase);
+  if (budget !== 'ok') return budget;
+
+  // A fresh mail with a fresh one-time link: the old one may have expired
+  // (GoTrue caps it at 24 hours), and generateLink replaces it.
+  const sent = await sendInviteEmail(invite.email, {
+    seedName: false,
+    companyInviteMail: { inviterName: await inviterName(supabase, userId) },
+  });
+  // A resend exists only to send mail, so any undelivered mail is a failure.
+  if (!sent.ok) return sent.reason === 'recent' ? 'recent' : 'failed';
+
+  // The bump is what the audit log records as "resent"; the guard trigger
+  // rejects any attempt to change the identity columns alongside it. The
+  // mail already went, so a failed bump (a revoke landing in between) is
+  // logged, not reported as a failed resend.
+  const { error, count } = await supabase
+    .from('platform_invites')
+    .update({ last_sent_at: new Date().toISOString() }, { count: 'exact' })
+    .eq('id', invite.id)
+    .is('revoked_at', null);
+  if (error || !count) console.error('resendBetaInvite: last_sent_at not bumped', { code: error?.code });
+  return 'sent';
+}
+
+/**
+ * The resend copy for every outcome but 'sent'; 'denied' never reads as a rate
+ * limit. 'recent' (the per-address 60 s window) has its own, expected copy;
+ * 'limited' (the hourly per-admin budget) keeps RESEND_RATE_LIMITED, which
+ * stays a Sentry issue on purpose.
+ */
+function resendFailureText(outcome: Exclude<ResendOutcome, 'sent'>): string {
+  if (outcome === 'denied') return NOT_ALLOWED;
+  if (outcome === 'failed') return RESEND_MAIL_FAILED;
+  if (outcome === 'recent') return INVITE_RECENTLY_SENT_MESSAGE;
+  return RESEND_RATE_LIMITED;
+}
+
+/**
+ * LIKE pattern that matches `value` literally. "_" passes Zod's email check, so
+ * it must not act as a wildcard; "%" and "\\" are escaped for safety. PostgREST
+ * also reads "*" as "%", but Zod's email check refuses "*" before we get here.
+ */
+function likeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * "Send invite" on an address that already has an open invite (the insert hit
+ * `platform_invites_open_unique`). Only reached after the platform-admin probe
+ * and the insert attempt, so a caller without access never gets here — they
+ * get NOT_ALLOWED and no "already invited" signal.
+ *
+ * The existing row wins: the second form's note and "Free until end of ADE"
+ * are NOT written to it (note is operator history; free_until_ade is frozen by
+ * the guard trigger once set). If they differ, the message says so.
+ */
+async function reinviteOpenAddress(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  input: { email: string; note: string | null | undefined; freeUntilAde: boolean }
+): Promise<PlatformActionState> {
+  // Through RLS, matched like the unique index: lower(email), open rows only.
+  // ILIKE with the wildcards escaped is the PostgREST spelling of
+  // lower(email) = lower($1); `email` is already lowercased by Zod.
+  const { data: open, error: lookupError } = await supabase
+    .from('platform_invites')
+    .select('id, email, note, free_until_ade')
+    .ilike('email', likeLiteral(input.email))
+    .is('revoked_at', null)
+    .maybeSingle();
+  // Code only, never the address: tells "the query broke" apart from "the row
+  // vanished" afterwards.
+  if (lookupError) console.error('reinviteOpenAddress: lookup failed', { code: lookupError.code });
+  // Revoked in between (or invisible): nothing to resend. A retry now inserts.
+  if (!open || !open.email || open.email.toLowerCase() !== input.email) {
+    return { ok: false, error: GENERIC_FAILURE };
+  }
+
+  const sent = await resendOpenInvite(supabase, userId, { id: open.id, email: open.email });
+  revalidatePath('/app');
+  if (sent !== 'sent') return { ok: false, error: resendFailureText(sent) };
+
+  // An empty note on the second form is "nothing new", not a different note.
+  const noteDiffers = input.note != null && input.note !== open.note;
+  // After ADE the form hides the toggle and always sends false: no intent to
+  // change it, so only count an ADE difference while the offer is open.
+  const adeDiffers = adeOfferOpen() && open.free_until_ade !== input.freeUntilAde;
+  const kept = noteDiffers || adeDiffers;
+  return { ok: true, message: kept ? REINVITE_SENT_KEPT : REINVITE_SENT };
+}
+
 /** Invite a customer to the open beta. */
 export async function inviteBetaCustomerAction(
   _prev: PlatformActionState,
@@ -138,7 +254,11 @@ export async function inviteBetaCustomerAction(
 
   if (insertError) {
     if (insertError.code === '23505') {
-      return { ok: false, error: 'There’s already an open invite for this email.' };
+      // The address already has an open invite. For the operator, inviting
+      // someone again means sending it again (z8uq9m5enh), so this is a
+      // resend of THAT row: same helper, same budget (consumed once, below),
+      // same mail-then-bump order. Nothing from this second form is written.
+      return reinviteOpenAddress(supabase, user.id, { email, note, freeUntilAde });
     }
     // Message only — the address never reaches the logs.
     console.error('inviteBetaCustomer: insert failed', insertError.message);
@@ -204,37 +324,9 @@ export async function resendBetaInviteAction(
   // left to mail and is frozen in the DB: answer it like a revoked one.
   if (!invite || invite.revoked_at || !invite.email) return { ok: false, error: NOT_ALLOWED };
 
-  // Budget after the lookup (an unknown id costs nothing) and before the mail
-  // (a rate-limited resend must not claim it sent something).
-  const budget = await consumeMailBudget(supabase);
-  if (budget !== 'ok') {
-    return { ok: false, error: budget === 'denied' ? NOT_ALLOWED : RESEND_RATE_LIMITED };
-  }
-
-  // A fresh mail with a fresh one-time link: the old one may have expired
-  // (GoTrue caps it at 24 hours), and generateLink replaces it. The mail goes
-  // first and the bump after it (review #437): a resend refused inside the
-  // 60-second window, or one whose mail failed, must not leave an audited
-  // "resent" behind for a mail that never went out.
-  const sent = await sendInviteEmail(invite.email, {
-    seedName: false,
-    companyInviteMail: { inviterName: await inviterName(supabase, user.id) },
-  });
-  // A resend exists only to send mail, so any undelivered mail is a failure.
-  if (!sent.ok) {
-    return { ok: false, error: sent.reason === 'recent' ? RESEND_RATE_LIMITED : RESEND_MAIL_FAILED };
-  }
-
-  // The bump is what the audit log records as "resent"; the guard trigger
-  // rejects any attempt to change the identity columns alongside it. The
-  // mail already went, so a failed bump (a revoke landing in between) is
-  // logged, not reported as a failed resend.
-  const { error, count } = await supabase
-    .from('platform_invites')
-    .update({ last_sent_at: new Date().toISOString() }, { count: 'exact' })
-    .eq('id', invite.id)
-    .is('revoked_at', null);
-  if (error || !count) console.error('resendBetaInvite: last_sent_at not bumped', { code: error?.code });
+  // Budget after the lookup (an unknown id costs nothing).
+  const sent = await resendOpenInvite(supabase, user.id, { id: invite.id, email: invite.email });
+  if (sent !== 'sent') return { ok: false, error: resendFailureText(sent) };
 
   revalidatePath('/app');
   return { ok: true, message: 'Invite re-sent.' };

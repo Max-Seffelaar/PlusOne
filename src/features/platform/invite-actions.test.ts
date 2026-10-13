@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi, type Mock } from 'vitest';
 import {
   inviteBetaCustomerAction,
   resendBetaInviteAction,
@@ -22,7 +22,13 @@ interface ClientOpts {
   isPlatformAdmin?: boolean;
   withinBudget?: boolean;
   insertError?: { code?: string; message: string } | null;
-  selectRow?: { id: string; email: string; revoked_at: string | null } | null;
+  selectRow?: {
+    id: string;
+    email: string;
+    revoked_at?: string | null;
+    note?: string | null;
+    free_until_ade?: boolean;
+  } | null;
   updateCount?: number;
   /** The acting platform admin's profile name (the mail's "{inviter}"). */
   inviterName?: string | null;
@@ -58,11 +64,15 @@ function makeClient(opts: ClientOpts = {}) {
   interface SelectChain {
     select: Mock;
     eq: Mock;
+    ilike: Mock;
+    is: Mock;
     maybeSingle: Mock;
   }
   const selectChain: SelectChain = {
     select: vi.fn(() => selectChain),
     eq: vi.fn(() => selectChain),
+    ilike: vi.fn(() => selectChain),
+    is: vi.fn(() => selectChain),
     maybeSingle: vi.fn(async () => {
       callLog.push('select');
       return { data: opts.selectRow ?? null, error: null };
@@ -105,6 +115,8 @@ function makeClient(opts: ClientOpts = {}) {
     },
     callLog,
     table,
+    selectChain,
+    updateChain,
   };
 }
 
@@ -199,17 +211,6 @@ describe('inviteBetaCustomerAction', () => {
     });
   });
 
-  it('refuses a duplicate open invite and never sends mail', async () => {
-    const { client } = makeClient({ insertError: { code: '23505', message: 'dup' } });
-    (createClient as Mock).mockResolvedValue(client);
-
-    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
-
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/already an open invite/i);
-    expect(sendInviteEmail).not.toHaveBeenCalled();
-  });
-
   it('succeeds for an already-existing account (magic-link fallback delivered)', async () => {
     const { client } = makeClient();
     (createClient as Mock).mockResolvedValue(client);
@@ -268,15 +269,6 @@ describe('inviteBetaCustomerAction', () => {
     );
   });
 
-  it('does not burn budget on a duplicate address', async () => {
-    const { client, callLog } = makeClient({ insertError: { code: '23505', message: 'dup' } });
-    (createClient as Mock).mockResolvedValue(client);
-
-    await inviteBetaCustomerAction({ ok: false }, inviteForm());
-
-    expect(callLog).not.toContain('rpc:consume_platform_invite_throttle');
-  });
-
   it('does not burn budget on input Zod rejects', async () => {
     const { client, callLog } = makeClient();
     (createClient as Mock).mockResolvedValue(client);
@@ -294,6 +286,208 @@ describe('inviteBetaCustomerAction', () => {
 
     expect(res.ok).toBe(false);
     expect(table.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('inviteBetaCustomerAction on an address with an open invite (z8uq9m5enh)', () => {
+  const DUP = { code: '23505', message: 'duplicate key value violates unique constraint' };
+  const OPEN_ROW = {
+    id: INVITE_ID,
+    email: 'klant@venue.test',
+    revoked_at: null,
+    note: null,
+    free_until_ade: false,
+  };
+
+  it('re-sends that invite: one budget call, one mail, one bump, ok', async () => {
+    const { client, callLog, table, updateChain } = makeClient({ insertError: DUP, selectRow: OPEN_ROW });
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockImplementation(async () => {
+      callLog.push('mail');
+      return { ok: true };
+    });
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm('  Klant@Venue.TEST '));
+
+    expect(res).toEqual({ ok: true, message: 'Already invited. Sent the invite again.' });
+    expect(callLog.filter((c) => c === 'rpc:consume_platform_invite_throttle')).toHaveLength(1);
+    expect(sendInviteEmail).toHaveBeenCalledTimes(1);
+    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', COMPANY_MAIL);
+    expect(table.update).toHaveBeenCalledTimes(1);
+    // The bump writes last_sent_at only, on the open row it looked up.
+    const patch = (table.update as Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(Object.keys(patch)).toEqual(['last_sent_at']);
+    expect(updateChain.eq).toHaveBeenCalledWith('id', INVITE_ID);
+    // Same order as Resend: insert attempt → lookup → budget → mail → bump.
+    expect(callLog).toEqual([
+      'rpc:is_platform_admin',
+      'insert',
+      'select',
+      'rpc:consume_platform_invite_throttle',
+      'mail',
+      'update',
+    ]);
+  });
+
+  it('looks the row up through the user-scoped client like the index: lowercased, open only', async () => {
+    const { client, selectChain } = makeClient({ insertError: DUP, selectRow: OPEN_ROW });
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteBetaCustomerAction({ ok: false }, inviteForm('Klant@Venue.TEST'));
+
+    expect(selectChain.ilike).toHaveBeenCalledWith('email', 'klant@venue.test');
+    expect(selectChain.is).toHaveBeenCalledWith('revoked_at', null);
+  });
+
+  it('escapes "_" so it never matches another address as a wildcard', async () => {
+    const { client, selectChain } = makeClient({
+      insertError: DUP,
+      selectRow: { ...OPEN_ROW, email: 'a_b@venue.test' },
+    });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm('a_b@venue.test'));
+
+    expect(selectChain.ilike).toHaveBeenCalledWith('email', 'a\\_b@venue.test');
+    expect(res.ok).toBe(true);
+  });
+
+  it('never mails a row whose address is not the one typed', async () => {
+    const { client, table } = makeClient({
+      insertError: DUP,
+      selectRow: { ...OPEN_ROW, email: 'other@venue.test' },
+    });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test'));
+
+    expect(res.ok).toBe(false);
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+    expect(table.update).not.toHaveBeenCalled();
+  });
+
+  it("inside the recipient window: the rate-limit copy and no bump (review #437)", async () => {
+    const { client, table, callLog } = makeClient({ insertError: DUP, selectRow: OPEN_ROW });
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'recent' });
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(res).toEqual({ ok: false, error: 'Too many invite emails to this address just now. Try again in a minute.' });
+    expect(table.update).not.toHaveBeenCalled();
+    expect(callLog.filter((c) => c === 'rpc:consume_platform_invite_throttle')).toHaveLength(1);
+  });
+
+  it('with the budget spent: the rate-limit copy, no mail, no bump', async () => {
+    const { client, table } = makeClient({ insertError: DUP, selectRow: OPEN_ROW, withinBudget: false });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(res).toEqual({ ok: false, error: 'Too many invite emails just now. Try again in a bit.' });
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+    expect(table.update).not.toHaveBeenCalled();
+  });
+
+  it('a failed mail is the resend failure copy, no bump', async () => {
+    const { client, table } = makeClient({ insertError: DUP, selectRow: OPEN_ROW });
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'notify' });
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(res).toEqual({ ok: false, error: "Couldn't send the invite email. Try again in a moment." });
+    expect(table.update).not.toHaveBeenCalled();
+  });
+
+  it('logs a failed lookup by code only, then answers the generic failure', async () => {
+    const { client, selectChain } = makeClient({ insertError: DUP });
+    selectChain.maybeSingle.mockResolvedValueOnce({ data: null, error: { code: 'PGRST116', message: 'x' } });
+    (createClient as Mock).mockResolvedValue(client);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(res).toEqual({ ok: false, error: 'Something went wrong. Try again.' });
+    expect(log).toHaveBeenCalledWith('reinviteOpenAddress: lookup failed', { code: 'PGRST116' });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('klant@venue.test');
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('after ADE, an ADE invite re-sent from the toggle-less form is not "different"', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-28T12:00:00+01:00'));
+    try {
+      const { client } = makeClient({ insertError: DUP, selectRow: { ...OPEN_ROW, free_until_ade: true } });
+      (createClient as Mock).mockResolvedValue(client);
+
+      const res = await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test'));
+
+      expect(res).toEqual({ ok: true, message: 'Already invited. Sent the invite again.' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['a different note', inviteForm('klant@venue.test', 'via Joeri'), OPEN_ROW],
+    ['a different ADE choice', inviteForm('klant@venue.test', undefined, 'true'), OPEN_ROW],
+    ['ADE unticked on an ADE invite', inviteForm('klant@venue.test'), { ...OPEN_ROW, free_until_ade: true }],
+  ])('%s: the row keeps its own values and the message says so', async (_label, form, row) => {
+    // While the ADE offer is open (the toggle is on the form).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T12:00:00+02:00'));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { client, table } = makeClient({ insertError: DUP, selectRow: row });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await inviteBetaCustomerAction({ ok: false }, form);
+
+    expect(res.ok).toBe(true);
+    expect(res.message).toBe("Already invited. Sent the invite again. Kept the first invite's note and ADE setting.");
+    // The only write is the last_sent_at bump: note / free_until_ade never move.
+    expect(table.update).toHaveBeenCalledTimes(1);
+    const patch = (table.update as Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(patch).not.toHaveProperty('note');
+    expect(patch).not.toHaveProperty('free_until_ade');
+  });
+
+  it('an empty note on the second form is not "different"', async () => {
+    const { client } = makeClient({ insertError: DUP, selectRow: { ...OPEN_ROW, note: 'ADE stand' } });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm('klant@venue.test', '  '));
+
+    expect(res.message).toBe('Already invited. Sent the invite again.');
+  });
+
+  it('the open row vanished (revoked in between): generic failure, nothing spent or sent', async () => {
+    const { client, callLog } = makeClient({ insertError: DUP, selectRow: null });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(res).toEqual({ ok: false, error: 'Something went wrong. Try again.' });
+    expect(callLog).not.toContain('rpc:consume_platform_invite_throttle');
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('a non-platform-admin gets NOT_ALLOWED before the insert: no "already invited", no rate limit', async () => {
+    const { client, table, callLog } = makeClient({
+      isPlatformAdmin: false,
+      insertError: DUP,
+      selectRow: OPEN_ROW,
+    });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(res).toEqual({ ok: false, error: "You don't have access to this." });
+    expect(table.insert).not.toHaveBeenCalled();
+    expect(callLog).toEqual(['rpc:is_platform_admin']);
+    expect(sendInviteEmail).not.toHaveBeenCalled();
   });
 });
 
