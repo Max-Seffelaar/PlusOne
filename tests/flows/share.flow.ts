@@ -1,4 +1,4 @@
-import { test, expect, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY } from './harness';
+import { test, expect, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY, pickKitOption } from './harness';
 import type { Request } from '@playwright/test';
 import { acceptConsent, adminClient } from '../e2e/helpers/supabase-admin';
 
@@ -114,13 +114,15 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
 
   const [eventSelect, tierSelect] = [page.getByRole('combobox', { name: 'Event' }), page.getByRole('combobox', { name: 'Tier' })];
   await flow.check(3, 'Event defaults to the next upcoming event (top of the list); the tier picker shows the default tier', async () => {
-    const first = await eventSelect.locator('option').first().getAttribute('value');
-    await expect(eventSelect).toHaveValue(first ?? '');
-    await expect(tierSelect.locator('option:checked')).toHaveText('Regular');
+    await eventSelect.click();
+    await expect(page.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+    await eventSelect.press('Escape');
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expect(tierSelect).toHaveText('Regular');
   });
 
-  await eventSelect.selectOption(SEED_EVENT);
-  await tierSelect.selectOption(VIP_TIER);
+  await pickKitOption(eventSelect, { value: SEED_EVENT });
+  await pickKitOption(tierSelect, { value: VIP_TIER });
   await expect(page.getByTestId('paste-summary')).toBeVisible();
   await flow.shot('preview-vip');
 
@@ -265,7 +267,7 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
   const OVER = `Daan Visser ${tag}`;
   await page.goto(`/app/share?${new URLSearchParams({ text: `${OVER} +1` }).toString()}`);
   await expect(page.locator('textarea')).toHaveValue(`${OVER} +1`);
-  await eventSelect.selectOption(SEED_EVENT);
+  await pickKitOption(eventSelect, { value: SEED_EVENT });
   await expect(page.getByText(/The whole batch is blocked/)).toBeVisible();
   await flow.shot('over-quota');
   await flow.check(11, 'Over quota: the preview says the whole batch is blocked and Add puts nobody on the list', async () => {
@@ -289,7 +291,7 @@ test('share import: shared text lands on Paste a list, imports once, never leaks
   const DENIED = `Lotte Smit ${tag}`;
   await page.goto(`/app/share?${new URLSearchParams({ text: DENIED }).toString()}`);
   await expect(page.locator('textarea')).toHaveValue(DENIED);
-  await page.getByRole('combobox', { name: 'Event' }).selectOption(SEED_EVENT);
+  await pickKitOption(page.getByRole('combobox', { name: 'Event' }), { value: SEED_EVENT });
   await page.getByRole('button', { name: 'Add 1 guest' }).click();
   await expect(page.getByText("You don't have rights for this.")).toBeVisible();
   await flow.shot('no-guest-rights');

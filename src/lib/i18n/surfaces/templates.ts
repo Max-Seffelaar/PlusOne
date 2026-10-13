@@ -28,6 +28,8 @@ export const templates = {
   capacityHint: 'Max people through the door, plus-ones included. Leave empty for no limit.',
   /** Under the location fields (z8uq9m2vqc): the template hands it to new events. */
   locationHint: 'New events from this template start here. Left empty, they start at your default location.',
+  /** Under the "For your guests" block (z8uq9m4pnk): the template hands both texts to new events. */
+  guestTextsHint: 'New events from this template start with these. You can still change them per event.',
   capacityPlaceholder: 'e.g. 1800',
   settingsLabel: 'Default event settings',
   landingTitle: 'Request link on by default',
