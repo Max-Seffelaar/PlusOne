@@ -206,6 +206,7 @@ describe('decideQuotaRequest — an approval whose guest cannot be added rolls b
     ['45005', 'Event zit vol.', t.quotaRequests.guestCapacity],
     ['45007', 'The list is locked for this person, so the guest could not be added. Nothing was changed.', t.quotaRequests.guestListLocked],
     ['45008', "The guest's tier is no longer on this event. Nothing was changed.", t.quotaRequests.guestTierGone],
+    ['45009', 'This person cannot add guests to this event, so the guest could not be added. Nothing was changed.', t.quotaRequests.guestCannotAdd],
   ])('%s maps to catalogue copy that says nothing changed', async (code, dbMessage, copy) => {
     const { rpc } = mockSupabase();
     rpc.mockResolvedValueOnce({ error: { code, message: dbMessage } } as never);

@@ -48,6 +48,8 @@ const APPROVE_GUEST_FAILED: Record<string, string> = {
   '45005': t.quotaRequests.guestCapacity,
   '45007': t.quotaRequests.guestListLocked,
   '45008': t.quotaRequests.guestTierGone,
+  // No guest-writing role (user_manager/finance only) or a cancelled event.
+  '45009': t.quotaRequests.guestCannotAdd,
 };
 
 // Quota-request flow (#4/#5). Staff file; admins decide. Privilege is role-only

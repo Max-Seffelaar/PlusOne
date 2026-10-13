@@ -3437,9 +3437,9 @@ export type Database = {
       push_dispatch_token_valid: { Args: { p_token: string }; Returns: boolean }
       push_outbox_sweep: { Args: never; Returns: number }
       quota_guest_payload_is_valid: { Args: { p: Json }; Returns: boolean }
-      quota_requester_can_add_guests: {
+      quota_requester_guest_block: {
         Args: { p_event_id: string; p_user_id: string }
-        Returns: boolean
+        Returns: string
       }
       record_auth_invite_mail: {
         Args: { p_recipient_hash: string; p_venue_id: string }

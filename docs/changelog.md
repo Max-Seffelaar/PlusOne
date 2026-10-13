@@ -26,6 +26,16 @@ claimed by the open PostHog branches), #5 amended.
   rolls back the override too. Payload retention: nightly
   `run_quota_request_payload_retention` (pg_cron 03:40) + a trigger that takes the
   payload along when the created guest is anonymized; audit diffs scrubbed.
+- **Review #494 round 1:** erasure on request (blocking): anonymizing a contact
+  (`forget_contact`, retention step 6) nulls every payload in that company with
+  the same phone digits, whatever the status (`contacts_anonymize_quota_payload`).
+  Nits: a requester without guest rights or a cancelled event gets 45009 with
+  neutral copy instead of "list locked" (helper now
+  `quota_requester_guest_block`, returns the reason); a malformed `tier_id`
+  reaches the shape CHECK (23514) instead of a 22P02 cast error; approvals take
+  the quota trigger's advisory lock before reading the current quota, so two
+  concurrent approvals for one requester both count; the nightly audit scrub
+  covers this run's ids plus a 7-day window instead of all history. pgTAP 77 → 85.
 - **App:** Add guest's "Request more slots" panel sends the typed guest
   (toggle, on by default); the Requests → Quota card shows "For: {guest} · {tier}";
   Home gets `QuotaUpdatesCard` (`home-updates.tsx`; one line in `home.tsx`);

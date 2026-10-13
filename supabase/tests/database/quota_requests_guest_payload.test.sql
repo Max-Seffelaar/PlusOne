@@ -26,6 +26,10 @@
 --   G. retention: the nightly job nulls payloads of expired events and
 --      scrubs them from the audit diffs; anonymizing the created guest nulls
 --      its payload.
+--   H. review #494: forget_contact erases payloads with the contact's phone
+--      (pending and declined, that company only, audit scrubbed); a requester
+--      who cannot add guests gets 45009, not "list locked"; a malformed
+--      tier_id is a shape error (23514).
 --
 -- Seed (supabase/seed.sql): venue A aa..01 (Max 11.. admin, Noor 22..
 -- user_manager, Femke 33.. finance, Tom 55.. staff, Lisa 66.. doorhost+staff),
@@ -125,7 +129,7 @@ insert into public.quota_requests (id, event_id, user_id, requested_extra, motiv
   ('9e000000-0000-7000-8000-000000000009', 'ee000000-0000-7000-8000-0000000a0001',
    '55555555-5555-4555-8555-555555555555', 1, 'Friend', null);
 
-select plan(77);
+select plan(85);
 
 -- ---------------------------------------------------------------------------
 -- P. Filing a request with a guest
@@ -488,6 +492,83 @@ select lives_ok($$ select public.approve_quota_request('9e000000-0000-7000-8000-
   'F19 the admin can');
 
 -- ---------------------------------------------------------------------------
+-- H. Review #494: erasure on request, neutral refusal, malformed tier, ACL
+-- ---------------------------------------------------------------------------
+-- H1: a tier_id that is no uuid reaches the shape CHECK (23514), not a cast error.
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select throws_ok(
+  $$ insert into public.quota_requests (event_id, user_id, requested_extra, motivation, guest_payload)
+     values ('ee000000-0000-7000-8000-0000000a0001', '55555555-5555-4555-8555-555555555555', 1, 'x',
+             '{"name": "Eve", "plus_ones": 0, "tier_id": "x"}') $$,
+  '23514', null, 'H1 a malformed tier_id is a shape error (23514), not 22P02');
+
+-- H2–H3: a requester who cannot add guests (user_manager only) on an UNLOCKED
+-- list gets the neutral 45009, not "list is locked"; nothing is written.
+select pg_temp.owner();
+insert into public.quota_requests (id, event_id, user_id, requested_extra, motivation, guest_payload) values
+  ('9e000000-0000-7000-8000-000000000010', 'ee000000-0000-7000-8000-0000000a0001',
+   '22222222-2222-4222-8222-222222222222', 1, 'Office guest',
+   '{"name": "Kai", "plus_ones": 0, "tier_id": "dd000000-0000-7000-8000-0000000a1001"}');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok(
+  $$ select public.approve_quota_request('9e000000-0000-7000-8000-000000000010') $$,
+  '45009', null, 'H2 a user_manager-only requester: refused with 45009 (cannot add guests), not 45007');
+select pg_temp.owner();
+select is(
+  (select row(q.status::text, q.guest_id,
+              (select count(*)::int from public.event_quotas eq
+                where eq.event_id = q.event_id and eq.user_id = q.user_id))::text
+     from public.quota_requests q where q.id = '9e000000-0000-7000-8000-000000000010'),
+  row('pending', null::uuid, 0)::text,
+  'H3 ...the request stays pending, no override, no guest');
+
+-- H4–H8: forget_contact takes the payloads with the contact's phone digits
+-- along, pending AND declined, in that company only.
+insert into public.contacts (id, venue_id, full_name, phone, source) values
+  ('c0000000-0000-7000-8000-0000000a2001', 'aa000000-0000-7000-8000-000000000001',
+   'Probe Person', '+31611112222', 'manual');
+insert into public.quota_requests (id, event_id, user_id, requested_extra, motivation, guest_payload) values
+  ('9e000000-0000-7000-8000-000000000011', 'ee000000-0000-7000-8000-0000000a0001',
+   '55555555-5555-4555-8555-555555555555', 1, 'Pending with phone',
+   '{"name": "Probe Person", "plus_ones": 0, "tier_id": "dd000000-0000-7000-8000-0000000a1001", "phone": "+31 6 1111 2222"}'),
+  ('9e000000-0000-7000-8000-000000000012', 'ee000000-0000-7000-8000-0000000a0001',
+   '55555555-5555-4555-8555-555555555555', 1, 'Declined with phone',
+   '{"name": "Probe Person", "plus_ones": 1, "tier_id": "dd000000-0000-7000-8000-0000000a1001", "phone": "+31611112222"}'),
+  ('9e000000-0000-7000-8000-000000000013', 'ee000000-0000-7000-8000-0000000a0001',
+   '55555555-5555-4555-8555-555555555555', 1, 'Someone else',
+   '{"name": "Other Person", "plus_ones": 0, "tier_id": "dd000000-0000-7000-8000-0000000a1001", "phone": "+31699998888"}'),
+  ('9e000000-0000-7000-8000-000000000014', 'ee000000-0000-7000-8000-0000000a0003',
+   '11111111-1111-4111-8111-111111111111', 1, 'Other company, same phone',
+   '{"name": "Probe Person", "plus_ones": 0, "tier_id": "dd000000-0000-7000-8000-0000000a1004", "phone": "+31611112222"}');
+update public.quota_requests
+   set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
+       decision_reason = 'Full'
+ where id = '9e000000-0000-7000-8000-000000000012';
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok($$ select public.forget_contact('c0000000-0000-7000-8000-0000000a2001') $$,
+  'H4 the admin erases the contact (forget_contact)');
+select pg_temp.owner();
+select is(
+  (select count(*)::int from public.quota_requests
+    where id in ('9e000000-0000-7000-8000-000000000011', '9e000000-0000-7000-8000-000000000012')
+      and guest_payload is null),
+  2, 'H5 the pending and the declined payload with that phone are gone (name and phone)');
+select is(
+  (select count(*)::int from public.audit_log
+    where entity_type = 'quota_requests'
+      and entity_id in ('9e000000-0000-7000-8000-000000000011', '9e000000-0000-7000-8000-000000000012')
+      and (jsonb_typeof(diff -> 'before' -> 'guest_payload') = 'object'
+           or jsonb_typeof(diff -> 'after' -> 'guest_payload') = 'object')),
+  0, 'H6 ...and out of their audit diffs');
+select is(
+  (select guest_payload ->> 'name' from public.quota_requests where id = '9e000000-0000-7000-8000-000000000013'),
+  'Other Person', 'H7 a payload with another phone is untouched');
+select is(
+  (select guest_payload ->> 'name' from public.quota_requests where id = '9e000000-0000-7000-8000-000000000014'),
+  'Probe Person', 'H8 the same phone at another company is untouched (that company''s record)');
+
+-- ---------------------------------------------------------------------------
 -- G. Retention
 -- ---------------------------------------------------------------------------
 select pg_temp.owner();
@@ -531,7 +612,7 @@ select is(public.run_quota_request_payload_retention(), 0, 'G7 a second run chan
 
 select ok(
   not has_function_privilege('authenticated', 'public.run_quota_request_payload_retention()', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public.quota_requester_can_add_guests(uuid, uuid)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.quota_requester_guest_block(uuid, uuid)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.redact_quota_request_payload_audit(uuid[])', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.approve_quota_request(uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.approve_quota_request(uuid)', 'EXECUTE'),

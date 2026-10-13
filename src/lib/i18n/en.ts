@@ -104,6 +104,7 @@ export const en = {
     guestCapacity: 'The event is at capacity, so nothing changed. Decline it with a reason instead.',
     guestListLocked: 'The list is locked for this person, so nothing changed. Unlock the list or decline with a reason.',
     guestTierGone: "The guest's tier is no longer on this event, so nothing changed. Decline it with a reason instead.",
+    guestCannotAdd: "This person can't add guests to this event, so nothing changed. Decline it with a reason instead.",
     guestInvalid: "That guest can't go with this request. Check the name and tier.",
   },
 } as const;

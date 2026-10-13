@@ -37,9 +37,14 @@
 --        trigger all run exactly as for a guest the requester adds by hand.
 --      The list lock is evaluated for the REQUESTER (RLS does not run inside a
 --      definer function, so can_write_guests' rule is applied explicitly by
---      quota_requester_can_add_guests): locked/auto-locked or cancelled event
---      and a staff-only requester → 45007, nothing written. A tier that is no
---      longer on the event → 45008. Any failure rolls back the override too.
+--      quota_requester_guest_block): a staff-only requester on a locked or
+--      auto-locked list → 45007; a requester who cannot add guests at all
+--      (user_manager/finance only) or a cancelled event → 45009 with neutral
+--      copy (review #494 nit). A tier that is no longer on the event → 45008.
+--      Any failure rolls back the override too. The read of the current quota
+--      and the override write run under the quota trigger's own advisory lock
+--      for (event, requester), so two concurrent approvals for one requester
+--      both count (review #494 nit; pre-existing since #469).
 --      Signature and `returns void` unchanged (the deployed app ignores the
 --      result), ACL re-asserted.
 --   6. Retention / erasure of the payload (PII):
@@ -47,11 +52,21 @@
 --          requests of events past the venue's retention window (the same
 --          event anchor run_privacy_retention uses for guest_requests) and
 --          scrubs guest_payload out of their audit diffs. Daily 03:40 UTC via
---          pg_cron (guarded like the other schedules). Self-healing: driven
---          off the event age, not a list of ids from one run.
+--          pg_cron (guarded like the other schedules). The audit scrub covers
+--          this run's ids plus a 7-day trailing window of expiries, so it is
+--          self-healing without rescanning all history every night.
 --        * a guest created from a payload that is anonymized (retention step 1
 --          or forget_contact) takes the payload with it (AFTER UPDATE trigger
 --          on guests.anonymized_at), audit diffs included.
+--        * erasure on request (review #494, blocking): when a contact is
+--          anonymized (forget_contact, or retention step 6) every payload in
+--          that contact's company with the same phone digits goes too, pending,
+--          declined or approved alike: AFTER UPDATE trigger on
+--          contacts.anonymized_at, reading OLD.phone_norm. Phone only, the
+--          same fallback key forget_contact 5b uses for guest_requests (a
+--          payload has no e-mail); a name-only payload has no person key and
+--          is covered by the retention window, like a name-only landing
+--          request.
 --
 -- ROLE MATRIX (unchanged where not named): file = any member (insert_own);
 -- read own = requester; read all = admin/finance of the company; decide =
@@ -168,7 +183,12 @@ begin
       raise exception using errcode = '42501',
         message = 'These fields are set by the decision, not by the request.';
     end if;
-    if new.guest_payload is not null and not exists (
+    -- Only a well-formed payload is looked up: a malformed one (e.g. a tier_id
+    -- that is no uuid) falls through to the shape CHECK (23514), instead of
+    -- failing the cast here with 22P02 (review #494 nit).
+    if new.guest_payload is not null
+       and public.quota_guest_payload_is_valid(new.guest_payload)
+       and not exists (
       select 1 from public.guest_tiers t
        where t.id = (new.guest_payload ->> 'tier_id')::uuid
          and t.event_id = new.event_id
@@ -261,9 +281,11 @@ create trigger quota_requests_guard_decline_reason
 -- ---------------------------------------------------------------------------
 
 -- can_write_guests (20260624200000) for a given user instead of auth.uid():
--- the list-lock rule (#23) for the requester. Owner-only.
-create or replace function public.quota_requester_can_add_guests(p_event_id uuid, p_user_id uuid)
-returns boolean
+-- the list-lock rule (#23) for the requester. Null = may add guests; else the
+-- reason why not: 'list_locked', 'event_cancelled', 'no_guest_rights'.
+-- Owner-only.
+create or replace function public.quota_requester_guest_block(p_event_id uuid, p_user_id uuid)
+returns text
 language sql
 stable
 security definer
@@ -280,23 +302,25 @@ as $$
         on vm.venue_id = e.venue_id and vm.user_id = p_user_id
   )
   select case
-    when not exists (select 1 from e) then false
-    when (select roles from m) && '{admin}'::public.venue_role[] then true
-    when (select cancelled_at from e) is not null then false
+    when not exists (select 1 from e) then 'no_guest_rights'
+    when (select roles from m) && '{admin}'::public.venue_role[] then null
+    when (select cancelled_at from e) is not null then 'event_cancelled'
     when exists (select 1 from public.event_organizers eo
-                  where eo.event_id = p_event_id and eo.user_id = p_user_id) then true
-    when (select roles from m) && '{doorhost}'::public.venue_role[] then true
+                  where eo.event_id = p_event_id and eo.user_id = p_user_id) then null
+    when (select roles from m) && '{doorhost}'::public.venue_role[] then null
+    when not ((select roles from m) && '{staff}'::public.venue_role[]) then 'no_guest_rights'
     when (select list_locked from e)
-      or ((select auto_lock_at from e) is not null and now() >= (select auto_lock_at from e)) then false
-    else (select roles from m) && '{staff}'::public.venue_role[]
+      or ((select auto_lock_at from e) is not null and now() >= (select auto_lock_at from e)) then 'list_locked'
+    else null
   end;
 $$;
 
-comment on function public.quota_requester_can_add_guests(uuid, uuid) is
-  'z8uq9m2xyp: can_write_guests'' rule (list lock #23, cancelled event) evaluated for p_user_id. '
-  'Used by approve_quota_request, where RLS does not run. Owner-only.';
+comment on function public.quota_requester_guest_block(uuid, uuid) is
+  'z8uq9m2xyp: can_write_guests'' rule (list lock #23, cancelled event, guest-writing role) evaluated '
+  'for p_user_id. Null = may add guests, else the reason. Used by approve_quota_request, where RLS '
+  'does not run. Owner-only.';
 
-revoke execute on function public.quota_requester_can_add_guests(uuid, uuid) from public, anon, authenticated, service_role;
+revoke execute on function public.quota_requester_guest_block(uuid, uuid) from public, anon, authenticated, service_role;
 
 create or replace function public.approve_quota_request(p_request_id uuid)
 returns void
@@ -311,6 +335,7 @@ declare
   v_rows int;
   v_tier uuid;
   v_guest uuid;
+  v_block text;
 begin
   select * into v_req from public.quota_requests where id = p_request_id for update;
   if v_req.id is null then
@@ -334,6 +359,10 @@ begin
   end if;
 
   -- New override = the requester's current effective quota + the granted extra.
+  -- Same key as enforce_guest_quota (domain 1, event:adder), so it nests: two
+  -- concurrent approvals for one requester serialise here and the second one
+  -- reads the first one's override instead of overwriting it.
+  perform pg_advisory_xact_lock(1, hashtext(v_req.event_id::text || ':' || v_req.user_id::text));
   v_current := public.user_event_quota(v_req.event_id, v_req.user_id);
   insert into public.event_quotas (event_id, user_id, quota_override)
   values (v_req.event_id, v_req.user_id, v_current + v_req.requested_extra)
@@ -342,10 +371,15 @@ begin
 
   -- z8uq9m2xyp: the named guest, on the requester's name, in this transaction.
   if v_req.guest_payload is not null then
-    if not public.quota_requester_can_add_guests(v_req.event_id, v_req.user_id) then
+    v_block := public.quota_requester_guest_block(v_req.event_id, v_req.user_id);
+    if v_block = 'list_locked' then
       raise exception using errcode = '45007',
         message = 'The list is locked for this person, so the guest could not be added. Nothing was changed.',
         hint = 'list_locked';
+    elsif v_block is not null then
+      raise exception using errcode = '45009',
+        message = 'This person cannot add guests to this event, so the guest could not be added. Nothing was changed.',
+        hint = v_block;
     end if;
 
     v_tier := (v_req.guest_payload ->> 'tier_id')::uuid;
@@ -393,7 +427,8 @@ comment on function public.approve_quota_request(uuid) is
   'Approve a pending quota request (admin of the event''s company; requester still tied). Raises '
   'the requester''s event override by requested_extra and, when the request names a guest '
   '(z8uq9m2xyp), adds that guest on the requester''s name in the same transaction (quota 45001, '
-  'tier 45002, capacity 45005, list lock 45007, tier gone 45008 all roll everything back).';
+  'tier 45002, capacity 45005, list lock 45007, tier gone 45008, cannot add guests 45009 all roll '
+  'everything back).';
 
 revoke execute on function public.approve_quota_request(uuid) from public, anon;
 grant execute on function public.approve_quota_request(uuid) to authenticated, service_role;
@@ -452,13 +487,15 @@ begin
   )
   select coalesce(array_agg(id), '{}') into v_ids from upd;
 
-  -- Self-healing: every request of an expired event, not only this run's.
-  perform public.redact_quota_request_payload_audit(array(
+  -- This run's ids, plus a 7-day trailing window of expiries so a missed night
+  -- heals itself, without rescanning all history every night (review #494).
+  perform public.redact_quota_request_payload_audit(v_ids || array(
     select q.id
       from public.quota_requests q
       join public.events e on e.id = q.event_id
       join public.venues v on v.id = e.venue_id
-     where coalesce(e.ends_at, e.starts_at) < now() - make_interval(months => v.retention_months)));
+     where coalesce(e.ends_at, e.starts_at) < now() - make_interval(months => v.retention_months)
+       and coalesce(e.ends_at, e.starts_at) >= now() - make_interval(months => v.retention_months) - interval '7 days'));
 
   return coalesce(cardinality(v_ids), 0);
 end;
@@ -503,6 +540,46 @@ create trigger guests_anonymize_quota_payload
   for each row
   when (old.anonymized_at is null and new.anonymized_at is not null)
   execute function public.quota_request_payload_follows_guest();
+
+-- Erasure on request (review #494, blocking). forget_contact (and retention
+-- step 6) anonymize the contact row; OLD still has the phone digits. Every
+-- payload in that company carrying the same digits is nulled, whatever the
+-- request's status, and scrubbed from the audit diffs.
+create or replace function public.quota_request_payload_follows_contact()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_ids uuid[];
+begin
+  if old.phone_norm is null then
+    return null;
+  end if;
+  with upd as (
+    update public.quota_requests q
+       set guest_payload = null
+     where q.venue_id = old.venue_id
+       and q.guest_payload is not null
+       and nullif(regexp_replace(coalesce(q.guest_payload ->> 'phone', ''), '[^0-9]', '', 'g'), '')
+           = old.phone_norm
+    returning q.id
+  )
+  select coalesce(array_agg(id), '{}') into v_ids from upd;
+
+  perform public.redact_quota_request_payload_audit(v_ids);
+  return null;
+end;
+$$;
+
+revoke execute on function public.quota_request_payload_follows_contact() from public, anon, authenticated, service_role;
+
+create trigger contacts_anonymize_quota_payload
+  after update of anonymized_at on public.contacts
+  for each row
+  when (old.anonymized_at is null and new.anonymized_at is not null)
+  execute function public.quota_request_payload_follows_contact();
 
 do $$
 begin
