@@ -20,6 +20,17 @@ Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train 
 
 ---
 
+## 2026-10-13 — Fase 14 door payments: eng review, R1–R7 (86exxuuu7)
+
+Milestone **≥5**. Docs only. Branch `claude/86exxuuu7-fase14-eng-review` (own worktree: the shared checkout switched branches mid-review twice, so review work now lives in a worktree).
+
+- **`/plan-eng-review`** on the approved design doc + plan §10, written as plan §11: Scope Challenge against the code (17 interface receipts: outbox dispatch and envelope buster, snapshot/IDB persister, realtime channel per event, public throttle + token hashing, capacity/quota/check-in triggers, audit pattern, grant-matrix test, anonymisation cron, guest-mail queue, webhook route), reality rows 12/12, Sections 1–4, test diagram (31 gaps mapped), performance, outside voice unavailable (Codex not installed).
+- **Decisions (Max):** D1 original file arrangement (five tables incl. `payout_run_items`, TS fee-engine for display with a SQL↔TS contract test); D2 Checkout sessions `expires_at = +30 min`, expire-and-recreate when the requested heads differ (an abandoned mail-link session would otherwise block the door for 24 h); D4 receipt via a `guest_mail_queue.entry_payment_id` pointer and a `payment_receipt` mail type; D5 `events.ends_at` becomes required for every event (own PR before P1, backfill `starts_at + 12 h` → NOT NULL; the code did not enforce it: schemas optional, action writes null); D6 payer address in a separate `entry_payment_receipts` table, never published to realtime (postgres_changes sends whole rows to door devices); D7 `hashPublicToken` helper shared by `/r` and `/pay`; D8 Stripe tested with stub + signed fixtures in CI and a manual test-mode checklist in the runbook before the first live euro.
+- **Required without a question:** outbox kinds additive with the envelope buster unchanged and a `default:` branch that keeps unknown kinds pending (rollback safety); numeric SQLSTATEs 45007/45008/45009 in `classifyError`; `unconfirmed_heads` computed server-side, `override_heads` role-gated by trigger; explicit column list in the door snapshot; concurrency proof as a Node two-session script, not pgTAP.
+- **Tasks T16–T25** added to the plan; Test Plan artifact for `/qa` in `~/.gstack/projects/Max-Seffelaar-PlusOne/`. Verdict: CEO CLEARED, ENG ISSUES OPEN (mapped work, 0 critical gaps, 0 unresolved); re-run the eng gate on the P1 PR. Next: `/plan-design-review` before P2, T18 as the first code PR.
+
+---
+
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
 Milestone **≥5**. Docs only, no code, no migration. Branch `claude/86exxuuu7-fase14-ceo-review`.
