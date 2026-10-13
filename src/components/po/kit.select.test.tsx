@@ -189,18 +189,49 @@ describe('Select', () => {
     expect(runNativeBackIntercept()).toBe(false);
   });
 
-  it('touch sheet by default, popover only behind a fine pointer from lg (T1)', () => {
-    render(<Harness />);
+  it('touch (or no matchMedia): a bottom sheet portalled to <body>, 44px rows, safe-area padding, Cancel', () => {
+    const { container } = render(<Harness />);
     fireEvent.click(combo());
     const panel = screen.getByTestId('select-panel');
-    expect(panel.className).toMatch(/(^| )fixed /);
+    // Portalled: a fixed panel inside the screen column would stop at the tab bar.
+    expect(container.contains(panel)).toBe(false);
+    expect(panel.closest('.fixed')).not.toBeNull();
     expect(panel.className).toContain('max-w-[560px]');
     expect(panel.className).toContain('env(safe-area-inset-bottom)');
-    expect(panel.className).toContain('lg:[@media(pointer:fine)]:absolute');
-    for (const opt of screen.getAllByRole('option')) {
-      expect(opt.className).toContain('min-h-[44px]');
-      expect(opt.className).toContain('lg:[@media(pointer:fine)]:min-h-[36px]');
+    for (const opt of screen.getAllByRole('option')) expect(opt.className).toContain('min-h-[44px]');
+    expect(screen.getByRole('button', { name: t.shared.kit.selectCancel })).toBeInTheDocument();
+  });
+
+  it('fine pointer from 1024px: an in-tree popover under the field, compact rows only behind the pointer gate, no Cancel', () => {
+    const mm = vi.fn((q: string) => ({ matches: q === '(min-width: 1024px) and (pointer: fine)' }));
+    vi.stubGlobal('matchMedia', mm);
+    try {
+      const { container } = render(<Harness />);
+      fireEvent.click(combo());
+      const panel = screen.getByTestId('select-panel');
+      expect(container.contains(panel)).toBe(true);
+      expect(panel.className).toContain('absolute');
+      expect(panel.className).toContain('top-[calc(100%+6px)]');
+      for (const opt of screen.getAllByRole('option')) {
+        expect(opt.className).toContain('min-h-[44px]');
+        expect(opt.className).toContain('lg:[@media(pointer:fine)]:min-h-[36px]');
+      }
+      expect(screen.queryByRole('button', { name: t.shared.kit.selectCancel })).toBeNull();
+      // Picking inside the popover is not an outside tap.
+      fireEvent.pointerDown(screen.getByRole('option', { name: 'Berlin' }));
+      fireEvent.click(screen.getByRole('option', { name: 'Berlin' }));
+      expect(combo()).toHaveTextContent('Berlin');
+    } finally {
+      vi.unstubAllGlobals();
     }
-    expect(screen.getByRole('button', { name: t.shared.kit.selectCancel }).className).toContain('lg:[@media(pointer:fine)]:hidden');
+  });
+
+  it('a tap inside the portalled sheet is not an outside tap', () => {
+    render(<Harness />);
+    fireEvent.click(combo());
+    fireEvent.pointerDown(screen.getByRole('option', { name: 'Cologne' }));
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: 'Cologne' }));
+    expect(combo()).toHaveTextContent('Cologne');
   });
 });

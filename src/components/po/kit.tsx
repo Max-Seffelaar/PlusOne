@@ -7,6 +7,7 @@
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { isNativeShell } from '@/lib/platform';
@@ -386,11 +387,15 @@ export function TierPicker({
  * The kit dropdown (z8uq9m4a2w): a Field-look trigger that opens a PlusOne
  * listbox instead of the OS-drawn `<select>` list (Windows drew it white, #463).
  *
- * One panel for both densities, like InfoTip: a popover under the trigger for a
- * fine pointer from `lg:` up, a bottom sheet (max 560px, 44px rows, dimmed
- * backdrop, Cancel) everywhere else, including an iPad in landscape. No
- * media-query JS, no portal, so it behaves the same in a Capacitor webview
- * (#37); the Android back button closes the sheet (`useNativeBackIntercept`).
+ * Density follows the pointer, read once when the list opens with the same
+ * query as `datetime-field` (`(min-width: 1024px) and (pointer: fine)`, guarded
+ * for webviews without matchMedia, #37): a popover under the trigger for a fine
+ * pointer, a bottom sheet (max 560px, 44px rows, dimmed backdrop, Cancel)
+ * everywhere else, including an iPad in landscape. The sheet is portalled to
+ * `document.body`: in-tree, a `fixed` panel is caught by the screen column
+ * (`.po-screen-anim` keeps an identity transform after its entrance), so it
+ * would stop at the phone tab bar instead of covering it like a modal. The
+ * Android back button closes it (`useNativeBackIntercept`).
  *
  * Why a sheet on touch and not the native picker: the native list is the OS's
  * (iPhone wheel, iPad popover, Android dialog, a narrow desktop window's white
@@ -427,10 +432,12 @@ export function Select({
   const selectedIndex = items.findIndex((o) => o.value === value);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [sheet, setSheet] = useState(true);
   const listId = useId();
   const optId = (i: number): string => `${listId}-o${i}`;
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const typed = useRef({ text: '', at: 0 });
 
   const close = (): void => {
@@ -440,6 +447,10 @@ export function Select({
   };
   const show = (at: number): void => {
     setActive(Math.max(0, Math.min(items.length - 1, at)));
+    if (!open) {
+      const mm = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia : null;
+      setSheet(!mm?.('(min-width: 1024px) and (pointer: fine)').matches);
+    }
     setOpen(true);
   };
   const pick = (i: number): void => {
@@ -453,7 +464,9 @@ export function Select({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent): void => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
@@ -519,6 +532,36 @@ export function Select({
   };
 
   const fine = 'lg:[@media(pointer:fine)]:';
+  const list = (
+    <ul id={listId} role="listbox" aria-label={ariaLabel} className="po-scroll min-h-0 flex-1 overflow-y-auto">
+      {items.map((o, i) => {
+        const on = i === selectedIndex;
+        return (
+          <li
+            key={o.value}
+            id={optId(i)}
+            role="option"
+            aria-selected={on}
+            data-value={o.value}
+            // Keep focus on the trigger (it owns aria-activedescendant).
+            onMouseDown={(e) => e.preventDefault()}
+            onMouseMove={() => i !== active && setActive(i)}
+            onClick={() => pick(i)}
+            className={cn(
+              'flex min-h-[44px] cursor-pointer items-center gap-[11px] rounded-[12px] px-[12px] py-[10px] text-[15px] text-text',
+              `${fine}min-h-[36px] ${fine}rounded-[10px] ${fine}py-[7px] ${fine}text-[14px]`,
+              i === active && 'bg-elev2',
+              on && 'bg-acc-dim text-acc',
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate">{o.label}</span>
+            {on && <Icon name="check" size={15} sw={2.4} className="shrink-0 text-acc" />}
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   return (
     <div ref={wrapRef} className={cn('relative', className)}>
       <button
@@ -546,66 +589,45 @@ export function Select({
         <span className="min-w-0 flex-1 truncate font-body text-[16px] text-text">{items[selectedIndex]?.label ?? ''}</span>
         <Icon name="chevD" size={18} className={cn('shrink-0 text-faint transition-transform', open && 'rotate-180')} />
       </button>
-      {open && (
-        <>
-          {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
-          <div className={cn('fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px]', `${fine}hidden`)} onClick={close} />
-          <div
-            data-testid="select-panel"
-            className={cn(
-              // Bottom padding clears the mobile tab bar, as in InfoTip; the
-              // sidebar chrome (lg) has none.
-              'fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[70vh] max-w-[560px] flex-col rounded-t-[22px] border border-line bg-elev p-[10px] pb-[calc(80px+env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.55)] lg:pb-[calc(10px+env(safe-area-inset-bottom))]',
-              `${fine}absolute ${fine}inset-x-0 ${fine}bottom-auto ${fine}top-[calc(100%+6px)] ${fine}max-h-[320px] ${fine}min-w-[220px] ${fine}max-w-none ${fine}rounded-[16px] ${fine}p-[6px] ${fine}shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]`,
-            )}
-          >
-            {ariaLabel && (
-              <div className={cn('px-[12px] pb-[8px] pt-[6px] font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text', `${fine}hidden`)}>
-                {ariaLabel}
-              </div>
-            )}
-            <ul id={listId} role="listbox" aria-label={ariaLabel} className="po-scroll min-h-0 flex-1 overflow-y-auto">
-              {items.map((o, i) => {
-                const on = i === selectedIndex;
-                return (
-                  <li
-                    key={o.value}
-                    id={optId(i)}
-                    role="option"
-                    aria-selected={on}
-                    data-value={o.value}
-                    // Keep focus on the trigger (it owns aria-activedescendant).
-                    onMouseDown={(e) => e.preventDefault()}
-                    onMouseMove={() => i !== active && setActive(i)}
-                    onClick={() => pick(i)}
-                    className={cn(
-                      'flex min-h-[44px] cursor-pointer items-center gap-[11px] rounded-[12px] px-[12px] py-[10px] text-[15px] text-text',
-                      `${fine}min-h-[36px] ${fine}rounded-[10px] ${fine}py-[7px] ${fine}text-[14px]`,
-                      i === active && 'bg-elev2',
-                      on && 'bg-acc-dim text-acc',
-                    )}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
-                    {on && <Icon name="check" size={15} sw={2.4} className="shrink-0 text-acc" />}
-                  </li>
-                );
-              })}
-            </ul>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={close}
-              className={cn(
-                'mt-[8px] flex min-h-[44px] w-full shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim',
-                press,
-                `${fine}hidden`,
-              )}
-            >
-              {t.shared.kit.selectCancel}
-            </button>
-          </div>
-        </>
+      {open && !sheet && (
+        <div
+          ref={panelRef}
+          data-testid="select-panel"
+          className="absolute inset-x-0 top-[calc(100%+6px)] z-50 flex max-h-[320px] min-w-[220px] flex-col rounded-[16px] border border-line bg-elev p-[6px] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]"
+        >
+          {list}
+        </div>
       )}
+      {open &&
+        sheet &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div className="po-anim-fade absolute inset-0 bg-[rgba(6,6,8,0.66)] backdrop-blur-[3px]" onClick={close} />
+            <div
+              ref={panelRef}
+              data-testid="select-panel"
+              className="po-anim-sheet relative flex max-h-[70vh] w-full max-w-[560px] flex-col rounded-t-[22px] border border-line bg-elev p-[10px] pb-[calc(10px+env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.55)]"
+            >
+              {ariaLabel && (
+                <div className="px-[12px] pb-[8px] pt-[6px] font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{ariaLabel}</div>
+              )}
+              {list}
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={close}
+                className={cn(
+                  'mt-[8px] flex min-h-[44px] w-full shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim',
+                  press,
+                )}
+              >
+                {t.shared.kit.selectCancel}
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
