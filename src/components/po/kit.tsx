@@ -20,6 +20,7 @@ import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
 import { fieldErrorBorder, fieldErrorText, fieldScrollMargin } from './field-error-style';
 import { useNativeBackIntercept } from './native-back-intercept';
+import { popoverPlacement, type PopoverPlacement } from './select-position';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
 // of one of these (some already drifted to 0.94/0.985/1.09); exported so a
@@ -515,18 +516,50 @@ export function TierPicker({
 
 // ── Select ───────────────────────────────────────────────────────────────────
 /**
+ * Every Select needs an accessible name (z8uq9m5m8h): `ariaLabel` when there is
+ * no visible label, or `labelledBy` (the id of the visible label) when there is.
+ * One of the two, never neither: the type refuses a nameless dropdown.
+ */
+export type SelectLabelProps =
+  | { /** Accessible name; also the bottom sheet's title. */ ariaLabel: string; labelledBy?: never }
+  | { /** Id of the visible label element. */ labelledBy: string; ariaLabel?: never };
+
+export type SelectProps = SelectLabelProps & {
+  value: string;
+  onChange: (v: string) => void;
+  options: readonly { value: string; label: string }[];
+  /** The unselected/"all" option's label, e.g. "All venues". */
+  placeholder?: string;
+  icon?: IconName;
+  className?: string;
+  /** Marks the field as failing validation: `aria-invalid` + the error border. */
+  invalid?: boolean;
+  /** Id of the error/help text, as `aria-describedby` on the trigger. */
+  describedBy?: string;
+  /** Id of the trigger, so a scroll-and-focus helper can find it. */
+  id?: string;
+};
+
+/** Row height + panel padding the popover flip estimate works with (fine-pointer rows are 36px). */
+const POPOVER_ROW = 36;
+const POPOVER_CHROME = 14;
+
+/**
  * The kit dropdown (z8uq9m4a2w): a Field-look trigger that opens a PlusOne
  * listbox instead of the OS-drawn `<select>` list (Windows drew it white, #463).
  *
  * Density follows the pointer, read once when the list opens with the same
  * query as `datetime-field` (`(min-width: 1024px) and (pointer: fine)`, guarded
- * for webviews without matchMedia, #37): a popover under the trigger for a fine
+ * for webviews without matchMedia, #37): a popover at the trigger for a fine
  * pointer, a bottom sheet (max 560px, 44px rows, dimmed backdrop, Cancel)
- * everywhere else, including an iPad in landscape. The sheet is portalled to
- * `document.body`: in-tree, a `fixed` panel is caught by the screen column
- * (`.po-screen-anim` keeps an identity transform after its entrance), so it
- * would stop at the phone tab bar instead of covering it like a modal. The
- * Android back button closes it (`useNativeBackIntercept`).
+ * everywhere else, including an iPad in landscape. Both are portalled to
+ * `document.body` and `fixed` (z8uq9m5m8h): in-tree, a `fixed` panel is caught
+ * by the screen column (`.po-screen-anim` keeps an identity transform after its
+ * entrance) and an `absolute` one is clipped by any scrolling ancestor (a Sheet,
+ * a table cell). The popover is placed from the trigger's rect
+ * (`popoverPlacement`: under it, flipped above when the list does not fit) and
+ * follows it on scroll and resize. The Android back button closes either
+ * (`useNativeBackIntercept`).
  *
  * Why a sheet on touch and not the native picker: the native list is the OS's
  * (iPhone wheel, iPad popover, Android dialog, a narrow desktop window's white
@@ -534,11 +567,15 @@ export function TierPicker({
  * accent. The longest lists here (venues on the platform screens) read better as
  * a scrolling list of 44px rows than on a wheel.
  *
- * a11y: the WAI-ARIA select-only combobox. DOM focus stays on the trigger
- * (`role="combobox"`, `aria-expanded`, `aria-activedescendant`), so focus never
- * has to be returned: picking, Escape, an outside tap and Cancel all leave it on
- * the trigger. Keys: ↑↓ Home End PageUp PageDown, Enter/Space picks, Esc and Tab
- * close, typing jumps to the first label that starts with the typed text.
+ * a11y — popover: the WAI-ARIA select-only combobox. DOM focus stays on the
+ * trigger (`role="combobox"`, `aria-expanded`, `aria-activedescendant`). Keys:
+ * ↑↓ Home End PageUp PageDown, Enter/Space picks, Esc and Tab close, typing
+ * jumps to the first label that starts with the typed text.
+ * a11y — sheet: a modal dialog (`aria-modal="true"`). Focus moves into it (the
+ * listbox owns `aria-activedescendant` and the same keys), Tab cycles between
+ * the list and Cancel, everything else on the page is `inert` while it is open,
+ * so a screen reader in browse mode cannot wander behind the backdrop. Closing
+ * (pick, Esc, backdrop, Cancel, Android back) returns focus to the trigger.
  * `placeholder` is the "" option on top (an "All venues" filter value).
  * `invalid`/`describedBy`/`id` follow the kit-input error API shared with
  * Field/TextArea: on the trigger (the focusable element), plus the field error
@@ -550,40 +587,48 @@ export function Select({
   options,
   placeholder,
   ariaLabel,
+  labelledBy,
   icon,
   className,
   invalid,
   describedBy,
   id,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: readonly { value: string; label: string }[];
-  /** The unselected/"all" option's label, e.g. "All venues". */
-  placeholder?: string;
-  ariaLabel?: string;
-  icon?: IconName;
-  className?: string;
-  /** Marks the field as failing validation: `aria-invalid` + the error border. */
-  invalid?: boolean;
-  /** Id of the error/help text, as `aria-describedby` on the trigger. */
-  describedBy?: string;
-  /** Id of the trigger, so a scroll-and-focus helper can find it. */
-  id?: string;
-}): JSX.Element {
+}: SelectProps): JSX.Element {
   const items = placeholder != null ? [{ value: '', label: placeholder }, ...options] : options;
   const selectedIndex = items.findIndex((o) => o.value === value);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [sheet, setSheet] = useState(true);
+  const [place, setPlace] = useState<PopoverPlacement | null>(null);
+  const [title, setTitle] = useState('');
   const listId = useId();
   const optId = (i: number): string => `${listId}-o${i}`;
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const typed = useRef({ text: '', at: 0 });
+  /** Undoes the sheet's `inert` on the rest of the page; set while the sheet is open. */
+  const unInert = useRef<(() => void) | null>(null);
+  const nameProps = ariaLabel != null ? { 'aria-label': ariaLabel } : { 'aria-labelledby': labelledBy };
+
+  const measure = (): void => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (!r || typeof window === 'undefined') return;
+    setPlace(
+      popoverPlacement(
+        { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
+        { width: window.innerWidth, height: window.innerHeight },
+        items.length * POPOVER_ROW + POPOVER_CHROME,
+      ),
+    );
+  };
 
   const close = (): void => {
+    // The trigger sits in the part of the page the sheet made inert: lift that
+    // first, or focus() below silently does nothing.
+    unInert.current?.();
     setOpen(false);
     // iOS Safari never focuses a tapped button; put focus where a keyboard user left it.
     triggerRef.current?.focus({ preventScroll: true });
@@ -592,7 +637,10 @@ export function Select({
     setActive(Math.max(0, Math.min(items.length - 1, at)));
     if (!open) {
       const mm = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia : null;
-      setSheet(!mm?.('(min-width: 1024px) and (pointer: fine)').matches);
+      const touch = !mm?.('(min-width: 1024px) and (pointer: fine)').matches;
+      setSheet(touch);
+      if (!touch) measure();
+      setTitle(ariaLabel ?? (labelledBy ? (document.getElementById(labelledBy)?.textContent ?? '') : ''));
     }
     setOpen(true);
   };
@@ -609,11 +657,55 @@ export function Select({
     const onDown = (e: PointerEvent): void => {
       const target = e.target as Node;
       if (wrapRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-      setOpen(false);
+      // The sheet's backdrop: back to the trigger. A popover: the tap went to
+      // something else on the page, which keeps the focus it is about to get.
+      if (sheet) close();
+      else setOpen(false);
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- close() reads refs only
+  }, [open, sheet]);
+
+  // Popover: follow the trigger when anything scrolls (capture: a scrolling
+  // Sheet or table, not just the window) or the window resizes.
+  useEffect(() => {
+    if (!open || sheet) return;
+    const onMove = (): void => measure();
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- measure() reads refs + items.length
+  }, [open, sheet, items.length]);
+
+  // Sheet: a real modal. Focus into the list, the rest of the page inert (the
+  // sheet is a direct child of <body>), focus pulled back if it escapes anyway.
+  useEffect(() => {
+    if (!open || !sheet) return;
+    const root = panelRef.current?.closest('[data-select-sheet]');
+    const touched: Element[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === root || el.hasAttribute('inert')) continue;
+      el.setAttribute('inert', '');
+      touched.push(el);
+    }
+    const onFocusIn = (e: FocusEvent): void => {
+      if (root && !root.contains(e.target as Node)) listRef.current?.focus({ preventScroll: true });
+    };
+    // One undo for both, called by close() BEFORE it focuses the trigger.
+    const restore = (): void => {
+      document.removeEventListener('focusin', onFocusIn);
+      for (const el of touched.splice(0)) el.removeAttribute('inert');
+      unInert.current = null;
+    };
+    unInert.current = restore;
+    listRef.current?.focus({ preventScroll: true });
+    document.addEventListener('focusin', onFocusIn);
+    return restore;
+  }, [open, sheet]);
 
   useEffect(() => {
     if (!open) return;
@@ -636,7 +728,8 @@ export function Select({
     return -1;
   };
 
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>): void => {
+  /** The trigger's keys, and (sheet) the focused listbox's: same list, same moves. */
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>): void => {
     const cur = open ? active : Math.max(0, selectedIndex);
     const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
     if (printable && !(e.key === ' ' && Date.now() - typed.current.at > 600)) {
@@ -669,14 +762,38 @@ export function Select({
       e.preventDefault();
       e.stopPropagation();
       close();
-    } else if (e.key === 'Tab') {
+    } else if (e.key === 'Tab' && !sheet) {
       setOpen(false);
     }
   };
 
+  /** Sheet focus trap: Tab and Shift+Tab cycle between the list and Cancel. */
+  const onSheetKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'Escape' && e.target === cancelRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const next = document.activeElement === listRef.current ? cancelRef.current : listRef.current;
+    next?.focus({ preventScroll: true });
+  };
+
   const fine = 'lg:[@media(pointer:fine)]:';
   const list = (
-    <ul id={listId} role="listbox" aria-label={ariaLabel} className="po-scroll min-h-0 flex-1 overflow-y-auto">
+    <ul
+      ref={listRef}
+      id={listId}
+      role="listbox"
+      {...nameProps}
+      // Sheet: the list holds focus inside the dialog and owns the active option.
+      tabIndex={sheet ? 0 : undefined}
+      aria-activedescendant={sheet ? optId(active) : undefined}
+      onKeyDown={sheet ? onKeyDown : undefined}
+      className="po-scroll min-h-0 flex-1 overflow-y-auto outline-none"
+    >
       {items.map((o, i) => {
         const on = i === selectedIndex;
         return (
@@ -686,7 +803,7 @@ export function Select({
             role="option"
             aria-selected={on}
             data-value={o.value}
-            // Keep focus on the trigger (it owns aria-activedescendant).
+            // Keep focus where it is (the trigger, or the sheet's list).
             onMouseDown={(e) => e.preventDefault()}
             onMouseMove={() => i !== active && setActive(i)}
             onClick={() => pick(i)}
@@ -712,13 +829,13 @@ export function Select({
         id={id}
         type="button"
         role="combobox"
-        aria-label={ariaLabel}
+        {...nameProps}
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
-        aria-activedescendant={open ? optId(active) : undefined}
+        aria-activedescendant={open && !sheet ? optId(active) : undefined}
         onClick={() => (open ? close() : show(Math.max(0, selectedIndex)))}
         onKeyDown={onKeyDown}
         // 48px + border = the 50px Field height; the whole box is the tap target.
@@ -735,31 +852,43 @@ export function Select({
         <span className="min-w-0 flex-1 truncate font-body text-[16px] text-text">{items[selectedIndex]?.label ?? ''}</span>
         <Icon name="chevD" size={18} className={cn('shrink-0 text-faint transition-transform', open && 'rotate-180')} />
       </button>
-      {open && !sheet && (
-        <div
-          ref={panelRef}
-          data-testid="select-panel"
-          className="absolute inset-x-0 top-[calc(100%+6px)] z-50 flex max-h-[320px] min-w-[220px] flex-col rounded-[16px] border border-line bg-elev p-[6px] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]"
-        >
-          {list}
-        </div>
-      )}
+      {open &&
+        !sheet &&
+        place &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={panelRef}
+            data-testid="select-panel"
+            data-placement={place.above ? 'above' : 'below'}
+            style={{ top: place.top, bottom: place.bottom, left: place.left, width: place.width, maxHeight: place.maxHeight }}
+            className="fixed z-50 flex flex-col rounded-[16px] border border-line bg-elev p-[6px] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]"
+          >
+            {list}
+          </div>,
+          document.body,
+        )}
       {open &&
         sheet &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div data-select-sheet className="fixed inset-0 z-50 flex items-end justify-center">
             <div className="po-anim-fade absolute inset-0 bg-[rgba(6,6,8,0.66)] backdrop-blur-[3px]" onClick={close} />
             <div
               ref={panelRef}
               data-testid="select-panel"
+              role="dialog"
+              aria-modal="true"
+              {...nameProps}
+              onKeyDown={onSheetKeyDown}
               className="po-anim-sheet relative flex max-h-[70vh] w-full max-w-[560px] flex-col rounded-t-[22px] border border-line bg-elev p-[10px] pb-[calc(10px+env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.55)]"
             >
-              {ariaLabel && (
-                <div className="px-[12px] pb-[8px] pt-[6px] font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{ariaLabel}</div>
+              {title && (
+                <div className="px-[12px] pb-[8px] pt-[6px] font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</div>
               )}
               {list}
               <button
+                ref={cancelRef}
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={close}

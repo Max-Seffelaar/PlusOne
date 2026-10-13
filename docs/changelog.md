@@ -8,6 +8,44 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Kit Select nits (#496 review) + Resend countdown (z8uq9m5m8h)
+
+Golf F follow-up. Branch `claude/z8uq9m5m8h-select-nits-resend`. No migration, no
+server/mail change.
+
+- **Select popover is portalled** (`src/components/po/kit.tsx`, placement in
+  `src/components/po/select-position.ts`): `fixed` on `<body>`, placed from the
+  trigger's rect, flipped above when the list does not fit below and there is
+  more room above, re-placed on any scroll (capture) and resize. A scrolling
+  Sheet or an `overflow` table cell can no longer clip it. Listbox a11y
+  unchanged: focus on the trigger, `aria-activedescendant`, same keys.
+- **Touch sheet is a real modal:** `role="dialog"` + `aria-modal="true"`, named
+  like the field; focus moves into the listbox (which then owns
+  `aria-activedescendant` and the keys), Tab/Shift+Tab cycle list ↔ Cancel, every
+  other `<body>` child is `inert` while it is open and a `focusin` guard pulls
+  stray focus back. `close()` lifts `inert` and the guard BEFORE it focuses the
+  trigger (gotcha: with the guard still armed, the trigger focus was pulled
+  straight back into the unmounting list). Android back still closes it.
+- **Naming is typed:** `SelectProps` = `{ ariaLabel } | { labelledBy }`, never
+  neither or both (`kit.select.types.test.tsx`, `@ts-expect-error` under
+  `tsc`). Every call site already passed `ariaLabel`; none of the forbidden forms
+  was touched.
+- **Platform → Resend countdown** (`src/components/po/screens/platform-resend.tsx`):
+  after a send and after the per-address "recent" refusal
+  (`INVITE_RECENTLY_SENT_MESSAGE`, `mail_recipient_window()`), Resend is disabled
+  with "Resend in N s"; the wait after a refusal is estimated from the row's
+  `last_sent_at` (falls back to a whole minute when that clue is off). The
+  refusal now reads neutral (`text-dim`, `role="status"`) on the row and in the
+  invite form; the hourly budget and real failures stay a red alert. A polite
+  live region speaks once per 10 s and "You can resend now." at 0. Client-only:
+  a reload re-enables the button, the server refuses as before.
+- **Tests:** vitest for placement + flip + follow-on-scroll, aria-modal + focus
+  trap + inert + focus return, typed naming, the countdown (fake timers:
+  disabled, text, re-enabled, neutral class, live cadence). Flows: kit-select
+  checks 13–14 (modal sheet, never clipped in a clipping host), platform-reinvite
+  checks 2 (neutral) and 7–8 (countdown, re-enabled after the minute).
+---
+
 ## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
 
 Golf F, task 8. Branch `claude/z8uq9m2xyp-quota-flow`, migration
