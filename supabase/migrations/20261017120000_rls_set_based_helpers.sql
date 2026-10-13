@@ -30,14 +30,15 @@
 -- top-level disjunct where the old expression was already a pure OR of
 -- helpers (the SELECT policies, events_*). `has_venue_role(event_venue(e), R)`
 -- becomes `e in my_event_ids_with_roles(R)` — the same question (event e is at
--- a venue where I hold R), answered through the events row, so we do NOT start
--- trusting guests.venue_id/guest_requests.venue_id where the old policy
--- deliberately went through event_id (set_event_scope only fills a NULL
--- venue_id; it does not overwrite a client-supplied one).
+-- a venue where I hold R), answered through the events row, the closest copy
+-- of the old expression. (`venue_id in my_venue_ids_with_roles(R)` would be
+-- equivalent too: set_event_scope overwrites venue_id from the event on every
+-- write since 20260713160000 and events_pin_venue keeps events.venue_id
+-- immutable. Not switched here — this migration only substitutes.)
 -- `x in (…)` yields NULL instead of FALSE for a NULL x; none of these policies
 -- negates a helper, so NULL and FALSE deny alike.
 -- Proof: supabase/tests/database/rls_set_based_parity.test.sql runs one probe
--- matrix (8 personas × 5 tables × select/insert/update) under these policies
+-- matrix (9 personas × 5 tables × select/insert/update) under these policies
 -- AND under the old ones restored in the same transaction, and requires both
 -- to be identical.
 --
@@ -139,6 +140,22 @@ grant execute on function public.my_venue_ids() to authenticated, service_role;
 grant execute on function public.my_venue_ids_with_roles(public.venue_role[]) to authenticated, service_role;
 grant execute on function public.my_event_ids_with_roles(public.venue_role[]) to authenticated, service_role;
 grant execute on function public.my_organized_event_ids() to authenticated, service_role;
+
+-- The access rule now has two spellings: the per-row helpers (still used by
+-- ~50 policies and RPCs) and the set helpers above (the 12 hot policies). Each
+-- side names the other so a later change touches both; rls_set_based_parity.
+-- test.sql asserts they agree for every fixture user × venue/event × role set.
+comment on function public.has_venue_role(uuid, public.venue_role[]) is
+  'Per-row RLS helper: caller holds one of p_roles at p_venue_id, or is a platform '
+  'admin. Set-based copy: my_venue_ids_with_roles / my_event_ids_with_roles '
+  '(20261017120000) — change both together; parity asserted in '
+  'rls_set_based_parity.test.sql.';
+comment on function public.is_venue_member(uuid) is
+  'Per-row RLS helper: caller is a member (any role) of p_venue_id, or a platform '
+  'admin. Set-based copy: my_venue_ids (20261017120000) — change both together.';
+comment on function public.is_event_organizer(uuid) is
+  'Per-row RLS helper: caller organizes p_event_id (crew), or is a platform admin. '
+  'Set-based copy: my_organized_event_ids (20261017120000) — change both together.';
 
 -- ─── guests ─────────────────────────────────────────────────────────────────
 -- old: has_venue_role(venue_id,'{admin,finance,doorhost}') or is_event_organizer(event_id)

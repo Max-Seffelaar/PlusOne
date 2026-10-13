@@ -35,3 +35,16 @@ create policy check_ins_update on public.check_ins
       and (synced_by is null or synced_by = (select auth.uid()))
     )
   );
+
+-- The dropped policies carried the security rationale in the catalog; keep it.
+comment on policy check_ins_update on public.check_ins is
+  'One permissive UPDATE policy (20261017120100, was check_ins_update_door + '
+  'check_ins_update_own_device). Door branch: can_check_in on the guest''s event, '
+  'and WITH CHECK pins synced_by to null or auth.uid(). Own-device branch: '
+  'checked_by = auth.uid(). checked_by/voided_by on UPDATE are bounded to '
+  'door-capable users of the event by the guard_check_in_actor_change trigger — '
+  'before 86ey9et0h there was no bound on either, which made the own-device pin '
+  'non-binding. Undo additionally needs the RESTRICTIVE check_ins_void_requires_uncheck.';
+
+comment on column public.check_ins.synced_by is
+  'Who transmitted the INSERT that created this row, when that was not the doorhost who admitted the guest (shared tablet, doorhost hand-off). Scope is deliberately the insert only: later UPDATEs (top-up, uitchecken, revive) do not maintain it, so NULL means "this row was inserted by its own actor", never "no hand-off ever touched it". The audit log is the complete per-change record. Pinned to auth.uid() on INSERT by RLS; on UPDATE only the door branch of check_ins_update pins it, so treat it as advisory provenance rather than a security control (86ey9et0h).';

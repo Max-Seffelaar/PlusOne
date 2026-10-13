@@ -31,7 +31,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(38);
+select plan(41);
 
 -- ── Fixture (owner) ─────────────────────────────────────────────────────────
 insert into auth.users (
@@ -521,6 +521,76 @@ select is(pg_temp.o('platform', 'check_ins.update.void.ca000000-0000-7000-8000-0
 select ok((select allowed from matrix where persona = 'finance' and tbl = 'check_ins' and op = 'select') > 0
           and (select allowed from matrix where persona = 'finance' and tbl = 'check_ins' and op = 'update') = 0,
   '38 finance reads company-1 check-ins but updates none (no door right, not the checker)');
+
+-- The whole NEW matrix, persona × table × op (the PR-body table). Pins every
+-- write count too, so a later fixture or BEFORE-trigger change that silently
+-- turns a whole row of probes into identical errors in both phases (test 3
+-- would still pass) fails here instead.
+select results_eq(
+  $$select persona, tbl, op, allowed from matrix order by persona, tbl, op$$,
+  $$values ('admin', 'check_ins', 'insert', 5), ('admin', 'check_ins', 'select', 4), ('admin', 'check_ins', 'update', 22), ('admin', 'events', 'insert', 2), ('admin', 'events', 'select', 3), ('admin', 'events', 'update', 6), ('admin', 'guest_requests', 'insert', 0), ('admin', 'guest_requests', 'select', 4), ('admin', 'guest_requests', 'update', 0), ('admin', 'guests', 'insert', 11), ('admin', 'guests', 'select', 35), ('admin', 'guests', 'update', 137), ('admin', 'refusals', 'insert', 5), ('admin', 'refusals', 'select', 2), ('admin', 'refusals', 'update', 0),
+           ('crew', 'check_ins', 'insert', 3), ('crew', 'check_ins', 'select', 4), ('crew', 'check_ins', 'update', 20), ('crew', 'events', 'insert', 0), ('crew', 'events', 'select', 2), ('crew', 'events', 'update', 4), ('crew', 'guest_requests', 'insert', 0), ('crew', 'guest_requests', 'select', 4), ('crew', 'guest_requests', 'update', 0), ('crew', 'guests', 'insert', 7), ('crew', 'guests', 'select', 33), ('crew', 'guests', 'update', 129), ('crew', 'refusals', 'insert', 3), ('crew', 'refusals', 'select', 2), ('crew', 'refusals', 'update', 0),
+           ('doorhost', 'check_ins', 'insert', 4), ('doorhost', 'check_ins', 'select', 3), ('doorhost', 'check_ins', 'update', 15), ('doorhost', 'events', 'insert', 0), ('doorhost', 'events', 'select', 2), ('doorhost', 'events', 'update', 0), ('doorhost', 'guest_requests', 'insert', 0), ('doorhost', 'guest_requests', 'select', 0), ('doorhost', 'guest_requests', 'update', 0), ('doorhost', 'guests', 'insert', 6), ('doorhost', 'guests', 'select', 32), ('doorhost', 'guests', 'update', 125), ('doorhost', 'refusals', 'insert', 4), ('doorhost', 'refusals', 'select', 1), ('doorhost', 'refusals', 'update', 0),
+           ('finance', 'check_ins', 'insert', 0), ('finance', 'check_ins', 'select', 3), ('finance', 'check_ins', 'update', 0), ('finance', 'events', 'insert', 0), ('finance', 'events', 'select', 2), ('finance', 'events', 'update', 0), ('finance', 'guest_requests', 'insert', 0), ('finance', 'guest_requests', 'select', 3), ('finance', 'guest_requests', 'update', 0), ('finance', 'guests', 'insert', 0), ('finance', 'guests', 'select', 32), ('finance', 'guests', 'update', 0), ('finance', 'refusals', 'insert', 0), ('finance', 'refusals', 'select', 1), ('finance', 'refusals', 'update', 0),
+           ('manager', 'check_ins', 'insert', 0), ('manager', 'check_ins', 'select', 0), ('manager', 'check_ins', 'update', 0), ('manager', 'events', 'insert', 0), ('manager', 'events', 'select', 2), ('manager', 'events', 'update', 0), ('manager', 'guest_requests', 'insert', 0), ('manager', 'guest_requests', 'select', 0), ('manager', 'guest_requests', 'update', 0), ('manager', 'guests', 'insert', 0), ('manager', 'guests', 'select', 0), ('manager', 'guests', 'update', 0), ('manager', 'refusals', 'insert', 0), ('manager', 'refusals', 'select', 0), ('manager', 'refusals', 'update', 0),
+           ('otheradm', 'check_ins', 'insert', 1), ('otheradm', 'check_ins', 'select', 1), ('otheradm', 'check_ins', 'update', 6), ('otheradm', 'events', 'insert', 1), ('otheradm', 'events', 'select', 1), ('otheradm', 'events', 'update', 2), ('otheradm', 'guest_requests', 'insert', 0), ('otheradm', 'guest_requests', 'select', 1), ('otheradm', 'guest_requests', 'update', 0), ('otheradm', 'guests', 'insert', 3), ('otheradm', 'guests', 'select', 3), ('otheradm', 'guests', 'update', 12), ('otheradm', 'refusals', 'insert', 1), ('otheradm', 'refusals', 'select', 1), ('otheradm', 'refusals', 'update', 0),
+           ('outsider', 'check_ins', 'insert', 0), ('outsider', 'check_ins', 'select', 0), ('outsider', 'check_ins', 'update', 0), ('outsider', 'events', 'insert', 0), ('outsider', 'events', 'select', 0), ('outsider', 'events', 'update', 0), ('outsider', 'guest_requests', 'insert', 0), ('outsider', 'guest_requests', 'select', 0), ('outsider', 'guest_requests', 'update', 0), ('outsider', 'guests', 'insert', 0), ('outsider', 'guests', 'select', 0), ('outsider', 'guests', 'update', 0), ('outsider', 'refusals', 'insert', 0), ('outsider', 'refusals', 'select', 0), ('outsider', 'refusals', 'update', 0),
+           ('platform', 'check_ins', 'insert', 5), ('platform', 'check_ins', 'select', 4), ('platform', 'check_ins', 'update', 22), ('platform', 'events', 'insert', 2), ('platform', 'events', 'select', 3), ('platform', 'events', 'update', 6), ('platform', 'guest_requests', 'insert', 0), ('platform', 'guest_requests', 'select', 4), ('platform', 'guest_requests', 'update', 0), ('platform', 'guests', 'insert', 11), ('platform', 'guests', 'select', 35), ('platform', 'guests', 'update', 137), ('platform', 'refusals', 'insert', 5), ('platform', 'refusals', 'select', 2), ('platform', 'refusals', 'update', 0),
+           ('staff', 'check_ins', 'insert', 0), ('staff', 'check_ins', 'select', 0), ('staff', 'check_ins', 'update', 0), ('staff', 'events', 'insert', 0), ('staff', 'events', 'select', 2), ('staff', 'events', 'update', 0), ('staff', 'guest_requests', 'insert', 0), ('staff', 'guest_requests', 'select', 0), ('staff', 'guest_requests', 'update', 0), ('staff', 'guests', 'insert', 3), ('staff', 'guests', 'select', 9), ('staff', 'guests', 'update', 32), ('staff', 'refusals', 'insert', 0), ('staff', 'refusals', 'select', 0), ('staff', 'refusals', 'update', 0)$$,
+  '39 the full new matrix (9 personas × 5 tables × select/insert/update) matches the hand-checked table');
+
+-- The access rule has two spellings (per-row helpers for ~50 other policies,
+-- set helpers for these 12). They must agree for every fixture user × venue /
+-- event × role set, so a later change to one side without the other fails here.
+create temp table helper_parity (user_id uuid, kind text, target uuid, roles public.venue_role[],
+                                 old_ok boolean, new_ok boolean);
+
+do $$
+declare
+  u record;
+begin
+  for u in select id from public.user_profiles order by id loop
+    perform set_config('request.jwt.claims', json_build_object(
+      'sub', u.id::text, 'role', 'authenticated')::text, true);
+
+    insert into helper_parity
+    select u.id, 'is_venue_member', v.id, null,
+           coalesce(public.is_venue_member(v.id), false),
+           coalesce(v.id in (select public.my_venue_ids()), false) or public.is_platform_admin()
+      from public.venues v;
+
+    insert into helper_parity
+    select u.id, 'is_event_organizer', e.id, null,
+           coalesce(public.is_event_organizer(e.id), false),
+           coalesce(e.id in (select public.my_organized_event_ids()), false) or public.is_platform_admin()
+      from public.events e;
+
+    insert into helper_parity
+    select u.id, 'has_venue_role', v.id, rs.roles,
+           coalesce(public.has_venue_role(v.id, rs.roles), false),
+           coalesce(v.id in (select public.my_venue_ids_with_roles(rs.roles)), false) or public.is_platform_admin()
+      from public.venues v
+     cross join (select array[x]::public.venue_role[] as roles from unnest(enum_range(null::public.venue_role)) x
+                 union all select '{admin,finance,doorhost}' union all select '{admin,finance}'
+                 union all select '{admin,doorhost}') rs;
+
+    insert into helper_parity
+    select u.id, 'has_venue_role(event_venue)', e.id, rs.roles,
+           coalesce(public.has_venue_role(public.event_venue(e.id), rs.roles), false),
+           coalesce(e.id in (select public.my_event_ids_with_roles(rs.roles)), false) or public.is_platform_admin()
+      from public.events e
+     cross join (select array[x]::public.venue_role[] as roles from unnest(enum_range(null::public.venue_role)) x
+                 union all select '{admin,doorhost}') rs;
+  end loop;
+  perform set_config('request.jwt.claims', '', true);
+end
+$$;
+
+select is_empty($$select * from helper_parity where old_ok is distinct from new_ok$$,
+  '40 per-row helpers and set helpers agree for every fixture user × target × role set');
+select ok((select count(*) filter (where new_ok) > 0 and count(*) filter (where not new_ok) > 0
+             and count(distinct user_id) >= 9 from helper_parity),
+  '41 the helper-parity sample has both allowed and denied cases across all personas');
 
 select * from finish();
 rollback;
