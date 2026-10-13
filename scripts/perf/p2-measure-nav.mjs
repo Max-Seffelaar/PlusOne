@@ -17,8 +17,9 @@ const BASE = process.argv[2] ?? 'http://localhost:7000';
 const VENUE = 'aa000000-0000-7000-8000-000000000001';
 const ADMIN_ID = '11111111-1111-4111-8111-111111111111';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:55321';
-if (!/127\.0\.0\.1|localhost/.test(SUPABASE_URL)) throw new Error('local stack only');
+if (!['127.0.0.1', 'localhost'].includes(new URL(SUPABASE_URL).hostname)) throw new Error('local stack only');
 const TERMS_VERSION = /TERMS_VERSION = '([^']+)'/.exec(readFileSync(new URL('../../src/lib/legal.ts', import.meta.url), 'utf8'))?.[1];
+if (!TERMS_VERSION) throw new Error('could not read TERMS_VERSION from src/lib/legal.ts');
 const db = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
 const TAPS = [
@@ -60,10 +61,22 @@ async function run(device) {
 }
 
 async function main() {
+  // admin@ in the ONE shared local stack: remember the row, restore it after.
+  const { data: before, error: readErr } = await db.from('user_profiles')
+    .select('terms_accepted_at, terms_version, mfa_snooze_until').eq('id', ADMIN_ID).single();
+  if (readErr) throw readErr;
   const { error } = await db.from('user_profiles')
     .update({ terms_accepted_at: new Date(0).toISOString(), terms_version: TERMS_VERSION, mfa_snooze_until: 'infinity' })
     .eq('id', ADMIN_ID);
   if (error) throw error;
+  try {
+    await measure();
+  } finally {
+    await db.from('user_profiles').update(before).eq('id', ADMIN_ID);
+  }
+}
+
+async function measure() {
   for (const [label, device] of [
     ['desktop 1280', { viewport: { width: 1280, height: 900 } }],
     ['phone 390', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }],

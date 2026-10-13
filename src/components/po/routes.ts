@@ -332,7 +332,8 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
  * (node_modules/next/dist/client/components/app-router.js, "Patch pushState").
  * Passing `null` (not `window.history.state`) is what opts in; the door's own
  * raw-history sub-nav passes the current state on purpose and keeps its
- * override (`use-door-override.ts`); `app.tsx` `pushUrl`/`replaceUrl` use this.
+ * override (`use-door-override.ts`); `app.tsx` `pushUrl`/`replaceUrl` use this
+ * through `navMode` below.
  *
  * Only for `/app` screens and tabs. The door's URLs (`/app/door…`) keep going
  * through the router in this change (§4 taak 9: door navigation stays as it is
@@ -340,6 +341,39 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
  * different route that needs the router.
  */
 export function isClientOnlyPath(url: string): boolean {
-  const path = url.split('?')[0];
+  const path = url.split(/[?#]/)[0];
   return (path === '/app' || path.startsWith('/app/')) && path !== '/app/door' && !path.startsWith('/app/door/');
+}
+
+/**
+ * How often a po navigation still goes through the router (and with it the
+ * middleware: cookie refresh, the 307 to /login for a dead session, the
+ * review-demo window end) even when it could be client-only (review #492).
+ */
+export const MIDDLEWARE_PASS_MS = 5 * 60 * 1000;
+
+export type NavMode = 'none' | 'client' | 'router' | 'document';
+
+/**
+ * The one decision `app.tsx` `pushUrl`/`replaceUrl` make per navigation:
+ *  - 'none'     the URL is the one already showing: never stack a duplicate
+ *               history entry (router.push never did; a raw pushState would);
+ *  - 'router'   door URLs and anything outside `/app` (see isClientOnlyPath),
+ *               and one navigation per MIDDLEWARE_PASS_MS, so the middleware
+ *               still sees a session at least that often;
+ *  - 'document' the auth client reported SIGNED_OUT: a full load lets the
+ *               middleware send the user to /login instead of an empty shell
+ *               (never a redirect from the event itself — that would race the
+ *               device wipe in signOutDevice);
+ *  - 'client'   everything else: history.pushState, no server round-trip.
+ */
+export function navMode(
+  url: string,
+  ctx: { current: string; sessionGone: boolean; msSinceRouterNav: number },
+): NavMode {
+  if (url === ctx.current) return 'none';
+  if (!isClientOnlyPath(url)) return 'router';
+  if (ctx.sessionGone) return 'document';
+  if (ctx.msSinceRouterNav >= MIDDLEWARE_PASS_MS) return 'router';
+  return 'client';
 }
