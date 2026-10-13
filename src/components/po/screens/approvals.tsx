@@ -23,7 +23,7 @@ import { fmt, t } from '@/lib/i18n';
 import {
   usePoCanCreateLink,
   usePoCanManageTemplates,
-  usePoEvents,
+  usePoEventOptions,
   usePoGuestRequests,
   usePoQuotaRequests,
   usePoRequestDecisionCounts,
@@ -113,7 +113,7 @@ export function Aanvragen({
   const seeInbox = canManageTemplates || canSeeRequestInbox(roles);
   const ownOnly = !seeInbox && canSeeOwnRequests(roles);
   const noAccess = !seeInbox && !ownOnly;
-  const eventsQuery = usePoEvents();
+  const eventsQuery = usePoEventOptions();
   const events = eventsQuery.data ?? [];
   const gReqs = usePoGuestRequests();
   const qReqs = usePoQuotaRequests();

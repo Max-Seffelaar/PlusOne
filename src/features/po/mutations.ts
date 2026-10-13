@@ -187,11 +187,19 @@ async function patchGuestsOptimistically(
 // the same prefix instead of drifting out of sync with a second copy.
 export const VENUE_GUESTS_PREFIX = [...poKeys.all, 'venue-guests'] as const;
 
+// The venue's event window carries every card's on-list/inside headcount
+// (usePoEvents, Home, the single-event read under it). Every write that moves a
+// headcount invalidates this prefix — that is what lets usePoEvents keep a
+// staleTime of minutes (Snelheid P2, P1-review follow-up). Prefix match, so no
+// venueId needed here.
+export const EVENTS_PREFIX = [...poKeys.all, 'events'] as const;
+
 function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
   void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+  void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
 }
 
 // The settings cluster reuses the EXISTING (prev, FormData) → ActionState server
@@ -257,6 +265,8 @@ function guestMutation<TInput>(
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
       void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+      // An edit can change plus_ones, a removal frees heads: the cards' counts move.
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
       for (const key of extraKeys) {
         void qc.invalidateQueries({ queryKey: key as unknown[] });
       }
@@ -702,7 +712,12 @@ export function usePoRefuseGuest(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      // A refusal takes heads off the list (and an undo puts them back): the
+      // event cards' counts move too (Snelheid P2 review).
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+    },
   });
 }
 
@@ -728,7 +743,12 @@ export function usePoUndoRefusal(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      // A refusal takes heads off the list (and an undo puts them back): the
+      // event cards' counts move too (Snelheid P2 review).
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+    },
   });
 }
 
@@ -780,6 +800,8 @@ function invalidateCheckinDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
   void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+  // "Inside" on the event cards.
+  void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
 }
 
 // The approval inbox (S5) reads venue-wide and one screen decides requests from
@@ -802,6 +824,7 @@ export function usePoApproveRequest() {
         // An approved landing request becomes a guest — the venue-wide All-Guests
         // tab must refresh too, not just the per-event list (C17).
         void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
       }
     },
   });
@@ -822,6 +845,7 @@ export function usePoDecideRequest() {
         void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
         void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
       }
     },
   });
@@ -1000,15 +1024,9 @@ function useInvalidateEvent() {
     if (venueId) {
       void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
       void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-      // poKeys.home is a SEPARATE cache entry from poKeys.events (its own fetch,
-      // its own 10s poll) — without this an event create/status-change/cancel
-      // only reached the mobile Home board on its next poll tick, not
-      // immediately, while the Events tab (poKeys.events, invalidated above)
-      // updated right away (86ey9e9v5: Home vs Events inconsistency after
-      // create/cancel). PR #228 fixed this ad hoc for the lock toggle only
-      // (usePoSetListLockOnHome); this generalizes it to every caller of
-      // useInvalidateEvent.
-      void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
+      // No separate poKeys.home invalidation (86ey9e9v5): since Snelheid P2 the
+      // Home board is a `select` over the same event window, `poKeys.home` is an
+      // alias of `poKeys.events`, and the line above already refreshes Home.
     }
   };
 }
@@ -1026,7 +1044,6 @@ export function usePoCreateEvent() {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });
@@ -1223,7 +1240,6 @@ export function usePoCreateEventFromTemplate() {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });

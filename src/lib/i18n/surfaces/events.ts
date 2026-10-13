@@ -16,6 +16,8 @@ export const events = {
   loadEventsError: "Couldn't load events. Try again in a moment.",
   emptyUpcoming: 'No upcoming events. Create one and start the list.',
   emptyPast: 'No past events yet.',
+  /** Past view: loads the next page of events older than the last 30 days (Snelheid P2). */
+  showOlder: 'Show older events',
   /** {place} = the event's own location, else the company address (z8uq9m2vqc). */
   cardDoors: 'Doors {time} · {place}',
   cardTurnoutSuffix: '% attendance',
@@ -26,6 +28,8 @@ export const events = {
   searchCloseAria: 'Close search',
   searchPlaceholder: 'Search by event name…',
   searchEmpty: 'No events match "{q}".',
+  /** Past + search with older pages not loaded yet: the search only covers what is loaded (Snelheid P2 review). */
+  searchEmptyPastWindow: 'No "{q}" in the last 30 days. Show older events to search further back.',
 
   // ── Event detail ────────────────────────────────────────────────────────────
   detailTitle: 'Event',

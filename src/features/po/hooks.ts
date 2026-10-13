@@ -4,8 +4,8 @@
 // the active venue/event scope, then map rows -> po component shapes via the pure
 // adapters. No screen calls these yet (STAP 3.2 is infra); STAP 3.3/3.4 swap each
 // screen's mock import for the matching hook, preserving the component API.
-import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type Query } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import type { AuditLine } from '@/features/audit/translate';
@@ -101,6 +101,8 @@ import {
   type PoTemplateRow,
   type PoTemplateDetail,
   type PoTemplateTierRow,
+  type EventHeadcount,
+  type PoEventRow,
 } from './queries';
 import {
   toPoEvent,
@@ -206,12 +208,66 @@ export interface ContactDedupeKeys {
 const EMPTY_EVENTS: PoEvent[] = [];
 const EMPTY_DOOR_CANDIDATES: PoDoorEvent[] = [];
 
-/** All events for the caller's active venue, with on-list + present headcounts. */
+/**
+ * The venue's events WINDOW (Snelheid P2, perf audit findings 4 + 12): every
+ * upcoming event plus the last 30 days, with role-scoped headcounts for exactly
+ * those events. One cache entry (`poKeys.events`) that the Events tab, Home and
+ * every event picker read through `select`, so the venue's history no longer
+ * grows the reads: older events page in on demand (`usePoPastEvents`).
+ *
+ * Raw rows + plain-object headcounts, so React Query's structural sharing keeps
+ * unchanged rows referentially stable across refetches; `fetchedAt` is the
+ * "now" the shapes are computed against (Home re-sorts live-first per poll).
+ */
+export const EVENTS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface PoEventsWindow {
+  rows: PoEventRow[];
+  heads: Record<string, EventHeadcount>;
+  /** Lower bound of the window (ISO): `usePoPastEvents` pages from here back. */
+  sinceIso: string;
+  fetchedAt: number;
+}
+
+async function fetchEventsWindow(venueId: string): Promise<PoEventsWindow> {
+  const client = createClient();
+  // Rounded down to the day: the lower bound (and with it the Past pages' key,
+  // usePoPastEvents) stays the same across refetches, so a refetch never resets
+  // older pages someone already loaded (Snelheid P2 review).
+  const since = new Date(Date.now() - EVENTS_WINDOW_MS);
+  since.setUTCHours(0, 0, 0, 0);
+  const sinceIso = since.toISOString();
+  // SCALE-5: both reads take just the venueId (+ the window), so they run in parallel.
+  const [rows, heads] = await Promise.all([
+    fetchEvents(client, venueId, { sinceIso }),
+    fetchEventHeadcounts(client, venueId, sinceIso),
+  ]);
+  return { rows, heads: Object.fromEntries(heads), sinceIso, fetchedAt: Date.now() };
+}
+
+const NO_HEADS: EventHeadcount = { registered: 0, present: 0 };
+
+function windowToPoEvent(w: PoEventsWindow, row: PoEventRow): PoEvent {
+  const c = w.heads[row.id] ?? NO_HEADS;
+  return toPoEvent(row, { guests: c.registered, inside: c.present });
+}
+
+// Module-level so React Query memoises the projection per data change.
+const toPoEvents = (w: PoEventsWindow): PoEvent[] => w.rows.map((r) => windowToPoEvent(w, r));
+
+/**
+ * The venue's event window as po events (upcoming + last 30 days), with on-list
+ * + present headcounts. staleTime is minutes, not seconds, while nothing in the
+ * window is live: every guest, check-in, refusal and request write on this
+ * device invalidates the `['po','events']` prefix (mutations.ts). With a live
+ * event it is 30 s, because the door's outbox and other devices also move it.
+ */
 export function usePoEvents() {
   const { venueId } = usePoIdentity();
-  const query = useQuery<PoEvent[]>({
+  const query = useQuery<PoEventsWindow, Error, PoEvent[]>({
     queryKey: poKeys.events(venueId ?? ''),
     enabled: !!venueId,
+    staleTime: windowStaleTime,
     // Explicit list (86ey9e9vc review round 2), audited against every one of
     // this hook's ~15 call sites — none reads anything else off the returned
     // object. Required for the `{ ...query, ... }` spread below to stay safe:
@@ -225,22 +281,100 @@ export function usePoEvents() {
     // the same reason `usePoDoorCandidates` needs it (see that hook's comment,
     // review round 2 Blocker 2): `usePoEvent`'s `notFound` below gates on it.
     notifyOnChangeProps: ['data', 'isLoading', 'isError', 'error', 'isSuccess'],
-    queryFn: async () => {
-      if (!venueId) return [];
-      const client = createClient();
-      // SCALE-5: both reads take just the venueId now (no more eventIds handoff
-      // from fetchEvents into fetchEventHeadcounts), so they run in parallel.
-      const [rows, heads] = await Promise.all([
-        fetchEvents(client, venueId),
-        fetchEventHeadcounts(client, venueId),
-      ]);
-      return rows.map((r) => {
-        const c = heads.get(r.id) ?? { registered: 0, present: 0 };
-        return toPoEvent(r, { guests: c.registered, inside: c.present });
-      });
-    },
+    queryFn: () => fetchEventsWindow(venueId ?? ''),
+    select: toPoEvents,
   });
   return { ...query, data: query.data ?? EMPTY_EVENTS };
+}
+
+/**
+ * Every event of the venue as an option list — for the screens whose pickers
+ * and name lookups must reach past the window: Requests (a pending request on
+ * an older event) and Promotion (links and funnels of older events). Rows only,
+ * no headcount aggregate, so the history costs one plain read; the counts read
+ * 0 and these screens never show them. Under the events prefix, so every write
+ * that refreshes the window refreshes this too (Snelheid P2 review).
+ */
+export function usePoEventOptions() {
+  const { venueId } = usePoIdentity();
+  const query = useQuery<PoEventRow[], Error, PoEvent[]>({
+    queryKey: [...poKeys.events(venueId ?? ''), 'options'],
+    enabled: !!venueId,
+    staleTime: EVENTS_STALE_MS,
+    notifyOnChangeProps: ['data', 'isLoading', 'isError'],
+    queryFn: () => fetchEvents(createClient(), venueId ?? ''),
+    select: toEventOptions,
+  });
+  return { ...query, data: query.data ?? EMPTY_EVENTS };
+}
+
+const toEventOptions = (rows: PoEventRow[]): PoEvent[] => rows.map((r) => toPoEvent(r, { guests: 0, inside: 0 }));
+
+/** How long the event window counts as fresh for the Events tab and pickers. */
+const EVENTS_STALE_MS = 5 * 60 * 1000;
+/** While an event in the window is live, its Inside count moves through writes
+ *  this device never sees (the mobile door's outbox, other devices): back to
+ *  the old 30 s then (Snelheid P2 review). */
+const LIVE_EVENTS_STALE_MS = 30_000;
+
+export function windowStaleTime(query: Query<PoEventsWindow>): number {
+  const now = Date.now();
+  const live = query.state.data?.rows.some((r) => eventPhase(r.starts_at, r.ends_at, now) === 'live');
+  return live ? LIVE_EVENTS_STALE_MS : EVENTS_STALE_MS;
+}
+
+/** One page of older events (before the window) for the Events tab's Past view. */
+const PAST_PAGE_SIZE = 30;
+
+type PastCursor = { startsAt: string; id: string | null };
+interface PoPastEventsPage {
+  events: PoEvent[];
+  next: PastCursor | null;
+}
+
+/**
+ * Events older than the window, newest first, one page per "Show older events"
+ * tap (Snelheid P2, finding 4: "pagineren door het verleden"). Keyed under the
+ * events prefix (every write that refreshes the window refreshes these pages)
+ * and on the window's own lower bound (day-rounded, so it is stable across
+ * refetches), so the pages always continue exactly where the window stops —
+ * no gap, no overlap. Disabled until asked for.
+ *
+ * The window is "starts in the last 30 days or later": an event that started
+ * longer ago and still runs is not in it. Events are nights, not residencies;
+ * a door event longer than 30 days is out of scope (door candidates use the
+ * same bound).
+ *
+ * Headcounts per page: the RPC has no upper bound, so `p_since` = the page's
+ * oldest start aggregates that page plus everything newer. That grows with how
+ * far back someone pages, never with how old the venue is.
+ */
+export function usePoPastEvents(enabled: boolean) {
+  const { venueId } = usePoIdentity();
+  const qc = useQueryClient();
+  const sinceIso = qc.getQueryData<PoEventsWindow>(poKeys.events(venueId ?? ''))?.sinceIso ?? null;
+  return useInfiniteQuery<PoPastEventsPage, Error, InfiniteData<PoPastEventsPage>, readonly unknown[], PastCursor>({
+    queryKey: [...poKeys.events(venueId ?? ''), 'past', sinceIso],
+    enabled: enabled && !!venueId && !!sinceIso,
+    staleTime: EVENTS_STALE_MS,
+    initialPageParam: { startsAt: sinceIso ?? '', id: null },
+    getNextPageParam: (last) => last.next ?? undefined,
+    queryFn: async ({ pageParam }) => {
+      const client = createClient();
+      const vid = venueId ?? '';
+      const rows = await fetchEvents(client, vid, { before: pageParam, limit: PAST_PAGE_SIZE });
+      const oldest = rows[rows.length - 1];
+      if (!oldest) return { events: [], next: null };
+      const heads = await fetchEventHeadcounts(client, vid, oldest.starts_at);
+      return {
+        events: rows.map((r) => {
+          const c = heads.get(r.id) ?? NO_HEADS;
+          return toPoEvent(r, { guests: c.registered, inside: c.present });
+        }),
+        next: rows.length === PAST_PAGE_SIZE ? { startsAt: oldest.starts_at, id: oldest.id } : null,
+      };
+    },
+  });
 }
 
 /** Home polling cadence: keep "aanwezig"/"aanvragen" current without realtime
@@ -257,7 +391,7 @@ const HOME_POLL_MS = 10_000;
  *  can't drift apart. */
 export const RECENT_EVENTS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-function recentEventsSinceIso(): string {
+export function recentEventsSinceIso(): string {
   return new Date(Date.now() - RECENT_EVENTS_WINDOW_MS).toISOString();
 }
 
@@ -271,53 +405,55 @@ export interface PoHomeEvents {
 
 /**
  * Mobile Dashboard-home (S11) candidate events for the active venue: every
- * non-closed event with the SAME role-scoped headcounts the Events cards use
- * (fetchEventHeadcounts), so the home is consistent with the Events tab and works
- * for doorhosts (event_stats_summary would 0 them out). The default pick mirrors
- * the Deur tab (pickDoorEvent), so the home and the door agree on "tonight".
+ * non-closed event with the SAME role-scoped headcounts the Events cards use,
+ * so the home is consistent with the Events tab and works for doorhosts
+ * (event_stats_summary would 0 them out). The default pick mirrors the Deur tab
+ * (pickDoorEvent), so the home and the door agree on "tonight".
+ *
+ * Snelheid P2 (finding 12): a `select` over the ONE event window
+ * (`poKeys.events`), not a read of its own — Home and Events share the cache,
+ * and Home's 10 s poll keeps that cache current for both. The board shows the
+ * last RECENT_EVENTS_WINDOW_MS (7 days) of it, exactly as before.
  */
 export function usePoHomeEvents() {
-  const { venueId, userId, roles } = usePoIdentity();
+  const { venueId, roles } = usePoIdentity();
   const isAdmin = roles.includes('admin');
-  return useQuery<PoHomeEvents>({
+  // Admin already manages everything. Otherwise the caller's own organizer rows
+  // (86ey9tkav, one venue-scoped read), so the board can gate Edit/Lock per event.
+  const organizerIds = usePoOrganizerEventIds();
+  const select = useCallback(
+    (w: PoEventsWindow): PoHomeEvents => toHomeEvents(w, isAdmin, organizerIds),
+    [isAdmin, organizerIds],
+  );
+  return useQuery<PoEventsWindow, Error, PoHomeEvents>({
     queryKey: poKeys.home(venueId ?? ''),
     enabled: !!venueId,
     refetchInterval: HOME_POLL_MS,
-    queryFn: async () => {
-      if (!venueId) return { events: [], defaultId: null };
-      const client = createClient();
-      const sinceIso = recentEventsSinceIso();
-      // Admin already manages everything — skip the extra read. Otherwise one
-      // venue-scoped fetch of the caller's own organizer rows (86ey9tkav),
-      // not an N+1 per card, so the board can gate Edit/Lock per event.
-      const [rows, heads, organizerIds] = await Promise.all([
-        fetchEvents(client, venueId, { sinceIso }),
-        fetchEventHeadcounts(client, venueId, { sinceIso }),
-        isAdmin || !userId ? Promise.resolve(new Set<string>()) : fetchOrganizerEventIds(client, venueId, userId),
-      ]);
-      const now = Date.now();
-      const events: HomeEvent[] = rows
-        .filter((r) => r.cancelled_at == null)
-        .map((r) => {
-          const c = heads.get(r.id) ?? { registered: 0, present: 0 };
-          return {
-            ...r,
-            registered: c.registered,
-            present: c.present,
-            canManage: isAdmin || organizerIds.has(r.id),
-          };
-        })
-        // Live first, then soonest start — the order the picker shows.
-        .sort((a, b) => {
-          const liveA = eventPhase(a.starts_at, a.ends_at, now) === 'live' ? 0 : 1;
-          const liveB = eventPhase(b.starts_at, b.ends_at, now) === 'live' ? 0 : 1;
-          if (liveA !== liveB) return liveA - liveB;
-          return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
-        });
-      const picked = pickDoorEvent(rows, Date.now());
-      return { events, defaultId: picked?.id ?? events[0]?.id ?? null };
-    },
+    queryFn: () => fetchEventsWindow(venueId ?? ''),
+    select,
   });
+}
+
+function toHomeEvents(w: PoEventsWindow, isAdmin: boolean, organizerIds: readonly string[]): PoHomeEvents {
+  const now = w.fetchedAt;
+  const since = now - RECENT_EVENTS_WINDOW_MS;
+  const recent = w.rows.filter((r) => new Date(r.starts_at).getTime() >= since);
+  const managed = new Set(organizerIds);
+  const events: HomeEvent[] = recent
+    .filter((r) => r.cancelled_at == null)
+    .map((r) => {
+      const c = w.heads[r.id] ?? NO_HEADS;
+      return { ...r, registered: c.registered, present: c.present, canManage: isAdmin || managed.has(r.id) };
+    })
+    // Live first, then soonest start — the order the picker shows.
+    .sort((a, b) => {
+      const liveA = eventPhase(a.starts_at, a.ends_at, now) === 'live' ? 0 : 1;
+      const liveB = eventPhase(b.starts_at, b.ends_at, now) === 'live' ? 0 : 1;
+      if (liveA !== liveB) return liveA - liveB;
+      return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
+    });
+  const picked = pickDoorEvent(recent, now);
+  return { events, defaultId: picked?.id ?? events[0]?.id ?? null };
 }
 
 export interface PoHomeStats {
@@ -372,7 +508,14 @@ export function usePoDoorCandidates() {
     notifyOnChangeProps: ['data', 'isLoading', 'isFetching', 'isSuccess', 'fetchStatus', 'isError'],
     queryFn: async () => {
       if (!venueId) return [];
-      return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());
+      // Windowed (Snelheid P2, finding 12): a candidate is live or upcoming, so
+      // the event window's lower bound loses nothing (an event live for 30+
+      // days is not a door night) and the read stops growing with history.
+      // Its own key and query state on purpose: the N7 offline fallback reads
+      // this query's hasData/fetchStatus/isError, and the door subtree must
+      // not re-render on Home's poll (door-render-isolation).
+      const sinceIso = new Date(Date.now() - EVENTS_WINDOW_MS).toISOString();
+      return doorCandidates(await fetchEvents(createClient(), venueId, { sinceIso }), Date.now());
     },
   });
   // `hasData` (N7 §6 review): whether a list has EVER loaded into this query,
@@ -404,7 +547,11 @@ export function usePoEvent(eventId: string) {
     queryKey: [...listKey, 'one', eventId],
     enabled: !!venueId && !!eventId,
     notifyOnChangeProps: ['data', 'isLoading', 'isError', 'error', 'isSuccess'],
-    initialData: () => qc.getQueryData<PoEvent[]>(listKey)?.find((e) => e.id === eventId),
+    initialData: () => {
+      const w = qc.getQueryData<PoEventsWindow>(listKey);
+      const row = w?.rows.find((r) => r.id === eventId);
+      return w && row ? windowToPoEvent(w, row) : undefined;
+    },
     initialDataUpdatedAt: () => qc.getQueryState(listKey)?.dataUpdatedAt,
     queryFn: async () => {
       if (!venueId || !eventId) return null;
@@ -720,16 +867,17 @@ export interface VenueGuests {
  * page-the-whole-venue read + client re-sort/-filter that died at 25 000 guests).
  * Each row carries its event id + name to badge + deep-link, and its tier from
  * the embed (no separate venue-wide tier read). `total` backs the "of N"
- * subtitle. RLS stays the boundary (staff see only their own). Pass `[]` to
+ * subtitle. RLS stays the boundary (staff see only their own). Pass `false` to
  * disable (single-event mode); `search` is the debounced term, and a new term is
  * a new server window keyed under the same prefix so writes still invalidate it.
  */
-export function useVenueGuests(events: PoEvent[], search = '') {
+export function useVenueGuests(enabled: boolean, search = '') {
   const { venueId } = usePoIdentity();
-  const nameById = new Map(events.map((e) => [e.id, e.name]));
   return useQuery<VenueGuests>({
     queryKey: poKeys.venueGuests(venueId ?? '', search),
-    enabled: !!venueId && events.length > 0,
+    // Not gated on the events window (Snelheid P2 review): a quiet season with no
+    // event in the window must still list the venue's guests.
+    enabled: enabled && !!venueId,
     queryFn: async () => {
       const { rows, total } = await fetchVenueGuestsWindow(createClient(), {
         venueId: venueId ?? '',
@@ -741,7 +889,7 @@ export function useVenueGuests(events: PoEvent[], search = '') {
           tierName: g.tierName ?? undefined,
           tierColor: g.tierColor ?? undefined,
           eventId: g.event_id,
-          eventName: nameById.get(g.event_id) ?? '',
+          eventName: g.eventName ?? '',
         }),
       );
       return { guests, total };

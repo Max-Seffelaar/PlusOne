@@ -6,7 +6,10 @@ export const poKeys = {
   all: ['po'] as const,
   events: (venueId: string) => [...poKeys.all, 'events', venueId] as const,
   /** Mobile Dashboard-home (S11): the venue's candidate events + headcounts. */
-  home: (venueId: string) => [...poKeys.all, 'home', venueId] as const,
+  // Home reads the venue's event window through `select` (Snelheid P2,
+  // finding 12): the same cache entry as the Events tab, so every
+  // invalidation of `home` refreshes that one shared query.
+  home: (venueId: string) => poKeys.events(venueId),
   /** Home KPI bundle for the selected event (open requests + personal quota). */
   homeStats: (eventId: string) => [...poKeys.all, 'home-stats', eventId] as const,
   /** All non-closed events the door/cockpit may work, for the Deur-tab switcher (S1.3). */
