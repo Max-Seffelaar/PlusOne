@@ -4,8 +4,8 @@
 // the active venue/event scope, then map rows -> po component shapes via the pure
 // adapters. No screen calls these yet (STAP 3.2 is infra); STAP 3.3/3.4 swap each
 // screen's mock import for the matching hook, preserving the component API.
-import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type Query } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import type { AuditLine } from '@/features/audit/translate';
@@ -21,7 +21,6 @@ import {
   fetchPastEventStats,
   fetchRecapGuests,
   fetchRecentCheckins,
-  fetchTiers,
   fetchTiersWithUsage,
   fetchGuests,
   fetchVenueGuestsWindow,
@@ -31,6 +30,7 @@ import {
   fetchRequestDecisionCounts,
   type PoRequestDecisionCounts,
   fetchQuotaRequests,
+  fetchMyQuotaUpdates,
   fetchContacts,
   fetchContactKeyRows,
   fetchContactMarketingOptIns,
@@ -100,16 +100,20 @@ import {
   type PoTemplateRow,
   type PoTemplateDetail,
   type PoTemplateTierRow,
+  type EventHeadcount,
+  type PoEventRow,
 } from './queries';
 import {
   toPoEvent,
   toPoGuest,
+  toPoGuestWithTiers,
   toPoTier,
   type HomeEvent,
   toPoContact,
   toPoContactProfile,
   toPoGuestRequest,
   toPoQuotaRequest,
+  toPoQuotaUpdate,
   toRecap,
   tierRole,
   toPoTeamMember,
@@ -148,6 +152,7 @@ import {
   type PoContactProfile,
   type PoGuestRequest,
   type PoQuotaRequest,
+  type PoQuotaUpdate,
   type PoRecap,
   type PoTeamMember,
   type PoInvite,
@@ -183,6 +188,12 @@ import {
   type PerUser,
 } from '@/features/stats/po-adapter';
 import { getDoorClient } from '@/features/door/offline/device';
+import {
+  patchArrivalsFromCheckIn,
+  patchGuestsFromRow,
+  type RealtimeCheckInRow,
+  type RealtimeGuestRow,
+} from './eventday/realtime-patch';
 import { shouldRefetchOnStatus, type ChannelStatus } from '@/features/door/sync/reconnect';
 
 /** Existing-contact dedup keys for the import preview, mirroring the DB's
@@ -203,12 +214,66 @@ export interface ContactDedupeKeys {
 const EMPTY_EVENTS: PoEvent[] = [];
 const EMPTY_DOOR_CANDIDATES: PoDoorEvent[] = [];
 
-/** All events for the caller's active venue, with on-list + present headcounts. */
+/**
+ * The venue's events WINDOW (Snelheid P2, perf audit findings 4 + 12): every
+ * upcoming event plus the last 30 days, with role-scoped headcounts for exactly
+ * those events. One cache entry (`poKeys.events`) that the Events tab, Home and
+ * every event picker read through `select`, so the venue's history no longer
+ * grows the reads: older events page in on demand (`usePoPastEvents`).
+ *
+ * Raw rows + plain-object headcounts, so React Query's structural sharing keeps
+ * unchanged rows referentially stable across refetches; `fetchedAt` is the
+ * "now" the shapes are computed against (Home re-sorts live-first per poll).
+ */
+export const EVENTS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface PoEventsWindow {
+  rows: PoEventRow[];
+  heads: Record<string, EventHeadcount>;
+  /** Lower bound of the window (ISO): `usePoPastEvents` pages from here back. */
+  sinceIso: string;
+  fetchedAt: number;
+}
+
+async function fetchEventsWindow(venueId: string): Promise<PoEventsWindow> {
+  const client = createClient();
+  // Rounded down to the day: the lower bound (and with it the Past pages' key,
+  // usePoPastEvents) stays the same across refetches, so a refetch never resets
+  // older pages someone already loaded (Snelheid P2 review).
+  const since = new Date(Date.now() - EVENTS_WINDOW_MS);
+  since.setUTCHours(0, 0, 0, 0);
+  const sinceIso = since.toISOString();
+  // SCALE-5: both reads take just the venueId (+ the window), so they run in parallel.
+  const [rows, heads] = await Promise.all([
+    fetchEvents(client, venueId, { sinceIso }),
+    fetchEventHeadcounts(client, venueId, sinceIso),
+  ]);
+  return { rows, heads: Object.fromEntries(heads), sinceIso, fetchedAt: Date.now() };
+}
+
+const NO_HEADS: EventHeadcount = { registered: 0, present: 0 };
+
+function windowToPoEvent(w: PoEventsWindow, row: PoEventRow): PoEvent {
+  const c = w.heads[row.id] ?? NO_HEADS;
+  return toPoEvent(row, { guests: c.registered, inside: c.present });
+}
+
+// Module-level so React Query memoises the projection per data change.
+const toPoEvents = (w: PoEventsWindow): PoEvent[] => w.rows.map((r) => windowToPoEvent(w, r));
+
+/**
+ * The venue's event window as po events (upcoming + last 30 days), with on-list
+ * + present headcounts. staleTime is minutes, not seconds, while nothing in the
+ * window is live: every guest, check-in, refusal and request write on this
+ * device invalidates the `['po','events']` prefix (mutations.ts). With a live
+ * event it is 30 s, because the door's outbox and other devices also move it.
+ */
 export function usePoEvents() {
   const { venueId } = usePoIdentity();
-  const query = useQuery<PoEvent[]>({
+  const query = useQuery<PoEventsWindow, Error, PoEvent[]>({
     queryKey: poKeys.events(venueId ?? ''),
     enabled: !!venueId,
+    staleTime: windowStaleTime,
     // Explicit list (86ey9e9vc review round 2), audited against every one of
     // this hook's ~15 call sites — none reads anything else off the returned
     // object. Required for the `{ ...query, ... }` spread below to stay safe:
@@ -222,22 +287,100 @@ export function usePoEvents() {
     // the same reason `usePoDoorCandidates` needs it (see that hook's comment,
     // review round 2 Blocker 2): `usePoEvent`'s `notFound` below gates on it.
     notifyOnChangeProps: ['data', 'isLoading', 'isError', 'error', 'isSuccess'],
-    queryFn: async () => {
-      if (!venueId) return [];
-      const client = createClient();
-      // SCALE-5: both reads take just the venueId now (no more eventIds handoff
-      // from fetchEvents into fetchEventHeadcounts), so they run in parallel.
-      const [rows, heads] = await Promise.all([
-        fetchEvents(client, venueId),
-        fetchEventHeadcounts(client, venueId),
-      ]);
-      return rows.map((r) => {
-        const c = heads.get(r.id) ?? { registered: 0, present: 0 };
-        return toPoEvent(r, { guests: c.registered, inside: c.present });
-      });
-    },
+    queryFn: () => fetchEventsWindow(venueId ?? ''),
+    select: toPoEvents,
   });
   return { ...query, data: query.data ?? EMPTY_EVENTS };
+}
+
+/**
+ * Every event of the venue as an option list — for the screens whose pickers
+ * and name lookups must reach past the window: Requests (a pending request on
+ * an older event) and Promotion (links and funnels of older events). Rows only,
+ * no headcount aggregate, so the history costs one plain read; the counts read
+ * 0 and these screens never show them. Under the events prefix, so every write
+ * that refreshes the window refreshes this too (Snelheid P2 review).
+ */
+export function usePoEventOptions() {
+  const { venueId } = usePoIdentity();
+  const query = useQuery<PoEventRow[], Error, PoEvent[]>({
+    queryKey: [...poKeys.events(venueId ?? ''), 'options'],
+    enabled: !!venueId,
+    staleTime: EVENTS_STALE_MS,
+    notifyOnChangeProps: ['data', 'isLoading', 'isError'],
+    queryFn: () => fetchEvents(createClient(), venueId ?? ''),
+    select: toEventOptions,
+  });
+  return { ...query, data: query.data ?? EMPTY_EVENTS };
+}
+
+const toEventOptions = (rows: PoEventRow[]): PoEvent[] => rows.map((r) => toPoEvent(r, { guests: 0, inside: 0 }));
+
+/** How long the event window counts as fresh for the Events tab and pickers. */
+const EVENTS_STALE_MS = 5 * 60 * 1000;
+/** While an event in the window is live, its Inside count moves through writes
+ *  this device never sees (the mobile door's outbox, other devices): back to
+ *  the old 30 s then (Snelheid P2 review). */
+const LIVE_EVENTS_STALE_MS = 30_000;
+
+export function windowStaleTime(query: Query<PoEventsWindow>): number {
+  const now = Date.now();
+  const live = query.state.data?.rows.some((r) => eventPhase(r.starts_at, r.ends_at, now) === 'live');
+  return live ? LIVE_EVENTS_STALE_MS : EVENTS_STALE_MS;
+}
+
+/** One page of older events (before the window) for the Events tab's Past view. */
+const PAST_PAGE_SIZE = 30;
+
+type PastCursor = { startsAt: string; id: string | null };
+interface PoPastEventsPage {
+  events: PoEvent[];
+  next: PastCursor | null;
+}
+
+/**
+ * Events older than the window, newest first, one page per "Show older events"
+ * tap (Snelheid P2, finding 4: "pagineren door het verleden"). Keyed under the
+ * events prefix (every write that refreshes the window refreshes these pages)
+ * and on the window's own lower bound (day-rounded, so it is stable across
+ * refetches), so the pages always continue exactly where the window stops —
+ * no gap, no overlap. Disabled until asked for.
+ *
+ * The window is "starts in the last 30 days or later": an event that started
+ * longer ago and still runs is not in it. Events are nights, not residencies;
+ * a door event longer than 30 days is out of scope (door candidates use the
+ * same bound).
+ *
+ * Headcounts per page: the RPC has no upper bound, so `p_since` = the page's
+ * oldest start aggregates that page plus everything newer. That grows with how
+ * far back someone pages, never with how old the venue is.
+ */
+export function usePoPastEvents(enabled: boolean) {
+  const { venueId } = usePoIdentity();
+  const qc = useQueryClient();
+  const sinceIso = qc.getQueryData<PoEventsWindow>(poKeys.events(venueId ?? ''))?.sinceIso ?? null;
+  return useInfiniteQuery<PoPastEventsPage, Error, InfiniteData<PoPastEventsPage>, readonly unknown[], PastCursor>({
+    queryKey: [...poKeys.events(venueId ?? ''), 'past', sinceIso],
+    enabled: enabled && !!venueId && !!sinceIso,
+    staleTime: EVENTS_STALE_MS,
+    initialPageParam: { startsAt: sinceIso ?? '', id: null },
+    getNextPageParam: (last) => last.next ?? undefined,
+    queryFn: async ({ pageParam }) => {
+      const client = createClient();
+      const vid = venueId ?? '';
+      const rows = await fetchEvents(client, vid, { before: pageParam, limit: PAST_PAGE_SIZE });
+      const oldest = rows[rows.length - 1];
+      if (!oldest) return { events: [], next: null };
+      const heads = await fetchEventHeadcounts(client, vid, oldest.starts_at);
+      return {
+        events: rows.map((r) => {
+          const c = heads.get(r.id) ?? NO_HEADS;
+          return toPoEvent(r, { guests: c.registered, inside: c.present });
+        }),
+        next: rows.length === PAST_PAGE_SIZE ? { startsAt: oldest.starts_at, id: oldest.id } : null,
+      };
+    },
+  });
 }
 
 /** Home polling cadence: keep "aanwezig"/"aanvragen" current without realtime
@@ -254,7 +397,7 @@ const HOME_POLL_MS = 10_000;
  *  can't drift apart. */
 export const RECENT_EVENTS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-function recentEventsSinceIso(): string {
+export function recentEventsSinceIso(): string {
   return new Date(Date.now() - RECENT_EVENTS_WINDOW_MS).toISOString();
 }
 
@@ -268,53 +411,55 @@ export interface PoHomeEvents {
 
 /**
  * Mobile Dashboard-home (S11) candidate events for the active venue: every
- * non-closed event with the SAME role-scoped headcounts the Events cards use
- * (fetchEventHeadcounts), so the home is consistent with the Events tab and works
- * for doorhosts (event_stats_summary would 0 them out). The default pick mirrors
- * the Deur tab (pickDoorEvent), so the home and the door agree on "tonight".
+ * non-closed event with the SAME role-scoped headcounts the Events cards use,
+ * so the home is consistent with the Events tab and works for doorhosts
+ * (event_stats_summary would 0 them out). The default pick mirrors the Deur tab
+ * (pickDoorEvent), so the home and the door agree on "tonight".
+ *
+ * Snelheid P2 (finding 12): a `select` over the ONE event window
+ * (`poKeys.events`), not a read of its own — Home and Events share the cache,
+ * and Home's 10 s poll keeps that cache current for both. The board shows the
+ * last RECENT_EVENTS_WINDOW_MS (7 days) of it, exactly as before.
  */
 export function usePoHomeEvents() {
-  const { venueId, userId, roles } = usePoIdentity();
+  const { venueId, roles } = usePoIdentity();
   const isAdmin = roles.includes('admin');
-  return useQuery<PoHomeEvents>({
+  // Admin already manages everything. Otherwise the caller's own organizer rows
+  // (86ey9tkav, one venue-scoped read), so the board can gate Edit/Lock per event.
+  const organizerIds = usePoOrganizerEventIds();
+  const select = useCallback(
+    (w: PoEventsWindow): PoHomeEvents => toHomeEvents(w, isAdmin, organizerIds),
+    [isAdmin, organizerIds],
+  );
+  return useQuery<PoEventsWindow, Error, PoHomeEvents>({
     queryKey: poKeys.home(venueId ?? ''),
     enabled: !!venueId,
     refetchInterval: HOME_POLL_MS,
-    queryFn: async () => {
-      if (!venueId) return { events: [], defaultId: null };
-      const client = createClient();
-      const sinceIso = recentEventsSinceIso();
-      // Admin already manages everything — skip the extra read. Otherwise one
-      // venue-scoped fetch of the caller's own organizer rows (86ey9tkav),
-      // not an N+1 per card, so the board can gate Edit/Lock per event.
-      const [rows, heads, organizerIds] = await Promise.all([
-        fetchEvents(client, venueId, { sinceIso }),
-        fetchEventHeadcounts(client, venueId, sinceIso),
-        isAdmin || !userId ? Promise.resolve(new Set<string>()) : fetchOrganizerEventIds(client, venueId, userId),
-      ]);
-      const now = Date.now();
-      const events: HomeEvent[] = rows
-        .filter((r) => r.cancelled_at == null)
-        .map((r) => {
-          const c = heads.get(r.id) ?? { registered: 0, present: 0 };
-          return {
-            ...r,
-            registered: c.registered,
-            present: c.present,
-            canManage: isAdmin || organizerIds.has(r.id),
-          };
-        })
-        // Live first, then soonest start — the order the picker shows.
-        .sort((a, b) => {
-          const liveA = eventPhase(a.starts_at, a.ends_at, now) === 'live' ? 0 : 1;
-          const liveB = eventPhase(b.starts_at, b.ends_at, now) === 'live' ? 0 : 1;
-          if (liveA !== liveB) return liveA - liveB;
-          return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
-        });
-      const picked = pickDoorEvent(rows, Date.now());
-      return { events, defaultId: picked?.id ?? events[0]?.id ?? null };
-    },
+    queryFn: () => fetchEventsWindow(venueId ?? ''),
+    select,
   });
+}
+
+function toHomeEvents(w: PoEventsWindow, isAdmin: boolean, organizerIds: readonly string[]): PoHomeEvents {
+  const now = w.fetchedAt;
+  const since = now - RECENT_EVENTS_WINDOW_MS;
+  const recent = w.rows.filter((r) => new Date(r.starts_at).getTime() >= since);
+  const managed = new Set(organizerIds);
+  const events: HomeEvent[] = recent
+    .filter((r) => r.cancelled_at == null)
+    .map((r) => {
+      const c = w.heads[r.id] ?? NO_HEADS;
+      return { ...r, registered: c.registered, present: c.present, canManage: isAdmin || managed.has(r.id) };
+    })
+    // Live first, then soonest start — the order the picker shows.
+    .sort((a, b) => {
+      const liveA = eventPhase(a.starts_at, a.ends_at, now) === 'live' ? 0 : 1;
+      const liveB = eventPhase(b.starts_at, b.ends_at, now) === 'live' ? 0 : 1;
+      if (liveA !== liveB) return liveA - liveB;
+      return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
+    });
+  const picked = pickDoorEvent(recent, now);
+  return { events, defaultId: picked?.id ?? events[0]?.id ?? null };
 }
 
 export interface PoHomeStats {
@@ -369,7 +514,14 @@ export function usePoDoorCandidates() {
     notifyOnChangeProps: ['data', 'isLoading', 'isFetching', 'isSuccess', 'fetchStatus', 'isError'],
     queryFn: async () => {
       if (!venueId) return [];
-      return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());
+      // Windowed (Snelheid P2, finding 12): a candidate is live or upcoming, so
+      // the event window's lower bound loses nothing (an event live for 30+
+      // days is not a door night) and the read stops growing with history.
+      // Its own key and query state on purpose: the N7 offline fallback reads
+      // this query's hasData/fetchStatus/isError, and the door subtree must
+      // not re-render on Home's poll (door-render-isolation).
+      const sinceIso = new Date(Date.now() - EVENTS_WINDOW_MS).toISOString();
+      return doorCandidates(await fetchEvents(createClient(), venueId, { sinceIso }), Date.now());
     },
   });
   // `hasData` (N7 §6 review): whether a list has EVER loaded into this query,
@@ -401,14 +553,22 @@ export function usePoEvent(eventId: string) {
     queryKey: [...listKey, 'one', eventId],
     enabled: !!venueId && !!eventId,
     notifyOnChangeProps: ['data', 'isLoading', 'isError', 'error', 'isSuccess'],
-    initialData: () => qc.getQueryData<PoEvent[]>(listKey)?.find((e) => e.id === eventId),
+    initialData: () => {
+      const w = qc.getQueryData<PoEventsWindow>(listKey);
+      const row = w?.rows.find((r) => r.id === eventId);
+      return w && row ? windowToPoEvent(w, row) : undefined;
+    },
     initialDataUpdatedAt: () => qc.getQueryState(listKey)?.dataUpdatedAt,
     queryFn: async () => {
       if (!venueId || !eventId) return null;
       const client = createClient();
-      const [row] = await fetchEvents(client, venueId, { eventId });
+      // Both reads know the id up front, so they run in parallel; the headcount
+      // aggregates this one event, not every event after it (Snelheid P2).
+      const [[row], heads] = await Promise.all([
+        fetchEvents(client, venueId, { eventId }),
+        fetchEventHeadcounts(client, venueId, { eventId }),
+      ]);
       if (!row) return null;
-      const heads = await fetchEventHeadcounts(client, venueId, row.starts_at);
       const c = heads.get(row.id) ?? { registered: 0, present: 0 };
       return toPoEvent(row, { guests: c.registered, inside: c.present });
     },
@@ -536,11 +696,15 @@ export function usePoTiers(eventId: string, options?: { refetchInterval?: number
     queryKey: poKeys.tiers(eventId),
     enabled: !!eventId,
     refetchInterval: options?.refetchInterval,
-    queryFn: async () => {
-      const rows = await fetchTiersWithUsage(createClient(), eventId);
-      return rows.map((r) => toPoTier(r, r.used));
-    },
+    queryFn: () => fetchPoTiers(eventId),
   });
+}
+
+/** The `poKeys.tiers` query function — shared by usePoTiers and usePoGuests'
+ *  tier lookup, so one key always holds one shape. */
+async function fetchPoTiers(eventId: string): Promise<Tier[]> {
+  const rows = await fetchTiersWithUsage(createClient(), eventId);
+  return rows.map((r) => toPoTier(r, r.used));
 }
 
 // ── Event templates (86exyp8gn) ──────────────────────────────────────────────
@@ -676,24 +840,24 @@ function sortGuestsNewestFirst<T extends { created_at: string; id: string }>(row
 
 /** Guests for an event, with each role badge resolved from its tier. */
 export function usePoGuests(eventId: string, options?: { refetchInterval?: number }) {
+  const qc = useQueryClient();
   return useQuery<Guest[]>({
     queryKey: poKeys.guests(eventId),
     enabled: !!eventId,
     refetchInterval: options?.refetchInterval,
     queryFn: async () => {
-      const client = createClient();
+      // The tier names/colours come from the event's tiers query (Snelheid P2,
+      // finding 14): the screens that list guests mount usePoTiers too, so a
+      // fresh copy is reused instead of reading guest_tiers a second time.
+      // Note: fetchPoTiers is the tiers-WITH-usage read (guest_tiers + the
+      // occupancy aggregate RPC), so on a cold tiers cache the list runs that
+      // GROUP BY too and errors if it fails. Accepted: every screen that lists
+      // guests mounts usePoTiers anyway, and one key must hold one shape.
       const [guests, tiers] = await Promise.all([
-        fetchGuests(client, eventId),
-        fetchTiers(client, { eventId }),
+        fetchGuests(createClient(), eventId),
+        qc.fetchQuery({ queryKey: poKeys.tiers(eventId), queryFn: () => fetchPoTiers(eventId), staleTime: 30_000 }),
       ]);
-      const tierById = new Map(tiers.map((t) => [t.id, t]));
-      return sortGuestsNewestFirst(guests).map((g) =>
-        toPoGuest(g, {
-          role: tierRole(tierById.get(g.tier_id)?.name ?? '').role,
-          tierName: tierById.get(g.tier_id)?.name,
-          tierColor: tierById.get(g.tier_id)?.color ?? undefined,
-        }),
-      );
+      return sortGuestsNewestFirst(guests).map((g) => toPoGuestWithTiers(g, tiers));
     },
   });
 }
@@ -713,16 +877,17 @@ export interface VenueGuests {
  * page-the-whole-venue read + client re-sort/-filter that died at 25 000 guests).
  * Each row carries its event id + name to badge + deep-link, and its tier from
  * the embed (no separate venue-wide tier read). `total` backs the "of N"
- * subtitle. RLS stays the boundary (staff see only their own). Pass `[]` to
+ * subtitle. RLS stays the boundary (staff see only their own). Pass `false` to
  * disable (single-event mode); `search` is the debounced term, and a new term is
  * a new server window keyed under the same prefix so writes still invalidate it.
  */
-export function useVenueGuests(events: PoEvent[], search = '') {
+export function useVenueGuests(enabled: boolean, search = '') {
   const { venueId } = usePoIdentity();
-  const nameById = new Map(events.map((e) => [e.id, e.name]));
   return useQuery<VenueGuests>({
     queryKey: poKeys.venueGuests(venueId ?? '', search),
-    enabled: !!venueId && events.length > 0,
+    // Not gated on the events window (Snelheid P2 review): a quiet season with no
+    // event in the window must still list the venue's guests.
+    enabled: enabled && !!venueId,
     queryFn: async () => {
       const { rows, total } = await fetchVenueGuestsWindow(createClient(), {
         venueId: venueId ?? '',
@@ -734,7 +899,7 @@ export function useVenueGuests(events: PoEvent[], search = '') {
           tierName: g.tierName ?? undefined,
           tierColor: g.tierColor ?? undefined,
           eventId: g.event_id,
-          eventName: nameById.get(g.event_id) ?? '',
+          eventName: g.eventName ?? '',
         }),
       );
       return { guests, total };
@@ -817,22 +982,47 @@ export function usePoCheckinArrivals(eventId: string, options?: { refetchInterva
 
 // Door rush = several check-ins/sec from 5+ devices; each check-in touches BOTH
 // `guests` (status flip) and `check_ins` (insert), i.e. 2 postgres_changes events.
-// Firing the full cascade per event made the cockpit re-download an unchanged
-// list on every single check-in (~20 requests/check-in, 86ey9e8fe).
-// Leading+trailing coalesce: the first event in a quiet period still invalidates
-// immediately (a lone check-in feels instant), further events within the window
-// are absorbed into one trailing refetch instead of firing again per event.
-const REALTIME_INVALIDATE_THROTTLE_MS = 500;
+// The guest list and the arrivals are patched straight from those payloads
+// (Snelheid P2, finding 10 — like the door's onRealtimeCheckIn): no request at
+// all for an ordinary check-in, void, top-up or edit. Only a row the payload
+// can't build (a peer's new guest, an unknown tier), or a patch that landed
+// while a fetch of that list was in flight, falls back to a refetch of that
+// list, coalesced over REALTIME_REFETCH_THROTTLE_MS. The aggregates that do
+// need the server (tier occupancy, the 5-RPC stats bundle, the event-detail
+// header) refresh at most every REALTIME_AGGREGATE_THROTTLE_MS.
+const REALTIME_REFETCH_THROTTLE_MS = 500;
+const REALTIME_AGGREGATE_THROTTLE_MS = 5_000;
+
+/** Leading + trailing coalesce: the first call in a quiet period runs now, any
+ *  further calls inside the window collapse into one trailing run. */
+function leadingTrailing(run: () => void, ms: number): { call: () => void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pending = false;
+  const call = (): void => {
+    if (timer) {
+      pending = true;
+      return;
+    }
+    run();
+    timer = setTimeout(function tick() {
+      if (pending) {
+        pending = false;
+        run();
+        timer = setTimeout(tick, ms);
+      } else {
+        timer = null;
+      }
+    }, ms);
+  };
+  return { call, cancel: () => timer && clearTimeout(timer) };
+}
 
 /**
  * Keep the cockpit live: subscribe to this event's guests changes (the check-in
  * trigger flips guests.status) AND to check_ins (top-ups/voids touch check_ins
- * without a status move), invalidating the guest list + tier counts + arrivals +
- * stats. Mirrors the door's realtime setup (useDoorSync) — JWT set before
- * subscribe, the shared device-scoped client — but the cockpit needs no outbox, so
- * refetch-on-change is enough. Invalidation is throttled (see above) rather than
- * firing once per postgres_changes event. Returns the channel state for the "live"
- * indicator.
+ * without a status move). Mirrors the door's realtime setup (useDoorSync) — JWT
+ * set before subscribe, the shared device-scoped client — but the cockpit needs
+ * no outbox. Returns the channel state for the "live" indicator.
  */
 export function usePoEventRealtime(eventId: string): { realtimeConnected: boolean } {
   const qc = useQueryClient();
@@ -845,61 +1035,81 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     let channel: ReturnType<typeof client.channel> | null = null;
     // Previous channel status → refetch on resubscribe after a drop (#0b).
     let prevStatus: ChannelStatus | null = null;
-    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
-    let trailingPending = false;
+
+    const refetchGuests = leadingTrailing(
+      () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+      REALTIME_REFETCH_THROTTLE_MS,
+    );
+    const refetchArrivals = leadingTrailing(
+      () => void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) }),
+      REALTIME_REFETCH_THROTTLE_MS,
+    );
+    // setQueryData doesn't cancel a running fetch: when one is in flight, its
+    // (older) snapshot would land on top of the patch. Patch anyway (instant),
+    // and queue one more refetch so the list ends on the newer state (review #491).
+    const inFlight = (queryKey: readonly unknown[]): boolean => qc.isFetching({ queryKey }) > 0;
+    const refreshAggregates = leadingTrailing(() => {
+      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
+      // A peer's check-in/void also touches the event-detail header (headcount).
+      // NOT the venue-wide All-Guests tab (86ey9e8hz): re-downloading that
+      // working set on every check-in during a rush is exactly the cost the
+      // windowing removed — it refreshes on guest writes (mutation paths keep
+      // invalidating VENUE_GUESTS_PREFIX), on navigation, and on its safety sync.
+      void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
+    }, REALTIME_AGGREGATE_THROTTLE_MS);
+
+    const onGuest = (row: RealtimeGuestRow): void => {
+      // The channel filters on event_id already; this keeps the patch correct
+      // whatever the channel config says.
+      if (row.event_id && row.event_id !== eventId) return;
+      const { next, needsRefetch } = patchGuestsFromRow(
+        qc.getQueryData<Guest[]>(poKeys.guests(eventId)),
+        row,
+        qc.getQueryData<Tier[]>(poKeys.tiers(eventId)),
+      );
+      if (next && !needsRefetch) qc.setQueryData<Guest[]>(poKeys.guests(eventId), next);
+      // A guests change never moves check_ins: only the guest list refetches.
+      if (needsRefetch || inFlight(poKeys.guests(eventId))) refetchGuests.call();
+      refreshAggregates.call();
+    };
+    const onCheckIn = (row: RealtimeCheckInRow): void => {
+      if (row.event_id && row.event_id !== eventId) return;
+      qc.setQueryData<Map<string, CheckinArrival>>(poKeys.arrivals(eventId), (old) => patchArrivalsFromCheckIn(old, row));
+      if (inFlight(poKeys.arrivals(eventId))) refetchArrivals.call();
+      refreshAggregates.call();
+    };
 
     void client.auth.getSession().then(({ data }) => {
       if (cancelled) return;
       const token = data.session?.access_token;
       if (token) client.realtime.setAuth(token);
 
-      const runInvalidate = (): void => {
-        void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-        void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
-        void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
-        void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
-        // A peer's check-in/void also touches the event-detail header (headcount).
-        // NOT the venue-wide All-Guests tab (86ey9e8hz): re-downloading that
-        // working set on every check-in during a rush is exactly the cost the
-        // windowing removed — it refreshes on guest writes (mutation paths keep
-        // invalidating VENUE_GUESTS_PREFIX), on navigation, and on its safety sync.
-        void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
-      };
-
-      // Leading edge fires now; further calls inside the window only flag a
-      // trailing refetch so a whole burst collapses into at most 2 cascades.
-      const invalidate = (): void => {
-        if (throttleTimer) {
-          trailingPending = true;
-          return;
-        }
-        runInvalidate();
-        throttleTimer = setTimeout(() => {
-          throttleTimer = null;
-          if (trailingPending) {
-            trailingPending = false;
-            runInvalidate();
-          }
-        }, REALTIME_INVALIDATE_THROTTLE_MS);
-      };
-
       channel = client
         .channel(`eventday:${eventId}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'guests', filter: `event_id=eq.${eventId}` },
-          invalidate
+          (payload) => {
+            if (payload.new && Object.keys(payload.new).length > 0) onGuest(payload.new as RealtimeGuestRow);
+          }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` },
-          invalidate
+          (payload) => {
+            if (payload.new && Object.keys(payload.new).length > 0) onCheckIn(payload.new as RealtimeCheckInRow);
+          }
         )
         .subscribe((st) => {
           if (cancelled) return;
           // Heal a missed burst: a resubscribe after a drop replays nothing, so
-          // refetch the 4 cockpit queries to close the gap (#0b).
-          if (shouldRefetchOnStatus(prevStatus, st)) invalidate();
+          // refetch the cockpit queries to close the gap (#0b).
+          if (shouldRefetchOnStatus(prevStatus, st)) {
+            refetchGuests.call();
+            refetchArrivals.call();
+            refreshAggregates.call();
+          }
           prevStatus = st;
           setRealtimeConnected(st === 'SUBSCRIBED');
         });
@@ -908,7 +1118,9 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     return () => {
       cancelled = true;
       setRealtimeConnected(false);
-      if (throttleTimer) clearTimeout(throttleTimer);
+      refetchGuests.cancel();
+      refetchArrivals.cancel();
+      refreshAggregates.cancel();
       if (channel) void client.removeChannel(channel);
     };
   }, [eventId, qc]);
@@ -935,14 +1147,32 @@ export function usePoQuota(eventId: string) {
 // [...all,'quota-requests'] prefix, which matches these venue keys, so a
 // decided request drops off on success.
 
-/** Pending landing-page guest requests across the active venue's events. */
+/**
+ * Landing-page guest requests for the active venue (pending, declined,
+ * auto-approved). The "via" labels come from the venue links query's cache
+ * (the inbox's link filter and Home's empty card read the same key), fetched
+ * when it is missing or older than a minute and only if a row references a
+ * link — never an id list (Snelheid P2 finding 5). Mounted by Home and
+ * Requests (and the desktop door picker's board); the More row and the nav
+ * badge use the head count.
+ */
 export function usePoGuestRequests() {
   const { venueId } = usePoIdentity();
+  const qc = useQueryClient();
   return useQuery<PoGuestRequest[]>({
     queryKey: poKeys.requests(venueId ?? ''),
     enabled: !!venueId,
     queryFn: async () => {
-      const rows = await fetchGuestRequests(createClient(), venueId ?? '');
+      const client = createClient();
+      const vid = venueId ?? '';
+      const rows = await fetchGuestRequests(client, vid, {
+        links: () =>
+          qc.fetchQuery({
+            queryKey: poKeys.venueLinks(vid),
+            queryFn: () => fetchVenueRequestLinks(client, vid),
+            staleTime: 60_000,
+          }),
+      });
       return rows.map((r) => toPoGuestRequest(r));
     },
   });
@@ -994,6 +1224,23 @@ export function usePoQuotaRequests() {
   });
 }
 
+/**
+ * Home Updates card (z8uq9m2xyp): decisions on the signed-in user's own quota
+ * requests at the active company that they have not dismissed yet. Every role
+ * can file a request, so this runs for everyone; RLS returns only own rows.
+ */
+export function usePoMyQuotaUpdates() {
+  const { venueId, userId } = usePoIdentity();
+  return useQuery<PoQuotaUpdate[]>({
+    queryKey: poKeys.myQuotaUpdates(venueId ?? '', userId),
+    enabled: !!venueId && !!userId,
+    queryFn: async () => {
+      const rows = await fetchMyQuotaUpdates(createClient(), venueId ?? '', userId);
+      return rows.map((r) => toPoQuotaUpdate(r));
+    },
+  });
+}
+
 // ── Request links + influencers (Requests-epic F1, 86ey21vjt) ──
 // Links scope to one event (the Request-links screen + the EventEdit row count);
 // the lean venue-wide list feeds the approvals link filter; influencers scope to
@@ -1008,15 +1255,20 @@ export function usePoRequestLinks(eventId: string) {
   });
 }
 
-/** Every non-archived link across the active venue's events (lean, for filters). */
+/** Every non-archived link across the active venue's events (lean, for filters).
+ *  The base read also carries archived links (request labels); `select` drops them. */
 export function usePoVenueLinks() {
   const { venueId } = usePoIdentity();
   return useQuery<PoLinkOption[]>({
     queryKey: poKeys.venueLinks(venueId ?? ''),
     enabled: !!venueId,
     queryFn: () => fetchVenueRequestLinks(createClient(), venueId ?? ''),
+    select: liveLinks,
   });
 }
+
+// Module-level so React Query memoises the filtered list per data change.
+const liveLinks = (links: PoLinkOption[]): PoLinkOption[] => links.filter((l) => !l.archived);
 
 /** The active venue's influencer roster (non-archived), with link counts. */
 export function usePoInfluencers() {
@@ -1081,19 +1333,19 @@ export function usePoPromoLabelFunnel(range: PromoRange) {
 // organizer, so staff/doorhost get [] and the screen renders its empty state.
 
 /**
- * The venue address book. The optional search is server-side (ilike on name); the
- * screen also filters client-side on the last-4 phone hint. One cache per search
- * term, all under the ['po','contacts',venueId] prefix so writes invalidate every
- * variant at once.
+ * The venue address book (Contacts screen), with "N× on a list" counts from
+ * one GROUP BY RPC. The screen filters client-side (name + last-4 phone hint).
+ * Keyed under the ['po','contacts',venueId] prefix so writes invalidate every
+ * contacts variant at once.
  */
-export function usePoContacts(search = '') {
+export function usePoContacts() {
   const { venueId } = usePoIdentity();
   return useQuery<PoContact[]>({
-    queryKey: poKeys.contacts(venueId ?? '', search),
+    queryKey: poKeys.contacts(venueId ?? ''),
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      const rows = await fetchContacts(createClient(), venueId, search);
+      const rows = await fetchContacts(createClient(), venueId);
       return rows.map(toPoContact);
     },
   });
@@ -1139,10 +1391,26 @@ export function usePoContactNameMatches(names: string[]) {
   });
 }
 
-/** Permanent contacts only (the Guests tab's "Regulars" filter) — derived from the unsearched list. */
+/**
+ * Permanent contacts only (the Guests tab's "Regulars" filter). Filtered on the
+ * server (`is_permanent`, partial index) and without the event counts (the
+ * filter reads ids only), so the Guests tab no longer downloads the whole
+ * address book (Snelheid P2 #6). Rows carry eventCount 0.
+ * Every contacts write invalidates the ['po','contacts',venueId] prefix, which
+ * covers this key too.
+ */
 export function usePoPermanentContacts() {
-  const query = usePoContacts('');
-  return { ...query, data: query.data?.filter((c) => c.vast) };
+  const { venueId } = usePoIdentity();
+  return useQuery<PoContact[]>({
+    queryKey: poKeys.permanentContacts(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => {
+      if (!venueId) return [];
+      // Ids are all the filter reads: no counts round-trip (review #481).
+      const rows = await fetchContacts(createClient(), venueId, { permanentOnly: true, withCounts: false });
+      return rows.map(toPoContact);
+    },
+  });
 }
 
 /** Contact ids opted in to venue updates (legal v0.3 decision 2), as a Set —
@@ -1213,6 +1481,7 @@ export function usePoPersonProfile(args: {
         promoteGuestId: data.promoteGuestId,
         restricted: data.restricted,
         originEventId,
+        actorKinds: data.actorKinds,
       });
     },
   });

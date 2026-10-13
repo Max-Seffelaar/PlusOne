@@ -23,7 +23,7 @@ import { fmt, t } from '@/lib/i18n';
 import {
   usePoCanCreateLink,
   usePoCanManageTemplates,
-  usePoEvents,
+  usePoEventOptions,
   usePoGuestRequests,
   usePoQuotaRequests,
   usePoRequestDecisionCounts,
@@ -40,7 +40,7 @@ import { buildDecideInput, buildDeclineInput, type SplitDecision } from '@/featu
 import type { PoLinkOption } from '@/features/po/queries';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, KeepMePostedBadge, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
+import { ActorAvatar, ActorName, Avatar, Btn, Empty, KeepMePostedBadge, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
 import { AssignSheet, DenySheet, ErrLine, EventPickerSheet, LinkPickerSheet, type DenyTarget } from './approvals-sheets';
 import { CreateLinkFlow } from './promotion/create-link-flow';
 import { soonestUpcoming } from './promotion/shared';
@@ -113,7 +113,7 @@ export function Aanvragen({
   const seeInbox = canManageTemplates || canSeeRequestInbox(roles);
   const ownOnly = !seeInbox && canSeeOwnRequests(roles);
   const noAccess = !seeInbox && !ownOnly;
-  const eventsQuery = usePoEvents();
+  const eventsQuery = usePoEventOptions();
   const events = eventsQuery.data ?? [];
   const gReqs = usePoGuestRequests();
   const qReqs = usePoQuotaRequests();
@@ -263,7 +263,12 @@ export function Aanvragen({
   const approveQuota = async (req: PoQuotaRequest): Promise<void> => {
     setErr(null);
     try {
-      await decideQuota.mutateAsync({ requestId: req.id, decision: 'approved', eventId: req.eventId });
+      await decideQuota.mutateAsync({
+        requestId: req.id,
+        decision: 'approved',
+        eventId: req.eventId,
+        hasGuest: req.guestLabel !== null,
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.requests.approveQuotaFailed);
     }
@@ -576,9 +581,11 @@ export function Aanvragen({
                 <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                   {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
                   <div className="mb-[11px] flex items-center gap-[11px]">
-                    <Avatar name={r.who} size={40} />
+                    <ActorAvatar name={r.who} kind={r.whoKind} size={40} />
                     <div className="min-w-0 flex-1">
-                      <div className="font-display text-[15.5px] font-bold text-text">{r.who}</div>
+                      <div className="font-display text-[15.5px] font-bold text-text">
+                        <ActorName name={r.who} kind={r.whoKind} />
+                      </div>
                       <div className="text-[12px] text-faint">{r.at}</div>
                     </div>
                     <div className="text-right">
@@ -587,9 +594,20 @@ export function Aanvragen({
                     </div>
                   </div>
                   {r.reason && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.reason}”</div>}
+                  {/* z8uq9m2xyp: the guest the slots are for; approving adds them. */}
+                  {r.guestLabel && (
+                    <div className="mb-[13px] flex items-center gap-[8px] rounded-[12px] bg-acc-dim px-[12px] py-[9px] text-[13.5px] text-text">
+                      <Icon name="user" size={15} className="shrink-0 text-acc" />
+                      <span className="min-w-0 flex-1 truncate font-semibold" data-testid="quota-request-guest">
+                        {r.guestTier
+                          ? fmt(t.requests.quotaFor, { guest: r.guestLabel, tier: r.guestTier })
+                          : fmt(t.requests.quotaForNoTier, { guest: r.guestLabel })}
+                      </span>
+                    </div>
+                  )}
                   {canDecide ? (
                     <div className="flex gap-2">
-                      <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, eventId: r.eventId })}>
+                      <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, nameKind: r.whoKind, eventId: r.eventId })}>
                         {t.requests.deny}
                       </Btn>
                       <Btn sm kind="primary" full icon="check2" disabled={quotaBusy} onClick={() => void approveQuota(r)}>

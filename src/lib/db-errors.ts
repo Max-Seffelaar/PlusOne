@@ -6,12 +6,16 @@
  * (CLAUDE.md security checklist: "Errors returned to the client are generic").
  */
 
+import { firstIssueField } from './field-error';
+
 export interface MutationError {
   ok: false;
   /** Stable code the UI can branch on (the SQLSTATE, or 'unauthorized'/'invalid'). */
   code: string;
   /** Safe to show. */
   message: string;
+  /** The form field this is about (a schema key, never user input), when it is about one (z8uq9m5eb7). */
+  field?: string;
 }
 
 interface PostgrestLikeError {
@@ -36,6 +40,20 @@ export const LAST_ADMIN = 'P0LA1';
  *  a specific privilege-gated action failed can offer a more actionable hint than
  *  this generic message, without re-typing (and risking drift from) the string. */
 export const INSUFFICIENT_PRIVILEGE_MESSAGE = "You don't have rights for this.";
+
+/** The team-invite refusal for an address with an open invite (`inviteUserAction`).
+ *  Exported so the action and EXPECTED_MESSAGES share one string: it carries a
+ *  curly apostrophe (U+2019), and a retyped straight one would silently stop
+ *  matching and turn a user-facing rule back into a Sentry issue (z8uq9m5enh). */
+export const OPEN_INVITE_EXISTS_MESSAGE = 'There’s already an open invite for this email.';
+
+/** A platform-invite (re)send inside the 60-second per-address mail window
+ *  (`sendInviteEmail` → 'recent'). A rule the operator hit, so it is an expected
+ *  error. Deliberately NOT the hourly per-admin budget copy ("Too many invite
+ *  emails just now…"): that one stays a Sentry issue, because a spent budget is
+ *  the signal a stolen platform-admin session leaves (z8uq9m5enh review). */
+export const INVITE_RECENTLY_SENT_MESSAGE =
+  'Too many invite emails to this address just now. Try again in a minute.';
 
 /** The copy for LAST_ADMIN — the same sentence the venues actions' own early
  *  last-admin check returns, so the app check and the DB trigger read alike. */
@@ -79,11 +97,16 @@ export const unauthorized = (): MutationError => ({
   message: 'Your session expired. Log in again.',
 });
 
-export const invalidInput = (message = 'Check the details you entered.'): MutationError => ({
+export const invalidInput = (message = 'Check the details you entered.', field?: string): MutationError => ({
   ok: false,
   code: 'invalid',
   message,
+  ...(field ? { field } : {}),
 });
+
+/** A failed Zod parse as invalidInput: the first issue's message, and its field when the path names one. */
+export const invalidIssues = (error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] }): MutationError =>
+  invalidInput(error.issues[0]?.message, firstIssueField(error.issues));
 
 /** RLS silently filtered the row out of the write (0 rows, no Postgrest error) — not a false success. */
 export const notFound = (): MutationError => ({
@@ -123,6 +146,8 @@ const EXPECTED_CODES = new Set<string>([
 const EXPECTED_MESSAGES: readonly (string | RegExp)[] = [
   INSUFFICIENT_PRIVILEGE_MESSAGE,
   LAST_ADMIN_MESSAGE,
+  OPEN_INVITE_EXISTS_MESSAGE,
+  INVITE_RECENTLY_SENT_MESSAGE,
   'This already exists.',
   'Check the details you entered.',
   'Your session expired. Log in again.',

@@ -13,8 +13,9 @@
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { t } from '@/lib/i18n';
+import { FieldActionError } from '@/lib/field-error';
 
 const NEW_ID = 'e0000000-0000-4000-8000-0000000000aa';
 const nav = { push: vi.fn(), replace: vi.fn(), back: vi.fn(), setTab: vi.fn(), openDoor: vi.fn(), canGoBack: true };
@@ -22,7 +23,7 @@ const createEvent = vi.fn().mockResolvedValue(NEW_ID);
 const createFromTemplate = vi.fn().mockResolvedValue({ eventId: NEW_ID, contactSaved: true });
 
 let savedLocations: Array<{ id: string; name: string; addressLine: string; postalCode: string; city: string; country: string; placeId: string | null; address: string | null }> = [];
-let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean; location_name?: string | null; location_address?: string | null }> = [];
+let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean; location_name?: string | null; location_address?: string | null; house_rules?: string | null; guest_info?: string | null }> = [];
 
 const mutation = () => ({ mutateAsync: vi.fn(), isPending: false });
 const updateEvent = vi.fn().mockResolvedValue(undefined);
@@ -245,6 +246,19 @@ describe('EventEdit location fields', () => {
     expect(createEvent.mock.calls[0][0]).toMatchObject({ guestInfo: 'Park at P2.\nSide entrance.' });
   });
 
+  it('saves the house rules with a new event, in the same block as the info for guests (z8uq9m4a5n)', async () => {
+    render(<EventEdit isNew />);
+    const block = screen.getByRole('region', { name: t.events.guestMail.blockTitle });
+    expect(within(block).getByRole('textbox', { name: t.events.guestMail.houseRulesLabel })).toBeInTheDocument();
+    expect(within(block).getByRole('textbox', { name: t.events.guestInfoLabel })).toBeInTheDocument();
+    fireEvent.change(within(block).getByRole('textbox', { name: t.events.guestMail.houseRulesLabel }), {
+      target: { value: ' 21+, bring ID ' },
+    });
+    fillAndCreate();
+    await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
+    expect(createEvent.mock.calls[0][0]).toMatchObject({ houseRules: '21+, bring ID', guestInfo: null });
+  });
+
   it('an empty info for guests saves as none', async () => {
     render(<EventEdit isNew />);
     fillAndCreate();
@@ -263,6 +277,7 @@ describe('EventEdit location fields', () => {
       eventId: NEW_ID,
       locationName: 'Paradiso',
       locationAddress: 'Wibautstraat 150, 1091 GR Amsterdam',
+      houseRules: null,
       guestInfo: null,
       contactEmail: 'night@club.test',
     });
@@ -327,7 +342,7 @@ describe('EventEdit template location prefill', () => {
     fillAndCreate();
     await waitFor(() => expect(createFromTemplate).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
-    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: 'Weteringschans 6', guestInfo: null, contactEmail: 'night@club.test' });
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Paradiso', locationAddress: 'Weteringschans 6', houseRules: null, guestInfo: null, contactEmail: 'night@club.test' });
   });
 
   // Review #419: a chip tap never overwrites a location the user typed.
@@ -391,7 +406,7 @@ describe('EventEdit template location prefill', () => {
     fireEvent.change(screen.getByRole('combobox', { name: t.events.locationAddressAria }), { target: { value: '' } });
     fillAndCreate();
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
-    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null, guestInfo: null, contactEmail: 'night@club.test' });
+    expect(updateEvent).toHaveBeenCalledWith({ eventId: NEW_ID, locationName: 'Melkweg', locationAddress: null, houseRules: null, guestInfo: null, contactEmail: 'night@club.test' });
   });
 
   it('a template create writes the info for guests in the follow-up update (templates carry none)', async () => {
@@ -461,5 +476,132 @@ describe('EventEdit contact email', () => {
     fillAndCreate();
     await waitFor(() => expect(createFromTemplate).toHaveBeenCalled());
     expect(createFromTemplate.mock.calls.at(-1)?.[0]).toMatchObject({ contactEmail: 'night@club.test' });
+  });
+});
+
+// z8uq9m5eb7: a save refused over one field points at that field — red box,
+// message under it (role=alert, aria-describedby), focus there — whether the
+// form's own check or the server refused it. Only field-less errors are the banner.
+describe('EventEdit field errors', () => {
+  const contactBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.contactEmail.label });
+  const createBtn = (): HTMLElement => screen.getByRole('button', { name: t.events.createEvent });
+
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function fillWithoutContact(): void {
+    fillAndCreate();
+    createEvent.mockClear();
+    nav.replace.mockClear();
+    fireEvent.change(contactBox(), { target: { value: '' } });
+  }
+
+  it('an empty contact email: marked, described, focused and scrolled to; no banner', async () => {
+    render(<EventEdit isNew />);
+    fillWithoutContact();
+    (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
+    fireEvent.click(createBtn());
+
+    await waitFor(() => expect(contactBox()).toHaveAttribute('aria-invalid', 'true'));
+    expect(contactBox()).toHaveAccessibleDescription(t.events.contactEmail.required);
+    expect(document.activeElement).toBe(contactBox());
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(within(screen.getByTestId('event-contact-email')).getByRole('alert')).toHaveTextContent(t.events.contactEmail.required);
+    // Exactly one alert: the field's own, no copy of it in a top banner.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(createEvent).not.toHaveBeenCalled();
+  });
+
+  it('typing in the field clears its error', async () => {
+    render(<EventEdit isNew />);
+    fillWithoutContact();
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(contactBox()).toHaveAttribute('aria-invalid', 'true'));
+    fireEvent.change(contactBox(), { target: { value: 'n' } });
+    expect(contactBox()).not.toHaveAttribute('aria-invalid');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a server refusal with a field lands on that field', async () => {
+    createEvent.mockRejectedValueOnce(new FieldActionError(t.events.contactEmail.noDomain, 'contactEmail'));
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    await waitFor(() => expect(contactBox()).toHaveAttribute('aria-invalid', 'true'));
+    expect(contactBox()).toHaveAccessibleDescription(t.events.contactEmail.noDomain);
+    expect(document.activeElement).toBe(contactBox());
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('a server schema key maps to its input (endsAt -> the end time)', async () => {
+    createEvent.mockRejectedValueOnce(new FieldActionError('The end must be after the start', 'endsAt'));
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    const [, endTime] = screen.getAllByRole('combobox', { name: t.shared.datetime.hourAria });
+    await waitFor(() => expect(endTime).toHaveAttribute('aria-invalid', 'true'));
+    expect(endTime).toHaveAccessibleDescription('The end must be after the start');
+  });
+
+  it('a server refusal without a field is the banner, no field marked', async () => {
+    createEvent.mockRejectedValueOnce(new FieldActionError("You don't have rights for this."));
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    expect(await screen.findByRole('alert')).toHaveTextContent("You don't have rights for this.");
+    expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+  });
+
+  it('an empty name points at the name field', async () => {
+    render(<EventEdit isNew />);
+    fireEvent.click(createBtn());
+    const nameBox = screen.getByPlaceholderText(t.events.namePlaceholder);
+    await waitFor(() => expect(nameBox).toHaveAttribute('aria-invalid', 'true'));
+    expect(nameBox).toHaveAccessibleDescription(t.events.errName);
+    expect(document.activeElement).toBe(nameBox);
+  });
+});
+
+// Templates keep the guest texts (z8uq9m4pnk, 20261016180000): the form
+// prefills both from the picked template, so the follow-up write after a
+// template create carries the template's texts instead of emptying them.
+describe('EventEdit template guest-text prefill', () => {
+  const withTexts = { id: 'tpl-txt', name: 'Club night', tierCount: 1, landing_active: true, house_rules: '21+, bring ID.', guest_info: 'Park at P2.\nSide entrance.' };
+  const rulesBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.guestMail.houseRulesLabel });
+  const infoBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.guestInfoLabel });
+
+  it('prefills both texts from the picked template and clears them when un-picked', () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    expect(rulesBox()).toHaveValue('21+, bring ID.');
+    expect(infoBox()).toHaveValue('Park at P2.\nSide entrance.');
+    fireEvent.click(screen.getByRole('button', { name: t.events.templateBlank }));
+    expect(rulesBox()).toHaveValue('');
+    expect(infoBox()).toHaveValue('');
+  });
+
+  it("writes the template's texts in the follow-up update, never empty ones", async () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    fillAndCreate();
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    expect(updateEvent.mock.calls[0][0]).toMatchObject({ houseRules: '21+, bring ID.', guestInfo: 'Park at P2.\nSide entrance.' });
+  });
+
+  it('keeps texts the user typed when a template is picked', () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.change(infoBox(), { target: { value: 'Cloakroom by the bar.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    expect(infoBox()).toHaveValue('Cloakroom by the bar.');
+    expect(rulesBox()).toHaveValue('');
+  });
+
+  it('does not make the form dirty just by picking a template with texts', () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(nav.back).toHaveBeenCalledTimes(1);
   });
 });

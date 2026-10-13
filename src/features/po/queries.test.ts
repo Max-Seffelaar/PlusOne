@@ -466,9 +466,10 @@ describe('fetchVenueRequestLinks (86ey9e9wv, A2)', () => {
       [
         {
           data: [
-            { id: 'l1', event_id: 'e1', is_default: true, label: null, influencer_id: null },
-            { id: 'l2', event_id: 'e1', is_default: false, label: 'Fallback label', influencer_id: 'inf-1' },
-            { id: 'l3', event_id: 'e1', is_default: false, label: null, influencer_id: 'inf-2' },
+            { id: 'l1', event_id: 'e1', is_default: true, label: null, influencer_id: null, archived_at: null },
+            { id: 'l2', event_id: 'e1', is_default: false, label: 'Fallback label', influencer_id: 'inf-1', archived_at: null },
+            // Archived links stay in the base read (request labels), flagged (Snelheid P2).
+            { id: 'l3', event_id: 'e1', is_default: false, label: null, influencer_id: 'inf-2', archived_at: '2026-10-01T00:00:00Z' },
           ],
           error: null,
         },
@@ -481,9 +482,9 @@ describe('fetchVenueRequestLinks (86ey9e9wv, A2)', () => {
 
     expect(capture.influencersEq).toEqual([['venue_id', 'venue-1']]);
     expect(rows).toEqual([
-      { id: 'l1', eventId: 'e1', isDefault: true, label: null },
-      { id: 'l2', eventId: 'e1', isDefault: false, label: 'Jayden Promo' },
-      { id: 'l3', eventId: 'e1', isDefault: false, label: null }, // unresolved influencer -> null, not the (absent) stored label
+      { id: 'l1', eventId: 'e1', isDefault: true, label: null, archived: false },
+      { id: 'l2', eventId: 'e1', isDefault: false, label: 'Jayden Promo', archived: false },
+      { id: 'l3', eventId: 'e1', isDefault: false, label: null, archived: true }, // unresolved influencer -> null, not the (absent) stored label
     ]);
   });
 });
@@ -611,84 +612,80 @@ describe('fetchRequestLinks (86ey9e9wv/D1)', () => {
   });
 });
 
-// ── fetchContacts → contactEventCounts chunking (86eykknf8) ─────────────────
-// contactEventCounts chunks its `guests.in('contact_id', …)` filter to stay
-// under Kong's URI length (~210 ids ≈ 7.8 kB → 414), NOT under PostgREST's
-// 1000-row response cap — so it must pass an explicit ≤120 chunk size to
-// chunkIds() rather than relying on the (1000) default. This pins that
-// behavior: with 121 contacts, the `.in()` filter must fire more than once,
-// and no single chunk may exceed 120 ids.
+// ── fetchContacts → contact_event_counts RPC (86eykknf8 → Snelheid P2 #6) ────
+// The per-contact event counts used to be a client loop over 120-id
+// `guests.in('contact_id', …)` chunks (≈28 sequential round-trips at 3 000
+// contacts). They are now ONE venue-scoped GROUP BY RPC: this pins that no id
+// list crosses the wire (no guests read, no `.in()`), that the counts are joined
+// onto the rows, and that the Regulars scope filters server-side.
 
-describe('fetchContacts → contactEventCounts chunking (86eykknf8)', () => {
-  it('chunks the guests .in(contact_id) filter to ≤120 ids, not the 1000-id paging default', async () => {
-    const contactIds = Array.from({ length: 121 }, (_, i) => `c${i}`);
-    const inCalls: unknown[][] = [];
-
-    interface ContactsChain {
-      select: () => ContactsChain;
-      eq: () => ContactsChain;
-      is: () => ContactsChain;
-      order: () => ContactsChain;
-      range: () => Promise<unknown>;
-    }
-    interface GuestsChain {
-      select: () => GuestsChain;
-      in: (col: string, ids: unknown[]) => GuestsChain;
-      neq: () => GuestsChain;
-      order: () => GuestsChain;
-      range: () => Promise<unknown>;
-    }
-
-    const client = {
-      from: vi.fn((table: string) => {
-        if (table === 'contacts') {
-          const chain: ContactsChain = {
-            select: vi.fn(() => chain),
-            eq: vi.fn(() => chain),
-            is: vi.fn(() => chain),
-            order: vi.fn(() => chain),
-            range: vi.fn(() =>
-              Promise.resolve({
-                data: contactIds.map((id) => ({
-                  id,
-                  full_name: id,
-                  email: null,
-                  phone: null,
-                  birthdate: null,
-                  preferred_role: null,
-                  note: null,
-                  is_permanent: false,
-                })),
-                error: null,
-              }),
-            ),
-          };
+describe('fetchContacts → contact_event_counts (no id lists)', () => {
+  function makeClient(contactIds: string[], counts: { contact_id: string; event_count: number }[]) {
+    const eqCalls: [string, unknown][] = [];
+    const rpcCalls: [string, Record<string, unknown>][] = [];
+    const from = vi.fn((table: string) => {
+      if (table !== 'contacts') throw new Error(`unexpected table read: ${table}`);
+      const chain: Record<string, unknown> = {};
+      Object.assign(chain, {
+        select: vi.fn(() => chain),
+        eq: vi.fn((col: string, val: unknown) => {
+          eqCalls.push([col, val]);
           return chain;
-        }
-        // `guests` — chunked `.in('contact_id', …)` lookup.
-        const chain: GuestsChain = {
-          select: vi.fn(() => chain),
-          in: vi.fn((_col: string, ids: unknown[]) => {
-            inCalls.push(ids);
-            return chain;
+        }),
+        is: vi.fn(() => chain),
+        order: vi.fn(() => chain),
+        in: vi.fn(() => {
+          throw new Error('fetchContacts must not send an .in() id list');
+        }),
+        range: vi.fn(() =>
+          Promise.resolve({
+            data: contactIds.map((id) => ({
+              id,
+              full_name: id,
+              email: null,
+              phone: null,
+              birthdate: null,
+              preferred_role: null,
+              note: null,
+              is_permanent: true,
+            })),
+            error: null,
           }),
-          neq: vi.fn(() => chain),
-          order: vi.fn(() => chain),
-          range: vi.fn(() => Promise.resolve({ data: [], error: null })),
-        };
-        return chain;
-      }),
-    } as never;
+        ),
+      });
+      return chain;
+    });
+    const rpc = vi.fn((fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push([fn, args]);
+      const chain: Record<string, unknown> = {};
+      Object.assign(chain, {
+        select: vi.fn(() => chain),
+        range: vi.fn(() => Promise.resolve({ data: counts, error: null })),
+      });
+      return chain;
+    });
+    return { client: { from, rpc } as never, from, eqCalls, rpcCalls };
+  }
 
-    await fetchContacts(client, 'venue-1');
+  it('reads counts with one venue-scoped RPC and joins them onto the rows', async () => {
+    const ids = Array.from({ length: 300 }, (_, i) => `c${i}`);
+    const { client, from, rpcCalls } = makeClient(ids, [{ contact_id: 'c1', event_count: 4 }]);
+    const rows = await fetchContacts(client, 'venue-1');
 
-    // 121 ids at a ≤120-id chunk size must span at least 2 chunks — the
-    // wrong (1000) default would collapse this to a single 121-id chunk.
-    expect(inCalls.length).toBeGreaterThan(1);
-    for (const ids of inCalls) {
-      expect(ids.length).toBeLessThanOrEqual(120);
-    }
-    expect(inCalls.flat()).toHaveLength(121);
+    expect(from).toHaveBeenCalledTimes(1);
+    expect(rpcCalls).toEqual([['contact_event_counts', { p_venue_id: 'venue-1' }]]);
+    expect(rows).toHaveLength(300);
+    expect(rows.find((r) => r.id === 'c1')?.eventCount).toBe(4);
+    expect(rows.find((r) => r.id === 'c2')?.eventCount).toBe(0);
+  });
+
+  it('the Regulars read filters server-side and skips the counts round-trip (review #481)', async () => {
+    const { client, eqCalls, rpcCalls } = makeClient(['c1'], []);
+    const rows = await fetchContacts(client, 'venue-1', { permanentOnly: true, withCounts: false });
+
+    expect(eqCalls).toContainEqual(['is_permanent', true]);
+    expect(rpcCalls).toEqual([]);
+    expect(rows.map((r) => [r.id, r.eventCount])).toEqual([['c1', 0]]);
   });
 });
 
@@ -700,6 +697,7 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
   const appearanceRow = (addedBy: string | null) => ({
     id: 'g1',
     event_id: 'e1',
+    venue_id: 'v1',
     plus_ones: 0,
     status: 'approved',
     tier_id: null,
@@ -720,7 +718,20 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
 
   function makeClient(opts: { contact: unknown; guest: unknown; appearances: unknown[] }) {
     const inCalls: unknown[][] = [];
+    // venue_actor_names calls (#64a): the profile's actor labels, venue-scoped.
+    const rpcCalls: { venue: unknown; ids: unknown[] }[] = [];
     const client = {
+      rpc: vi.fn((name: string, args: { p_venue_id: unknown; p_ids: unknown[] }) => {
+        if (name !== 'venue_actor_names') throw new Error(`unexpected rpc ${name}`);
+        rpcCalls.push({ venue: args.p_venue_id, ids: args.p_ids });
+        if (args.p_ids.some((id) => typeof id !== 'string')) {
+          return Promise.resolve({ data: null, error: { code: '22P02' } });
+        }
+        return Promise.resolve({
+          data: args.p_ids.map((id) => ({ user_id: id, display_name: `Name ${String(id)}`, is_support: false })),
+          error: null,
+        });
+      }),
       from: vi.fn((table: string) => {
         // One self-returning chain per call; terminal = maybeSingle() or await.
         const result =
@@ -743,7 +754,7 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
         return chain;
       }),
     } as never;
-    return { client, inCalls };
+    return { client, inCalls, rpcCalls };
   }
 
   const contact = {
@@ -759,28 +770,33 @@ describe('fetchPersonProfile — system-added guest (added_by NULL)', () => {
     created_at: '2026-10-01T10:00:00Z',
   };
 
-  it('contact path: resolves the profile and never sends null to .in()', async () => {
-    const { client, inCalls } = makeClient({ contact, guest: null, appearances: [appearanceRow(null)] });
+  it('contact path: resolves the profile and never sends a null actor id', async () => {
+    const { client, inCalls, rpcCalls } = makeClient({ contact, guest: null, appearances: [appearanceRow(null)] });
     const data = await fetchPersonProfile(client, { contactId: 'c1' });
     expect(data.header?.id).toBe('c1');
     expect(data.appearances[0].addedBy).toBeNull();
-    expect(inCalls).toEqual([['u-door']]);
+    // Labels come from venue_actor_names for the guest's venue, never user_profiles.
+    expect(rpcCalls).toEqual([{ venue: 'v1', ids: ['u-door'] }]);
+    expect(inCalls).toEqual([]);
     expect(data.actorNames).toEqual({ 'u-door': 'Name u-door' });
   });
 
   it('guest path (name-only guest): same — no null actor id reaches .in()', async () => {
     const guest = { id: 'g1', contact_id: null, full_name: 'Jayden', email: null, phone: null, note: null, created_at: '2026-10-01T10:00:00Z' };
-    const { client, inCalls } = makeClient({ contact: null, guest, appearances: [appearanceRow(null)] });
+    const { client, inCalls, rpcCalls } = makeClient({ contact: null, guest, appearances: [appearanceRow(null)] });
     const data = await fetchPersonProfile(client, { guestId: 'g1' });
     expect(data.header?.id).toBe('g1');
     for (const ids of inCalls) expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+    for (const c of rpcCalls) expect(c.ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+    expect(data.actorNames).toEqual({ 'u-door': 'Name u-door' });
   });
 
-  it('skips the user_profiles read entirely when the only actor is the system', async () => {
+  it('skips the label lookup entirely when the only actor is the system', async () => {
     const row = { ...appearanceRow(null), check_ins: [] };
-    const { client, inCalls } = makeClient({ contact, guest: null, appearances: [row] });
+    const { client, inCalls, rpcCalls } = makeClient({ contact, guest: null, appearances: [row] });
     const data = await fetchPersonProfile(client, { contactId: 'c1' });
     expect(inCalls).toEqual([]);
+    expect(rpcCalls).toEqual([]);
     expect(data.actorNames).toEqual({});
   });
 });

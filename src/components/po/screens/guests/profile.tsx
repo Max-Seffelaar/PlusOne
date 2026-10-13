@@ -5,14 +5,15 @@ import { cn } from '@/lib/utils';
 import { usePoEvents, usePoContacts, usePoContactOptIns, usePoPersonProfile, usePoOrganizerEventIds } from '@/features/po/hooks';
 import { usePoToggleContactPermanent } from '@/features/po/mutations';
 import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
-import { guestSourceLabel } from '@/features/po/format';
+import type { ActorKind } from '@/lib/po/actor-kind';
+import { GuestSourceCaption } from './source-caption';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isDoorOnlyRole } from '@/features/auth/roles';
 import { profileRowActions } from '@/features/guests/permissions';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, KeepMePostedBadge, Label, Loading, MiniChip, Note, Scroll, Seg, Top, hitArea44 } from '../../kit';
+import { ActorName, Avatar, Btn, Empty, Field, IconBtn, KeepMePostedBadge, Label, Loading, MiniChip, Note, Scroll, Seg, Top, hitArea44 } from '../../kit';
 import { Toast } from '../../shell';
 import { TierPill, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
@@ -35,7 +36,7 @@ const starHit = "relative before:absolute before:-inset-[4px] before:content-[''
 const addHit = "relative before:absolute before:-inset-[3px] before:content-['']";
 
 // ── GUEST detail / check-in log row ─────────────────────────────────────────
-function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; label: string; who: string; when?: string; accent?: boolean; last?: boolean }): JSX.Element {
+function LogRow({ icon, label, who, whoKind, when, accent, last }: { icon: IconName; label: string; who: string; whoKind?: ActorKind; when?: string; accent?: boolean; last?: boolean }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[12px] py-[12px]', last ? '' : 'border-b border-line2')}>
       <span className={cn('flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px]', accent ? 'bg-acc-dim text-acc' : 'bg-elev2 text-dim')}>
@@ -43,11 +44,21 @@ function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; labe
       </span>
       <span className="flex-1 text-[13.5px] text-faint">{label}</span>
       <span className="text-right">
-        <span className={cn('text-[13.5px] font-semibold', accent ? 'text-acc' : 'text-text')}>{who}</span>
+        <span className={cn('text-[13.5px] font-semibold', accent ? 'text-acc' : 'text-text')}>
+          <ActorName name={who} kind={whoKind} />
+        </span>
         {when && <span className="ml-[7px] font-display text-[12px] text-faint">{when}</span>}
       </span>
     </div>
   );
+}
+
+/** The timeline's actor (spec #64a): the sign-up link and an unresolved actor
+ *  are typed labels, a resolved actor keeps the kind the RPC gave it. */
+function timelineActor(it: PoProfileTimelineItem): { who: string; whoKind: ActorKind } {
+  if (it.viaSignUpLink) return { who: t.guests.contactProfile.actorSignUpLink, whoKind: 'system' };
+  if (!it.who) return { who: t.guests.contactProfile.actorDoor, whoKind: 'unknown' };
+  return { who: it.who, whoKind: it.whoKind };
 }
 
 // ── ADRESBOEK (pushed) ───────────────────────────────────────────────────────
@@ -564,9 +575,13 @@ export function ContactProfile({
                     <MiniChip className="border-line2 text-faint">{fmt(cp.plusChip, { n: e.plusOnes })}</MiniChip>
                   )}
                   {/* Item J: where this name came from. */}
-                  <span className="ml-auto max-w-[180px] truncate text-right text-[11px] text-faint">
-                    {guestSourceLabel({ source: e.source, addedByName: e.addedByName, linkLabel: e.linkLabel })}
-                  </span>
+                  <GuestSourceCaption
+                    source={e.source}
+                    addedByName={e.addedByName}
+                    addedByKind={e.addedByKind}
+                    linkLabel={e.linkLabel}
+                    className="ml-auto max-w-[180px] justify-end text-right text-[11px] text-faint"
+                  />
                 </div>
                 {e.note && (
                   <div className={cn('mt-[11px] flex items-start gap-[8px] rounded-[10px] p-[10px]', e.noteFlag === 'high' ? 'bg-acc-dim' : 'bg-elev2')}>
@@ -597,7 +612,7 @@ export function ContactProfile({
                 key={it.key}
                 icon={TIMELINE_ICON[it.kind]}
                 label={timelineLabel(it)}
-                who={it.viaSignUpLink ? t.guests.contactProfile.actorSignUpLink : it.who || t.guests.contactProfile.actorDoor}
+                {...timelineActor(it)}
                 when={it.when}
                 accent={it.kind === 'checkin'}
                 last={i === p.timeline.length - 1}

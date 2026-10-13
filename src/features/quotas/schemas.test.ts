@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultQuotaSchema, quotaRequestSchema } from './schemas';
+import { defaultQuotaSchema, markQuotaRequestSeenSchema, quotaRequestSchema } from './schemas';
 
 const VENUE = 'aa000000-0000-7000-8000-000000000001';
 const USER = '55555555-5555-4555-8555-555555555555';
@@ -39,5 +39,40 @@ describe('quotaRequestSchema', () => {
       quotaRequestSchema.safeParse({ eventId: VENUE, requestedExtra: 2, motivation: 'Gastenlijst vrienden' })
         .success
     ).toBe(true);
+  });
+});
+
+// z8uq9m2xyp: the guest a request names — same bounds as the DB CHECK.
+describe('quotaRequestSchema · guest', () => {
+  const TIER = 'dd000000-0000-7000-8000-000000000002';
+  const base = { eventId: VENUE, requestedExtra: 2, motivation: 'Birthday' };
+  const ok = (guest: Record<string, unknown>) => quotaRequestSchema.safeParse({ ...base, guest }).success;
+
+  it('is optional', () => {
+    expect(quotaRequestSchema.safeParse(base).success).toBe(true);
+  });
+  it('accepts a name, +N and a tier, phone/note optional', () => {
+    expect(ok({ name: 'Lisa de Vries', plusOnes: 1, tierId: TIER })).toBe(true);
+    expect(ok({ name: 'Lisa de Vries', plusOnes: 0, tierId: TIER, phone: '+31612345678', note: 'Birthday' })).toBe(true);
+  });
+  it('turns an empty phone into null', () => {
+    const r = quotaRequestSchema.safeParse({ ...base, guest: { name: 'Lisa', plusOnes: 0, tierId: TIER, phone: '' } });
+    expect(r.success && r.data.guest?.phone).toBe(null);
+  });
+  it('rejects negative, fractional or more than 50 plus-ones', () => {
+    expect(ok({ name: 'Lisa', plusOnes: -1, tierId: TIER })).toBe(false);
+    expect(ok({ name: 'Lisa', plusOnes: 1.5, tierId: TIER })).toBe(false);
+    expect(ok({ name: 'Lisa', plusOnes: 51, tierId: TIER })).toBe(false);
+  });
+  it('rejects a blank name and a non-uuid tier', () => {
+    expect(ok({ name: '   ', plusOnes: 0, tierId: TIER })).toBe(false);
+    expect(ok({ name: 'Lisa', plusOnes: 0, tierId: 'backstage' })).toBe(false);
+  });
+});
+
+describe('markQuotaRequestSeenSchema', () => {
+  it('takes one request uuid', () => {
+    expect(markQuotaRequestSeenSchema.safeParse({ requestId: 'dd000000-0000-7000-8000-000000000002' }).success).toBe(true);
+    expect(markQuotaRequestSeenSchema.safeParse({ requestId: 'x' }).success).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { inviteUserAction, resendInviteAction } from './invite-actions';
 import { createClient } from '@/lib/supabase/server';
 import { sendInviteEmail } from './invite-mail';
+import { asExpectedMutationError } from '@/lib/db-errors';
 
 // Server actions call createClient() (from @/lib/supabase/server), which
 // internally calls Next's cookies() — unavailable outside a request context.
@@ -95,14 +96,19 @@ function makeClient(opts: {
     if (table === 'venue_memberships') return membershipsChain;
     if (table === 'invites') return invitesChain;
     if (table === 'venues') return venuesChain;
-    if (table === 'user_profiles') return profilesChain;
     throw new Error(`unexpected table ${table}`);
+  });
+  // getMyProfile() reads the inviter's own row through my_profile().
+  const rpc = vi.fn((name: string) => {
+    if (name === 'my_profile') return profilesChain;
+    throw new Error(`unexpected rpc ${name}`);
   });
 
   return {
     client: {
       auth: { getUser: vi.fn(async () => ({ data: { user: opts.user ?? { id: USER_ID } } })) },
       from,
+      rpc,
     },
     callLog,
   };
@@ -139,6 +145,9 @@ describe('inviteUserAction — insert-then-mail ordering (86ey9ea00 #54)', () =>
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('already an open invite');
+    // The exact string the client rethrows is a known rule, so Sentry files it
+    // as a breadcrumb, not an issue (z8uq9m5enh, runbook "Sentry triage" 3).
+    expect(asExpectedMutationError(new Error(result.error))).not.toBeNull();
     // The bug this guards against: mailing/provisioning an account BEFORE the
     // insert is known to succeed leaves a live auth account + e-mail behind
     // with no invite row to redeem it once the insert is denied/conflicts.

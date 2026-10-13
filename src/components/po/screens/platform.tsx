@@ -22,7 +22,7 @@
  * server actions (nothing here is door-adjacent, so the outbox is not
  * involved), no browser-only API without a fallback, no billing UI.
  */
-import { type JSX, useCallback, useMemo, useState } from 'react';
+import { type JSX, useCallback, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { ADE_LAST_FREE_DAY_LABEL, adeOfferOpen } from '@/features/platform/ade';
@@ -243,7 +243,8 @@ function PlatformNav(): JSX.Element {
 
 // ── Invite form ──────────────────────────────────────────────────────────────
 
-function InviteForm(): JSX.Element {
+/** Exported for its double-submit test only; the screen is its one user. */
+export function InviteForm(): JSX.Element {
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
   const [freeUntilAde, setFreeUntilAde] = useState(false);
@@ -251,21 +252,31 @@ function InviteForm(): JSX.Element {
   const adeOpen = adeOfferOpen();
   const [localError, setLocalError] = useState<string | null>(null);
   const invite = usePoInviteBetaCustomer();
+  // `invite.isPending` comes from this render's closure: two clicks inside one
+  // frame both still read false and would send two invites (z8uq9m5enh). The
+  // ref flips synchronously, so the second click is dropped.
+  const inFlight = useRef(false);
 
   const submit = (): void => {
-    if (invite.isPending) return;
+    if (inFlight.current || invite.isPending) return;
     if (!email.trim()) {
       setLocalError(t.platform.emailRequired);
       return;
     }
     setLocalError(null);
+    inFlight.current = true;
     invite.mutate(
       { email: email.trim(), note, freeUntilAde: adeOpen && freeUntilAde },
       {
+        // Also after "Already invited. Sent the invite again.": that is a
+        // success too, so the form clears the same way.
         onSuccess: () => {
           setEmail('');
           setNote('');
           setFreeUntilAde(false);
+        },
+        onSettled: () => {
+          inFlight.current = false;
         },
       },
     );

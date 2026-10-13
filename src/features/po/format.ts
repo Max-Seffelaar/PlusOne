@@ -7,6 +7,8 @@
 
 import type { GuestSource } from '@/lib/po/types';
 import { t, fmt } from '@/lib/i18n';
+import type { ActorKind } from '@/lib/po/actor-kind';
+import { nameWords, profileNameKey } from '@/features/auth/profile-name';
 import { absentStage, type EventPhase } from './event-phase';
 
 export const TZ = 'Europe/Amsterdam';
@@ -86,16 +88,50 @@ export function toDateInput(iso: string): string {
 /** Just the projection `guestSourceLabel` reads — any Guest/appearance fits. */
 export interface GuestSourceInput {
   source: GuestSource;
-  /** Display name of who added them; null when the actor row isn't readable. */
+  /** Who added them, by the one who-did-what rule (#64a): a member's name or
+   *  "PlusOne support"; null when unknown. */
   addedByName?: string | null;
+  /** What the adder is (spec #64a). Decides the rendering; the label text
+   *  never does (a user could name themselves anything). Omitted = member. */
+  addedByKind?: ActorKind | null;
   /** Non-default request link label (or its influencer); null for the default
    *  link and whenever `request_links` isn't readable for this role (RLS). */
   linkLabel?: string | null;
 }
 
-/** First name only — a row is tight and "Added by Max" beats "Added by Max Seffelaar". */
-function firstName(full: string): string {
-  return full.trim().split(/\s+/)[0] ?? '';
+/** First words that read like PlusOne's own labels: a member called
+ *  "System Smith" must not shrink to "Added by System" (review #466 r3). */
+const LABEL_LIKE_FIRST_WORDS = new Set(['system', 'unnamed', 'unknown', 'plusone']);
+
+/** First name only — a row is tight and "Added by Max" beats "Added by Max
+ *  Seffelaar" — unless the first word reads like a label: then the full name. */
+export function firstName(full: string): string {
+  const trimmed = full.trim();
+  // Split on EVERY Unicode space incl. U+2800 (braille blank), not just \s.
+  const first = nameWords(trimmed)[0] ?? '';
+  return LABEL_LIKE_FIRST_WORDS.has(profileNameKey(first)) ? trimmed : first;
+}
+
+/** A provenance caption, either plain text or a catalogue template with the
+ *  actor in its `{name}` slot (render that through kit ActorPhrase, so a
+ *  non-member kind shows as a typed label). */
+export type GuestSourceParts = { text: string } | { template: string; name: string; kind: ActorKind };
+
+export function guestSourceParts(g: GuestSourceInput): GuestSourceParts {
+  const s = t.guests.source;
+  const kind: ActorKind = g.addedByKind ?? 'member';
+  // A member's name is cut to the first name; PlusOne's labels never are.
+  const who = !g.addedByName ? '' : kind === 'member' ? firstName(g.addedByName) : g.addedByName;
+  switch (g.source) {
+    case 'permanent':
+      return { text: s.regular };
+    case 'landing':
+      return { text: g.linkLabel ? fmt(s.signUpLinkNamed, { label: g.linkLabel }) : s.signUpLink };
+    case 'door':
+      return who ? { template: s.atDoorBy, name: who, kind } : { text: s.atDoorByColleague };
+    default:
+      return who ? { template: s.addedBy, name: who, kind } : { text: s.addedByColleague };
+  }
 }
 
 /**
@@ -105,18 +141,8 @@ function firstName(full: string): string {
  * profile — never a policy change to read a name (CLAUDE.md: RLS is the boundary).
  */
 export function guestSourceLabel(g: GuestSourceInput): string {
-  const s = t.guests.source;
-  const who = g.addedByName ? firstName(g.addedByName) : '';
-  switch (g.source) {
-    case 'permanent':
-      return s.regular;
-    case 'landing':
-      return g.linkLabel ? fmt(s.signUpLinkNamed, { label: g.linkLabel }) : s.signUpLink;
-    case 'door':
-      return who ? fmt(s.atDoorBy, { name: who }) : s.atDoorByColleague;
-    default:
-      return who ? fmt(s.addedBy, { name: who }) : s.addedByColleague;
-  }
+  const p = guestSourceParts(g);
+  return 'text' in p ? p.text : fmt(p.template, { name: p.name });
 }
 
 /**

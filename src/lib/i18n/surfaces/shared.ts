@@ -10,6 +10,40 @@
  * `t.shared.<key>` and fill {placeholders} with `fmt`.
  */
 export const shared = {
+  // ── Who did it (spec #64a): ONE label set for every company-facing surface
+  // that names an actor (audit feed, export, door, guest list, stats). A current
+  // or former member/crew is named; these two cover everyone else.
+  actor: {
+    /** A PlusOne platform admin who acted without a membership/crew tie to the
+     *  company. Never their name. */
+    support: 'PlusOne support',
+    /** No actor at all: a database/system action. */
+    system: 'System',
+    /** A member whose name is blank: neutral, never mistaken for support. */
+    unnamed: 'Unnamed',
+    /** An actor id the screen could not resolve (labels unavailable). */
+    unknown: 'Unknown',
+    /** Audit sentences: the person a quota/membership change concerns, when
+     *  their name cannot be resolved ("granted a user a venue quota of 5"). */
+    someUser: 'a user',
+    /** Accessible name of a typed actor chip (kit ActorName), set ON the chip
+     *  so no text inside a name can add or fake it. */
+    chipAria: '{label}, PlusOne label',
+    /** The compact chip's visible text (captions, door rows); the full label
+     *  is in its title and accessible name. */
+    short: {
+      support: 'Support',
+      system: 'System',
+      unknown: 'Unknown',
+      unnamed: 'Unnamed',
+    },
+    /** A user tried to take one of the labels above (or a blank) as their own
+     *  name; the database refuses it too (user_profiles_full_name_not_reserved). */
+    reservedName: 'That name is reserved in PlusOne. Please use your own name.',
+    /** A name with a control or zero-width character (refused by the DB too). */
+    invisibleChars: "Names can't contain invisible characters.",
+  },
+
   // ── Quiet offline indicator (offline-indicator.tsx, N7 follow-up) ───────
   // Driven by navigator.onLine only. The door's own SyncBar already says
   // "Offline · {age}" and "{n} queued", so the door copy explains what that
@@ -49,6 +83,8 @@ export const shared = {
     /** Generic copy-button idle/success labels for `CopyableField` (kit.tsx). */
     copyLabel: 'Copy',
     copyDone: 'Copied!',
+    /** Closes the kit Select's bottom sheet without picking (touch only). */
+    selectCancel: 'Cancel',
   },
 
   // ── Date/time fields (datetime-field.tsx) — desktop calendar + time selects ──

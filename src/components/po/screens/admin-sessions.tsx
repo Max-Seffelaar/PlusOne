@@ -150,9 +150,8 @@ function MemberSessions({
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[14px] font-semibold text-text">{se.device}</div>
-                  <div className="mt-0.5 text-[12px] text-faint">
-                    {se.where} · {se.last}
-                  </div>
+                  {/* No location: the admin view carries no IP (20261016130000). */}
+                  <div className="mt-0.5 text-[12px] text-faint">{se.last}</div>
                 </div>
                 <MiniChip onClick={() => revoke.mutate(se.id)}>
                   {revoke.isPending && revoke.variables === se.id ? '…' : 'Log out'}

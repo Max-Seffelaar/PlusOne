@@ -31,6 +31,8 @@ import {
 } from '@/lib/places/client';
 import { PLACES_MIN_INPUT, PLACES_MAX_INPUT, type PlaceAddress, type PlaceSuggestion } from '@/lib/places/schema';
 import { Icon, type IconName } from './icon';
+import { fieldErrorBorder, fieldScrollMargin } from './field-error-style';
+import type { FieldErrorProps } from './kit';
 
 const DEBOUNCE_MS = 250;
 
@@ -53,6 +55,9 @@ export function PlacesField({
   maxLength = PLACES_MAX_INPUT,
   className,
   ariaLabel,
+  id,
+  invalid,
+  describedBy,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -63,7 +68,7 @@ export function PlacesField({
   maxLength?: number;
   className?: string;
   ariaLabel?: string;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   const listId = useId();
   const [items, setItems] = useState<PlaceSuggestion[]>([]);
   const [active, setActive] = useState(-1);
@@ -145,7 +150,14 @@ export function PlacesField({
 
   return (
     <div className={className}>
-      <div className="flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]">
+      <div
+        data-field-shell
+        className={cn(
+          'flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]',
+          fieldScrollMargin,
+          invalid && fieldErrorBorder,
+        )}
+      >
         <span className="text-faint">
           <Icon name={icon} size={19} />
         </span>
@@ -163,6 +175,9 @@ export function PlacesField({
             placeholder={placeholder}
             maxLength={maxLength}
             aria-label={ariaLabel}
+            id={id}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={open}

@@ -22,14 +22,14 @@ import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon } from './icon';
-import { Field, Spinner } from './kit';
+import { Field, Spinner, fieldErrorBorder, fieldScrollMargin, type FieldErrorProps } from './kit';
 
 // The calendar (react-day-picker) loads only when a popover first opens, so the
 // library never lands in the /app First Load JS.
 const PoDayPicker = dynamic(() => import('./daypicker').then((m) => m.PoDayPicker), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[300px] w-[286px] items-center justify-center">
+    <div className="flex h-[360px] w-[338px] items-center justify-center lg:[@media(pointer:fine)]:h-[300px] lg:[@media(pointer:fine)]:w-[290px]">
       <Spinner />
     </div>
   ),
@@ -165,6 +165,9 @@ export function DateField({
   onChange,
   anchor,
   className,
+  id,
+  invalid,
+  describedBy,
 }: {
   value: string;
   onChange?: (v: string) => void;
@@ -173,7 +176,7 @@ export function DateField({
    *  empty end field never opens five months away from the night itself). */
   anchor?: string;
   className?: string;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
   // Editing buffer while the user types; null = show the formatted value.
@@ -215,7 +218,14 @@ export function DateField({
       {/* Whole-field tap opens the calendar (retest Q7) — not just the icon. */}
       <div
         onClick={openPicker}
-        className={cn(fieldShell, onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default', open && 'border-acc')}
+        data-field-shell
+        className={cn(
+          fieldShell,
+          fieldScrollMargin,
+          onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default',
+          open && 'border-acc',
+          invalid && fieldErrorBorder,
+        )}
       >
         <span className="text-faint">
           <Icon name="cal" size={19} />
@@ -245,6 +255,9 @@ export function DateField({
           readOnly={!onChange || !desktop}
           placeholder={t.shared.datetime.datePlaceholder}
           aria-label={t.shared.datetime.dateAria}
+          id={id}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           role="combobox"
           aria-expanded={open}
           className={cn(
@@ -277,7 +290,7 @@ export function DateField({
               setOpen(false);
             }}
           />
-          <div className="flex items-center justify-between border-t border-line2 px-3 py-2">
+          <div className="flex items-center justify-between border-t border-line2 px-2 py-1 lg:[@media(pointer:fine)]:px-3 lg:[@media(pointer:fine)]:py-2">
             <button
               type="button"
               onClick={() => {
@@ -285,7 +298,7 @@ export function DateField({
                 onChange(toYmd(new Date()));
                 setOpen(false);
               }}
-              className="cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-acc transition-[filter] hover:brightness-[1.2]"
+              className="min-h-[44px] min-w-[44px] cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-acc lg:[@media(pointer:fine)]:min-h-0 lg:[@media(pointer:fine)]:min-w-0 transition-[filter] hover:brightness-[1.2]"
             >
               {t.shared.datetime.today}
             </button>
@@ -297,7 +310,7 @@ export function DateField({
                   onChange('');
                   setOpen(false);
                 }}
-                className="cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
+                className="min-h-[44px] min-w-[44px] cursor-pointer rounded-[8px] px-2 py-1 font-display text-[12.5px] font-bold text-dim lg:[@media(pointer:fine)]:min-h-0 lg:[@media(pointer:fine)]:min-w-0 transition-[filter] hover:brightness-[1.2]"
               >
                 {t.shared.datetime.clear}
               </button>
@@ -318,11 +331,14 @@ export function TimeField({
   value,
   onChange,
   className,
+  id,
+  invalid,
+  describedBy,
 }: {
   value: string;
   onChange?: (v: string) => void;
   className?: string;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState<string | null>(null);
@@ -357,7 +373,18 @@ export function TimeField({
     // field padding left too little room — the value ("10:00 PM") was cut off
     // in the narrow time column at 390px. Read-only keeps the icon: a plain
     // span has no native indicator.
-    return <Field icon={onChange ? undefined : 'clock'} type="time" value={value} onChange={onChange} className={className} />;
+    return (
+      <Field
+        icon={onChange ? undefined : 'clock'}
+        type="time"
+        value={value}
+        onChange={onChange}
+        className={className}
+        id={id}
+        invalid={invalid}
+        describedBy={describedBy}
+      />
+    );
   }
 
   return (
@@ -368,7 +395,14 @@ export function TimeField({
           setOpen(true);
           inputRef.current?.focus();
         }}
-        className={cn(fieldShell, onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default', open && 'border-acc')}
+        data-field-shell
+        className={cn(
+          fieldShell,
+          fieldScrollMargin,
+          onChange ? 'cursor-pointer transition-colors hover:border-white/[0.24]' : 'cursor-default',
+          open && 'border-acc',
+          invalid && fieldErrorBorder,
+        )}
       >
         <span className="text-faint">
           <Icon name="clock" size={19} />
@@ -387,6 +421,9 @@ export function TimeField({
           readOnly={!onChange}
           placeholder={t.shared.datetime.emptyTime}
           aria-label={t.shared.datetime.hourAria}
+          id={id}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           role="combobox"
           aria-expanded={open}
           inputMode="numeric"

@@ -6,7 +6,8 @@ import { TERMS_VERSION } from '@/lib/legal';
 
 // First-login consent gate (#20/#40): every user must accept the Terms + Privacy
 // Policy before using the app. State lives on their own user_profiles row (created
-// on first login by ensure_my_profile), read under RLS user_profiles_select.
+// on first login by ensure_my_profile), read through my_profile(): terms_version
+// is outside authenticated's column grant on user_profiles.
 
 interface ConsentRow {
   terms_accepted_at: string | null;
@@ -18,11 +19,11 @@ export function acceptedCurrentTerms(row: ConsentRow | null | undefined): boolea
   return Boolean(row?.terms_accepted_at) && row?.terms_version === TERMS_VERSION;
 }
 
-/** Read the signed-in user's consent state (RLS: own profile). */
+/** Read the signed-in user's consent state (my_profile(): own row only). */
 export async function hasAcceptedCurrentTerms(userId: string): Promise<boolean> {
   const supabase = await createClient();
   const { data } = await supabase
-    .from('user_profiles')
+    .rpc('my_profile')
     .select('terms_accepted_at, terms_version')
     .eq('id', userId)
     .maybeSingle();

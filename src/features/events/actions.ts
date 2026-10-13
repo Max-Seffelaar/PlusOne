@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { sendInviteEmail } from '@/features/auth/invite-mail';
 import { inviteMailCapReached } from '@/features/mail/limits';
@@ -7,7 +8,7 @@ import { getAuthContext, getMyProfile } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
-import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
+import { mapMutationError, unauthorized, invalidInput, invalidIssues, notFound, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { queueEventMail } from '@/features/mail/guest-queue';
 import { buildEventSlug } from './slug';
@@ -82,7 +83,7 @@ export type CreateEventResult = { ok: true; eventId: string; contactSaved?: bool
 /** The organiser's contact address must sit on a domain that takes mail (6c; DNS, fail-open). */
 async function contactDomainRefused(contactEmail: string): Promise<MutationError | null> {
   return (await checkMailDomain(contactEmail)) === 'no_mail_domain'
-    ? invalidInput(t.events.contactEmail.noDomain)
+    ? invalidInput(t.events.contactEmail.noDomain, 'contactEmail')
     : null;
 }
 type UserClient = Awaited<ReturnType<typeof createClient>>;
@@ -108,7 +109,7 @@ export type CreateTemplateResult = { ok: true; templateId: string } | MutationEr
 /** Create an event (admin only — RLS events_insert_admin). Slug auto-generated. */
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const parsed = createEventSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { venueId, name, startsAt, endsAt, landingActive, locationName, locationAddress, houseRules, guestInfo, contactEmail } =
     parsed.data;
 
@@ -171,7 +172,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
  */
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { eventId, name, startsAt, endsAt, locationName, locationAddress, houseRules, guestInfo, contactEmail } =
     parsed.data;
 
@@ -192,7 +193,7 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
     .eq('id', eventId)
     .maybeSingle();
   if (current) {
-    if (contactEmail === undefined && !current.contact_email) return invalidInput(t.events.contactEmail.required);
+    if (contactEmail === undefined && !current.contact_email) return invalidInput(t.events.contactEmail.required, 'contactEmail');
     if (contactEmail !== undefined && contactEmail !== current.contact_email && (await canEditEvent(supabase, eventId, current.venue_id))) {
       const refused = await contactDomainRefused(contactEmail);
       if (refused) return refused;
@@ -273,7 +274,7 @@ function guestReminderEnabled(): boolean {
 
 /**
  * Whether this caller may see the "Send reminder" button: the env flag is on
- * and they are a platform admin (read through RLS, their own row). The action
+ * and they are a platform admin (`is_platform_admin()`, user-scoped). The action
  * below re-checks both; this only decides what the screen shows.
  */
 export async function guestReminderAvailable(): Promise<boolean> {
@@ -281,15 +282,15 @@ export async function guestReminderAvailable(): Promise<boolean> {
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return false;
-  const { data } = await supabase.from('user_profiles').select('is_platform_admin').eq('id', ctx.user.id).maybeSingle();
-  return data?.is_platform_admin === true;
+  const { data } = await supabase.rpc('is_platform_admin');
+  return data === true;
 }
 
 /**
  * "Send reminder" (guest mail F, test): mails every guest with a spot and an
  * address "Reminder: you're on the list". Platform admins only, and only with
  * GUEST_REMINDER_ENABLED=true; a later decision makes it a company feature or
- * not. The platform-admin check reads the caller's own flag through RLS; the
+ * not. The platform-admin check is the `is_platform_admin()` RPC; the
  * event must be visible to them (RLS) and still ahead.
  */
 export async function sendGuestReminder(input: SendGuestReminderInput): Promise<ActionResult> {
@@ -301,12 +302,8 @@ export async function sendGuestReminder(input: SendGuestReminderInput): Promise<
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('is_platform_admin')
-    .eq('id', ctx.user.id)
-    .maybeSingle();
-  if (profile?.is_platform_admin !== true) return unauthorized();
+  const { data: isPlatformAdmin } = await supabase.rpc('is_platform_admin');
+  if (isPlatformAdmin !== true) return unauthorized();
 
   const { data: event } = await supabase
     .from('events')
@@ -533,6 +530,19 @@ async function upsertCrewQuota(supabase: ServerClient, eventId: string, userId: 
     .upsert({ event_id: eventId, user_id: userId, quota_override: quota }, { onConflict: 'event_id,user_id' });
 }
 
+/**
+ * The `/app` layout derives the caller's crew access set (`organizerVenues`:
+ * which companies they reach through event crew). po invalidates its own React
+ * Query keys after a crew write, but this set lives in the layout, so when an
+ * admin changes their OWN organizer scope the venue switcher would stay stale
+ * until a reload (P1-review follow-up, Snelheid P2). Same rule as the venue
+ * member actions: re-render the layout only for a change to the caller. The one
+ * `revalidatePath` this module may hold (tests/unit/no-dead-revalidate-path.test.ts).
+ */
+function revalidateOwnCrewScope(targetUserId: string, callerId: string): void {
+  if (targetUserId === callerId) revalidatePath('/app', 'layout');
+}
+
 /** Add an existing (external) user as crew of an event, with an optional guest
  *  quota (admin — RLS; role-only since the #20 refinement 2026-06-24). */
 export async function assignOrganizer(input: AssignOrganizerInput): Promise<ActionResult> {
@@ -562,8 +572,13 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   }
   if (quota !== undefined) {
     const { error: qErr } = await upsertCrewQuota(supabase, eventId, userId, quota);
-    if (qErr) return mapMutationError(qErr);
+    if (qErr) {
+      // The organizer row is already in: the caller's scope changed either way.
+      revalidateOwnCrewScope(userId, ctx.user.id);
+      return mapMutationError(qErr);
+    }
   }
+  revalidateOwnCrewScope(userId, ctx.user.id);
   return { ok: true };
 }
 
@@ -909,6 +924,7 @@ export async function removeOrganizer(input: RemoveOrganizerInput): Promise<Acti
   if (!count) {
     return { ok: false, code: 'noop', message: "Couldn't remove the organizer (no access)." };
   }
+  revalidateOwnCrewScope(userId, ctx.user.id);
   return { ok: true };
 }
 
@@ -924,8 +940,8 @@ type TemplateTierInsert = Database['public']['Tables']['event_template_tiers']['
 /** Create a template (admin or venue-organizer — RLS event_templates_insert). */
 export async function createTemplate(input: CreateTemplateInput): Promise<CreateTemplateResult> {
   const parsed = createTemplateSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { venueId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress } = parsed.data;
+  if (!parsed.success) return invalidIssues(parsed.error);
+  const { venueId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress, houseRules, guestInfo } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -942,6 +958,8 @@ export async function createTemplate(input: CreateTemplateInput): Promise<Create
       auto_lock_offset_minutes: autoLockOffsetMinutes ?? null,
       location_name: locationName ?? null,
       location_address: locationAddress ?? null,
+      house_rules: houseRules ?? null,
+      guest_info: guestInfo ?? null,
     })
     .select('id')
     .single();
@@ -957,8 +975,8 @@ export async function createTemplate(input: CreateTemplateInput): Promise<Create
 /** Edit a template (partial; admin or venue-organizer — RLS). */
 export async function updateTemplate(input: UpdateTemplateInput): Promise<ActionResult> {
   const parsed = updateTemplateSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { templateId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress } = parsed.data;
+  if (!parsed.success) return invalidIssues(parsed.error);
+  const { templateId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress, houseRules, guestInfo } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -972,6 +990,8 @@ export async function updateTemplate(input: UpdateTemplateInput): Promise<Action
     ...(autoLockOffsetMinutes !== undefined ? { auto_lock_offset_minutes: autoLockOffsetMinutes } : {}),
     ...(locationName !== undefined ? { location_name: locationName } : {}),
     ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
+    ...(houseRules !== undefined ? { house_rules: houseRules } : {}),
+    ...(guestInfo !== undefined ? { guest_info: guestInfo } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
@@ -1087,7 +1107,7 @@ export async function createEventFromTemplate(
   input: CreateEventFromTemplateInput,
 ): Promise<CreateEventResult> {
   const parsed = createEventFromTemplateSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { templateId, name, startsAt, endsAt, contactEmail } = parsed.data;
 
   const supabase = await createClient();

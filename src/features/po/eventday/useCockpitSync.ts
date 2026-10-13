@@ -71,7 +71,9 @@ export function useCockpitSync({ tracked, refresh }: CockpitSyncArgs): StaleResu
   // asked for is still running" — it bails out of its resolve effect while it is
   // true. Deriving it from "is any tracked query fetching" broke that meaning on
   // this surface: the four tracked reads are on a 60s `refetchInterval` AND are
-  // invalidated by `usePoEventRealtime` on every check-in (throttled to 500ms).
+  // refreshed by `usePoEventRealtime` during a rush (guests/arrivals patched
+  // from the payload with a refetch when one was in flight, tiers/stats at most
+  // every 5 s since Snelheid P2; every check-in at 500 ms before that).
   // During a door rush that is near-continuous, so the blocking overlay could
   // not close over a cockpit whose stamps were demonstrably fresh, and the 8s
   // backstop would then flip it to the "connection is stuck" copy on a screen

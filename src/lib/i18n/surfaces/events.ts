@@ -16,6 +16,8 @@ export const events = {
   loadEventsError: "Couldn't load events. Try again in a moment.",
   emptyUpcoming: 'No upcoming events. Create one and start the list.',
   emptyPast: 'No past events yet.',
+  /** Past view: loads the next page of events older than the last 30 days (Snelheid P2). */
+  showOlder: 'Show older events',
   /** {place} = the event's own location, else the company address (z8uq9m2vqc). */
   cardDoors: 'Doors {time} · {place}',
   cardTurnoutSuffix: '% attendance',
@@ -26,6 +28,8 @@ export const events = {
   searchCloseAria: 'Close search',
   searchPlaceholder: 'Search by event name…',
   searchEmpty: 'No events match "{q}".',
+  /** Past + search with older pages not loaded yet: the search only covers what is loaded (Snelheid P2 review). */
+  searchEmptyPastWindow: 'No "{q}" in the last 30 days. Show older events to search further back.',
 
   // ── Event detail ────────────────────────────────────────────────────────────
   detailTitle: 'Event',
@@ -97,8 +101,8 @@ export const events = {
   houseRulesTooLong: 'Keep the house rules under 500 characters.',
   // Info for guests (z8uq9m4a5n): mails with a spot, status page, calendar.
   guestInfoLabel: 'Info for guests (optional)',
-  guestInfoPlaceholder: 'e.g. Park at P2. Entrance on the side street. Dress code: all black.',
-  guestInfoHint: 'Shown to guests in their email and calendar: parking, entrance, dress code.',
+  guestInfoPlaceholder: 'e.g. Park at P2. Entrance on the side street. Cloakroom by the bar.',
+  guestInfoHint: 'Practical stuff like parking, the entrance or the cloakroom. Guests see it in their email and calendar.',
   guestInfoTooLong: 'Keep the info for guests under 1,000 characters.',
   locationAddressTooLong: 'That address is too long.',
   locationAria: 'Location',
@@ -371,14 +375,13 @@ export const events = {
     searchPlaceholder: 'Search returning crew…',
     searchEmpty: 'No match. Invite them by email instead.',
   },
-  // Guest mail F: house rules for "You're on the list" + the platform-admin reminder test.
+  // Guest mail F: the "For your guests" block (house rules + info for guests,
+  // z8uq9m4a5n follow-up) + the platform-admin reminder test.
   guestMail: {
+    blockTitle: 'For your guests',
     houseRulesLabel: 'House rules (optional)',
-    houseRulesPlaceholder: 'e.g. 21+, no sportswear',
-    houseRulesHint: 'Shown in the "You\'re on the list" email.',
-    houseRulesSave: 'Save house rules',
-    houseRulesSaving: 'Saving…',
-    houseRulesSaved: 'House rules saved.',
+    houseRulesPlaceholder: 'e.g. 21+, bring ID, no sportswear',
+    houseRulesHint: 'Rules at the door, like age, ID or dress code. Guests see them in "You\'re on the list" and in their calendar.',
     reminderTitle: 'Send reminder',
     reminderSub: 'Test, platform admins only. Mails every guest with an email who is on the list.',
     reminderSend: 'Send reminder',

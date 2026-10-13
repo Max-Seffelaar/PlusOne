@@ -37,6 +37,7 @@ import {
   doorSnapshotKey,
   fetchDoorSnapshot,
   fetchEventQuota,
+  mergeDoorProfiles,
   projectDoorGuest,
   type CheckInRow,
   type DoorSnapshot,
@@ -259,7 +260,13 @@ export function DoorProvider({
 
   const snapshotQuery = useQuery({
     queryKey: doorSnapshotKey(eventId),
-    queryFn: () => fetchDoorSnapshot(getDoorClient(), eventId),
+    // Labels from the previous (possibly IDB-persisted) snapshot survive a
+    // refetch made while the label RPC is down (mergeDoorProfiles, #466 N3).
+    queryFn: async () =>
+      mergeDoorProfiles(
+        queryClient.getQueryData<DoorSnapshot>(doorSnapshotKey(eventId)),
+        await fetchDoorSnapshot(getDoorClient(), eventId),
+      ),
     initialData: initialSnapshot,
   });
   const quotaQuery = useQuery({

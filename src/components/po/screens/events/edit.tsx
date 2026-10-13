@@ -12,7 +12,7 @@ import {
   usePoCompanyLocations,
 } from '@/features/po/hooks';
 import { defaultEventLocation } from '@/features/po/adapters';
-import { GUEST_INFO_MAX, LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
+import { GUEST_INFO_MAX, HOUSE_RULES_MAX } from '@/features/events/schemas';
 import {
   usePoSetCancelled,
   usePoCreateEvent,
@@ -30,15 +30,17 @@ import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { useNav, usePo } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
-import { Btn, Field, InfoTip, Label, Note, PlacesField, Scroll, TextArea, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
-import { EventGuestMailSection } from './guest-mail';
+import { Btn, Field, FieldErrorFor, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, fieldInputProps, hitRingY6, press, useCopyText, useFieldErrors } from '../../kit';
+import { errorField } from '@/lib/field-error';
+import { EVENT_FORM_FIELDS, eventFormField } from './form-fields';
+import { EventGuestMailSection, EventGuestTextFields } from './guest-mail';
 import { EventContactEmailField, contactEmailProblem, contactEmailValue } from './contact-email-field';
 import { BottomBar, Sheet } from '../../shell';
 import { ExportEventRow } from '../settings/export';
 import { SaveAsTemplate } from './save-as-template';
 import { ScheduleFields } from './schedule-fields';
 import { TemplatePicker } from './template-picker';
-import { LocationPicker } from './location-picker';
+import { EventLocationFields } from './location-fields';
 import { col, ScreenState } from './shared';
 
 // 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
@@ -87,8 +89,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [locPrefilled, setLocPrefilled] = useState(false);
   // The event's contact address (6c): typed per event, never pre-filled.
   const [contactEmail, setContactEmail] = useState('');
-  // Info for guests (z8uq9m4a5n): saves with the form, on create and edit.
+  // House rules + info for guests (z8uq9m4a5n): one block, saved with the
+  // form, on create and edit.
   const [guestInfo, setGuestInfo] = useState('');
+  const [houseRules, setHouseRules] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState('');
@@ -113,7 +117,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Per-event default member quota (T10) — seeds the add-crew prefill. Immediate
   // save like the lock/check-out controls, so it never counts toward form-dirty.
   const [quotaDefault, setQuotaDefault] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5eb7); anything else is the banner.
+  const fe = useFieldErrors(EVENT_FORM_FIELDS);
+  const fail = (e: unknown, fallback: string): void => fe.fail(e instanceof Error ? e.message : fallback, eventFormField(errorField(e)));
   const [copyState, copy] = useCopyText();
   const copied = copyState === 'copied';
   // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls
@@ -131,6 +137,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     setLocAddress(ev.locationAddress ?? '');
     setContactEmail(ev.contactEmail ?? '');
     setGuestInfo(ev.guestInfo ?? '');
+    setHouseRules(ev.houseRules ?? '');
     const [d, t] = splitLocal(ev.startsAt);
     setDateStr(d);
     setTimeStr(t);
@@ -175,14 +182,16 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Create-from-template: the template's own settings apply (the RPC copies
   // them), so the form shows the template's values read-only.
   const fromTemplate = isNew && !!templateId;
-  // The location a template (or no template) starts the form at: the
-  // template's own, else the company default (z8uq9m444c).
-  const locBaseline = (tplId: string | null): { name: string; address: string } => {
+  // What a template (or no template) starts the form at: the template's own
+  // location, else the company default (z8uq9m444c); its guest texts, else
+  // none (z8uq9m4pnk).
+  const locBaseline = (tplId: string | null): { name: string; address: string; rules: string; info: string } => {
     const tpl = tplId ? templates.data?.find((x) => x.id === tplId) : undefined;
+    const texts = { rules: tpl?.house_rules ?? '', info: tpl?.guest_info ?? '' };
     if (tpl && (tpl.location_name || tpl.location_address)) {
-      return { name: tpl.location_name ?? '', address: tpl.location_address ?? '' };
+      return { name: tpl.location_name ?? '', address: tpl.location_address ?? '', ...texts };
     }
-    return { name: defaultLoc?.locationName ?? '', address: defaultLoc?.locationAddress ?? '' };
+    return { name: defaultLoc?.locationName ?? '', address: defaultLoc?.locationAddress ?? '', ...texts };
   };
   // Picking a template prefills its location (still editable); un-picking
   // goes back to the default location (z8uq9m2vqc; z8uq9m444c).
@@ -191,13 +200,18 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     if (next === templateId) return;
     // Prefill only over what a template or the default put there: empty
     // fields, or the previous baseline left untouched. Never over typed input.
+    // Location and the guest texts each decide on their own.
     const prev = locBaseline(templateId);
-    const untouched = (locName === prev.name && locAddress === prev.address) || (locName === '' && locAddress === '');
-    setTemplateId(next);
-    if (!untouched) return;
     const base = locBaseline(next);
-    setLocName(base.name);
-    setLocAddress(base.address);
+    setTemplateId(next);
+    if ((locName === prev.name && locAddress === prev.address) || (locName === '' && locAddress === '')) {
+      setLocName(base.name);
+      setLocAddress(base.address);
+    }
+    if ((houseRules === prev.rules && guestInfo === prev.info) || (houseRules === '' && guestInfo === '')) {
+      setHouseRules(base.rules);
+      setGuestInfo(base.info);
+    }
   };
   const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
@@ -206,10 +220,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Anything the Save button would commit that differs from the loaded state.
   const fieldsDirty = ((): boolean => {
     if (!writable || saving) return false;
-    // A prefilled location (template or default) is not an edit; a change is.
+    // A prefilled location or guest text (template or default) is not an edit; a change is.
     const base = locBaseline(templateId);
     const locEdited = locName.trim() !== base.name || locAddress.trim() !== base.address;
-    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited || contactEmail.trim() || guestInfo.trim());
+    const textsEdited = houseRules.trim() !== base.rules || guestInfo.trim() !== base.info;
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr || locEdited || textsEdited || contactEmail.trim());
     if (!ev) return false;
     const [d0, t0] = splitLocal(ev.startsAt);
     const [ed0, et0] = splitLocal(ev.endsAt);
@@ -220,6 +235,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       locAddress.trim() !== (ev.locationAddress ?? '') ||
       contactEmailValue(contactEmail) !== (ev.contactEmail ?? '') ||
       guestInfo.trim() !== (ev.guestInfo ?? '') ||
+      houseRules.trim() !== (ev.houseRules ?? '') ||
       dateStr !== d0 ||
       timeStr !== t0 ||
       endDateStr !== ed0 ||
@@ -244,14 +260,14 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Name + start (+ landing/auto-lock as config) commit together on save; list-lock
   // and status are immediate operational controls (mirrors the desktop split).
   const save = async (): Promise<void> => {
-    setErr(null);
+    fe.reset();
     if (!name.trim()) {
-      setErr(t.events.errName);
+      fe.fail(t.events.errName, 'name');
       return;
     }
     const startsAt = localInputToIso(`${dateStr}T${timeStr}`);
     if (!startsAt) {
-      setErr(t.events.errDateTime);
+      fe.fail(t.events.errDateTime, dateStr ? 'time' : 'date');
       return;
     }
     // End time is optional, but if either end field is filled both must be, and the
@@ -259,52 +275,56 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     // message instead of the generic save failure (the date-save bug).
     const endsAt = endDateStr && endTimeStr ? localInputToIso(`${endDateStr}T${endTimeStr}`) : null;
     if ((endDateStr || endTimeStr) && !endsAt) {
-      setErr(t.events.errEndDateTime);
+      fe.fail(t.events.errEndDateTime, endDateStr ? 'endTime' : 'endDate');
       return;
     }
     if (endsAt && endsAt <= startsAt) {
-      setErr(t.events.errStartAfterEnd);
+      fe.fail(t.events.errStartAfterEnd, 'endTime');
       return;
     }
     const autoIso = autoOn ? localInputToIso(`${autoDate}T${autoTime}`) : null;
     if (autoOn && !autoIso) {
-      setErr(t.events.errCloseDateTime);
+      fe.fail(t.events.errCloseDateTime, autoDate ? 'autoTime' : 'autoDate');
       return;
     }
     const contactProblem = contactEmailProblem(contactEmail);
     if (contactProblem) {
-      setErr(contactProblem);
+      fe.fail(contactProblem, 'contactEmail');
       return;
     }
     const contact = contactEmailValue(contactEmail);
     const info = guestInfo.trim() || null;
     if (info && info.length > GUEST_INFO_MAX) {
-      setErr(t.events.guestInfoTooLong);
+      fe.fail(t.events.guestInfoTooLong, 'guestInfo');
+      return;
+    }
+    const rules = houseRules.trim() || null;
+    if (rules && rules.length > HOUSE_RULES_MAX) {
+      fe.fail(t.events.houseRulesTooLong, 'houseRules');
       return;
     }
     try {
       if (isNew) {
         if (!venueId) {
-          setErr(t.events.errNoVenue);
+          fe.fail(t.events.errNoVenue);
           return;
         }
         const locationName = locName.trim() || null;
         const locationAddress = locAddress.trim() || null;
         const created = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt, contactEmail: contact })
-          : { eventId: await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, guestInfo: info, contactEmail: contact }), contactSaved: true };
+          : { eventId: await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, houseRules: rules, guestInfo: info, contactEmail: contact }), contactSaved: true };
         const newId = created.eventId;
-        // The template RPC copies the template's CURRENT DB location
-        // (20261007135000), which can differ from the cached one the form
-        // showed (no realtime on templates). So after a template create we
-        // always write what the user saw in the form — never diff against the
-        // cache. The event exists by now, so a failed write must never keep the
+        // The template RPC copies the template's CURRENT DB location and guest
+        // texts (20261007135000, 20261016180000), which can differ from the
+        // cached ones the form showed (no realtime on templates). So after a
+        // template create we always write what the user saw in the form (the
+        // picked template prefilled it) — never diff against the cache. The event exists by now, so a failed write must never keep the
         // form open (a second Save would create a SECOND event): move on
         // regardless and say what didn't stick.
         if (templateId) {
           try {
-            // Templates carry no guest info (z8uq9m4a5n): it rides this same write.
-            await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress, guestInfo: info, contactEmail: contact });
+            await updateEvent.mutateAsync({ eventId: newId, locationName, locationAddress, houseRules: rules, guestInfo: info, contactEmail: contact });
           } catch {
             // The action's own contact write failed too (contactSaved false):
             // say that first, it is the one that holds the guests' mail back.
@@ -328,6 +348,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           endsAt,
           locationName: locName.trim() || null,
           locationAddress: locAddress.trim() || null,
+          houseRules: rules,
           guestInfo: info,
           contactEmail: contact,
         });
@@ -349,18 +370,18 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       if (tplDraft) setConfirmLeave(true);
       else nav.back();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.events.errSaveFailed);
+      fail(e, t.events.errSaveFailed);
     }
   };
 
   const toggleLock = async (v: boolean): Promise<void> => {
     setLocked(v);
-    setErr(null);
+    fe.reset();
     try {
       await setListLock.mutateAsync({ eventId: editId, locked: v });
     } catch (e) {
       setLocked(!v);
-      setErr(e instanceof Error ? e.message : t.events.errLockFailed);
+      fail(e, t.events.errLockFailed);
     }
   };
 
@@ -368,21 +389,21 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const toggleUncheck = async (next: boolean | null): Promise<void> => {
     const prev = uncheckOverride;
     setUncheckOverride(next);
-    setErr(null);
+    fe.reset();
     try {
       await setAllowUncheck.mutateAsync({ eventId: editId, allowUncheck: next });
     } catch (e) {
       setUncheckOverride(prev);
-      setErr(e instanceof Error ? e.message : t.events.errUncheckFailed);
+      fail(e, t.events.errUncheckFailed);
     }
   };
 
   const toggleCancel = async (next: boolean): Promise<void> => {
-    setErr(null);
+    fe.reset();
     try {
       await setCancelled.mutateAsync({ eventId: editId, cancelled: next });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.events.errCancelFailed);
+      fail(e, t.events.errCancelFailed);
     }
   };
 
@@ -393,13 +414,19 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     const prev = quotaDefault;
     if (clamped === prev) return;
     setQuotaDefault(clamped);
-    setErr(null);
+    fe.reset();
     try {
       await setDefaultQuota.mutateAsync({ eventId: editId, quota: clamped });
     } catch (e) {
       setQuotaDefault(prev);
-      setErr(e instanceof Error ? e.message : t.events.errQuotaFailed);
+      fail(e, t.events.errQuotaFailed);
     }
+  };
+
+  // Turning auto-close off hides its fields, so their error goes with them.
+  const toggleAutoClose = (v: boolean): void => {
+    for (const f of ['autoDate', 'autoTime'] as const) fe.clear(f);
+    setAutoOn(v);
   };
 
   const copyLink = async (): Promise<void> => {
@@ -411,7 +438,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     <div className={col}>
       <Top onBack={onBack} title={isNew ? t.events.newEvent : t.events.editTitle} sub={isNew ? undefined : ev?.name} />
       <Scroll bottom={120}>
-        {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
+        {fe.banner && <div role="alert" className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{fe.banner}</div>}
         {!isNew && ev?.cancelledAt && (
           <div
             className="mb-3 rounded-[12px] border px-3 py-2.5 text-[13px] font-semibold text-[#E89AC0]"
@@ -441,14 +468,17 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         )}
 
         <Label className="mb-2">{t.events.fieldName}</Label>
-        <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
+        <Field placeholder={t.events.namePlaceholder} value={name} onChange={fe.edit('name', writable ? setName : undefined)} className="mb-[14px]" {...fieldInputProps(fe.bind('name'))} />
+        <FieldErrorFor error={fe.bind('name')} className="-mt-[6px] mb-[14px]" />
 
         <ScheduleFields
           writable={writable}
           value={{ date: dateStr, time: timeStr, endDate: endDateStr, endTime: endTimeStr }}
           endTouched={endTouched}
           onEndTouchedChange={setEndTouched}
+          errors={{ date: fe.bind('date'), time: fe.bind('time'), endDate: fe.bind('endDate'), endTime: fe.bind('endTime') }}
           onChange={(next) => {
+            for (const f of ['date', 'time', 'endDate', 'endTime'] as const) fe.clear(f);
             setDateStr(next.date);
             setTimeStr(next.time);
             setEndDateStr(next.endDate);
@@ -456,60 +486,30 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           }}
         />
 
-        {/* Per-event location (z8uq9m2vqc). Places (z8uq9m2vg5) on the
-            address: one pick fills the name (if empty) and the address. Saves
-            with the form. */}
-        <Label className="mb-2">{t.events.fieldLocation}</Label>
-        {writable && (
-          <LocationPicker
-            locations={savedLocations}
-            name={locName}
-            address={locAddress}
-            onPick={(copy) => {
-              setLocName(copy.locationName);
-              setLocAddress(copy.locationAddress);
-            }}
-          />
-        )}
-        <Field
-          icon="building"
-          ariaLabel={t.events.locationNameAria}
-          placeholder={t.events.locationNamePlaceholder}
-          value={locName}
-          onChange={writable ? setLocName : undefined}
-          maxLength={LOCATION_NAME_MAX}
-          className="mb-2"
+        {/* Per-event location (z8uq9m2vqc): saves with the form. */}
+        <EventLocationFields
+          locations={savedLocations}
+          name={locName}
+          address={locAddress}
+          onName={fe.edit('locationName', writable ? setLocName : undefined)}
+          onAddress={fe.edit('locationAddress', writable ? setLocAddress : undefined)}
+          errors={{ locationName: fe.bind('locationName'), locationAddress: fe.bind('locationAddress') }}
         />
-        <PlacesField
-          icon="pin"
-          ariaLabel={t.events.locationAddressAria}
-          placeholder={t.events.locationAddressPlaceholder}
-          value={locAddress}
-          onChange={writable ? setLocAddress : undefined}
-          onPick={(p) => {
-            setLocAddress((p.address?.formattedAddress ?? p.label).slice(0, LOCATION_ADDRESS_MAX));
-            if (!locName.trim()) setLocName(p.name.slice(0, LOCATION_NAME_MAX));
-          }}
-          maxLength={LOCATION_ADDRESS_MAX}
-          className="mb-2"
+        {/* House rules + info for guests (z8uq9m4a5n follow-up): one block, saved
+            with the form. Mails, the status page and the calendar read both. */}
+        <EventGuestTextFields
+          houseRules={houseRules}
+          guestInfo={guestInfo}
+          onHouseRulesChange={fe.edit('houseRules', writable ? setHouseRules : undefined)}
+          onGuestInfoChange={fe.edit('guestInfo', writable ? setGuestInfo : undefined)}
+          errors={{ houseRules: fe.bind('houseRules'), guestInfo: fe.bind('guestInfo') }}
         />
-        <div className="mb-[18px] text-[12.5px] leading-[1.45] text-faint">{t.events.locationHint}</div>
-        {/* Info for guests (z8uq9m4a5n): parking, entrance, dress code. In the
-            mails with a spot, the status page and the calendar description. */}
-        <div data-testid="event-guest-info">
-          <Label className="mb-2">{t.events.guestInfoLabel}</Label>
-          <TextArea
-            value={guestInfo}
-            onChange={writable ? setGuestInfo : () => undefined}
-            placeholder={t.events.guestInfoPlaceholder}
-            ariaLabel={t.events.guestInfoLabel}
-            maxLength={GUEST_INFO_MAX}
-            rows={3}
-          />
-          <div className="mb-[18px] mt-1 text-[12.5px] leading-[1.45] text-faint">{t.events.guestInfoHint}</div>
-        </div>
-        <EventContactEmailField value={contactEmail} onChange={writable ? setContactEmail : undefined} />
-        {!isNew && editId && <EventGuestMailSection eventId={editId} writable={writable} />}
+        <EventContactEmailField
+          value={contactEmail}
+          onChange={fe.edit('contactEmail', writable ? setContactEmail : undefined)}
+          error={fe.bind('contactEmail')}
+        />
+        {!isNew && editId && <EventGuestMailSection eventId={editId} />}
 
         {!isNew && (
           <button
@@ -637,7 +637,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 title={t.events.autoCloseTitle}
                 sub={autoOn ? t.events.autoCloseOnSub : t.events.autoCloseOffSub}
                 on={autoOn}
-                set={(v) => writable && setAutoOn(v)}
+                set={(v) => writable && toggleAutoClose(v)}
                 last={!autoOn}
               />
               {autoOn && (
@@ -646,14 +646,24 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                     <Label className="mb-2">{t.events.closesOn}</Label>
                     {/* Anchored to the event date (item C2): an empty close date
                         opens on the night's month, not on today. */}
-                    <DateField value={autoDate} anchor={dateStr} onChange={writable ? setAutoDate : undefined} />
+                    <DateField
+                      value={autoDate}
+                      anchor={dateStr}
+                      onChange={fe.edit('autoDate', writable ? setAutoDate : undefined)}
+                      {...fieldInputProps(fe.bind('autoDate'))}
+                    />
                   </div>
                   <div className="min-w-0 flex-1">
                     <Label className="mb-2">{t.events.closesAt}</Label>
-                    <TimeField value={autoTime} onChange={writable ? setAutoTime : undefined} />
+                    <TimeField
+                      value={autoTime}
+                      onChange={fe.edit('autoTime', writable ? setAutoTime : undefined)}
+                      {...fieldInputProps(fe.bind('autoTime'))}
+                    />
                   </div>
                 </div>
               )}
+              {autoOn && <FieldErrorFor error={fe.bind(fe.field === 'autoTime' ? 'autoTime' : 'autoDate')} className="-mt-[6px] mb-[14px]" />}
             </div>
           )}
         </div>

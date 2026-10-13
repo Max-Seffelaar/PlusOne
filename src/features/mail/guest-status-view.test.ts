@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { toGuestStatusView } from './guest-status-view';
+import { CALENDAR_DESCRIPTION_MAX, calendarDescription, toGuestStatusView } from './guest-status-view';
+import { buildIcs, googleCalendarUrl } from './ics';
 
 function payload(over: Record<string, unknown> = {}) {
   return {
@@ -72,7 +73,8 @@ describe('toGuestStatusView', () => {
     const ev = { ...payload().event, guest_info: 'Park at P2.\r\nEntrance on the side street.\u0007' };
     const v = toGuestStatusView(payload({ event: ev }));
     expect(v?.guestInfo).toBe('Park at P2.\nEntrance on the side street.');
-    expect(v?.calendar.description).toBe('Park at P2.\nEntrance on the side street.');
+    // The fixture has house rules too: they follow the info under their label.
+    expect(v?.calendar.description).toBe('Park at P2.\nEntrance on the side street.\n\nHouse rules:\nNo sneakers.');
     for (const state of ['off_list', 'canceled']) {
       const off = toGuestStatusView(payload({ state, event: ev }));
       expect(off?.guestInfo, state).toBeNull();
@@ -80,5 +82,35 @@ describe('toGuestStatusView', () => {
     }
     // A payload from before the migration (no key) still parses.
     expect(toGuestStatusView(payload())?.guestInfo).toBeNull();
+  });
+});
+
+describe('calendarDescription (house rules in the calendar, z8uq9m4a5n follow-up)', () => {
+  it('info first, then the house rules under their label; either alone; none = null', () => {
+    expect(calendarDescription('Park at P2.', '21+, bring ID')).toBe('Park at P2.\n\nHouse rules:\n21+, bring ID');
+    expect(calendarDescription(null, '21+')).toBe('House rules:\n21+');
+    expect(calendarDescription('Park at P2.', null)).toBe('Park at P2.');
+    expect(calendarDescription('  \n ', '\t')).toBeNull();
+  });
+
+  it('strips controls and bidi overrides from the house rules too, line breaks kept', () => {
+    expect(calendarDescription(null, 'No\u0007 sneakers\r\nBring\u202E ID')).toBe('House rules:\nNo sneakers\nBring ID');
+  });
+
+  it('caps the combined text so the Google URL stays bounded', () => {
+    const d = calendarDescription('a'.repeat(1000), 'b'.repeat(500)) ?? '';
+    expect(d.length).toBeLessThanOrEqual(CALENDAR_DESCRIPTION_MAX);
+    expect(d).toContain('House rules:');
+    expect(calendarDescription('a'.repeat(5000), 'b'.repeat(5000))!.length).toBeLessThanOrEqual(CALENDAR_DESCRIPTION_MAX);
+  });
+
+  it('reaches the .ics DESCRIPTION and Google details through the status view, escaped', () => {
+    const ev = { ...payload().event, guest_info: 'Park at P2; side door', house_rules: 'No <script>, bring ID' };
+    const v = toGuestStatusView(payload({ event: ev }))!;
+    const ics = buildIcs(v.calendar).replace(/\r\n /g, '');
+    expect(ics).toContain('DESCRIPTION:Park at P2\\; side door\\n\\nHouse rules:\\nNo <script>\\, bring ID\r\n');
+    expect(new URL(googleCalendarUrl(v.calendar)).searchParams.get('details')).toBe(
+      'Park at P2; side door\n\nHouse rules:\nNo <script>, bring ID',
+    );
   });
 });

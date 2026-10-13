@@ -15,6 +15,7 @@ import {
   toPoGuestRequest,
   isOpenGuestRequest,
   toPoQuotaRequest,
+  toPoQuotaUpdate,
   toRecap,
   toRecapGuest,
   rolesLabel,
@@ -48,9 +49,11 @@ import type {
   PoSubscriptionRow,
   PoGuestRequestRow,
   PoQuotaRequestRow,
+  PoMyQuotaUpdateRow,
   ContactProfileHeader,
   ContactAppearance,
 } from './queries';
+import { parseQuotaGuestPayload } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import type { Tier } from '@/lib/po/types';
 
@@ -248,11 +251,12 @@ describe('toPoGuest', () => {
     anonymized_at: null,
     source: 'app',
     addedByName: 'Max Seffelaar',
+    addedByKind: 'member',
     linkLabel: null,
   };
 
   it('maps a guest row + extras to the po Guest shape (incl. the real tier name + color)', () => {
-    const g = toPoGuest(row, { role: 'VIP', addedBy: 'Max', tierName: 'VIP — bottle', tierColor: '#FFD700' });
+    const g = toPoGuest(row, { role: 'VIP', tierName: 'VIP — bottle', tierColor: '#FFD700' });
     expect(g).toMatchObject({
       id: 'g1',
       name: 'Lieke Hofman',
@@ -265,7 +269,6 @@ describe('toPoGuest', () => {
       note: 'Tafel 4 reserveren',
       flag: 'high',
       noteAcknowledged: false,
-      by: 'Max',
       status: 'in',
       contactId: 'c1',
     });
@@ -287,7 +290,6 @@ describe('toPoGuest', () => {
       { ...row, note: null, note_priority: 'none', status: 'pending' },
       { role: 'Guest' }
     );
-    expect(g.by).toBe('');
     expect(g.note).toBe('');
     expect(g.flag).toBeNull();
     expect(g.status).toBe('wait');
@@ -344,6 +346,7 @@ describe('toRecapGuest', () => {
       tierName: 'VIP — fles op tafel',
       tierColor: '#FFD700',
       addedByName: 'Max',
+      addedByKind: 'member',
       checkedAt: '2024-11-09T22:14:00Z',
     });
     expect(g).toEqual({
@@ -354,6 +357,7 @@ describe('toRecapGuest', () => {
       tierColor: '#FFD700',
       at: expect.any(String),
       by: 'Max',
+      byKind: 'member',
     });
   });
 
@@ -366,6 +370,7 @@ describe('toRecapGuest', () => {
       tierName: null,
       tierColor: null,
       addedByName: null,
+      addedByKind: null,
       checkedAt: null,
     });
     expect(g.at).toBeUndefined();
@@ -389,9 +394,9 @@ describe('toRecap', () => {
     registered_headcount: 7,
   };
   const guests: RecapGuestRow[] = [
-    { id: 'a', full_name: 'Late Arrival', plus_ones: 1, status: 'checked_in', tierName: 'VIP', tierColor: '#FFD700', addedByName: 'Max', checkedAt: '2024-11-09T23:50:00Z' },
-    { id: 'b', full_name: 'Early Arrival', plus_ones: 0, status: 'checked_in', tierName: 'Crew', tierColor: '#B5A6FF', addedByName: 'Sanne', checkedAt: '2024-11-09T22:10:00Z' },
-    { id: 'c', full_name: 'No Show', plus_ones: 0, status: 'approved', tierName: 'Regular', tierColor: null, addedByName: 'Joris', checkedAt: null },
+    { id: 'a', full_name: 'Late Arrival', plus_ones: 1, status: 'checked_in', tierName: 'VIP', tierColor: '#FFD700', addedByName: 'Max', addedByKind: 'member', checkedAt: '2024-11-09T23:50:00Z' },
+    { id: 'b', full_name: 'Early Arrival', plus_ones: 0, status: 'checked_in', tierName: 'Crew', tierColor: '#B5A6FF', addedByName: 'Sanne', addedByKind: 'member', checkedAt: '2024-11-09T22:10:00Z' },
+    { id: 'c', full_name: 'No Show', plus_ones: 0, status: 'approved', tierName: 'Regular', tierColor: null, addedByName: 'Joris', addedByKind: 'member', checkedAt: null },
   ];
   const tiers: TierStat[] = [
     { color: '#B5A6FF', present: 2, present_headcount: 5, registered: 3, registered_headcount: 7, tier_id: 't1', tier_name: 'VIP' },
@@ -477,7 +482,6 @@ describe('optimisticGuest', () => {
       plus: 2,
       note: '',
       flag: null,
-      by: '',
       addedAt: '14 Dec',
       status: 'wait',
     });
@@ -782,7 +786,7 @@ describe('toPoVenueCrewMember', () => {
     full_name: 'Yusuf Demir',
     email: 'organizer@plusone.test',
     event_names: ['Launch Night', 'NYE', 'Spring Break'],
-    terms_accepted_at: null,
+    has_joined: false,
     events: [
       { event_id: 'e1', name: 'Launch Night', quota: 4 },
       { event_id: 'e2', name: 'NYE', quota: 0 },
@@ -813,7 +817,7 @@ describe('toPoVenueCrewMember', () => {
     const cm = toPoVenueCrewMember({
       ...row,
       event_names: ['Launch Night'],
-      terms_accepted_at: '2026-07-01T10:00:00Z',
+      has_joined: true,
     });
     expect(cm.eventsLabel).toBe('Launch Night');
     expect(cm.eventCount).toBe(1);
@@ -1157,6 +1161,8 @@ describe('toPoQuotaRequest', () => {
     motivation: 'Twee extra promo-koppels',
     created_at: new Date(now.getTime() - 2 * 3_600_000).toISOString(),
     requesterName: 'Joris Willems',
+    requesterKind: 'member',
+    guest: null,
   };
 
   it('maps the requester, extra count, reason, and relative time', () => {
@@ -1164,14 +1170,85 @@ describe('toPoQuotaRequest', () => {
       id: 'qr1',
       eventId: 'ee1',
       who: 'Joris Willems',
+      whoKind: 'member',
       extra: 3,
       reason: 'Twee extra promo-koppels',
       at: '2 hr ago',
+      guestLabel: null,
+      guestTier: null,
     });
   });
 
   it('collapses a null motivation to an empty reason', () => {
     expect(toPoQuotaRequest({ ...row, motivation: null }, now).reason).toBe('');
+  });
+
+  // z8uq9m2xyp: the decider sees who the slots are for.
+  it('labels a named guest with +N and the tier name', () => {
+    const r = toPoQuotaRequest(
+      { ...row, guest: { name: 'Lisa de Vries', plusOnes: 1, tierId: 't1', tierName: 'Backstage' } },
+      now
+    );
+    expect(r.guestLabel).toBe('Lisa de Vries +1');
+    expect(r.guestTier).toBe('Backstage');
+  });
+
+  it('omits +0 and keeps a gone tier as null', () => {
+    const r = toPoQuotaRequest({ ...row, guest: { name: 'Sam', plusOnes: 0, tierId: 't1', tierName: null } }, now);
+    expect(r.guestLabel).toBe('Sam');
+    expect(r.guestTier).toBeNull();
+  });
+});
+
+describe('parseQuotaGuestPayload', () => {
+  it('reads the documented shape', () => {
+    expect(parseQuotaGuestPayload({ name: 'Lisa', plus_ones: 2, tier_id: 't1', phone: '+31' })).toEqual({
+      name: 'Lisa',
+      plusOnes: 2,
+      tierId: 't1',
+    });
+  });
+
+  it('is null for no payload or anything malformed', () => {
+    expect(parseQuotaGuestPayload(null)).toBeNull();
+    expect(parseQuotaGuestPayload([])).toBeNull();
+    expect(parseQuotaGuestPayload({ name: 'Lisa', plus_ones: '2', tier_id: 't1' })).toBeNull();
+  });
+});
+
+describe('toPoQuotaUpdate', () => {
+  const now = new Date('2024-11-23T22:00:00Z');
+  const row: PoMyQuotaUpdateRow = {
+    id: 'qr1',
+    eventId: 'ee1',
+    eventName: 'Launch Night',
+    requestedExtra: 2,
+    status: 'approved',
+    decisionReason: null,
+    decidedAt: new Date(now.getTime() - 3_600_000).toISOString(),
+    guestId: null,
+    guest: null,
+  };
+
+  it('an approval without a guest raised the quota', () => {
+    expect(toPoQuotaUpdate(row, now)).toMatchObject({ kind: 'raised', extra: 2, guestLabel: null, reason: null });
+  });
+
+  it('an approval that added the guest is fulfilled and names them', () => {
+    const u = toPoQuotaUpdate({ ...row, guestId: 'g1', guest: { name: 'Lisa de Vries', plusOnes: 1, tierId: 't1' } }, now);
+    expect(u.kind).toBe('fulfilled');
+    expect(u.guestLabel).toBe('Lisa de Vries +1');
+  });
+
+  it('a fulfilled update whose payload is gone (retention) has no label', () => {
+    expect(toPoQuotaUpdate({ ...row, guestId: 'g1' }, now)).toMatchObject({ kind: 'fulfilled', guestLabel: null });
+  });
+
+  it('a decline carries the reason', () => {
+    expect(toPoQuotaUpdate({ ...row, status: 'denied', decisionReason: ' List is full ' }, now)).toMatchObject({
+      kind: 'declined',
+      reason: 'List is full',
+    });
   });
 });
 

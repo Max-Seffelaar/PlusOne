@@ -14,7 +14,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { poKeys } from './keys';
 import type { ReactNode } from 'react';
 
-const H = vi.hoisted(() => ({ venueId: null as string | null, fetches: 0 }));
+const H = vi.hoisted(() => ({
+  venueId: null as string | null,
+  fetches: 0,
+  headScopes: [] as unknown[],
+  order: [] as string[],
+}));
 
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
 vi.mock('./PoLiveProvider', () => ({
@@ -27,9 +32,16 @@ vi.mock('./queries', async (importOriginal) => {
     // The single-event read (Snelheid P1) filters by id server-side: honour it.
     fetchEvents: async (_c: unknown, _v: string, scope?: { eventId?: string }) => {
       H.fetches += 1;
+      H.order.push('events:start');
+      await Promise.resolve();
+      H.order.push('events:end');
       return scope?.eventId && scope.eventId !== 'e1' ? [] : [{ id: 'e1', starts_at: '2026-10-10T20:00:00Z' } as never];
     },
-    fetchEventHeadcounts: async () => new Map(),
+    fetchEventHeadcounts: async (_c: unknown, _v: string, scope?: unknown) => {
+      H.headScopes.push(scope);
+      H.order.push('heads:start');
+      return new Map();
+    },
   };
 });
 vi.mock('./adapters', async (importOriginal) => {
@@ -69,13 +81,26 @@ describe('usePoEvent notFound (86ey9e9vc review round 2, finding 5)', () => {
     H.venueId = 'v1';
     H.fetches = 0;
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
-    client.setQueryData(poKeys.events('v1'), [{ id: 'e1', name: 'From list' }]);
+    // The venue list cache holds the event WINDOW (Snelheid P2): raw rows + headcounts.
+    client.setQueryData(poKeys.events('v1'), { rows: [{ id: 'e1' }], heads: {}, sinceIso: '', fetchedAt: 0 });
     const seeded = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
     const { result } = renderHook(() => usePoEvent('e1'), { wrapper: seeded });
-    expect(result.current.event).toMatchObject({ id: 'e1', name: 'From list' });
+    expect(result.current.event).toMatchObject({ id: 'e1' });
     expect(result.current.isLoading).toBe(false);
     expect(H.fetches).toBe(0);
+  });
+
+  it('a cache miss counts heads for THIS event only, in parallel with the event row (Snelheid P2)', async () => {
+    H.venueId = 'v1';
+    H.headScopes = [];
+    H.order = [];
+    const { result } = renderHook(() => usePoEvent('e1'), { wrapper });
+    await waitFor(() => expect(result.current.event).not.toBeNull());
+    // Scoped by id — never `{ sinceIso: starts_at }`, which scanned every later event.
+    expect(H.headScopes).toEqual([{ eventId: 'e1' }]);
+    // Fired before the event row resolved: one round-trip of latency, not two.
+    expect(H.order.indexOf('heads:start')).toBeLessThan(H.order.indexOf('events:end'));
   });
 });

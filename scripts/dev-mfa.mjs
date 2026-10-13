@@ -40,8 +40,11 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import crypto from 'node:crypto';
+import { supabaseContainer } from './lib/supabase-project.mjs';
 
-const DB_CONTAINER = 'supabase_db_PlusOne_Guestlist';
+// The DB container of THIS checkout's stack (supabase/config.toml project_id), so the
+// SQL below and the API calls (URL from this checkout's .env.local) hit the same stack.
+const DB_CONTAINER = supabaseContainer('db', new URL('../supabase/config.toml', import.meta.url));
 const FIXED_SECRET = 'PLUSONELOCALADMINDEVSECRET234567';
 const OWNER_EMAIL = process.argv[3] ?? process.env.DEV_OWNER_EMAIL ?? 'dev-owner@plusone.test';
 const OWNER_FALLBACK_ID = 'cafe0000-0000-4000-8000-000000000001';

@@ -11,8 +11,10 @@ import { formatEventTimes } from '@/features/requests/status-view';
 import { CONTACT_CHANNELS, type ContactChannel } from '@/features/venues/contact-schema';
 import type { CalendarEvent } from './ics';
 import { cleanGuestInfo, formatPrice, locationLine, peopleLabel } from './templates/guest-mails';
+import { multiLine } from './ics';
 import { guestMailShared } from './templates/guest-copy';
-import { fmt } from '@/lib/i18n';
+import { fmt, t } from '@/lib/i18n';
+import { HOUSE_RULES_MAX } from '@/features/events/schemas';
 
 const iso = z.string().refine((v) => !Number.isNaN(new Date(v).getTime()));
 
@@ -65,6 +67,25 @@ export interface GuestStatusView {
   calendar: CalendarEvent;
 }
 
+/** Cap on the calendar description: 1000 (info) + 500 (house rules) + label fits, with room to spare. */
+export const CALENDAR_DESCRIPTION_MAX = 1600;
+
+/**
+ * The calendar description (z8uq9m4a5n follow-up, decision Max 2026-10-12):
+ * the info for guests first, then the house rules under their label. Line
+ * breaks kept, other control characters dropped (the ICS and Google helpers
+ * escape the rest); null when both are empty.
+ */
+export function calendarDescription(guestInfo: string | null | undefined, houseRules: string | null | undefined): string | null {
+  const parts: string[] = [];
+  const info = cleanGuestInfo(guestInfo);
+  if (info) parts.push(info);
+  const rules = houseRules ? multiLine(houseRules).slice(0, HOUSE_RULES_MAX).trim() : '';
+  if (rules) parts.push(`${t.guestStatus.houseRulesLabel}:\n${rules}`);
+  const text = parts.join('\n\n').slice(0, CALENDAR_DESCRIPTION_MAX).trim();
+  return text || null;
+}
+
 export function toGuestStatusView(raw: unknown): GuestStatusView | null {
   const parsed = payloadSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -115,7 +136,8 @@ export function toGuestStatusView(raw: unknown): GuestStatusView | null {
       endsAt: d.event.ends_at,
       location,
       updatedAt: d.event.updated_at,
-      description: guestInfo,
+      // Both texts only while the spot holds, like the page itself.
+      description: holds ? calendarDescription(d.event.guest_info, d.event.house_rules) : null,
     },
   };
 }
