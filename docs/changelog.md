@@ -43,6 +43,19 @@ claimed by the open PostHog branches), #5 amended.
 
 ---
 
+## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
+
+Milestone **Now** (ADE). Request Max 2026-10-12 ("guest_info in templates"). Spec #63(e) revised. Migration `20261016180000_template_guest_texts.sql` (after main's `20261016120000`…`170000`; re-slotted from `…130000` and `…160000` as main moved).
+
+- **DB:** `event_templates.house_rules` / `guest_info`, nullable, the same CHECKs as `events` (`events_house_rules_len`, `events_guest_info_check`). `create_template_from_event` copies both, `create_event_from_template` puts both on the new event; bodies are `20261007135000` plus the two columns (SECURITY DEFINER, `search_path ''`, role checks and grants unchanged). No RLS/grant change: `event_templates` has table-level grants only.
+- **App:** template create/update actions + schemas take both texts; `fetchTemplates`/`fetchTemplate` read them. The template editor shows the same "For your guests" block (`EventGuestTextFields`, new `note` prop). The event form prefills both from a picked template, like location (`locBaseline`), so the follow-up write after a template create writes the template's texts, not empty ones; a prefilled text is not "dirty".
+- **Tests:** pgTAP `template_guest_texts.test.sql` (24: columns + CHECKs equal to events, copy both ways, NULL stays NULL, organizer allowed on their own venue's event, staff/organizer/anon denied, cross-tenant RLS 0 rows on a venue-2 template, a venue-1 organizer can't template a venue-2 event, function hygiene). Flow `guest-info` Q11–Q12 (Save as template keeps both → new event from it starts with and saves both).
+- Deliberate: an event-scoped organizer can write the guest texts on the company's templates (RLS `organizes_event_at_venue`), the same trust as template location; the admin sees the prefilled text before saving.
+- **Deploy order:** Max pushes `20261016180000` right after the merge; between deploy and push the Templates screen, template editor and the event form's template picker error (no shim, same as `20261007135000`).
+- `contact_email` stays per event (out of scope).
+
+---
+
 ## 2026-10-12 — Privacy train landed (#477) + contract step
 
 Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train landed on prod in one merge: train PR #477 carried #460 (column-level SELECT on `user_profiles`), #461 (definer stats + session RPCs inside the profile boundary, spec #64b), #464 (venue present/added), #466 (one who-did-what label, `venue_actor_names`, spec #64a), #469 (quota grants only for people tied to the company), #470 (readable audit lines), #474 (DateField flake + 44px calendar on touch) and #471 (dev scripts take the container from the checkout's config). #459 (the expand step) went first on its own. One `db push` after the Vercel prod deploy of #477 was Ready. Spec numbers moved because main took #62 (door payments) and #63 (guest info): ours is **#64**.

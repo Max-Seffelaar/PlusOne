@@ -594,6 +594,8 @@ export type Database = {
           auto_lock_offset_minutes: number | null
           capacity: number | null
           created_at: string
+          guest_info: string | null
+          house_rules: string | null
           id: string
           landing_active: boolean
           location_address: string | null
@@ -607,6 +609,8 @@ export type Database = {
           auto_lock_offset_minutes?: number | null
           capacity?: number | null
           created_at?: string
+          guest_info?: string | null
+          house_rules?: string | null
           id?: string
           landing_active?: boolean
           location_address?: string | null
@@ -620,6 +624,8 @@ export type Database = {
           auto_lock_offset_minutes?: number | null
           capacity?: number | null
           created_at?: string
+          guest_info?: string | null
+          house_rules?: string | null
           id?: string
           landing_active?: boolean
           location_address?: string | null

@@ -1294,12 +1294,12 @@ export async function fetchVenueCrew(client: Client, venueId: string): Promise<P
 // Reusable per-event-type setups (RLS: members read their venue's templates).
 export type PoTemplateRow = Pick<
   Tables['event_templates']['Row'],
-  'id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes' | 'location_name' | 'location_address'
+  'id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes' | 'location_name' | 'location_address' | 'house_rules' | 'guest_info'
 > & { tierCount: number };
 
 export type PoTemplateDetail = Pick<
   Tables['event_templates']['Row'],
-  'id' | 'venue_id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes' | 'location_name' | 'location_address'
+  'id' | 'venue_id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes' | 'location_name' | 'location_address' | 'house_rules' | 'guest_info'
 >;
 
 export type PoTemplateTierRow = Pick<
@@ -1312,7 +1312,7 @@ export async function fetchTemplates(client: Client, venueId: string): Promise<P
   const { data, error } = await client
     .from('event_templates')
     .select(
-      'id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, location_name, location_address, event_template_tiers(count)',
+      'id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, location_name, location_address, house_rules, guest_info, event_template_tiers(count)',
     )
     .eq('venue_id', venueId)
     .order('name');
@@ -1326,6 +1326,8 @@ export async function fetchTemplates(client: Client, venueId: string): Promise<P
     auto_lock_offset_minutes: t.auto_lock_offset_minutes,
     location_name: t.location_name,
     location_address: t.location_address,
+    house_rules: t.house_rules,
+    guest_info: t.guest_info,
     tierCount: t.event_template_tiers?.[0]?.count ?? 0,
   }));
 }
@@ -1334,7 +1336,7 @@ export async function fetchTemplates(client: Client, venueId: string): Promise<P
 export async function fetchTemplate(client: Client, templateId: string): Promise<PoTemplateDetail | null> {
   const { data, error } = await client
     .from('event_templates')
-    .select('id, venue_id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, location_name, location_address')
+    .select('id, venue_id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, location_name, location_address, house_rules, guest_info')
     .eq('id', templateId)
     .maybeSingle();
   if (error) throw error;
