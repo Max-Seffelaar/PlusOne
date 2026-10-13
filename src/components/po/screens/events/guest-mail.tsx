@@ -13,7 +13,7 @@ import type { JSX } from 'react';
 import { t } from '@/lib/i18n';
 import { usePoGuestReminderAvailable, usePoSendGuestReminder } from '@/features/po/guest-mail';
 import { GUEST_INFO_MAX, HOUSE_RULES_MAX } from '@/features/events/schemas';
-import { Btn, Label, TextArea } from '../../kit';
+import { Btn, FieldErrorFor, Label, TextArea, fieldInputProps, type FieldErrorBinding } from '../../kit';
 
 const hintClass = 'mt-1 text-[12.5px] leading-[1.45] text-faint';
 
@@ -22,12 +22,15 @@ export function EventGuestTextFields({
   guestInfo,
   onHouseRulesChange,
   onGuestInfoChange,
+  errors,
 }: {
   houseRules: string;
   guestInfo: string;
   /** Undefined = read-only (a role that can't edit this event). */
   onHouseRulesChange?: (v: string) => void;
   onGuestInfoChange?: (v: string) => void;
+  /** The form's error state per field (z8uq9m5eb7). */
+  errors?: { houseRules?: FieldErrorBinding; guestInfo?: FieldErrorBinding };
 }): JSX.Element {
   const g = t.events.guestMail;
   return (
@@ -43,7 +46,9 @@ export function EventGuestTextFields({
           ariaLabel={g.houseRulesLabel}
           maxLength={HOUSE_RULES_MAX}
           rows={2}
+          {...fieldInputProps(errors?.houseRules)}
         />
+        <FieldErrorFor error={errors?.houseRules} className="mb-0" />
         <div className={`mb-4 ${hintClass}`}>{g.houseRulesHint}</div>
       </div>
 
@@ -56,7 +61,9 @@ export function EventGuestTextFields({
           ariaLabel={t.events.guestInfoLabel}
           maxLength={GUEST_INFO_MAX}
           rows={3}
+          {...fieldInputProps(errors?.guestInfo)}
         />
+        <FieldErrorFor error={errors?.guestInfo} className="mb-0" />
         <div className={hintClass}>{t.events.guestInfoHint}</div>
       </div>
     </section>

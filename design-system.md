@@ -42,6 +42,7 @@ Interactie: hover `brightness(1.07)`, active `scale(0.975)`; entrance-animaties 
 - **Stepper** — grote +/− (52px tikdoelen) op `--acc-dim`-vlak, teller in display-font, "N personen".
 - **Btn**-varianten: primary (accent), dark, ghost, quiet.
 - **Row** — lijstregel met icoonblok, titel/sub, chevron.
+- **Field errors** (z8uq9m5eb7) — een save die op één veld strandt wijst naar dat veld: scrollt erheen (gecentreerd, zodat sticky header en bottom bar het niet afdekken; scroll-margin met safe-area als vangnet; zonder animatie bij `prefers-reduced-motion`), focust het, rode rand (`fieldErrorBorder`, nooit lavendel) en de melding er direct onder (`FieldErrorFor` → `FieldErrorText`, `role="alert"`, gekoppeld via `aria-describedby`); bewerken van dat veld wist de fout. Alleen fouten zonder veld (netwerk, rechten, generiek) blijven een banner bovenaan. Kit-API: elke kit-input (`Field`, `TextArea`, `PlacesField`, `DateField`, `TimeField`; `Select` volgt in 7c) neemt `invalid` / `describedBy` / `id`; `useFieldErrors(fields)` deelt ze uit per veld en neemt een server-`{ message, field }` (via `errorField(e)`) en een client-Zod-issue in dezelfde vorm.
 
 ## Schermgedrag dat in de bouw moet landen
 

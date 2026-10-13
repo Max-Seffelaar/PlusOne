@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Form errors point at the field (z8uq9m5eb7)
+
+Milestone **Now** (onboarding programme, wave F). Branch `claude/z8uq9m5eb7-field-errors`. UI + action return shape, no migration, no RLS.
+
+- **Problem (Max, testing #479):** a failed event save showed one line at the top of the form ("Add a contact email for guests."). Nothing moved, no field was marked; on a phone or a long form it looked like nothing happened.
+- **Kit pattern:** every kit input (`Field`, `TextArea`, `PlacesField`, `DateField`, `TimeField`) takes `invalid` (aria-invalid + `fieldErrorBorder`), `describedBy` and `id` on the real input; `useFieldErrors(fields)` hands them out per field, scrolls to and focuses the field after a failure (centred, smooth unless reduced motion, webview-guarded), and clears the error when that field is edited. `FieldErrorFor` renders the message (`role="alert"`) under the input. `focusFirstInvalid` for forms that mark fields themselves. Field-error colour tokens moved to `field-error-style.ts` (re-exported by the kit) so `places-field.tsx` can use them without an import cycle. `Select` deliberately untouched (7c adds the same three props).
+- **Server shape:** `MutationError.field?` (a schema key, never input); `invalidInput(message, field?)` and `invalidIssues(zodError)` (first issue's top-level key). The event and template actions (`createEvent`, `updateEvent`, `createEventFromTemplate`, `createTemplate`, `updateTemplate`) return it, the contact-email required/no-domain refusals name `contactEmail`. `throwOnError` throws a `FieldActionError` (still an `Error`) that keeps the field; `errorField(e)` reads it.
+- **Surfaces:** event form (name, date/time, end, location name/address, house rules, info for guests, contact email, auto-close) and template editor (name, capacity, location, auto-lock hours). The location block moved to `events/location-fields.tsx` to keep `edit.tsx` under 800 lines.
+- **Tests:** `kit.field-errors.test.tsx` (marking, describedby, focus, scroll, reduced motion, clear-on-edit, banner), `src/lib/field-error.test.ts` (Zod → field, no echo, optional field), `edit.create-flow.test.tsx` (client check and server `{field}` land on the field; field-less = banner), `actions.contact-email.test.ts` asserts the field. Flow `event-contact` checks 8–9: focus + scroll into the visible form area in all four variants.
+
+---
+
 ## 2026-10-12 — Privacy train landed (#477) + contract step
 
 Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train landed on prod in one merge: train PR #477 carried #460 (column-level SELECT on `user_profiles`), #461 (definer stats + session RPCs inside the profile boundary, spec #64b), #464 (venue present/added), #466 (one who-did-what label, `venue_actor_names`, spec #64a), #469 (quota grants only for people tied to the company), #470 (readable audit lines), #474 (DateField flake + 44px calendar on touch) and #471 (dev scripts take the container from the checkout's config). #459 (the expand step) went first on its own. One `db push` after the Vercel prod deploy of #477 was Ready. Spec numbers moved because main took #62 (door payments) and #63 (guest info): ours is **#64**.
