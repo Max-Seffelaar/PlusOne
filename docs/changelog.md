@@ -20,6 +20,17 @@ Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train 
 
 ---
 
+## 2026-10-13 — Fase 14 door payments: eng re-run on the design delta, R8–R12, HTML mockups (86exxuuu7)
+
+Milestone **≥5**. Docs only (mockups live outside the repo). Branch `claude/86exxuuu7-fase14-eng-review` (worktree), PR #497.
+
+- **Whole-spot rule (Max, during the mockup review):** paying online means paying for the whole remaining spot; `/pay` has no head-count control anywhere (door QR carries the doorhost's count, the mail link charges all uncovered heads). Replaces design-review D10.1 in the design doc, spec #62 (m), CLAUDE.md and plan §12.
+- **`/design-html`:** one self-contained HTML page (`~/.gstack/projects/Max-Seffelaar-PlusOne/designs/door-payments-20261013/finalized.html`, vendored Pretext, mock QR) with 16 frames: guest detail, Charge sheet ×4 states, `/pay` ×5 states, cockpit dialog, and on Max's request the admin side (event payments list, Settings → Payments, Platform → company fee settings, payout runs + needs_refund, refund sheet). Verified at 375/1440 via DOM metrics (no overflow, sheets fit, 44 px targets); v1 pending Max's feedback (separate session chip).
+- **`/plan-eng-review` re-run (plan §13):** delta against §11 only; 14-claim premise table (0 unverified), reality rows 7/7; structure D1 = A (original arrangement). Decisions (Max, D2–D6, all recommended): **R8** Pay-tap session RPC reuses an open session with the same count and throttles 5/10 min per token + 30/10 min per ip; **R9** column-level SELECT grants on `company_payout_accounts` so the company can never read `service_fee_*` through the API (`cash_fee_mode` readable), no UPDATE grant, fee values only via definer RPCs; **R10** the raw pay token lives in a new door-only table `guest_pay_tokens` (hash + raw, `door_pay_tokens(event_id)` definer RPC for door roles, walk-in upsert RPC, never published, retention nulls the raw token) — resolves the design-doc contradiction between "hash only" (D7) and "token in the door snapshot" (D14.1); **R11** "due" per row is derived by a `guest_payment_balance` view, the check-in row stays an immutable snapshot; **R12** an unknown token polls "Almost there" only when the URL carries `heads` (door origin), else the neutral not-found. Also: `create_pay_session` marks the row `failed` in `finally` when the provider call fails (no 30-minute ceiling block); kill switch checked at route level; one money function (`payment_amount_for(…, method)` with `cash_fee_mode`), T20 folded into T29. Test diagram: 41 gaps mapped, regression contract for the non-payable door path (T36). Tasks T34–T36 + corrections T2/T8/T20/T29/T30. 0 critical gaps, 0 unresolved; outside voice unavailable (Codex not installed, no TaskOutput).
+- Verdict: CEO + DESIGN CLEARED, ENG ISSUES OPEN (mapped work across both runs). Next: merge #497; Max's mockup feedback; T18 → Lane A; re-run the eng gate on the P1 PR.
+
+---
+
 ## 2026-10-13 — Fase 14 door payments: design review, D3–D11 + two product rules (86exxuuu7)
 
 Milestone **≥5**. Docs only. Branch `claude/86exxuuu7-fase14-eng-review` (worktree), PR #497 (the eng-review PR, extended with this review).

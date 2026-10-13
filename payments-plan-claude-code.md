@@ -1867,7 +1867,7 @@ Geen designer-afbeeldingen (geen API-key). Wel een HTML-mockup uit `/design-html
 
 | Screen/Section | Mockup Path | Direction | Notes |
 |----------------|-------------|-----------|-------|
-| Alle frames (A–K) | `C:/Users/Maxse/.gstack/projects/Max-Seffelaar-PlusOne/designs/door-payments-20261013/finalized.html` | één pagina met 11 frames: A GuestDetail betaalbare rij · B–E Charge-sheet (waiting / paid / partial / offline) · F–J `/pay` (deur-QR, maillink = hele plek zonder stepper (herzien 2026-10-13), paid, not found, 503) · K cockpit-dialoog | bedragen €20.00 ticket / €2.50 fee pp / 2 personen; organisatiekant zonder fee; `/pay` via deur-QR zonder aantal-keuze; één bewegingsmoment (tik op de statusregel in B); cockpit-dialoog = één kolom 560 breed met QR 320 (twee kolommen bleken op 560 te smal); serve met `python -m http.server 8765` in die map |
+| Alle frames (A–K) | `C:/Users/Maxse/.gstack/projects/Max-Seffelaar-PlusOne/designs/door-payments-20261013/finalized.html` | één pagina met 11 frames: A GuestDetail betaalbare rij · B–E Charge-sheet (waiting / paid / partial / offline) · F–J `/pay` (deur-QR, maillink = hele plek zonder stepper (herzien 2026-10-13), paid, not found, 503) · K cockpit-dialoog · **L–P admin-kant (op verzoek van Max, D7 = A, 2026-10-13):** L betalingenlijst per event ("orders": naam, hoofden, ticketbedrag, methode, tijd, status, refund), M Settings → Payments (eerstvolgende uitbetaling, bedrag, aftrek, documenten bekijken/downloaden, mandaat, cash), N Platform → company (fee-ophoging, fee op cash, audit), O Platform → payout-runs + needs_refund + reserve, P refund-sheet (ticket only / everything, reden) | bedragen €20.00 ticket / €2.50 fee pp / 2 personen; organisatiekant zonder fee; `/pay` via deur-QR zonder aantal-keuze; één bewegingsmoment (tik op de statusregel in B); cockpit-dialoog = één kolom 560 breed met QR 320 (twee kolommen bleken op 560 te smal); serve met `python -m http.server 8765` in die map |
 
 Metadata: `finalized.json` naast het bestand. Na Max' feedback: iteraties als surgical edits in hetzelfde bestand, daarna deze tabel bijwerken naar "approved".
 
@@ -1903,17 +1903,538 @@ Plan is design-complete (elke pass ≥ 8). Na implementatie: `/design-review` op
 
 Geen. Open **vragen** (P0: jurist, accountant, Stripe-meeting) blijven in het design-doc §Open Questions; de cash-fee-afspraak per company en de kickback-afspraken zijn commerciële keuzes per company, geen reviewbeslissingen.
 
+## 13. Eng-review her-run 2026-10-13 (gstack `/plan-eng-review`, delta na §12) — werkdocument
+
+### 13.1 Voorbereiding
+
+- **Target (vast):** `payments-plan-claude-code.md` inclusief §12 (design-review 2026-10-13) en de twee productregels van Max, plus de hele-plek-regel van dezelfde avond (online betalen = alle ongedekte hoofden van 1 + N; D10.1 vervallen). Reportbestand = dit plan; §13 is het werkdocument van de her-run, §11 blijft het eerste eng-oordeel.
+- **Delta ten opzichte van §11** (alleen dit is opnieuw beoordeeld): (1) `/pay` zonder aantal-control, deur-QR draagt `?heads=k` met server-cap; (2) organisatiekant toont alleen ticketbedragen, fee-instellingen (`service_fee_*`, nieuw `cash_fee_mode`) door een platform-admin-RPC; (3) Checkout-sessie pas bij de Pay-tik; (4) `/pay` server-gerenderd via een nieuwe SECURITY DEFINER RPC `get_pay_page`, succes alleen na serverlezing; (5) snapshot-velden `doorPriceCents`, `paidHeads`, `openHeads`, `payToken`, `cashFeeMode`; (6) check-in-knop live vanaf t = 0; (7) `payment_amount_for` leest `cash_fee_mode`; de TS-fee-engine voor de deur vervalt; (8) taken T26–T33.
+- **Evidence-soort:** statische lezing van bestaande migraties en bronbestanden (receipts hieronder), één webcheck (Stripe statement descriptor), geen live run. Outside voice: Codex niet geïnstalleerd; native fallback vereist `TaskOutput`, die deze host niet aanbiedt (zie §11.9) → `unavailable`.
+- **Retrospective:** `git log -- payments-plan-claude-code.md docs/designs/…` toont de keten #478 → #497 (CEO → eng → design); `git log --grep=revert -- src/features/door src/features/requests src/app/r` = 0 reverts; geen terugkerend patroon.
+- **Prior learnings toegepast:** `plusone-venue-side-amounts-ticket-only` (10/10) → bepaalt R9; `plusone-realtime-publishes-whole-rows-keep-pii-off-published-tables` (8/10) → bepaalt R10 (token nooit in een gepubliceerde tabel); `plusone-outbox-buster-bump-drops-queue` (9/10) → geen nieuwe outbox-kind nodig voor §12 (cash-kind bestaat al in T5).
+
+### 13.2 Scope Challenge A — beoordeling (delta)
+
+**Wat lost elk deelprobleem al op (bestaande code):**
+- Publieke token-RPC met throttle en neutrale not-found: `get_request_status` (`supabase/migrations/20261015140000_location_audit.sql:77–88`: `security definer`, `set search_path = ''`, `consume_public_throttle('st:' || p_ip_hash, 15, 30)`, bij null/throttle `jsonb_build_object('found', false)`). `get_pay_page` kopieert dit skelet.
+- Throttle-helper met gedeelde bucket bij ontbrekende sleutel: `consume_public_throttle(p_key, p_window_min, p_max)` (`20261006170000_public_throttle_bind_raw_callers.sql:93–112`).
+- Platform-admin-RPC-patroon: `set_venue_trial_end` (`20261008120200_platform_trial_override.sql:52,104–112`: `is_platform_admin()` binnenin, `revoke execute … from public, anon, service_role; grant execute … to authenticated`, audit via de bestaande trigger). `set_company_fee_settings` kopieert dit.
+- Expliciete kolomlijst in de deur-snapshot: `DOOR_GUEST_SELECT` (`src/features/door/queries.ts:193–198`, "Narrow projection (NOT select('*'))").
+- Deurmodel: `pay: boolean` (`src/features/door/model.ts:47`, "inert until guest_tiers.door_price lands") — wordt afgeleid uit de nieuwe velden.
+- Outbox-kinds als additieve union (`src/features/door/outbox/types.ts:150–157`); de cash-kind komt al uit §11 T5.
+- Check-in met absolute aantallen en stale-guard: `check_ins.plus_ones_arrived` (`20260613000000_full_schema.sql:278`) + trigger `check_ins_a_stale_guard` (`20261010120000_checkin_absolute_count_guard.sql:139`) — T16 hangt hier zijn `payment_coverage()` aan.
+- Publieke pagina-frame: `src/app/r/[token]/page.tsx` (sha256 inline, `publicRpcTrustHeaders`, `landingClientIpHash`) + `src/components/po/request-status.tsx`; `/pay` hergebruikt beide.
+- `qrcode` als dependency (`package.json:60`), nergens gebruikt in `src` (grep 0 hits) → `QrTile` is de eerste consument.
+- Webhook-route en billing-handler bestaan (`src/app/api/webhooks/stripe/route.ts`, `src/features/billing/stripe-webhook.ts`); `src/features/payments/` bestaat nog niet (greenfield, `ls` → "No such file").
+
+**Minimum om het doel te halen / scope-creep:** §12 voegt geen product-scope toe boven §10/§11; het verplaatst beslissingen (sessiemoment, fee-zichtbaarheid) en concretiseert UI. De enige nieuwe backend-objecten zijn `get_pay_page` (vervangt de impliciete "sessie bij openen"-route), `cash_fee_mode` + `set_company_fee_settings` (vervangt company-self-service op twee bestaande kolommen) en de token-opslag die §11 D7 en D14.1 samen niet hadden opgelost (R10). Uitstelbaar zonder blokkade: T33 (Settings-documentenblok, P4a) — al zo gepland.
+
+**Complexiteit (delta, geteld uit §12.11, [estimated]):** bestanden ≈ 25 (migraties 3–4: `get_pay_page` + Pay-tik-sessie, fee-instellingen + grants, token-opslag, trigger-aanpassing; `src/features/door/` 6: `ChargeSheet.tsx` nieuw, `GuestDetail.tsx`, `AddOnSpot.tsx`, `CheckInList.tsx`, `model.ts`, `queries.ts`/`persister.ts`/`useDoorSync.ts`; `src/components/po/` 5: `kit.tsx` + test, `pay-page.tsx` nieuw, `settings/payments.tsx` nieuw, `platform-company.tsx`; `src/app/pay/[token]/page.tsx` nieuw; `src/features/payments/format.ts` + test nieuw; `src/features/po/eventday/EventDayCockpit.tsx`; i18n 2; flows 2; pgTAP 2–3; `stripe-adapter.ts`). Nieuwe services/klassen: `get_pay_page`-RPC, `set_company_fee_settings`-RPC, `ChargeSheet`, `QrTile`, `PayPage` = 5. **Gate (≥ 8 bestanden of ≥ 2 nieuwe services) slaat aan → B (structuurvraag D1).**
+
+**Search check:** Aside niet beschikbaar; één WebSearch (2026-10-13): Stripe `payment_intent_data.statement_descriptor_suffix` — prefix + `* ` + suffix samen ≤ 22 tekens, dus suffix ≤ 20 − prefixlengte; `PLUSONE* LOFI` = 13 tekens past; `statement_descriptor` zelf geeft bij kaartbetalingen een 400 — bron: docs.stripe.com/statement-descriptors en de Stripe Java/Ruby SDK-referentie. Nieuwe patronen: geen framework-nieuws; server-gerenderde publieke pagina + sessie bij de klik is **[Layer 1]**; HMAC-afgeleide bearer-tokens (R10 optie B) zijn **[Layer 1]** maar hier verworpen op de walk-in-eis.
+
+**TODOS.md-kruisverwijzing:** "Fee rules table" (expand-only pad blijft: `cash_fee_mode` komt als kolom naast de twee bestaande, de tabel later); "Retry queue", "P4b", "P2b", "P6", "Light public pages": blokkeren niets; geen nieuwe TODO uit deze her-run.
+
+**Completeness check:** pgTAP allowed + denied voor beide nieuwe RPC's en de kolom-grants; `scripts/pay-ceiling-concurrency-test.mjs` uitbreiden met de Pay-tik-variant (twee Pay-taps op één rij); vitest-vector voor `formatMoney`; flows voor Charge-sheet en `/pay`. Geen shortcut voorgesteld.
+
+**Distributie:** geen nieuw artefact (web); native P3 later. Geen verandering.
+
+**Premise-tabel (receipts):**
+
+```
+#  | premise                                                                 | file:line receipt                                              | verdict
+---|-------------------------------------------------------------------------|----------------------------------------------------------------|---------
+1  | get_request_status = SECURITY DEFINER + throttle 'st:'||ip (15 min, 30) + neutrale {found:false} | supabase/migrations/20261015140000_location_audit.sql:77–88 | verified
+2  | consume_public_throttle(p_key, p_window_min, p_max) valt bij null-sleutel terug op één gedeelde bucket | supabase/migrations/20261006170000_public_throttle_bind_raw_callers.sql:93–112 | verified
+3  | platform-admin-RPC = is_platform_admin() binnenin + revoke/grant execute, audit via trigger | supabase/migrations/20261008120200_platform_trial_override.sql:52,104–112 | verified
+4  | deur-snapshot gebruikt een expliciete kolomlijst, nooit `*`              | src/features/door/queries.ts:193–198                            | verified
+5  | deurmodel kent alleen `pay: boolean` (geen prijs/paid/open/token)        | src/features/door/model.ts:47                                   | verified
+6  | outbox-kinds zijn een additieve union van 8 kinds                       | src/features/door/outbox/types.ts:150–157                       | verified
+7  | check_ins.plus_ones_arrived is absoluut; trigger check_ins_a_stale_guard bestaat | supabase/migrations/20260613000000_full_schema.sql:278; 20261010120000_checkin_absolute_count_guard.sql:139 | verified
+8  | `qrcode` is een dependency en nog nergens gebruikt                       | package.json:60; `grep -rl "from 'qrcode'" src` = 0            | verified
+9  | Stripe statement descriptor: prefix + "* " + suffix ≤ 22 tekens          | docs.stripe.com/statement-descriptors (WebSearch 2026-10-13)    | verified (web)
+10 | design-doc: DB bewaart alleen pay_token_hash (D7) ÉN het ruwe token reist in de deur-snapshot (D14.1) | docs/designs/fase-14-deurbetalingen-office-hours.md:129 (beide zinnen in dezelfde regel) | verified → tegenspraak, R10
+11 | src/features/payments/ bestaat nog niet                                 | `ls src/features/payments` → No such file or directory          | verified
+12 | webhook-route en billing-handler bestaan                                | src/app/api/webhooks/stripe/route.ts; src/features/billing/stripe-webhook.ts | verified
+13 | scripts db:test, db:test:concurrency, qa:flows, e2e:layout, e2e:smoke bestaan | package.json (grep)                                        | verified
+14 | Checkout-sessie minimaal 30 min (basis van eng D2)                       | §11.5 SC-1 (Stripe-docs 2026-10-12)                             | verified (prior, §11)
+unverified = 0
+```
+
+**Reality rows:**
+
+```
+REALITY: premise-table pass 14 claims, unverified=0 payments-plan-claude-code.md:§13.2
+REALITY: already-done pass git log origin/main --since=2026-10-11 op door/billing/r/migrations: alleen z8uq9m2xz2/z8uq9m2xyp-treinen, geen payments-werk; --grep pay/fee: 0 relevante hits origin/main
+REALITY: surface-check pass /pay/[token] is nieuw (geen bestaande route), webhook-route en scripts geverifieerd src/app/api/webhooks/stripe/route.ts; package.json
+REALITY: binding-decisions pass gstack-decision-search: eng R1–R7 (skill) + vandaag ffb8b50a (fee-zichtbaarheid, platform-admin fees) en 10976f67 (hele plek, vervangt 7643fa92); plan §12.0 en design-doc bijgewerkt; geen overruled default teruggezet payments-plan-claude-code.md:§12.0
+REALITY: numbers pass bestandstelling opnieuw afgeleid uit §12.11 [estimated 25 / 5 nieuwe services]; descriptor-limiet [measured: docs.stripe.com]; effort-ratio's uit §11.17 ongewijzigd payments-plan-claude-code.md:§13.2
+REALITY: deferred-asks finding Max' asks van 2026-10-13: alle in §12 verwerkt; "documenten bekijken én downloaden" landt in T33 (P4a) met reden "document-engine is P4a"; echte mockups wachten op een OpenAI-key (HTML-v1 geleverd, §12.12) payments-plan-claude-code.md:§12.11
+REALITY: pr-count pass geen .gstack/ship-policy.json (default één PR per golf); §11.16 = T18-PR + Lane A + (B ∥ C ∥ D) ≈ 5 PR's; kosten per extra PR: één CI-run lint-and-test + verse-sessie /code-review voor high-risk (RLS, webhook, outbox); cross-PR-referenties: i18n-keys t.door.pay.* (Lane C) en t.landing.pay.* (Lane B) in dezelfde src/lib/i18n/ → conflict-flag payments-plan-claude-code.md:§11.16
+REALITY: transaction-semantics pass geen driver/pool-wijziging; Pay-tik-sessie-RPC = één transactie met SELECT … FOR UPDATE op guests.id (§10 S1-3); set_company_fee_settings = één statement; idle/pooled-connectiesemantiek ongewijzigd payments-plan-claude-code.md:§10.9
+```
+
+### 13.3 Scope Challenge B — structuur (gate aangeslagen)
+
+**Scope record (B):** feature answers: geen cuts voorgesteld (delta = indeling, geen scope); structure: **A — Original arrangement** (D1, Max 2026-10-13); accepted scope: bestandsindeling exact als §12.11 — `src/features/door/components/ChargeSheet.tsx` (nieuw), `src/components/po/pay-page.tsx` + `src/app/pay/[token]/page.tsx` (nieuw), kit-uitbreidingen in `kit.tsx` (`PayChip` drie states, `QrTile`, `CountStepper.min`), `src/features/payments/format.ts` (nieuw), `src/components/po/screens/settings/payments.tsx` (nieuw, P1: payments aan, IBAN, mandaat, cash-schakelaar), migraties apart per zorg (`get_pay_page` + Pay-tik-sessie; fee-instellingen + grants; token-opslag; trigger-aanpassing); pending remedies: R8, R9, R10, R11, R12.
+
+### 13.4 Scope Challenge C — bevindingen tegen de code (delta)
+
+```
+#     | sev | conf | bevinding                                                                              | bron
+------|-----|------|----------------------------------------------------------------------------------------|------------------------------
+SC-12 | P1  | 9/10 | design-doc:129 zegt in één regel dat de DB alleen `pay_token_hash` bewaart (D7) én dat het ruwe token in de deur-snapshot reist (D14.1); een server-gemint token kan na opslag van alleen de hash nooit meer naar het toestel. Tegenspraak → R10. | docs/designs/…:129; §11 SC-11
+SC-13 | P1  | 9/10 | `company_payout_accounts.service_fee_fixed_cents/_bp` (+ nieuw `cash_fee_mode`) zijn via PostgREST leesbaar voor de company als de tabel een rij-brede SELECT-grant krijgt; regel 2 (§12.0) verbiedt die zichtbaarheid en CLAUDE.md zegt "RLS is the boundary, not app code". → R9. | CLAUDE.md regel 1; §12.0
+SC-14 | P2  | 8/10 | De Pay-tik maakt van de sessie-RPC een publieke schrijfactie door een anonieme bearer-token-houder; `get_request_status` throttlet alleen op ip (`'st:'||ip`, 15 min, 30). Zonder budget per token kan één gast met Pay-taps hoofden reserveren tot het plafond (30 min per sessie). → R8. | 20261015140000:85; §11.5 (throttle-noot)
+SC-15 | P2  | 8/10 | Check-in vóór de webhook (D3.2): de BEFORE-trigger (T16) legt `unconfirmed_heads` vast op het moment van de check-in; komt de betaling 3 s later binnen, dan is niet gezegd of die check-in-rij wordt bijgewerkt of dat "te betalen" afgeleid wordt. → R11. | §12.1 D3.2; §11.5 A4
+SC-16 | P2  | 8/10 | `get_pay_page` kan een client-gegenereerd walk-in-token (nog niet gesynct) niet onderscheiden van een onbekend token: beide zijn "geen rij"; de "Almost there"-poll (D4.1) heeft dus een herkomstsignaal nodig. → R12. | §12.2 "/pay · not synced"; design-doc:129
+SC-17 | P2  | 8/10 | De noodrem is een env-var (`PAYMENTS_KILL_SWITCH`, D20.1); een SQL-RPC leest geen env. De 503-state van `/pay` en de pauze-detectie in de sheet (D4.2) moeten in de route/server-actie vóór de RPC zitten. Feitelijke mechanica, accepted: route-niveau check, geen RPC-wijziging. | §10.11 L15; §12.2
+SC-18 | P2  | 8/10 | `doorPriceCents` per rij: `guest_tiers.door_price_cents` bestaat (#34) en de snapshot joint de tier al voor naam/kleur (`DOOR_GUEST_SELECT`); de kolom gaat de expliciete lijst in. Accepted onder T8/T28. | queries.ts:193–198; §11 T8
+SC-19 | P2  | 8/10 | `set_company_fee_settings` houdt de CEO-D19-CHECKs (≤ 300 / ≤ 260) en krijgt `cash_fee_mode in ('fee','none')`; `company_payout_accounts` moet in de audit-triggerset (rule #4) — §10 noemt alleen `entry_payments` expliciet. Accepted als vereiste onder T1/T30. | §10.26 T1; spec #62 (c)
+SC-20 | P3  | 8/10 | T20 (TS-fee-engine ≡ SQL) vervalt voor de deur; `/pay` rendert uit `get_pay_page`, die `payment_amount_for` intern aanroept → één geldfunctie, één pgTAP-assert "get_pay_page.total = payment_amount_for" onder T29. Feitelijke correctie van §11.17 T20. | §12.7; §11.17 T20
+SC-21 | P2  | 8/10 | Lane B (`t.landing.pay.*`) en Lane C (`t.door.pay.*`) schrijven beide in `src/lib/i18n/`; §11.16 markeert i18n alleen bij Lane D. Conflict-flag: keys per lane in eigen surface-bestand (`landing.ts` vs `door.ts`), merge-volgorde B → C → D. | §11.16; src/lib/i18n/surfaces/
+SC-22 | P2  | 7/10 | Hele-plek-regel (maillink) + plafond: de maillink betaalt alle *ongedekte* hoofden; een open deur-sessie van k telt als gedekt, dus thuis betaalt de gast 1 + N − k en de deur int k. Consistent met R2-2; de webhook-hertoets blijft. Geen wijziging. | §12.7; design-doc:124
+```
+
+Dispositions: SC-12 → R10 (pending); SC-13 → R9 (pending); SC-14 → R8 (pending); SC-15 → R11 (pending); SC-16 → R12 (pending); SC-17, SC-18, SC-19, SC-21, SC-22 accepted als mechanica/vereiste onder bestaande antwoorden (D4.2, T8/T28, T1/T30, §11.16); SC-20 feitelijke correctie (T20 → T29). Scope Challenge-resultaat: **scope accepted as-is** (B = originele indeling; geen reductie).
+
+## Decision ledger (her-run)
+
+### R8: Budget voor de Pay-tik-sessie-RPC per token
+Finding: SC-14, P2, 8/10, supabase/migrations/20261015140000_location_audit.sql:85 (`consume_public_throttle('st:' || p_ip_hash, 15, 30)`) + §11.5 throttle-noot; reviewer: eng-her-run
+Plan baseline: §11.5 (geen aparte beslissing): `/pay` hergebruikt `consume_public_throttle` met `'pay:'||ip` (30/15 min) en `'payt:'||token` (10/15 min) voor de **leesweg**; eng D2: gelijke k = hergebruik van de open sessie. De **Pay-tik** als aparte schrijfweg (D10.2) heeft nog geen budget.
+Runtime evidence: `consume_public_throttle` bestaat met (key, window_min, max) en een gedeelde bucket bij null-key (20261006170000:93–112); `get_request_status` throttlet alleen op ip. Geen sessie-RPC bestaat nog (greenfield).
+Comparison grid:
+```
+Choice                                  | Current (pending)        | A                                              | B
+----------------------------------------|--------------------------|------------------------------------------------|------------------------------------------
+R8 Pay-tik-budget per token             | onbepaald                | 'payc:'||token_hash: 5 per 10 min + hergebruik open sessie bij gelijke k | alleen hergebruik open sessie (geen extra budget)
+R8 Pay-tik-budget per ip                | onbepaald                | 'payc-ip:'||ip_hash: 30 per 10 min             | 30 per 10 min (zelfde)
+Leesweg get_pay_page (§11.5)            | 'pay:'||ip 30/15, 'payt:'||token 10/15 | ongewijzigd                          | ongewijzigd
+Sessie-hergebruik bij gelijke k (eng D2)| approved                 | ongewijzigd                                    | ongewijzigd
+R9–R12                                  | pending                  | pending                                        | pending
+```
+Question D2:
+D2 — Pay-tik: hoeveel sessies mag één token per 10 minuten starten?
+Project/branch/task: PlusOne · claude/86exxuuu7-fase14-eng-review · eng-her-run R8.
+ELI10: De Pay-knop maakt een Stripe-sessie van 30 minuten die hoofden op de rij reserveert. Eén gast die de knop blijft drukken (of een script met een gelekte link) kan zo de rij 30 minuten blokkeren voor de deur. Gelijke k hergebruikt de open sessie (eng D2), dus spam met hetzelfde aantal is al onschadelijk; met wisselende k (alleen mogelijk via de maillink? nee: k staat vast — alleen de deur-QR varieert k per scan) blijft expire-and-recreate over. Een klein budget per token-hash maakt het hard.
+Stakes if we pick wrong: een rij 30 min geblokkeerd aan de deur, of een echte gast die na een netwerkfout de knop niet meer mag drukken.
+Recommendation: A because hergebruik dekt de normale gast en 5 per 10 min dekt elke redelijke retry; alleen misbruik raakt de grens.
+Completeness: A=9/10, B=7/10
+Pros / cons:
+A) Hergebruik bij gelijke k + budget 5 per 10 min per token-hash en 30 per 10 min per ip (recommended)
+  ✅ Een echte gast haalt het budget nooit: hergebruik eerst, dan nog vijf nieuwe sessies
+  ✅ Zelfde helper en sleutelvorm als de leesweg; één pgTAP-denied-case erbij
+  ❌ Een gast die vijfmaal een verschillend aantal probeert ziet "Try again in a few minutes" (kan alleen via de deur-QR met wisselende k)
+B) Alleen hergebruik, geen extra budget
+  ✅ Nul extra regels; de normale gast merkt niets
+  ✅ Open sessies verlopen toch na 30 min
+  ❌ Met wisselende k (deur-QR opnieuw gescand met ander aantal) blijft elke tik een nieuwe sessie: plafond 30 min geblokkeerd door expire-and-recreate-churn
+Net: één extra throttle-sleutel tegen een blokkeerbaar plafond.
+Header: Pay-tik-budget
+Options:
+A) Hergebruik + 5/10 min per token (recommended)
+Sessie-RPC: eerst open sessie met gelijke k hergebruiken; anders `consume_public_throttle('payc:'||token_hash, 10, 5)` en `('payc-ip:'||ip_hash, 10, 30)`; bij overschrijding 429-state op /pay ("Try again in a few minutes").
+B) Alleen hergebruik
+Geen extra budget; expire-and-recreate bij ander k onbeperkt binnen de ip-throttle van de leesweg.
+
+State: approved
+Actual answer: A) Hergebruik + 5/10 min per token (D2, Max 2026-10-13)
+Accepted scope: sessie-RPC hergebruikt eerst een open sessie met gelijke k; anders `consume_public_throttle('payc:'||token_hash, 10, 5)` én `('payc-ip:'||ip_hash, 10, 30)`; bij overschrijding de 429-state op /pay ("Try again in a few minutes."); pgTAP denied-case (zesde sessie binnen 10 min geweigerd); leesweg-throttle uit §11.5 ongewijzigd; expire-and-recreate (eng D2) ongewijzigd. Gaat in T2/T29.
+History: —
+
+### R9: Kolom-grants op `company_payout_accounts` voor de fee-instellingen
+Finding: SC-13, P1, 9/10, CLAUDE.md regel 1 ("RLS is the security boundary … App-layer checks are convenience") + §12.0 regel 2; reviewer: eng-her-run
+Plan baseline: §12.7/D11.1 (Max): fee-instellingen alleen via `set_company_fee_settings` (platform-admin); Settings toont geen fee-regel. CEO D19: twee kolommen op `company_payout_accounts`. Geen uitspraak over SELECT-grants.
+Runtime evidence: `user_profiles` gebruikt al kolom-grants voor SELECT (CLAUDE.md "user_profiles is granted by column, for reads too"; migratie 20261016120100); `company_payout_accounts` bestaat nog niet (P1). Grant-matrix-test is catalogus-gedreven.
+Comparison grid:
+```
+Choice                                        | Current (pending)   | A                                                        | B
+----------------------------------------------|---------------------|----------------------------------------------------------|------------------------------------------
+R9 SELECT voor authenticated op fee-kolommen  | onbepaald           | kolom-lijst zonder service_fee_fixed_cents/service_fee_bp; cash_fee_mode wél leesbaar (deur heeft hem nodig) | tabel-brede SELECT (fee zichtbaar via API, niet in UI)
+R9 UPDATE voor authenticated op fee-kolommen  | onbepaald           | geen (alleen via set_company_fee_settings)               | geen (idem)
+R9 Leespad voor de fee                        | onbepaald           | alleen definer-RPC's: payment_amount_for, get_pay_page, weekstaat-RPC's | PostgREST-rij
+D11.1 platform-admin-RPC (approved)           | approved            | ongewijzigd                                              | ongewijzigd
+R8, R10–R12                                   | pending             | pending                                                  | pending
+```
+Question D3:
+D3 — Mag een company-admin de fee-kolommen via de API lezen?
+Project/branch/task: PlusOne · claude/86exxuuu7-fase14-eng-review · eng-her-run R9.
+ELI10: Jouw regel zegt: de organisatie ziet onze fee nergens. Als de UI hem niet toont maar de database-rij hem wél teruggeeft, kan elke admin met de API-sleutel hem toch lezen. De grens hoort in de database: dezelfde kolom-grant-techniek als bij user_profiles, zodat `authenticated` de twee fee-kolommen niet kan SELECTen; `cash_fee_mode` blijft leesbaar omdat de deur hem nodig heeft voor het te innen bedrag.
+Stakes if we pick wrong: de marge-afspraak lekt per API-call, of een company ziet zijn kickback in een netwerktab.
+Recommendation: A because de regel is pas echt als de database hem afdwingt; de kolom-grant is bestaand gereedschap.
+Completeness: A=10/10, B=5/10
+Pros / cons:
+A) Kolom-grants: fee-kolommen niet SELECTable voor authenticated; cash_fee_mode wél; geen UPDATE (recommended)
+  ✅ Zelfde mechanisme als user_profiles (20261016120100); grant-matrix-test bewaakt het automatisch
+  ✅ Fee-waarden reizen alleen via definer-RPC's (payment_amount_for, get_pay_page, weekstaat)
+  ❌ Elke nieuwe kolom op deze tabel vraagt een expliciete grant (bewust: "starts with no grant")
+B) Tabel-brede SELECT; alleen de UI verbergt de fee
+  ✅ Minder grant-werk
+  ✅ Platform-tab leest de rij zonder extra RPC
+  ❌ In strijd met "RLS is the boundary": de fee is per API leesbaar
+Net: één kolom-grant-lijst tegen een regel die alleen in de UI bestaat.
+Header: Fee-kolom-grants
+Options:
+A) Kolom-grants, fee niet leesbaar (recommended)
+`grant select (id, venue_id, iban_last4, …, cash_fee_mode, payments_enabled, vat_type, mandate_signed_at, …) on company_payout_accounts to authenticated`; `service_fee_fixed_cents`/`service_fee_bp` alleen via definer-RPC's; geen UPDATE-grant op die kolommen; pgTAP denied-case.
+B) Tabel-brede SELECT
+Rij leesbaar incl. fee-kolommen; UI verbergt ze.
+
+State: approved
+Actual answer: A) Kolom-grants, fee niet leesbaar (D3, Max 2026-10-13)
+Accepted scope: `company_payout_accounts`: SELECT voor `authenticated` als kolomlijst zonder `service_fee_fixed_cents`/`service_fee_bp` (wél `cash_fee_mode`, `payments_enabled`, `vat_type`, mandaat-/IBAN-velden die de company-admin zelf nodig heeft); geen UPDATE-grant op de fee-kolommen (alleen `set_company_fee_settings`); fee-waarden reizen uitsluitend via definer-RPC's (`payment_amount_for`, `get_pay_page`, weekstaat-RPC's; platform-admin leest ze via een eigen definer-RPC of `is_platform_admin()`-policy); pgTAP: company-admin SELECT op de fee-kolommen → 42501, platform-admin via RPC → ok; grant-matrix-test bijgewerkt. Gaat in T30.
+History: —
+
+### R10: Waar leeft het ruwe betaaltoken voor de deur-QR?
+Finding: SC-12, P1, 9/10, docs/designs/fase-14-deurbetalingen-office-hours.md:129 ("de database slaat alleen `pay_token_hash` op (sha256, nooit het token)" én "reist mee in de deur-snapshot (IndexedDB)"); reviewer: eng-her-run
+Plan baseline: eng D7/SC-11 (approved): opslag van de hash, `hashPublicToken` gedeeld met `/r`. D14.1/D16.2 (approved): token per rij gemint bij goedkeuring/event-start (server) of op het toestel (walk-in); `/pay/[token]` met raw token in de QR.
+Runtime evidence: `/r` bewaart alleen `status_token_hash` op `guest_requests` (20260918140000) en de gast houdt het ruwe token in zijn URL — daar hoeft de server het nooit terug te geven. Voor de deur-QR moet het toestel het ruwe token hebben; na opslag van alleen de hash kan de server het niet reproduceren. Geen bestaande tabel voor ruwe tokens.
+Comparison grid:
+```
+Choice                               | Current (pending)              | A                                                  | B                                                        | C
+-------------------------------------|--------------------------------|----------------------------------------------------|----------------------------------------------------------|------------------------------------------------
+R10 opslag server-gemint token       | tegenspraak (hash-only + snapshot) | raw in `guest_pay_tokens(guest_id PK, token_hash unique, token_raw)`; alleen leesbaar via definer-RPC voor deurrollen op dat event; nooit in de realtime-publicatie | HMAC(server-secret, guest_id) afgeleid, niets opgeslagen; mint-RPC geeft het aan deurrollen | hash-only; het toestel krijgt het token alleen bij de mint-call (online) en bewaart het in IDB; na IDB-verlies geen QR meer voor die rij
+R10 walk-in (client-gemint, D16.2)   | approved                       | raw + hash via de outbox in dezelfde tabel         | twee verificatiepaden (HMAC + hash) → afgewezen           | hash via de outbox (zoals nu)
+R10 lookup door /pay                 | op hash                        | op hash (index op token_hash)                      | HMAC herberekenen + rij-check                             | op hash
+R10 risico bij DB-lek                | n.v.t.                         | tokens bruikbaar om voor andermans rij te betalen (geld ín PlusOne; voornaam + bedrag zichtbaar) | geen opslag; secret-rotatie breekt alle QR's            | geen opslag
+D7 hashPublicToken gedeeld (approved)| approved                       | ongewijzigd                                        | niet meer van toepassing op server-tokens                 | ongewijzigd
+R8, R9, R11, R12                     | pending                        | pending                                            | pending                                                   | pending
+```
+Question D4:
+D4 — Betaaltoken: ruw opslaan voor de deur, afleiden, of alleen bij de mint uitreiken?
+Project/branch/task: PlusOne · claude/86exxuuu7-fase14-eng-review · eng-her-run R10.
+ELI10: Het design-doc zegt twee dingen die niet samen kunnen: de database bewaart alleen de hash van het token (zoals bij /r), én het token reist in de deur-snapshot zodat de QR offline werkt. Als de server alleen de hash heeft, kan hij het token nooit meer aan een toestel geven (nieuw toestel, tweede doorhost, IDB gewist). Dus: of de server bewaart het ruwe token in een aparte, deur-only tabel; of het token wordt afgeleid uit een geheim zodat er niets opgeslagen hoeft; of we accepteren dat alleen het toestel dat de mint deed het token heeft.
+Stakes if we pick wrong: een QR die op het tweede toestel niet bestaat, of twee verificatiepaden die bij de bouw door elkaar lopen.
+Recommendation: A because één pad voor server- én walk-in-tokens, offline-proof op elk toestel; het lek-risico is klein (een token laat je alleen geld naar PlusOne sturen voor een rij op naam).
+Completeness: A=9/10, B=7/10, C=6/10
+Pros / cons:
+A) Ruw token in `guest_pay_tokens` (aparte tabel, deur-only definer-RPC, nooit gepubliceerd) + hash-index (recommended)
+  ✅ Elk toestel met deurrechten haalt de tokens van het event op bij sync; walk-in-tokens gaan via dezelfde tabel
+  ✅ `/pay` zoekt op hash zoals `/r`; `hashPublicToken` (D7) blijft gelden
+  ❌ Ruwe bearer-tokens at rest; mitigatie: tabel buiten de publicatie, SELECT alleen via de definer-RPC, tokens verlopen op event-einde + 24 u
+B) HMAC-afgeleid uit een server-secret, niets opgeslagen
+  ✅ Geen token at rest; elk toestel kan het via de mint-RPC krijgen
+  ✅ Lookup = herberekenen, geen tabel
+  ❌ Walk-in-tokens (toestel-gegenereerd, offline) kunnen geen HMAC dragen → tweede pad; secret-rotatie maakt alle QR's ongeldig
+C) Hash-only; token alleen bij de mint aan dát toestel
+  ✅ Precies het /r-model, geen nieuwe tabel
+  ✅ Minste nieuwe code
+  ❌ Tweede doorhost of een gewist IDB = geen QR voor bestaande rijen; de "elke scanner verkoopt"-USP valt weg
+Net: één uniforme tabel met een beperkt lek-risico tegen een schoner maar dubbel pad of een QR die aan één toestel kleeft.
+Header: Token-opslag
+Options:
+A) Ruw in guest_pay_tokens, deur-only RPC (recommended)
+Tabel `guest_pay_tokens(guest_id PK FK, token_hash text unique, token_raw text, expires_at)`; grant: geen SELECT voor authenticated; definer-RPC `door_pay_tokens(event_id)` (deurrechten op dat event) levert de tokens bij sync; outbox-walk-in upsert via definer-RPC; nooit in de realtime-publicatie; retentie nult `token_raw` bij anonimisatie.
+B) HMAC-afgeleid, niets opgeslagen
+Server berekent `token = base64url(HMAC(secret, guest_id))`; mint-RPC geeft het aan deurrollen; walk-in blijft hash-pad.
+C) Hash-only, alleen bij mint uitgereikt
+Zoals /r; het mintende toestel bewaart het ruwe token in IDB; geen herverdeling.
+
+State: approved
+Actual answer: A) Ruw in guest_pay_tokens, deur-only RPC (D4, Max 2026-10-13)
+Accepted scope: nieuwe tabel `guest_pay_tokens(guest_id uuid PK FK guests, token_hash text unique, token_raw text, expires_at timestamptz)`; grant-matrix: geen SELECT/INSERT/UPDATE voor `authenticated` op de tabel; definer-RPC `door_pay_tokens(p_event_id)` (vereist deurrechten op dat event via de bestaande rolhelper) levert `(guest_id, token_raw)` bij de deur-sync; server-mint bij goedkeuring/event-start schrijft hash + raw; walk-in (D16.2): het toestel genereert het token, de outbox-sync roept een definer-RPC `upsert_guest_pay_token(guest_id, token_raw)` die hash berekent (`hashPublicToken`, D7 blijft) en alleen slaagt voor een rij die de aanroeper mag beheren; `/pay` zoekt op `token_hash`; tabel nooit in de realtime-publicatie; `run_privacy_retention()` nult `token_raw` bij anonimisatie en na `expires_at`; pgTAP allowed (doorhost eigen event) + denied (staff, ander event, anon). Vervangt `pay_token_hash` op `entry_payments`/`guests` (§11 T25-tekst mee). Gaat in T28 + nieuwe T34.
+History: —
+
+### R11: Afstemming na een check-in vóór de webhook: muteren of afleiden?
+Finding: SC-15, P2, 8/10, §12.1 D3.2 (check-in live vanaf t = 0) + §11.5 A4 (BEFORE-trigger berekent `unconfirmed_heads`); reviewer: eng-her-run
+Plan baseline: T16 (approved): `payment_coverage()` berekent `unconfirmed_heads` server-side bij de check-in; design-doc: "afgestemd bij sync (webhook wint)", "het verschil blijft op de rij staan als te betalen". Mechanica van de afstemming onbepaald.
+Runtime evidence: `check_ins` is een upsert met absolute aantallen onder `check_ins_a_stale_guard` (20261010120000:43–139); audit-trigger logt elke update. Geen bestaande "coverage"-kolom.
+Comparison grid:
+```
+Choice                                   | Current (pending)  | A                                                              | B
+-----------------------------------------|--------------------|----------------------------------------------------------------|------------------------------------------------
+R11 bron van "te betalen" per rij        | onbepaald          | afgeleid: view/RPC `guest_payment_balance(guest_id)` = ingecheckte hoofden − betaalde hoofden (live) | gemuteerd: AFTER-trigger op entry_payments(succeeded) verlaagt `unconfirmed_heads` op de open check-in-rij
+R11 `check_ins.unconfirmed_heads`        | T16: snapshot bij check-in | blijft een onveranderlijk moment-snapshot (meting: "check-in vóór bevestiging") | wordt bijgewerkt (audit-rij per webhook)
+R11 deur/weekstaat tonen                 | onbepaald          | de view                                                        | de kolom
+T16 trigger (approved)                   | approved           | ongewijzigd                                                    | + extra AFTER-trigger
+R8–R10, R12                              | pending            | pending                                                        | pending
+```
+Question D5:
+D5 — "Te betalen" op een rij: live afleiden of de check-in-rij bijwerken?
+Project/branch/task: PlusOne · claude/86exxuuu7-fase14-eng-review · eng-her-run R11.
+ELI10: De doorhost checkt 2 in terwijl de betaling nog onderweg is; de check-in-rij krijgt "2 nog niet bevestigd". Drie seconden later landt de betaling. Of we laten die rij staan als momentopname en rekenen "te betalen" telkens live uit (ingecheckt − betaald), of een trigger past de check-in-rij achteraf aan. Afleiden houdt het logboek eerlijk (het gebeurde écht vóór bevestiging) en spaart een trigger die rijen van een andere tabel muteert.
+Stakes if we pick wrong: een weekstaat die "te betalen" toont voor een gast die wél betaalde, of een check-in-log dat zichzelf herschrijft.
+Recommendation: A because append-only data en één afgeleide waarheid passen bij de audit-regels; de meting "ingecheckt vóór bevestiging" blijft intact.
+Completeness: A=9/10, B=8/10
+Pros / cons:
+A) Afleiden: view/RPC `guest_payment_balance` = ingecheckt − betaald; check-in-rij blijft een snapshot (recommended)
+  ✅ Geen cross-table-mutatie, geen extra audit-ruis; deur en weekstaat lezen dezelfde view
+  ✅ De success-metriek "check-ins vóór bevestiging" blijft letterlijk telbaar
+  ❌ Eén extra view/RPC in de deur-snapshot en de weekstaat (geen kolom om op te filteren)
+B) Muteren: AFTER-trigger op entry_payments(succeeded) werkt `unconfirmed_heads` bij
+  ✅ Eén kolom, direct te filteren ("alle rijen met unconfirmed > 0")
+  ✅ Geen view nodig
+  ❌ Een trigger op geldtabel A schrijft in audit-tabel B; de momentopname verdwijnt; stale-guard-interactie
+Net: één afgeleide view tegen een trigger die het check-in-log herschrijft.
+Header: Afstemming
+Options:
+A) Afleiden via view (recommended)
+`guest_payment_balance(guest_id)`: checked_in_heads, paid_heads, due_heads = greatest(0, checked_in − paid); deur-snapshot en weekstaat lezen dit; `check_ins.unconfirmed_heads` onveranderlijk.
+B) Muteren via AFTER-trigger
+AFTER UPDATE op entry_payments (status → succeeded) verlaagt `unconfirmed_heads` op de laatste open check-in van die gast; audit per update.
+
+State: approved
+Actual answer: A) Afleiden via view (D5, Max 2026-10-13)
+Accepted scope: SECURITY INVOKER view/RPC `guest_payment_balance(guest_id)` → `checked_in_heads` (Σ 1 + plus_ones_arrived van de actieve check-in), `paid_heads` (Σ entry_payments.heads met status succeeded, minus refunded heads), `open_heads` (Σ heads van sessies met status open), `due_heads = greatest(0, checked_in_heads − paid_heads)`; de deur-snapshot en de weekstaat lezen deze view; `check_ins.unconfirmed_heads`/`override_heads` (T16) blijven een onveranderlijke momentopname; geen AFTER-trigger die check_ins muteert; pgTAP op de rekenregels (deel-check-in, refund, open sessie). Gaat in T16/T28 + nieuwe T35.
+History: —
+
+### R12: Hoe weet `/pay` dat een onbekend token "nog niet gesynct" is in plaats van ongeldig?
+Finding: SC-16, P2, 8/10, §12.2 "/pay · not synced" + design-doc:129 (client-gegenereerd walk-in-token); reviewer: eng-her-run
+Plan baseline: D4.1 (approved): onbekend/verwijderd/429 → neutrale "Nothing here."; walk-in nog niet gesynct → "Almost there"-poll ≤ 60 s. De server kent een client-gemint token pas na sync, dus beide gevallen zijn "geen rij".
+Runtime evidence: `get_request_status` geeft `{found:false}` voor elk onbekend token (20261015140000:85–88); de deur-QR-URL draagt al `?heads=k` (§12.0 regel 1), de maillink niet.
+Comparison grid:
+```
+Choice                                  | Current (pending) | A                                                            | B
+----------------------------------------|-------------------|--------------------------------------------------------------|------------------------------------------
+R12 herkomstsignaal voor de poll        | onbepaald         | URL-vorm: `?heads=k` aanwezig (deur-QR) → "Almost there"-poll ≤ 60 s bij `found:false`; zonder `heads` (maillink) → direct "Nothing here." | geen signaal: altijd "Nothing here."; de doorhost laat de gast na sync opnieuw scannen
+R12 informatielek                       | —                 | geen: de poll-state zegt niets over geldigheid; na 60 s dezelfde neutrale uitgang | geen
+R12 walk-in offline UX                  | D16.2 approved    | gast ziet voortgang; `/pay` werkt zodra de rij landt           | gast ziet "Nothing here." tot de doorhost opnieuw toont
+R8–R11                                  | pending           | pending                                                      | pending
+```
+Question D6:
+D6 — Walk-in-QR vóór sync: pollen op basis van de URL-vorm, of altijd "Nothing here."?
+Project/branch/task: PlusOne · claude/86exxuuu7-fase14-eng-review · eng-her-run R12.
+ELI10: Bij een walk-in maakt het toestel het token zelf en toont direct de QR; de server kent de rij pas na sync. Scant de gast meteen, dan vindt de server niets. De pagina moet dan "Almost there" tonen en even pollen, maar voor een vals token moet hij neutraal "Nothing here." zeggen. Het enige onderscheid dat de pagina heeft is de URL-vorm: de deur-QR draagt `?heads=k`, de maillink niet. Dat signaal is vervalsbaar maar onschadelijk: de poll onthult niets en eindigt na 60 s in dezelfde neutrale tekst.
+Stakes if we pick wrong: een walk-in-gast die "Nothing here." ziet terwijl de rij over 5 s landt, of een pagina die voor elk onzin-token 60 s blijft draaien.
+Recommendation: A because het is het enige offline-compatibele signaal en het lekt niets.
+Completeness: A=9/10, B=6/10
+Pros / cons:
+A) `?heads=k` aanwezig → "Almost there"-poll (3 s, max 60 s), daarna neutraal; zonder heads → direct neutraal (recommended)
+  ✅ Walk-in offline werkt precies zoals D16.2 belooft; de gast ziet voortgang, niet een fout
+  ✅ Geen extra serverstate; de poll-state is voor geldig en ongeldig identiek
+  ❌ Een nep-URL met `?heads=1` krijgt 60 s een "Almost there" (onschadelijk, wel 20 throttle-calls → ip-budget)
+B) Altijd "Nothing here."; de gast scant later opnieuw
+  ✅ Eenvoudigste pagina, nul polling
+  ✅ Geen vervalsbaar signaal
+  ❌ De walk-in-verkoop offline (USP) krijgt een foutscherm als eerste indruk
+Net: een onschadelijk URL-signaal tegen een foutscherm bij elke offline walk-in.
+Header: Not-synced-poll
+Options:
+A) Poll op URL-vorm (recommended)
+`heads` in de query → poll `get_pay_page` elke 3 s, max 20×, dan "Ask the door host to try again."; geen heads → "Nothing here." direct. Throttle-budget van de leesweg (30/15 min per ip) dekt 20 polls.
+B) Altijd neutraal
+Geen poll; "Nothing here. Pay at the door." voor elk onbekend token.
+
+State: approved
+Actual answer: A) Poll op URL-vorm (D6, Max 2026-10-13)
+Accepted scope: `/pay/[token]`: bij `found:false` én een `heads`-queryparameter → state "Almost there" met poll van `get_pay_page` elke 3 s, maximaal 20× (60 s), daarna "Ask the door host to try again."; zonder `heads` → direct de neutrale "Nothing here. / Pay at the door."; de poll-state is identiek voor geldige en ongeldige tokens; het ip-budget van de leesweg (30 per 15 min) dekt 20 polls, de token-sleutel (`'payt:'||hash`, 10 per 15 min) geldt niet voor de poll (anders eindigt de poll in 429) → poll-aanroepen tellen alleen op ip; vitest op de state-machine, flow `pay-page` Q-assert. Gaat in T29.
+History: —
+
+Approval readiness: PASS — R8 (D2 = A), R9 (D3 = A), R10 (D4 = A), R11 (D5 = A), R12 (D6 = A); structuur D1 = A; SC-17/18/19/21/22 als mechanica onder bestaande antwoorden (D4.2, T8/T28, T1/T30, §11.16); SC-20 feitelijke correctie. Geen pending remedies.
+
+### 13.5 Section 1 — Architecture review (delta)
+
+Bevindingen (meest ernstig eerst):
+
+- `[P1] (confidence: 9/10) docs/designs/fase-14-deurbetalingen-office-hours.md:129` — token-tegenspraak (SC-12): opgelost via R10 = A: `guest_pay_tokens` (raw + hash), deur-only definer-RPC `door_pay_tokens(event_id)`, nooit gepubliceerd. **Blast radius:** een gestolen deurtablet met live sessie kan de tokens van zijn events dumpen; een token laat alleen toe om voor díe rij op naam te betalen (geld naar PlusOne, voornaam + bedrag zichtbaar); tokens verlopen op `ends_at + 24 h` en de retentie nult `token_raw`. Geaccepteerd restrisico, in de security-prompt opgenomen.
+- `[P1] (confidence: 9/10) CLAUDE.md regel 1 + §12.0 regel 2` — fee-zichtbaarheid (SC-13): opgelost via R9 = A: kolom-grants op `company_payout_accounts`; fee-waarden alleen via definer-RPC's. De grant-matrix-test (catalogus-gedreven) bewaakt het.
+- `[P2] (confidence: 8/10) 20261015120000:85` — Pay-tik als publieke schrijfweg (SC-14): opgelost via R8 = A: hergebruik + `'payc:'||token_hash` 5/10 min + `'payc-ip:'||ip` 30/10 min. De Pay-tik loopt als Next.js route handler (`POST /pay/[token]/session`, geen server action: de pagina is publiek en heeft geen app-sessie) die met `publicRpcTrustHeaders()` de definer-RPC `create_pay_session(p_token_hash, p_heads, p_ip_hash)` aanroept; de RPC doet throttle → row lock → plafond → Stripe-sessie via de `PaymentProvider` in de route (Stripe-aanroep buiten de DB) → opslag `entry_payments(status open, expires_at)`. Volgorde: de rij wordt eerst `open` met een placeholder-`provider_session_id`, daarna de Stripe-call; mislukt die, dan wordt de rij `failed` (anders blokkeert een mislukte Stripe-call het plafond 30 min). Dit is de ene nieuwe realistische productiefout: Stripe-timeout tussen rij-insert en sessie-id → rescued (failed-status in `finally`), test (vitest met stub-provider die faalt), gebruiker ziet "Try again" (geen stille blokkade).
+- `[P2] (confidence: 8/10) §12.2 "/pay · not synced"` — herkomstsignaal (SC-16): opgelost via R12 = A (poll op `heads`-parameter, alleen ip-budget).
+- `[P2] (confidence: 8/10) §11.5 A4 + §12.1 D3.2` — afstemming (SC-15): opgelost via R11 = A: `guest_payment_balance` (SECURITY INVOKER, rol-relatief); de deur leest hem in de snapshot en patcht lokaal bij realtime-events op `entry_payments`/`check_ins` (geen refetch per mutatie, CLAUDE.md scale-regel).
+- `[P2] (confidence: 8/10) §10.11 L15` — noodrem op routeniveau (SC-17): `PAYMENTS_KILL_SWITCH` wordt gelezen in `src/app/pay/[token]/page.tsx` (503-state vóór de RPC) en in de sessie-route; de Charge-sheet-pauzedetectie (D4.2) gebruikt dezelfde route (`HEAD /pay/_status` → 503) — één server-side bron, geen RPC-wijziging.
+- **Grenzen en koppeling (delta):** nieuw zijn `guest_pay_tokens` (deur ↔ tokens via definer-RPC), `guest_payment_balance` (deur + weekstaat ↔ afgeleide stand), `set_company_fee_settings` (platform-admin ↔ fee-kolommen), `get_pay_page` + `create_pay_session` (anon gast ↔ betaalkern). De deur kent nog steeds geen Stripe-id's; de gast kent geen rij-id's (alleen zijn token). **SPOF ongewijzigd** (webhook-levering; platform-admin-goedkeuring).
+- **Diagram (delta, Pay-tik-pad):**
+
+```
+  gast-telefoon                      Next.js (fra1)                         Postgres (RLS/definer)           Stripe
+  ─────────────                      ──────────────                         ──────────────────────           ──────
+  GET /pay/t?heads=2 ──────────────► page.tsx: kill switch? ──503──┐
+                                     hash(t) ─► get_pay_page ──────────────► throttle ip/token → rij? ─┐
+                                     ◄── {found,first_name,venue,event,k,amount,total,status} ◄────────┘
+     (found:false ∧ heads) ◄── "Almost there" poll 3 s ×20
+  tap Pay ─────────────────────────► POST /pay/t/session ─► create_pay_session ─► throttle payc/payc-ip
+                                                                                  ├ FOR UPDATE guests.id
+                                                                                  ├ plafond: paid+open+k ≤ 1+N
+                                                                                  ├ open sessie gelijke k? → hergebruik
+                                                                                  └ insert entry_payments(open, placeholder)
+                                     PaymentProvider.createCheckout(…) ─────────────────────────────────────► session
+                                     ok: update provider_session_id │ fail: status failed (finally)
+                                     302 ──────────────────────────► Checkout (branding, regelitem, descriptor)
+  terug op /pay/t?session=… ───────► page.tsx: géén vertrouwen in de query; get_pay_page.status
+                                     ◄── checking… ≤ 5 s → paid (server) | poll
+  webhook ──────────────────────────► apply_entry_payment_update (idempotent, plafond-hertoets) ◄──────────── Stripe
+```
+
+Dispositions: SC-12 → R10 approved; SC-13 → R9 approved; SC-14 → R8 approved; SC-15 → R11 approved; SC-16 → R12 approved; SC-17 accepted (mechanica); nieuwe productiefout (Stripe-timeout na insert) accepted als vereiste onder T2 (failed-in-finally + vitest).
+
+### 13.6 Section 2 — Code quality review (delta)
+
+- `[P2] (confidence: 8/10) §11.17 T20 + §10.26 T1` — één geldfunctie (SC-20): `get_pay_page` en `create_pay_session` roepen `payment_amount_for(tier_id, heads, venue_id, method)` intern aan; de `method`-parameter (`'psp' | 'cash'`) is nieuw voor `cash_fee_mode` (SC-19). De TS-fee-engine verdwijnt uit de deur; `src/features/payments/` houdt `format.ts` (`formatMoney`), `schemas.ts`, de provider-seam en de webhook-handlers. T20 → één pgTAP-assert onder T29. Accepted (feitelijke correctie).
+- `[P2] (confidence: 8/10) src/features/door/model.ts:47` — `pay: boolean` wordt afgeleid (`doorPriceCents > 0 && paymentsEnabled`), niet opgeslagen; `DoorGuest` krijgt `doorPriceCents`, `paidHeads`, `openHeads`, `dueHeads`, `payToken` (raw; alleen in IDB), `cashFeeMode` komt op `DoorEventMeta` (één per event, niet per rij). Eén adapter (`model.ts`), geen per-scherm mapper. Accepted onder T28.
+- `[P2] (confidence: 8/10) src/lib/i18n/surfaces/` — lane-conflict (SC-21): `t.door.pay.*` in `door.ts` (Lane C), `t.landing.pay.*` in `landing.ts` (Lane B); `en.ts` importeert beide — merge-volgorde B → C → D, conflict beperkt tot `en.ts`-imports. Accepted.
+- **Shared-code (rubriek):** `hashPublicToken` (D7) krijgt drie callers: `/r/[token]/page.tsx:36` (bestaand, `createHash('sha256')` inline), `/pay/[token]/page.tsx` (nieuw) en `upsert_guest_pay_token` (SQL: `encode(digest(token,'sha256'),'hex')` — zelfde vector). Verified callers: 1 bestaand (`src/app/r/[token]/page.tsx:36`) + 2 voorgesteld; helper ≈ 8 regels, migratie van de bestaande caller 2 regels; besparing netto ≈ 4 regels — gerechtvaardigd door de contract-eis (één vector-test, SC-11/D7), niet door volume. `publicRpcTrustHeaders` en `landingClientIpHash` worden ongewijzigd hergebruikt (bestaande callers `/r` en `/e`).
+- **Foutafhandeling (delta):** `create_pay_session` → `failed` in `finally` bij provider-fout; `door_pay_tokens` → lege lijst bij event zonder betaalbare rijen (geen fout); `get_pay_page` → `{found:false}` voor alles wat niet gevonden/verlopen/gethrottled is; `/pay` 5xx → neutrale retry-state (12.2).
+- **Diagram-plicht (inline):** `src/features/door/components/ChargeSheet.tsx` (state-machine waiting → paid/partial/offline/paused als commentaar), migratie `guest_pay_tokens` (levenscyclus: mint/walk-in → sync → expire → retentie), `create_pay_session` (volgorde insert → provider → update/failed).
+
+Dispositions: alle accepted onder bestaande antwoorden (R8–R12, T2/T28/T29/T30); geen nieuwe keuze.
+
+### 13.7 Section 3 — Test review (delta)
+
+Framework: Vitest (unit), pgTAP via `pnpm db:test`, Playwright (`pnpm e2e:*`, flows via `pnpm qa:flows`), Node-concurrency via `pnpm db:test:concurrency` (CLAUDE.md "Stack"). Bestaande bronbestanden gelezen voor de deur-kant: `GuestDetail.tsx:224–282` (BottomBar), `GuestDetail.checkin.test.tsx` (bestaand), `AddOnSpot.test.tsx` (bestaand), `request-status.tsx`/`page.tsx` (`/r`).
+
+```
+CODE PATHS (delta)                                                     USER FLOWS (delta)
+[+] supabase: get_pay_page                                             [+] /pay via deur-QR (gast)
+  ├── [GAP] pgTAP: throttle ip/token → found:false (T29)                 ├── [GAP] [→E2E] scan → €45.00 → Pay → Checkout → terug → Paid (flow pay-page Q1–Q4)
+  ├── [GAP] pgTAP: onbekend/verwijderd/verlopen → identiek found:false   ├── [GAP] [→E2E] ?heads boven cap → nieuw aantal als tekst (Q5)
+  ├── [GAP] pgTAP: total = payment_amount_for(tier,k,venue,'psp') (ex-T20) ├── [GAP] [→E2E] walk-in vóór sync: Almost there → poll → Paid-pagina (Q6)
+  └── [GAP] vitest route: kill switch → 503 vóór RPC (T6)                ├── [GAP]        nep-URL met heads: 20 polls → "Ask the door host" (Q7)
+[+] supabase: create_pay_session (Pay-tik)                               └── [GAP]        terug met ?session=… zonder serverstatus → nooit Paid (Q8)
+  ├── [GAP] pgTAP: hergebruik open sessie gelijke k                    [+] /pay via maillink (gast)
+  ├── [GAP] pgTAP: 6e sessie binnen 10 min per token → 429 (R8)          ├── [GAP] [→E2E] hele plek: 5 × €20 + fee, geen stepper (Q9)
+  ├── [GAP] pgTAP: plafond paid+open+k ≤ 1+N (bestaand T2)               └── [GAP]        open deur-sessie k → thuis 1+N−k (Q10)
+  ├── [GAP] scripts/pay-ceiling-concurrency-test.mjs: 2 Pay-taps, beide volgordes (T2) [+] Charge-sheet (doorhost)
+  └── [GAP] vitest: provider faalt → status failed (finally)              ├── [★★ TESTED] group-first BottomBar bestaand — GuestDetail.checkin.test.tsx (regressiecontract T26)
+[+] supabase: guest_pay_tokens + door_pay_tokens + upsert_guest_pay_token ├── [GAP] [→E2E] Charge primair op betaalbare rij, live regel i.p.v. banner (flow door-charge Q1–Q2)
+  ├── [GAP] pgTAP allowed: doorhost eigen event krijgt (guest_id, token_raw) ├── [GAP] [→E2E] bedrag → QR → stepper → status; paid-flip na realtime (Q3–Q5)
+  ├── [GAP] pgTAP denied: staff, ander event, anon, directe SELECT      ├── [GAP] [→E2E] offline: Offline-regel + check-in not confirmed (Q6)
+  ├── [GAP] pgTAP: upsert door niet-beheerder → 42501; dubbele upsert idempotent ├── [GAP]        partial: Paid 1 of 2 → twee knoplabels (Q7)
+  ├── [GAP] pgTAP: tabel niet in pg_publication_tables                  ├── [GAP]        cash_fee_mode fee/none → Cash-label €45.00/€40.00 (Q8)
+  └── [GAP] pgTAP: retentie nult token_raw na expires_at/anonimisatie   ├── [GAP]        AddOnSpot betaalbare tier → sheet open (Q9)
+[+] supabase: set_company_fee_settings + kolom-grants                    └── [GAP]        cockpit: Sheet 560, Esc/Enter (Q10)
+  ├── [GAP] pgTAP: platform-admin ok; company-admin → 42501            [+] Settings → Payments / Platform (licht)
+  ├── [GAP] pgTAP: SELECT fee-kolommen als authenticated → 42501; cash_fee_mode ok ├── [GAP]        cash-toggle zichtbaar, geen fee-regel (flow settings-payments, P4a)
+  └── [GAP] grant_matrix.test.sql bijgewerkt (plan(N) bump)              └── [GAP]        Platform: fee-rows alleen voor platform-admin (visibility-test, patroon platform-*.visibility.test.tsx)
+[+] supabase: guest_payment_balance                                     [+] Regressie (bestaand gedrag)
+  ├── [GAP] pgTAP: deel-check-in, refund, open sessie → due_heads        ├── [★★ TESTED] /r/[token] neutrale not-found — bestaande e2e (T22 regressie)
+  └── [GAP] pgTAP: SECURITY INVOKER (rol-relatief)                       └── [★★ TESTED] AddOnSpot zonder prijs → terug naar lijst — AddOnSpot.test.tsx
+[+] src/features/payments/format.ts
+  └── [GAP] vitest-vector: 0 → €0.00, 5250 → €52.50, 100000 → €1,000.00, negatief → −€40.00
+[+] src/features/door (model/ChargeSheet/kit)
+  ├── [GAP] vitest: default k = max(1, outside−paid−open); cap; pay afgeleid
+  ├── [GAP] vitest: QrTile role=img + aria-label; PayChip 3 states; CountStepper.min
+  └── [GAP] touch-density.test.ts + kit.tap-target.test.tsx op de nieuwe hit-ring
+
+COVERAGE (delta): 3/44 paths tested (7%)  |  Code paths: 0/24 (0%)  |  User flows: 3/20 (15%)
+QUALITY: ★★★:0 ★★:3 ★:0  |  GAPS: 41 (11 E2E/flow, 0 eval)
+```
+
+Legend: ★★★ behavior + edge + error | ★★ happy path | ★ smoke check | [→E2E] = needs integration test
+
+**Regressiecontract (IRON RULE, gedragen door D3.3 + T16):** bestaand gedrag dat op het spel staat = de group-first check-in-BottomBar op niet-betaalbare rijen (`GuestDetail.tsx:224–282`), `AddOnSpot` terug-naar-lijst op tiers zonder prijs, de `/r`-not-found-pagina en de `door-render-isolation`-invariant. Te bewaren: `GuestDetail.checkin.test.tsx`, `AddOnSpot.test.tsx`, `door-render-isolation.test.tsx` en de bestaande `/r`-e2e blijven **ongewijzigd groen**; bedoelde verschillen: alleen op rijen met `dueHeads > 0` verandert de bar (Charge primair) en opent AddOnSpot de sheet. Acceptatie-asserts: nieuwe tests in `GuestDetail.charge.test.tsx` + flow `door-charge` Q1–Q2. Geen nieuwe keuze (exacte voortzetting van D3.3/T16).
+
+**Test value cards (nieuwe tests, selectie):**
+- `Value: protects=get_pay_page geeft voor onbekend, verwijderd en verlopen token hetzelfde found:false; fails_when=een tak geeft een reden of 404-variant; why_new=/r-tests dekken get_request_status, niet deze RPC; seam=none; no_claim=throttle-timing (pgTAP mock van de klok; geen live run)`
+- `Value: protects=6e create_pay_session binnen 10 min per token wordt geweigerd, 5e niet; fails_when=budget verkeerd of sleutel ontbreekt; why_new=geen bestaande throttle-test op schrijfwegen; seam=none; no_claim=echte Stripe-sessie (stub-provider)`
+- `Value: protects=door_pay_tokens levert alleen tokens van events waar de aanroeper deurrechten heeft; fails_when=RLS-helper verkeerd of definer lekt; why_new=nieuwe tabel; seam=none; no_claim=none beyond protects`
+- `Value: protects=company-admin kan service_fee_* niet SELECTen, cash_fee_mode wel; fails_when=tabel-brede grant of vergeten kolom; why_new=grant_matrix test kent de tabel nog niet; seam=none; no_claim=UI-verberging (niet getest hier)`
+- `Value: protects=guest_payment_balance.due_heads = ingecheckt − betaald bij deel-check-in, refund en open sessie; fails_when=open sessies als betaald geteld of refund niet afgetrokken; why_new=nieuwe view; seam=none; no_claim=realtime-timing`
+- `Value: protects=provider-fout na insert zet entry_payments op failed en laat het plafond vrij; fails_when=finally ontbreekt → rij blijft open 30 min; why_new=nieuw pad; seam=stub-provider die throwt (bestaande seam); no_claim=Stripe-gedrag`
+- `Value: protects=/pay toont nooit Paid op een query-parameter; fails_when=?session wordt vertrouwd; why_new=nieuw; seam=none; no_claim=webhook-latency`
+- `Value: protects=walk-in-QR vóór sync: Almost there-poll eindigt in Paid zodra de rij landt, nep-URL eindigt neutraal; fails_when=poll ontbreekt of niet begrensd; why_new=nieuw; seam=none; no_claim=netwerkcondities op een festival`
+
+Tests made obsolete by this plan (voorstel): geen bestaande; T20's geplande contracttest (`fee-engine.test.ts` ≡ SQL) vervalt vóór hij bestaat.
+
+Dispositions: alle gaps gemapt op T2/T6/T26–T30/T32/T34/T35; regressiecontract vastgelegd onder T26; geen nieuwe keuze.
+
+### 13.8 Section 4 — Performance review (delta)
+
+- `[P2] (confidence: 8/10) get_pay_page + poll` — 20 polls per walk-in-scan vóór sync, 1 RPC per poll (één rij via `token_hash`-index + één `payment_amount_for`); 150 walk-ins/avond × 20 = 3 000 calls worst case, gespreid; ip-budget 30/15 min per gast-ip dekt het; geen N+1 (één query). OK.
+- `[P2] (confidence: 8/10) door_pay_tokens(event_id)` — één query per sync per event (≤ ~150 rijen, index `(guest_id)` via FK + filter op `guests.event_id`); gaat mee in de 60 s-safety-sync, niet per mutatie. OK.
+- `[P2] (confidence: 8/10) guest_payment_balance` — GROUP BY per gast binnen één event (aggregate op de DB, CLAUDE.md scale-regel), indexen `entry_payments(guest_id, status)` en bestaande `check_ins(guest_id)`; de deur patcht lokaal bij realtime (geen refetch). Weekstaat: per venue per week, GROUP BY op `entry_payments(venue_id, created_at)` — index uit T1. OK.
+- `[P3] (confidence: 7/10) QrTile` — SVG-string per render, gememoized op `value`; ±1 900 rects per QR (versie 3–4 bij een ~60-tekens-URL); rendert < 5 ms op een telefoon [estimated]; geen canvas. OK.
+- Geen onbegrensde query, geen whole-file load, geen blocking call zonder timeout (de Stripe-call heeft de SDK-timeout; `failed` in `finally`).
+
+Dispositions: geen nieuwe keuze; indexen onder T1/T34/T35.
+
+### 13.9 Outside Voice (her-run)
+
+Preflight: `CODEX_MODE: not_installed`. Native fallback vereist `TaskOutput` in de tool-definities van deze sessie; die ontbreekt (alleen `TaskStop` is beschikbaar) → **unavailable path**, geen dispatch, geen clean-review-credit. Gelogd als `codex-plan-review` met `outside_status: unavailable`. De koude lezing van de design-review (§12, native subagent) blijft de enige onafhankelijke blik op deze delta.
+
+### 13.10 TODOS.md (her-run)
+
+Geen nieuwe TODO: `cash_fee_mode` past in het expand-only pad van de bestaande TODO "Fee rules table"; de poll-state en de token-tabel zijn in scope (T29/T34).
+
+### 13.11 NOT in scope (eng her-run)
+
+- Encryptie-at-rest van `token_raw` (pgsodium): bewust niet (R10 = A, restrisico geaccepteerd; herzien bij een DB-incidentplan of ≥ 25 venues).
+- Een aparte "pay status"-realtime-kanaal voor `/pay` (gast): de pagina pollt; realtime naar anonieme gasten is geen bestaand patroon.
+- Refund-UI, dispute-bewijs, documentengine: ongewijzigd P2-geld/P4a (§11.12).
+- Light-variant publieke pagina's: TODO (D11.4).
+
+### 13.12 What already exists (eng her-run)
+
+`get_request_status` (skelet voor `get_pay_page`), `consume_public_throttle`, `set_venue_trial_end`/`set_venue_comped` (skelet voor `set_company_fee_settings`), kolom-grants op `user_profiles` (patroon voor R9), `DOOR_GUEST_SELECT`, outbox-kinds, `check_ins_a_stale_guard`, `/r/[token]` + `request-status.tsx`, `publicRpcTrustHeaders`/`landingClientIpHash`, `qrcode`, stub-`BillingProvider` als voorbeeld voor de stub-`PaymentProvider`, `platform-*.visibility.test.tsx` als patroon voor de fee-rows-zichtbaarheidstest.
+
+### 13.13 Failure modes (her-run, aanvulling op §11.15)
+
+```
+  CODEPATH                         | FAILURE MODE                                   | RESCUED? | TEST? | USER SEES?                        | LOGGED?
+  ---------------------------------|------------------------------------------------|----------|-------|-----------------------------------|--------
+  create_pay_session               | Stripe-timeout na insert → rij blijft open     | Y (failed in finally) | Y (vitest stub) | "Try again"                 | Y
+  create_pay_session               | Pay-spam per token                             | Y (R8 budget) | Y (pgTAP) | 429-state                     | Y
+  door_pay_tokens                  | token_raw via gestolen deursessie              | partial (expiry + retentie) | Y (denied-cases) | —            | Y (RLS-helper)
+  get_pay_page (walk-in)           | token nog niet gesynct                         | Y (R12 poll) | Y (flow Q6/Q7) | "Almost there" → Paid         | —
+  /pay success                     | vervalste ?session=…                           | Y (serverlezing) | Y (flow Q8) | nooit Paid zonder server       | —
+  company_payout_accounts          | fee-kolom leesbaar via API                     | Y (kolom-grants) | Y (grant-matrix) | —                        | —
+  guest_payment_balance            | open sessie als betaald geteld                 | Y (view-definitie) | Y (pgTAP) | juiste "due"                  | —
+  PAYMENTS_KILL_SWITCH             | env gezet, RPC weet van niets                  | Y (routeniveau) | Y (vitest route) | 503-state / pauze-regel      | Y
+```
+0 rijen RESCUED=N ∧ TEST=N ∧ Silent → **0 critical gaps**.
+
+### 13.14 Worktree-parallelisatie (her-run)
+
+§11.16 blijft; aanvullingen: Lane A krijgt `guest_pay_tokens` + `door_pay_tokens` + `guest_payment_balance` + fee-kolom-grants (T34/T35/T30); Lane B krijgt `get_pay_page` + `create_pay_session` + `/pay` (T29) + `format.ts` (T27-deel); Lane C krijgt `ChargeSheet`/kit/model (T26/T27/T28); **conflict-flags:** `src/lib/i18n/en.ts` (B én C: keys per surface-bestand, merge B → C → D) en `kit.tsx` (C alleen; B gebruikt `LandingWrap`, geen kit-wijziging). Execution order: T18 → A → (B ∥ C ∥ D) → P2-geld → P4a (ongewijzigd).
+
+### 13.15 Implementation Tasks (eng her-run)
+
+Synthesized from this review's findings. Each task derives from a specific finding above. Run with Claude Code or Codex; checkbox as you ship. T1–T33 blijven; hieronder correcties en aanvullingen (ratio-aanname: migraties/tests ~50×, features ~30×).
+
+- [ ] **T2 (correctie, P1)** — `create_pay_session(p_token_hash, p_heads, p_ip_hash)` als definer-RPC achter `POST /pay/[token]/session`: throttle `payc`/`payc-ip` (R8), hergebruik gelijke k, row lock, plafond, insert `open` + placeholder, provider-call in de route, `failed` in `finally`; concurrency-script met twee Pay-taps. Surfaced by: 13.5 SC-14 + nieuwe productiefout.
+- [ ] **T8 (correctie, P2)** — snapshot/realtime: `entry_payments` gepubliceerd (ongewijzigd), `guest_pay_tokens` **niet**; `door_pay_tokens(event_id)` in de sync; `guest_payment_balance` in de snapshot en lokaal gepatcht. Surfaced by: R10/R11.
+- [ ] **T20 (vervallen → T29)** — TS-fee-engine-contracttest vervalt; één pgTAP-assert `get_pay_page.total = payment_amount_for(…, 'psp')` onder T29. Surfaced by: SC-20.
+- [ ] **T29 (correctie, P1)** — `/pay`: `get_pay_page` (neutraal, throttle, total via `payment_amount_for`), Pay-tik-route, poll-state op `heads` (R12), succes alleen server-side, kill switch op routeniveau (SC-17), geen aantal-control (hele plek via maillink). Surfaced by: R12, SC-17, Max' hele-plek-regel.
+- [ ] **T30 (correctie, P1)** — fee-instellingen: `cash_fee_mode` + CHECK, `set_company_fee_settings` (platform-admin, geaudit), **kolom-grants** (R9) incl. grant-matrix-update; `payment_amount_for(..., method)` leest `cash_fee_mode`. Surfaced by: R9, SC-19.
+- [ ] **T34 (P1, human: ~1d / CC: ~25min)** — tokens — `guest_pay_tokens` (raw + hash + expires_at), `door_pay_tokens(event_id)`, `upsert_guest_pay_token(guest_id, token_raw)` voor walk-in-sync, mint bij goedkeuring/event-start, retentie nult `token_raw`, niet gepubliceerd; `hashPublicToken` SQL-equivalent met vector-test.
+  - Surfaced by: 13.5 SC-12 / R10
+  - Files: `supabase/migrations/<new>_guest_pay_tokens.sql`, `supabase/tests/database/guest_pay_tokens.test.sql`, `src/features/door/sync/useDoorSync.ts`, `src/features/door/outbox/replay.ts`, `src/features/requests/public-token.ts`
+  - Verify: `pnpm db:test -- …guest_pay_tokens.test.sql` (allowed/denied/publication/retention); vitest vector
+- [ ] **T35 (P1, human: ~½d / CC: ~15min)** — balans — `guest_payment_balance` (SECURITY INVOKER) + indexen `entry_payments(guest_id, status)`; deur en weekstaat lezen de view; `check_ins.unconfirmed_heads` onveranderlijk.
+  - Surfaced by: 13.5 SC-15 / R11
+  - Files: `supabase/migrations/<new>_guest_payment_balance.sql`, `supabase/tests/database/guest_payment_balance.test.sql`, `src/features/door/queries.ts`, `src/features/door/model.ts`
+  - Verify: pgTAP deel-check-in/refund/open-sessie; vitest adapter
+- [ ] **T36 (P2, human: ~2h / CC: ~10min)** — regressiecontract — `GuestDetail.charge.test.tsx` (nieuw) naast ongewijzigde `GuestDetail.checkin.test.tsx`/`AddOnSpot.test.tsx`/`door-render-isolation.test.tsx`; flow `door-charge` Q1–Q2 asserten "niet-betaalbare rij = bar van vandaag".
+  - Surfaced by: 13.7 regressiecontract
+  - Files: `src/features/door/components/GuestDetail.charge.test.tsx`, `tests/flows/door-charge.flow.ts`
+  - Verify: `pnpm vitest run src/features/door`; `pnpm qa:flows door-charge`
+
+_No new tasks from Section 4 (performance): indexen zitten in T1/T34/T35._
+
+JSONL-artefact: `jq` ontbreekt op deze machine → niet geschreven (installeer jq voor `/autoplan`-aggregatie).
+
+### 13.16 Unresolved decisions
+
+Geen: R8–R12 zijn beantwoord (D2–D6), de structuur is D1 = A. Open **vragen** (P0: jurist, accountant, Stripe-meeting) blijven in het design-doc.
+
+### 13.17 Completion summary (eng her-run)
+
+- Step 0: Scope Challenge — scope accepted as-is (structuur A, origineel; geen reductie)
+- Reality rows: 7/7 applicable rows emitted (`PLAN_REALITY: phase=eng rows=7/7 missing=none unverified=0 verdict=complete`), 0 unverified premises
+- Architecture Review: 6 issues found (SC-12/13/14/15/16/17 + 1 nieuwe productiefout, alle gemapt)
+- Code Quality Review: 3 issues found (SC-20, model-afleiding, i18n-lanes)
+- Test Review: diagram produced, 41 gaps identified (11 E2E/flow), regressiecontract vastgelegd
+- Performance Review: 4 issues found (alle OK/gemapt op indexen)
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed to user
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 0 in this review
+- Outside voice: provider codex, unavailable (not installed; native fallback zonder TaskOutput niet mogelijk)
+- Parallelization: 4 lanes (A → B ∥ C ∥ D), 3 parallel / 2 sequential (T18 → A)
+- Lake Score: 1/5 = answers picking a 10/10 option / answers scored for Completeness (D3 = 10/10; D2/D4/D5/D6 = 9/10 maximaal)
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR | mode: HOLD SCOPE, 0 critical gaps (16 ledger rows approved, 15 tasks, 5 deferred items in TODOS.md; 2026-10-12, commit 6b2200f6) |
-| Outside Review | codex (`/plan-ceo-review` + `/plan-eng-review` outside voice; `/plan-design-review` design voices) | Independent 2nd opinion | 4 | UNAVAILABLE | no completed external review: Codex not installed (CEO, Eng, Design); the design round got a native in-host Claude subagent cold read instead (`design-outside-voices`, issues_found, F1–F12 applied in §12) — native is not outside coverage |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | ISSUES OPEN | 51 issues (9 architecture, 6 code quality, 31 test gaps, 5 performance), 0 critical gaps, 0 unresolved; all mapped to tasks T1–T25 (mode FULL_REVIEW) |
-| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score: 4/10 → 9/10, 29 decisions (26 option decisions D3–D11 + 3 product rules from Max), 0 unresolved, 1 TODO; text wireframes (designer had no API key); 2026-10-13, commit 2655fa12 |
+| Outside Review | codex (`/plan-ceo-review` + `/plan-eng-review` ×2 outside voice; `/plan-design-review` design voices) | Independent 2nd opinion | 5 | UNAVAILABLE | no completed external review: Codex not installed (CEO, Eng, Eng re-run, Design); the design round got a native in-host Claude subagent cold read (`design-outside-voices`, issues_found, F1–F12 applied in §12) — native is not outside coverage |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | ISSUES OPEN | run 1 (2026-10-13, commit d637c8e5): 51 issues, 0 critical gaps, R1–R7, tasks T16–T25; run 2 (re-run on the §12 delta, 2026-10-13): 54 issues (6 architecture, 3 code quality, 41 test gaps, 4 performance), 0 critical gaps, 0 unresolved, R8–R12 approved (D2–D6), structure D1 = A, tasks T34–T36 + corrections T2/T8/T20/T29/T30 (mode FULL_REVIEW) |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score: 4/10 → 9/10, 29 decisions (26 option decisions D3–D11 + 3 product rules from Max), 0 unresolved, 1 TODO; HTML mockup v1 with 16 frames (A–P) pending Max's feedback; D10.1 superseded the same evening by the whole-spot rule (2026-10-13, commit 2655fa12 → bd33d41b) |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
-- **OUTSIDE COVERAGE:** provider codex — phase plan-review unavailable twice (CEO 2026-10-12, Eng 2026-10-13: not installed; native fallback skipped, TaskOutput capability missing) and phase design unavailable (2026-10-13: not installed; a native in-host Claude subagent ran instead and is logged as `design-outside-voices` with `outside_status: unavailable`). No clean-review credit from any outside phase.
-- **VERDICT:** CEO + DESIGN CLEARED; ENG ISSUES OPEN (mapped work, 0 critical gaps, 0 unresolved) — eng review required: re-run `/plan-eng-review` or `/review` on the P1 PR once T18 + Lane A exist. The design decisions in §12 (fixed head count on the door QR, session on the Pay tap, ticket-only amounts on the venue side, platform-admin fee settings, `cash_fee_mode`) touch eng tasks T2, T8, T20 and T26–T33 and must be part of that re-run.
+- **OUTSIDE COVERAGE:** provider codex — phase plan-review unavailable three times (CEO 2026-10-12, Eng 2026-10-13, Eng re-run 2026-10-13: not installed; native fallback needs TaskOutput, absent in this host) and phase design unavailable (2026-10-13: not installed; a native in-host Claude subagent ran instead, logged as `design-outside-voices` with `outside_status: unavailable`). No clean-review credit from any outside phase.
+- **VERDICT:** CEO + DESIGN CLEARED; ENG ISSUES OPEN (mapped work, 0 critical gaps, 0 unresolved across both runs) — eng review required: the §12 delta is now reviewed (§13: token storage, fee column grants, Pay-tap throttle, derived balance, not-synced poll, whole-spot mail link); re-run `/plan-eng-review` or `/review` on the P1 PR once T18 + Lane A exist.
 
 NO UNRESOLVED DECISIONS
