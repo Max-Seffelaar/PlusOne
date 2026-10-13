@@ -237,6 +237,17 @@ export const FLOWS = {
       'src/app/onboarding/',
     ],
   },
+  'guest-add-patch': {
+    title: 'Snelheid P2 #14 (z8uq9m2xz2) — adding a guest patches one row instead of re-downloading the list; an upcoming event\'s stats panel does not poll',
+    paths: [
+      'src/features/po/mutations.ts',
+      'src/features/po/hooks.ts',
+      'src/features/po/queries.ts',
+      'src/components/po/screens/events.tsx',
+      'src/components/po/screens/events/',
+      'src/components/po/screens/guests/',
+    ],
+  },
   'team-crew-manage': {
     title: 'Team — an admin manages external crew per event: quota and remove from crew (z8uq9m2yvp)',
     paths: [

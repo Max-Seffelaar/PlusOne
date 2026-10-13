@@ -283,6 +283,20 @@ export interface GuestExtras {
 // never visibly changes look the moment the server row replaces it.
 const DEFAULT_GUEST_PAY: Guest['pay'] = 'free';
 
+/**
+ * A guest row with its tier's role/name/colour resolved from the event's tier
+ * list: the one assembly shared by the guest list (usePoGuests) and the
+ * single-row patch after an add (patchAddedGuest), so the two never drift.
+ */
+export function toPoGuestWithTiers(row: PoGuestRow, tiers: ReadonlyArray<Pick<Tier, 'id' | 'name' | 'color'>>): Guest {
+  const tier = tiers.find((t) => t.id === row.tier_id);
+  return toPoGuest(row, {
+    role: tierRole(tier?.name ?? '').role,
+    tierName: tier?.name,
+    tierColor: tier?.color ?? undefined,
+  });
+}
+
 export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
   return {
     id: row.id,

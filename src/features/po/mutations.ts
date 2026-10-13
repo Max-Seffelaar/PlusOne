@@ -138,10 +138,11 @@ import {
 } from '@/features/platform/invite-actions';
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
-import type { CheckinArrival, PoRequestLink } from './queries';
+import { fetchGuests, type CheckinArrival, type PoRequestLink } from './queries';
 import { poKeys } from './keys';
+import { createClient } from '@/lib/supabase/client';
 import { classifyAddResult, type BulkAddRowResult } from './bulk';
-import { optimisticGuest, type OptimisticAddArgs } from './adapters';
+import { optimisticGuest, toPoGuestWithTiers, type OptimisticAddArgs } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
 import { supabaseGateway } from '@/features/door/outbox/gateway';
 import { getDeviceId, getDoorClient } from '@/features/door/offline/device';
@@ -196,10 +197,45 @@ export const EVENTS_PREFIX = [...poKeys.all, 'events'] as const;
 
 function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+  invalidateAddDerived(qc, eventId);
+}
+
+/** Everything an add moves except the event's own guest list. */
+function invalidateAddDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+  // "Added by" per member and the per-tier registered counts move on every add;
+  // the stats poll only runs while the event is live (review #493).
+  void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
   void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
   void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+}
+
+/**
+ * Swap the optimistic row of a just-added guest for the server's row — one
+ * single-row read (with its "added by" / source provenance) instead of
+ * re-downloading the whole event (Snelheid P2, finding 14). Newest first, like
+ * usePoGuests orders the list. Returns false when it couldn't (no client id, a
+ * failed read, a row RLS doesn't show) or shouldn't: a list read in flight
+ * (setQueryData doesn't cancel it, and it may land without the new row). The
+ * caller then falls back to the refetch; it also skips the patch when there was
+ * no list to patch before the optimistic row (review #493).
+ */
+async function patchAddedGuest(qc: QueryClient, eventId: string, guestId: string | undefined): Promise<boolean> {
+  if (!guestId) return false;
+  const key = poKeys.guests(eventId);
+  const listIsPatchable = () => qc.getQueryData<Guest[]>(key) !== undefined && qc.isFetching({ queryKey: key }) === 0;
+  if (!listIsPatchable()) return false;
+  try {
+    const [row] = await fetchGuests(createClient(), eventId, { guestId });
+    // Re-check after the await: a refetch may have started meanwhile.
+    if (!row || !listIsPatchable()) return false;
+    const guest = toPoGuestWithTiers(row, qc.getQueryData<Tier[]>(poKeys.tiers(eventId)) ?? []);
+    qc.setQueryData<Guest[]>(key, (old) => [guest, ...(old ?? []).filter((g) => g.id !== guestId)]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // The settings cluster reuses the EXISTING (prev, FormData) → ActionState server
@@ -230,11 +266,26 @@ export function usePoAddGuest(eventId: string) {
       ]),
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prev);
+      invalidateAfterAdd(qc, eventId);
     },
-    // Reconcile with the server (real ids, role, audit) regardless of outcome —
-    // our own key-invalidation, never Next's revalidatePath (that won't touch
-    // the client React Query cache the po surface reads from).
-    onSettled: () => invalidateAfterAdd(qc, eventId),
+    // Reconcile with the server (real row, role, provenance): the one new row,
+    // not the whole list; the derived counts refetch. Our own key-invalidation,
+    // never Next's revalidatePath (that won't touch the client React Query
+    // cache the po surface reads from). Not awaited: the insert already
+    // succeeded and the row is on screen, so the mutation (and quick-add's form
+    // reset) must not wait for the patch read (review #493).
+    onSuccess: (_res, input, ctx) => {
+      invalidateAddDerived(qc, eventId);
+      // No list before onMutate: the cache now holds only the optimistic row,
+      // which must not pass for the whole event — refetch instead.
+      if (!ctx?.prev) {
+        void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+        return;
+      }
+      void patchAddedGuest(qc, eventId, input.id).then((ok) => {
+        if (!ok) void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      });
+    },
   });
 }
 
@@ -264,6 +315,7 @@ function guestMutation<TInput>(
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
       void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
       // An edit can change plus_ones, a removal frees heads: the cards' counts move.
       void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });

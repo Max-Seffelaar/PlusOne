@@ -100,6 +100,24 @@ Milestone **≥5**. Branch `claude/z8uq9m2xz2-events-window`. No migration.
 - **Review round (2026-10-13):** the All-guests tab no longer depends on the window (event name from an `events(name)` embed on the guest row, no `events.length` gate: a quiet season still lists the venue's guests); Requests and Promotion pick events from `usePoEventOptions` (every event, rows only, no headcount aggregate); staleTime drops to 30 s while an event in the window is live (door outbox and other devices move Inside), refuse/undo-refusal invalidate the events prefix; the window's lower bound is day-rounded so a refetch never resets loaded Past pages; a failed "Show older events" can be retried; a Past search that finds nothing says it only covered the last 30 days; `poKeys.home` duplicate invalidations removed; the perf seed's local-only guard compares the parsed host.
 - **Tests:** `events.tab.test.tsx` (Past paging), `mutations.eventsInvalidate.test.tsx`, `hooks.usePoEvent.test.tsx` seeds the window shape, i18n snapshot (+1 string); flow `events-window` (5 checks × 4 variants); `pnpm e2e:smoke` 12/12 locally (incl. `door-offline-reload`, `app-home-events-visible`).
 
+## 2026-10-12 — Snelheid P2 #14 + own organizer scope (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-minor`. No migration.
+
+- **Guest add patches one row:** `usePoAddGuest` swaps its optimistic row for the server's row through a single-row read (`fetchGuests(…, { guestId })`, same select and status filter, with "added by" provenance) instead of re-downloading the event; tiers, quota and the venue-wide list still refresh, and a failed read falls back to the list refetch. Measured (`scripts/perf/p2-measure-minor.mjs`, 1 000-guest event, admin through RLS): 4 requests / 485 kB / 90 ms → 2 / 1 kB / 17 ms.
+- **No second tiers read:** `usePoGuests` takes tier names/colours from the event's `poKeys.tiers` query (`qc.fetchQuery`, 30 s fresh; one shared `fetchPoTiers`) instead of reading `guest_tiers` next to `usePoTiers`.
+- **Stats poll only when live:** `EventView` passed `isLive` unconditionally, so an upcoming event's detail polled the 5-RPC stats bundle every 15 s; it now passes `ev.phase === 'live'`.
+- **Own organizer scope (P1-review follow-up):** `assignOrganizer` / `removeOrganizer` re-render the `/app` layout when the target is the caller (`revalidateOwnCrewScope`), so the venue switcher's crew access set follows; `no-dead-revalidate-path.test.ts` allows exactly that one call in `src/features/events`. `inviteExternalCrew` only creates an invite (a company never inserts a crew row, #24), so it cannot change the caller's scope and gets no call.
+- **Not done:** bulk-paste contact matching in one RPC needs a new SQL function, i.e. a migration slot this work stream was not assigned (only `20261017120200`/`120300`); left for a follow-up.
+- **Review round:**
+  - **Patch guards.** The patch is skipped, and the list refetched, when there was no list before the optimistic row, or when a list read is in flight before or after the row read: `setQueryData` doesn't cancel that read.
+  - **Non-blocking `onSuccess`.** The mutation no longer waits for the patch read, so quick-add's form resets at once.
+  - **Stats.** `invalidateAddDerived` and `guestMutation` invalidate `poKeys.eventStats`, so an upcoming event's panel follows its own writes without the poll.
+  - **One adapter.** `toPoGuestWithTiers` in `adapters.ts` is used by both `usePoGuests` and the patch.
+  - **`assignOrganizer`.** It revalidates its own scope even when the quota save fails, since the organizer row is already in.
+  - **Flow.** Q2 is scoped to the new guest's row.
+- **Tests:** `guest-add-patch.test.tsx` (one-row patch, newest first, fallback; tiers reused; empty cache, in-flight read, non-blocking success, eventStats); `no-dead-revalidate-path.test.ts`; flow `guest-add-patch` (4 checks × 4 variants).
+
 ---
 
 ## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)

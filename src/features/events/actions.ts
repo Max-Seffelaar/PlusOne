@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { sendInviteEmail } from '@/features/auth/invite-mail';
 import { inviteMailCapReached } from '@/features/mail/limits';
@@ -529,6 +530,19 @@ async function upsertCrewQuota(supabase: ServerClient, eventId: string, userId: 
     .upsert({ event_id: eventId, user_id: userId, quota_override: quota }, { onConflict: 'event_id,user_id' });
 }
 
+/**
+ * The `/app` layout derives the caller's crew access set (`organizerVenues`:
+ * which companies they reach through event crew). po invalidates its own React
+ * Query keys after a crew write, but this set lives in the layout, so when an
+ * admin changes their OWN organizer scope the venue switcher would stay stale
+ * until a reload (P1-review follow-up, Snelheid P2). Same rule as the venue
+ * member actions: re-render the layout only for a change to the caller. The one
+ * `revalidatePath` this module may hold (tests/unit/no-dead-revalidate-path.test.ts).
+ */
+function revalidateOwnCrewScope(targetUserId: string, callerId: string): void {
+  if (targetUserId === callerId) revalidatePath('/app', 'layout');
+}
+
 /** Add an existing (external) user as crew of an event, with an optional guest
  *  quota (admin — RLS; role-only since the #20 refinement 2026-06-24). */
 export async function assignOrganizer(input: AssignOrganizerInput): Promise<ActionResult> {
@@ -558,8 +572,13 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   }
   if (quota !== undefined) {
     const { error: qErr } = await upsertCrewQuota(supabase, eventId, userId, quota);
-    if (qErr) return mapMutationError(qErr);
+    if (qErr) {
+      // The organizer row is already in: the caller's scope changed either way.
+      revalidateOwnCrewScope(userId, ctx.user.id);
+      return mapMutationError(qErr);
+    }
   }
+  revalidateOwnCrewScope(userId, ctx.user.id);
   return { ok: true };
 }
 
@@ -905,6 +924,7 @@ export async function removeOrganizer(input: RemoveOrganizerInput): Promise<Acti
   if (!count) {
     return { ok: false, code: 'noop', message: "Couldn't remove the organizer (no access)." };
   }
+  revalidateOwnCrewScope(userId, ctx.user.id);
   return { ok: true };
 }
 
