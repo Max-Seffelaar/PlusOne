@@ -672,18 +672,19 @@ describe('fetchContacts → contact_event_counts (no id lists)', () => {
     const rows = await fetchContacts(client, 'venue-1');
 
     expect(from).toHaveBeenCalledTimes(1);
-    expect(rpcCalls).toEqual([['contact_event_counts', { p_venue_id: 'venue-1', p_permanent_only: false }]]);
+    expect(rpcCalls).toEqual([['contact_event_counts', { p_venue_id: 'venue-1' }]]);
     expect(rows).toHaveLength(300);
     expect(rows.find((r) => r.id === 'c1')?.eventCount).toBe(4);
     expect(rows.find((r) => r.id === 'c2')?.eventCount).toBe(0);
   });
 
-  it('permanentOnly filters the Regulars server-side, rows and counts alike', async () => {
+  it('the Regulars read filters server-side and skips the counts round-trip (review #481)', async () => {
     const { client, eqCalls, rpcCalls } = makeClient(['c1'], []);
-    await fetchContacts(client, 'venue-1', { permanentOnly: true });
+    const rows = await fetchContacts(client, 'venue-1', { permanentOnly: true, withCounts: false });
 
     expect(eqCalls).toContainEqual(['is_permanent', true]);
-    expect(rpcCalls).toEqual([['contact_event_counts', { p_venue_id: 'venue-1', p_permanent_only: true }]]);
+    expect(rpcCalls).toEqual([]);
+    expect(rows.map((r) => [r.id, r.eventCount])).toEqual([['c1', 0]]);
   });
 });
 

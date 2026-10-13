@@ -79,7 +79,7 @@ async function main() {
       ['Contacten (address book)', 'before', () => oldFetchContacts(client, PERF_VENUE, src)],
       ['Contacten (address book)', 'after', () => src.fetchContacts(client, PERF_VENUE)],
       ['Guests tab · Regulars', 'before', async () => (await oldFetchContacts(client, PERF_VENUE, src)).filter((c) => c.is_permanent)],
-      ['Guests tab · Regulars', 'after', () => src.fetchContacts(client, PERF_VENUE, { permanentOnly: true })],
+      ['Guests tab · Regulars', 'after', () => src.fetchContacts(client, PERF_VENUE, { permanentOnly: true, withCounts: false })],
     ];
     console.log('| Read | Side | Requests | Bytes | Time (median of 5) | Rows |');
     console.log('|---|---|---|---|---|---|');

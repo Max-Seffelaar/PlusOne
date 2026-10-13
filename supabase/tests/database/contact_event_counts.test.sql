@@ -2,9 +2,8 @@
 -- The RPC replaces a client loop of guests.in('contact_id', …) reads, so its
 -- contract is: per role it returns EXACTLY what a direct GROUP BY over the
 -- guests that role can already read returns (SECURITY INVOKER, role-relative),
--- never more; removed guests and other venues never count; p_permanent_only
--- narrows to starred contacts (and yields nothing to roles without contacts
--- SELECT). Everything rolls back.
+-- never more (admin, organizer, staff, doorhost, user_manager, no membership);
+-- removed guests and other venues never count. Everything rolls back.
 
 begin;
 
@@ -19,7 +18,7 @@ begin
 end;
 $fn$;
 
-select plan(15);
+select plan(16);
 
 -- Fixture (superuser): a second Club Vesper event WITHOUT the organizer, Sanne
 -- (permanent) on both events plus a removed duplicate on event 1 (distinct
@@ -54,11 +53,11 @@ select set_config('test.truth_v1', coalesce((
            group by g.contact_id) t), ''), true);
 
 -- ── Shape ────────────────────────────────────────────────────────────────────
-select is((select prosecdef from pg_proc where oid = 'public.contact_event_counts(uuid, boolean)'::regprocedure),
+select is((select prosecdef from pg_proc where oid = 'public.contact_event_counts(uuid)'::regprocedure),
   false, '1 contact_event_counts is SECURITY INVOKER (role-relative through RLS)');
-select ok(not has_function_privilege('anon', 'public.contact_event_counts(uuid, boolean)', 'execute'),
+select ok(not has_function_privilege('anon', 'public.contact_event_counts(uuid)', 'execute'),
   '2 anon cannot execute contact_event_counts');
-select ok(has_function_privilege('authenticated', 'public.contact_event_counts(uuid, boolean)', 'execute'),
+select ok(has_function_privilege('authenticated', 'public.contact_event_counts(uuid)', 'execute'),
   '3 authenticated can execute contact_event_counts');
 
 -- ── Admin: the full truth ────────────────────────────────────────────────────
@@ -76,15 +75,28 @@ select is(
   (select event_count from public.contact_event_counts('aa000000-0000-7000-8000-000000000001')
     where contact_id = 'c0000000-0000-7000-8000-000000000003'),
   1, '6 a removed guest row never counts (Pim: seeded on event 1, removed on event 2)');
+-- ── Doorhost and user_manager: their own RLS read, never more ─────────────
+select pg_temp.login('66666666-6666-4666-8666-666666666666');
 select is(
-  (select count(*)::int from public.contact_event_counts('aa000000-0000-7000-8000-000000000001', true) r
-     join public.contacts c on c.id = r.contact_id
-    where not c.is_permanent),
-  0, '7 p_permanent_only returns starred contacts only');
-select ok(
-  exists (select 1 from public.contact_event_counts('aa000000-0000-7000-8000-000000000001', true)
-           where contact_id = 'c0000000-0000-7000-8000-000000000001'),
-  '8 p_permanent_only keeps a starred contact with appearances');
+  (select coalesce(string_agg(contact_id::text || ':' || event_count, ',' order by contact_id), '')
+     from public.contact_event_counts('aa000000-0000-7000-8000-000000000001')),
+  (select coalesce(string_agg(contact_id::text || ':' || n, ',' order by contact_id), '')
+     from (select g.contact_id, count(distinct g.event_id) as n from public.guests g
+            where g.venue_id = 'aa000000-0000-7000-8000-000000000001'
+              and g.contact_id is not null and g.status <> 'removed'
+            group by g.contact_id) t),
+  '7 doorhost: RPC equals a direct GROUP BY over what RLS shows them');
+select pg_temp.login('22222222-2222-4222-8222-222222222222');
+select is(
+  (select coalesce(string_agg(contact_id::text || ':' || event_count, ',' order by contact_id), '')
+     from public.contact_event_counts('aa000000-0000-7000-8000-000000000001')),
+  (select coalesce(string_agg(contact_id::text || ':' || n, ',' order by contact_id), '')
+     from (select g.contact_id, count(distinct g.event_id) as n from public.guests g
+            where g.venue_id = 'aa000000-0000-7000-8000-000000000001'
+              and g.contact_id is not null and g.status <> 'removed'
+            group by g.contact_id) t),
+  '8 user_manager: RPC equals a direct GROUP BY over what RLS shows them');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is(
   (select count(*)::int from public.contact_event_counts('aa000000-0000-7000-8000-000000000001') r
      join public.guests g on g.contact_id = r.contact_id
@@ -113,8 +125,9 @@ select is(
 -- ── Staff: no address-book read ─────────────────────────────────────────────
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select is(
-  (select count(*)::int from public.contact_event_counts('aa000000-0000-7000-8000-000000000001', true)),
-  0, '12 staff: p_permanent_only yields nothing (no contacts SELECT)');
+  (select count(*)::int from public.contact_event_counts('aa000000-0000-7000-8000-000000000001') r
+    where not exists (select 1 from public.guests g where g.contact_id = r.contact_id)),
+  0, '12 staff: every counted contact is on a guest row staff can read');
 select is(
   (select coalesce(string_agg(contact_id::text || ':' || event_count, ',' order by contact_id), '')
      from public.contact_event_counts('aa000000-0000-7000-8000-000000000001')),
@@ -131,13 +144,19 @@ select is(
   (select count(*)::int from public.contact_event_counts('aa000000-0000-7000-8000-000000000002')),
   0, '14 finance of venue 1 gets nothing for venue 2 (cross-venue isolation)');
 
+-- ── A signed-in user with no membership anywhere ─────────────────────────────
+select pg_temp.login('99999999-9999-4999-8999-999999999999');
+select is(
+  (select count(*)::int from public.contact_event_counts('aa000000-0000-7000-8000-000000000001')),
+  0, '15 a user with no membership gets nothing');
+
 -- ── anon ────────────────────────────────────────────────────────────────────
 reset role;
 select set_config('request.jwt.claims', '{"role": "anon"}', true);
 set local role anon;
 select throws_ok(
   $$ select * from public.contact_event_counts('aa000000-0000-7000-8000-000000000001') $$,
-  '42501', null, '15 anon is refused');
+  '42501', null, '16 anon is refused');
 
 reset role;
 select * from finish();

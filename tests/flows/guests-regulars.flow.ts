@@ -7,8 +7,8 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  *
  *   admin@ on Club Vesper → Guests (all events) → Regulars chip: the guest
  *   linked to a starred contact stays, the one linked to an ordinary contact
- *   goes → the network shows the starred-only contacts read and the one
- *   `contact_event_counts` RPC, never a `guests?contact_id=in.(…)` id list →
+ *   goes → the network shows the starred-only contacts read (no counts RPC:
+ *   the filter reads ids), never a `guests?contact_id=in.(…)` id list →
  *   Contacts: every contact with its "N× on a list" count from that RPC.
  *
  * Seed: Sanne Mulder (c0…01) is starred, Pim Scholten (c0…03) is not and is
@@ -70,9 +70,9 @@ test('regulars + contacts: server-side filter, one counts RPC, no id lists', asy
   });
   await flow.shot('guests-regulars');
 
-  await flow.check(2, 'The Regulars read filters on the server: contacts?is_permanent=eq.true + contact_event_counts with p_permanent_only', async () => {
+  await flow.check(2, 'The Regulars read filters on the server (contacts?is_permanent=eq.true) and fetches no counts it would not show', async () => {
     expect(urls.some((u) => u.includes('/rest/v1/contacts?') && u.includes('is_permanent=eq.true'))).toBe(true);
-    expect(urls.some((u) => u.includes('/rest/v1/rpc/contact_event_counts'))).toBe(true);
+    expect(urls.filter((u) => u.includes('/rest/v1/rpc/contact_event_counts'))).toEqual([]);
   });
   await flow.check(3, 'No guests read sends a contact id list (no contact_id=in.(…))', async () => {
     expect(urls.filter((u) => u.includes('/rest/v1/guests?') && u.includes('contact_id=in.'))).toEqual([]);

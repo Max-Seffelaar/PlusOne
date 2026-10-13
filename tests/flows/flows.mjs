@@ -183,7 +183,7 @@ export const FLOWS = {
     ],
   },
   'guests-regulars': {
-    title: 'Snelheid P2 #6 (z8uq9m2xz2) — Regulars filter + address book read server-side: starred-only contacts read, one contact_event_counts RPC, no contact id lists',
+    title: 'Snelheid P2 #6 (z8uq9m2xz2) — Regulars filter + address book read server-side: starred-only contacts read without counts, the address book counts from one contact_event_counts RPC, no contact id lists',
     paths: [
       'src/features/po/queries.ts',
       'src/features/po/hooks.ts',

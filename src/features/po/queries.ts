@@ -1346,14 +1346,10 @@ export type PoContactRow = {
  * scoped in SQL, so no id list ever crosses the wire. Ranged: one row per
  * contact with appearances, which can pass 1 000.
  */
-async function contactEventCounts(
-  client: Client,
-  venueId: string,
-  permanentOnly: boolean,
-): Promise<Map<string, number>> {
+async function contactEventCounts(client: Client, venueId: string): Promise<Map<string, number>> {
   const rows = await fetchAllRanged<{ contact_id: string; event_count: number }>((from, to) =>
     client
-      .rpc('contact_event_counts', { p_venue_id: venueId, p_permanent_only: permanentOnly })
+      .rpc('contact_event_counts', { p_venue_id: venueId })
       .select('contact_id, event_count')
       .range(from, to),
   );
@@ -1365,11 +1361,13 @@ type ContactBaseRow = Omit<PoContactRow, 'eventCount'>;
 
 /** Which slice of the address book `fetchContacts` reads. */
 export type ContactsScope = {
-  /** Server-side name search (ilike). */
-  search?: string;
   /** Starred contacts only — the Guests tab's "Regulars" filter (uses the
    *  partial index contacts_venue_permanent_idx). */
   permanentOnly?: boolean;
+  /** Join the per-contact event counts (default true). The Regulars filter
+   *  only needs the ids, so it skips the counts round-trip (review #481);
+   *  its rows then carry eventCount 0. */
+  withCounts?: boolean;
 };
 
 /** The venue address book (managers), newest-name-first, with per-contact event counts. */
@@ -1378,11 +1376,11 @@ export async function fetchContacts(
   venueId: string,
   scope: ContactsScope = {}
 ): Promise<PoContactRow[]> {
-  const term = scope.search?.trim();
   const permanentOnly = scope.permanentOnly ?? false;
-  // Ranged: a venue address book can hold >1000 contacts. The full filter (incl.
-  // the optional name search) is rebuilt per page since builders are one-shot;
-  // `full_name` isn't unique, so `.order('id')` is the deterministic tiebreaker.
+  const withCounts = scope.withCounts ?? true;
+  // Ranged: a venue address book can hold >1000 contacts. The filter is rebuilt
+  // per page since builders are one-shot; `full_name` isn't unique, so
+  // `.order('id')` is the deterministic tiebreaker.
   // The rows and the counts are independent venue-scoped reads, so they run in
   // parallel: two round-trips' worth of latency, not a chain.
   const rowsPromise = fetchAllRanged<ContactBaseRow>((from, to) => {
@@ -1393,14 +1391,13 @@ export async function fetchContacts(
       .is('anonymized_at', null)
       .order('full_name')
       .order('id');
-    if (term) query = query.ilike('full_name', `%${term}%`);
     if (permanentOnly) query = query.eq('is_permanent', true);
     return query.range(from, to);
   });
 
   const [rows, counts] = await Promise.all([
     rowsPromise,
-    contactEventCounts(client, venueId, permanentOnly),
+    withCounts ? contactEventCounts(client, venueId) : Promise.resolve(new Map<string, number>()),
   ]);
   return rows.map((c) => ({ ...c, eventCount: counts.get(c.id) ?? 0 }));
 }

@@ -2766,7 +2766,7 @@ export type Database = {
         Returns: boolean
       }
       contact_event_counts: {
-        Args: { p_permanent_only?: boolean; p_venue_id: string }
+        Args: { p_venue_id: string }
         Returns: {
           contact_id: string
           event_count: number

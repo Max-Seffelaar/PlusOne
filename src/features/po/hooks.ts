@@ -1081,19 +1081,19 @@ export function usePoPromoLabelFunnel(range: PromoRange) {
 // organizer, so staff/doorhost get [] and the screen renders its empty state.
 
 /**
- * The venue address book. The optional search is server-side (ilike on name); the
- * screen also filters client-side on the last-4 phone hint. One cache per search
- * term, all under the ['po','contacts',venueId] prefix so writes invalidate every
- * variant at once.
+ * The venue address book (Contacts screen), with "N× on a list" counts from
+ * one GROUP BY RPC. The screen filters client-side (name + last-4 phone hint).
+ * Keyed under the ['po','contacts',venueId] prefix so writes invalidate every
+ * contacts variant at once.
  */
-export function usePoContacts(search = '') {
+export function usePoContacts() {
   const { venueId } = usePoIdentity();
   return useQuery<PoContact[]>({
-    queryKey: poKeys.contacts(venueId ?? '', search),
+    queryKey: poKeys.contacts(venueId ?? ''),
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      const rows = await fetchContacts(createClient(), venueId, { search });
+      const rows = await fetchContacts(createClient(), venueId);
       return rows.map(toPoContact);
     },
   });
@@ -1141,8 +1141,9 @@ export function usePoContactNameMatches(names: string[]) {
 
 /**
  * Permanent contacts only (the Guests tab's "Regulars" filter). Filtered on the
- * server (`is_permanent`, partial index) with counts from one GROUP BY RPC, so
- * the Guests tab no longer downloads the whole address book (Snelheid P2 #6).
+ * server (`is_permanent`, partial index) and without the event counts (the
+ * filter reads ids only), so the Guests tab no longer downloads the whole
+ * address book (Snelheid P2 #6). Rows carry eventCount 0.
  * Every contacts write invalidates the ['po','contacts',venueId] prefix, which
  * covers this key too.
  */
@@ -1153,7 +1154,8 @@ export function usePoPermanentContacts() {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      const rows = await fetchContacts(createClient(), venueId, { permanentOnly: true });
+      // Ids are all the filter reads: no counts round-trip (review #481).
+      const rows = await fetchContacts(createClient(), venueId, { permanentOnly: true, withCounts: false });
       return rows.map(toPoContact);
     },
   });
