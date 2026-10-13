@@ -461,6 +461,25 @@ export const FLOWS = {
       'src/components/po/screens/platform',
     ],
   },
+  'form-errors': {
+    title: 'Form errors point at the field, follow-up (z8uq9m5m8g) — profile reserved name, promoter handle, new company KVK + billing email (two fields at once)',
+    paths: [
+      'src/lib/field-error.ts',
+      'src/lib/db-errors.ts',
+      'src/components/po/field-error-style.ts',
+      'src/components/po/phone-lazy.tsx',
+      'src/features/po/mutations.ts',
+      'src/features/auth/profile-actions.ts',
+      'src/features/auth/schemas.ts',
+      'src/features/links/',
+      'src/features/venues/actions.ts',
+      'src/features/venues/schemas.ts',
+      'src/components/po/screens/settings/profile.tsx',
+      'src/components/po/screens/settings/_shared.tsx',
+      'src/components/po/screens/promotion/',
+      'src/components/po/screens/onboarding.tsx',
+    ],
+  },
   'kit-select': {
     title: 'Kit Select (z8uq9m4a2w) — PlusOne dropdown: popover on a fine pointer, bottom sheet on touch; Platform audit + mail log',
     paths: [
