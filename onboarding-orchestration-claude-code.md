@@ -287,6 +287,15 @@ Besluiten Max 2026-10-12 (startprompt golf F):
   - **#484, #490 en #493 zijn één groep:** samen erin of samen eruit.
   - **Een migratie-PR die eruit gaat krijgt later een nieuw slot,** omdat de CLI een oudere migratie dan de nieuwste op prod weigert.
 
+**Train gebouwd (2026-10-13 ~16:00 UTC, vóór de cutoff, want alles was goedgekeurd):** [#502](https://github.com/Max-Seffelaar/PlusOne/pull/502), branch `claude/golf-f-train`, head `2033e4cc`. 14 PR's in timestamp-volgorde: #494, #482, #481, #484, #490, #493, #486, #491, #492, #483, #487, #498, #500, #501.
+- **Wat de train zelf doet:**
+  - de changelog-entries samengevoegd;
+  - `usePoHomeEvents` krijgt de kant van #490 (geverifieerd door de 9-FE-reviewer);
+  - de entries in `flows.mjs` en spec #65/#66 allebei behouden;
+  - de `chunkIds`-import hersteld: #481 haalde hem weg, #494 gebruikt hem.
+- **Lokaal:** tsc schoon; lint alleen de 2 bekende warnings; `CI=1 pnpm test` 346 files / 4179 tests groen. pgTAP, layout en flows draaien in CI.
+- **Prod-push na de merge:** één `Push-PlusOneProd 20261017120300`.
+
 | Taak | Worker-sessie | PR | Status | Reviewer | Prod |
 |---|---|---|---|---|---|
 | 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | [#494](https://github.com/Max-Seffelaar/PlusOne/pull/494) | opgeleverd 2026-10-13 (head `96f5c36`; main incl. #479/#495 gemerged; `supabase db reset` + `pnpm db:test` groen, 117 files / 3368 asserts; flows quota-request-guest + team-mail 4/4) | `session_011fDzCADzZQsv7TqTGCRUza` | `20261016190000` |
