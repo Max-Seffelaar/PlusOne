@@ -44,6 +44,7 @@ server/mail change.
   disabled, text, re-enabled, neutral class, live cadence). Flows: kit-select
   checks 13–14 (modal sheet, never clipped in a clipping host), platform-reinvite
   checks 2 (neutral) and 7–8 (countdown, re-enabled after the minute).
+
 ---
 
 ## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
