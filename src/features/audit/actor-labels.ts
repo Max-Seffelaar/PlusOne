@@ -111,13 +111,10 @@ export function actorRef(id: string | null | undefined, labels: ActorLabels): Ac
   return text === undefined ? { text: t.shared.actor.unknown, kind: 'unknown' } : { text, kind: labels.kindOf(id) };
 }
 
-/** PostgREST: function not in the schema cache (bundle live before its migration). */
-const FUNCTION_MISSING = 'PGRST202';
-
 /**
  * Resolve actor ids → labels for one venue, chunked to {@link ACTOR_ID_CHUNK}.
  * Null/empty ids are dropped (rule 3 is {@link actorRef}'s job). An id without
- * a footprint in the venue simply has no entry. Throws on any other RPC error.
+ * a footprint in the venue simply has no entry. Throws on any RPC error.
  */
 export async function fetchActorLabels(
   client: Client,
@@ -130,21 +127,7 @@ export async function fetchActorLabels(
 
   for (const chunk of chunkIds(clean, ACTOR_ID_CHUNK)) {
     const { data, error } = await client.rpc('venue_actor_names', { p_venue_id: venueId, p_ids: chunk });
-    if (error) {
-      if ((error as { code?: string }).code !== FUNCTION_MISSING) throw error;
-      // EXPAND–CONTRACT SHIM: remove in the contract step once
-      // 20261016140000_venue_actor_names is on prod (tracked by the
-      // orchestrator). While this bundle is live before that migration the RPC
-      // does not exist (PGRST202); only then the chunk falls back to the old
-      // RLS-scoped user_profiles read, so screens keep their previous labels.
-      const fallback = await client.from('user_profiles').select('id, full_name').in('id', chunk);
-      if (fallback.error) throw fallback.error;
-      for (const p of fallback.data ?? []) {
-        const ref = nameRef(p.full_name);
-        labels.setActor(p.id, ref.text, ref.kind);
-      }
-      continue;
-    }
+    if (error) throw error;
     for (const row of (data ?? []) as ActorNameRow[]) {
       const ref = refForActorRow(row);
       labels.setActor(row.user_id, ref.text, ref.kind);
