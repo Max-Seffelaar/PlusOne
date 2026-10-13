@@ -77,7 +77,8 @@ async function sendInvite(page: Page, email: string): Promise<void> {
 }
 
 const sendStatus = (page: Page) => page.getByRole('status').filter({ hasText: /Invite sent|Already invited/ });
-const sendAlert = (page: Page) => page.getByRole('alert');
+// A <p role="alert">: Next's route announcer is an (empty) role=alert too.
+const sendAlert = (page: Page) => page.locator('p[role="alert"]');
 
 test.describe('platform re-invite', () => {
   let adminId = '';
