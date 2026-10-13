@@ -70,6 +70,10 @@ export const links = {
   errCreate: "Couldn't create the link.",
   errSave: "Couldn't save the link.",
   errArchive: "Couldn't archive the link.",
+  /** Under a promoter/link text field that is over its limit (z8uq9m5m8g). {n} = the limit. */
+  errTooLong: 'Keep it to {n} characters.',
+  /** Under "Max people" when the server refuses the number (z8uq9m5m8g). */
+  errMaxHeadsRange: 'Use a whole number from 1 to 100,000.',
 
   // ── QR sheet ────────────────────────────────────────────────────────────────
   qrTitle: 'QR code',

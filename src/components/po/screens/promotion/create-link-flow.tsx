@@ -19,9 +19,9 @@ import { usePoCreateInfluencer, usePoCreateLink } from '@/features/po/mutations'
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { localInputToIso } from '@/features/events/datetime';
 import { Icon } from '../../icon';
-import { Btn, Field, Label, TierPicker, ToggleRow, copyStateLabel, press, useCopyText } from '../../kit';
+import { Btn, Field, FieldErrorFor, Label, TierPicker, ToggleRow, copyStateLabel, fieldInputProps, press, useCopyText, useFieldErrors } from '../../kit';
 import { Sheet } from '../../shell';
-import { EventPicker, Kicker } from './shared';
+import { EventPicker, Kicker, LINK_FORM_FIELDS, expiryField, linkFormField } from './shared';
 
 type WhoKind = 'influencer' | 'new' | 'label' | null;
 
@@ -86,7 +86,8 @@ export function CreateLinkFlow({
   const [maxHeads, setMaxHeads] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [expiryTime, setExpiryTime] = useState('');
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(LINK_FORM_FIELDS);
   const [doneUrl, setDoneUrl] = useState('');
   const [doneName, setDoneName] = useState('');
   const [copyState, copyUrl, clearCopied] = useCopyText();
@@ -110,19 +111,19 @@ export function CreateLinkFlow({
     setLabel('');
     setTierId('');
     setAutoApprove(false);
-    setErr(null);
+    fe.reset();
   };
 
   // Turning auto-approve on requires a pinned tier: auto-select the first one,
   // or surface the "add a tier first" hint on a tier-less event.
   const setAuto = (v: boolean): void => {
-    setErr(null);
+    fe.reset();
     if (v && !tierId) {
       if (tiers.length > 0) {
         setTierId(tiers[0].id);
         setAutoApprove(true);
       } else {
-        setErr(t.links.noTiersYet);
+        fe.fail(t.links.noTiersYet);
       }
       return;
     }
@@ -130,7 +131,7 @@ export function CreateLinkFlow({
   };
 
   const create = async (): Promise<void> => {
-    setErr(null);
+    fe.reset();
 
     // Identity — exactly one of influencer/label.
     let influencerId: string | undefined;
@@ -139,17 +140,17 @@ export function CreateLinkFlow({
       influencerId = whoId;
     } else if (whoKind === 'new') {
       if (newName.trim().length < 2) {
-        setErr(t.links.errNewInfluencerName);
+        fe.fail(t.links.errNewInfluencerName, 'newName');
         return;
       }
     } else if (whoKind === 'label') {
       if (!label.trim()) {
-        setErr(t.links.errIdentity);
+        fe.fail(t.links.errIdentity, 'label');
         return;
       }
       labelVal = label.trim();
     } else {
-      setErr(t.links.errIdentity);
+      fe.fail(t.links.errIdentity);
       return;
     }
 
@@ -158,7 +159,7 @@ export function CreateLinkFlow({
     if (expiryDate || expiryTime) {
       expiresAt = localInputToIso(`${expiryDate}T${expiryTime}`);
       if (!expiresAt) {
-        setErr(t.links.errExpiry);
+        fe.fail(t.links.errExpiry, expiryField(expiryDate, expiryTime));
         return;
       }
     }
@@ -189,7 +190,7 @@ export function CreateLinkFlow({
       setStep('done');
       if (created.id) onCreated?.(created.id);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.links.errCreate);
+      fe.failWith(e, t.links.errCreate, linkFormField);
     }
   };
 
@@ -241,7 +242,7 @@ export function CreateLinkFlow({
                 setWhoId('');
                 setNewName('');
                 setLabel('');
-                setErr(null);
+                fe.reset();
               }}
               className={cn('flex-1 rounded-[13px] border border-line bg-transparent py-3 font-display text-[14.5px] font-bold text-text', press)}
             >
@@ -275,23 +276,43 @@ export function CreateLinkFlow({
             whoChip(inf.id, inf.name, whoKind === 'influencer' && whoId === inf.id, () => {
               setWhoKind('influencer');
               setWhoId(inf.id);
-              setErr(null);
+              fe.reset();
             }),
           )}
           {whoChip('new', t.links.chipNew, whoKind === 'new', () => {
             setWhoKind('new');
-            setErr(null);
+            fe.reset();
           })}
           {whoChip('label', t.links.chipLabelOnly, whoKind === 'label', () => {
             setWhoKind('label');
-            setErr(null);
+            fe.reset();
           })}
         </div>
         {whoKind === 'new' && (
-          <Field placeholder={t.links.newInfluencerPlaceholder} value={newName} onChange={setNewName} autoFocus className="mb-3" />
+          <>
+            <Field
+              placeholder={t.links.newInfluencerPlaceholder}
+              value={newName}
+              onChange={fe.edit('newName', setNewName)}
+              autoFocus
+              className="mb-3"
+              {...fieldInputProps(fe.bind('newName'))}
+            />
+            <FieldErrorFor error={fe.bind('newName')} className="-mt-1.5 mb-3" />
+          </>
         )}
         {whoKind === 'label' && (
-          <Field placeholder={t.links.labelPlaceholder} value={label} onChange={setLabel} autoFocus className="mb-3" />
+          <>
+            <Field
+              placeholder={t.links.labelPlaceholder}
+              value={label}
+              onChange={fe.edit('label', setLabel)}
+              autoFocus
+              className="mb-3"
+              {...fieldInputProps(fe.bind('label'))}
+            />
+            <FieldErrorFor error={fe.bind('label')} className="-mt-1.5 mb-3" />
+          </>
         )}
 
         {/* (b) Tier — the shared kit picker (auto-approve pins a real tier). */}
@@ -316,20 +337,34 @@ export function CreateLinkFlow({
 
         {/* (d) Max heads + expiry. */}
         <Label className="mb-2 mt-3">{t.links.maxHeadsLabel}</Label>
-        <Field icon="users" placeholder={t.links.maxHeadsPlaceholder} value={maxHeads} onChange={(v) => setMaxHeads(v.replace(/[^0-9]/g, ''))} inputMode="numeric" className="mb-3" />
+        <Field
+          icon="users"
+          placeholder={t.links.maxHeadsPlaceholder}
+          value={maxHeads}
+          onChange={fe.edit('maxHeads', (v: string) => setMaxHeads(v.replace(/[^0-9]/g, '')))}
+          inputMode="numeric"
+          className="mb-3"
+          {...fieldInputProps(fe.bind('maxHeads'))}
+        />
+        <FieldErrorFor error={fe.bind('maxHeads')} className="-mt-1.5 mb-3" />
         <div className="mb-3 flex gap-[10px]">
           <div className="flex-1">
             <Label className="mb-2">{`${t.links.expiresLabel} · ${t.links.expiresDate}`}</Label>
-            <Field icon="cal" type="date" value={expiryDate} onChange={setExpiryDate} />
+            <Field icon="cal" type="date" value={expiryDate} onChange={fe.edit('expiryDate', setExpiryDate)} {...fieldInputProps(fe.bind('expiryDate'))} />
           </div>
           <div className="flex-1">
             <Label className="mb-2">{t.links.expiresTime}</Label>
-            <Field icon="clock" type="time" value={expiryTime} onChange={setExpiryTime} />
+            <Field icon="clock" type="time" value={expiryTime} onChange={fe.edit('expiryTime', setExpiryTime)} {...fieldInputProps(fe.bind('expiryTime'))} />
           </div>
         </div>
+        <FieldErrorFor error={fe.bind(fe.field === 'expiryTime' ? 'expiryTime' : 'expiryDate')} className="-mt-1.5 mb-3" />
       </div>
 
-      {err && <div className="mt-2 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
+      {fe.banner && (
+        <div role="alert" className="mt-2 text-[13px] font-semibold text-[#E89AC0]">
+          {fe.banner}
+        </div>
+      )}
       <Btn kind="primary" full icon="link" disabled={busy} onClick={() => void create()} className={cn('mt-2', busy && 'opacity-50')}>
         {busy ? t.promo.creating : t.links.createCta}
       </Btn>

@@ -1,20 +1,32 @@
 import { z } from 'zod';
+import { fmt, t } from '@/lib/i18n';
 
 const uuid = z.string().uuid();
+
+/** "Keep it to N characters.": the message under a field that is too long
+ *  (the forms show it right under that input, z8uq9m5m8g). */
+const tooLong = (max: number): string => fmt(t.links.errTooLong, { n: max.toLocaleString('en-US') });
+
+/** 1..100 000 people, with the message the form shows under "Max people". */
+const headcount = z.coerce
+  .number()
+  .int(t.links.errMaxHeadsRange)
+  .min(1, t.links.errMaxHeadsRange)
+  .max(100000, t.links.errMaxHeadsRange);
 
 /** Trimmed free text that treats an empty string as "not provided". */
 const optionalText = (max: number) =>
   z
     .string()
     .trim()
-    .max(max)
+    .max(max, tooLong(max))
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined));
 
 /** Venue-scoped influencer (86ey21vjt). Admin-only (RLS enforces). */
 export const createInfluencerSchema = z.object({
   venueId: uuid,
-  name: z.string().trim().min(2, 'Enter a name').max(120),
+  name: z.string().trim().min(2, 'Enter a name').max(120, tooLong(120)),
   handle: optionalText(80),
   notes: optionalText(1000),
 });
@@ -22,10 +34,10 @@ export type CreateInfluencerInput = z.input<typeof createInfluencerSchema>;
 
 export const updateInfluencerSchema = z.object({
   influencerId: uuid,
-  name: z.string().trim().min(2).max(120).optional(),
+  name: z.string().trim().min(2, 'Enter a name').max(120, tooLong(120)).optional(),
   // null clears the field; undefined leaves it untouched.
-  handle: z.string().trim().min(1).max(80).nullable().optional(),
-  notes: z.string().trim().min(1).max(1000).nullable().optional(),
+  handle: z.string().trim().min(1).max(80, tooLong(80)).nullable().optional(),
+  notes: z.string().trim().min(1).max(1000, tooLong(1000)).nullable().optional(),
   archived: z.boolean().optional(),
 });
 export type UpdateInfluencerInput = z.input<typeof updateInfluencerSchema>;
@@ -43,7 +55,7 @@ export const createRequestLinkSchema = z
     /** Cosmetic slug base (influencer name / label); sanitized server-side. */
     slugBase: z.string().trim().min(1).max(120),
     tierId: uuid.optional(),
-    maxHeadcount: z.coerce.number().int().min(1).max(100000).optional(),
+    maxHeadcount: headcount.optional(),
     autoApprove: z.boolean().optional().default(false),
     /** ISO datetime; the link stops taking requests after this moment. */
     expiresAt: z.string().datetime({ offset: true }).optional(),
@@ -60,9 +72,9 @@ export type CreateRequestLinkInput = z.input<typeof createRequestLinkSchema>;
 export const updateRequestLinkSchema = z.object({
   linkId: uuid,
   influencerId: uuid.nullable().optional(),
-  label: z.string().trim().min(1).max(80).nullable().optional(),
+  label: z.string().trim().min(1).max(80, tooLong(80)).nullable().optional(),
   tierId: uuid.nullable().optional(),
-  maxHeadcount: z.coerce.number().int().min(1).max(100000).nullable().optional(),
+  maxHeadcount: headcount.nullable().optional(),
   autoApprove: z.boolean().optional(),
   active: z.boolean().optional(),
   expiresAt: z.string().datetime({ offset: true }).nullable().optional(),

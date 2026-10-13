@@ -54,10 +54,12 @@ export function PendingOutboxSheet({
   );
 }
 
-/** Inline action error, matching the desktop forms' `text-red-300` treatment. */
+/** Inline action error, matching the desktop forms' `text-red-300` treatment.
+ *  Takes a thrown error or a ready message (a `useFieldErrors` banner). */
 export function FormError({ error }: { error: unknown }): JSX.Element | null {
   if (!error) return null;
-  const msg = error instanceof Error && error.message ? error.message : t.settings.common.formError;
+  const msg =
+    typeof error === 'string' ? error : error instanceof Error && error.message ? error.message : t.settings.common.formError;
   return (
     <p className="mt-3 text-[12.5px] leading-[1.45] text-red-300" role="alert">
       {msg}

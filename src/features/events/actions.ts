@@ -422,7 +422,7 @@ export async function setEventAllowUncheck(input: SetAllowUncheckInput): Promise
 /** Define a tier (admin or organizer of the event — RLS guest_tiers_insert). */
 export async function createTier(input: CreateTierInput): Promise<ActionResult> {
   const parsed = createTierSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { eventId, name, description, color, maxGuests, doorPriceCents, vatPercent, aliases } = parsed.data;
 
   const supabase = await createClient();
@@ -616,7 +616,7 @@ function crewMailFailure(reason: 'provision' | 'notify' | 'recent' | 'cap'): Act
  */
 export async function inviteExternalCrew(input: InviteExternalCrewInput): Promise<ActionResult> {
   const parsed = inviteExternalCrewSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { email, eventIds, quota } = parsed.data;
 
   const ctx = await getAuthContext();
@@ -1023,7 +1023,7 @@ export async function deleteTemplate(input: DeleteTemplateInput): Promise<Action
 /** Add a tier to a template (admin or venue-organizer — RLS). */
 export async function createTemplateTier(input: CreateTemplateTierInput): Promise<ActionResult> {
   const parsed = createTemplateTierSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { templateId, name, description, color, maxGuests, doorPriceCents, vatPercent, aliases } = parsed.data;
 
   const supabase = await createClient();
@@ -1156,7 +1156,7 @@ export async function createTemplateFromEvent(
   input: CreateTemplateFromEventInput,
 ): Promise<CreateTemplateResult> {
   const parsed = createTemplateFromEventSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { eventId, name } = parsed.data;
 
   const supabase = await createClient();

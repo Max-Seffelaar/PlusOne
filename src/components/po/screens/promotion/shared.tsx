@@ -86,3 +86,27 @@ export function EventPicker({
     </div>
   );
 }
+
+// ── Link form field errors (z8uq9m5m8g) ──────────────────────────────────────
+// The create-link flow and the link edit sheet share one field set for
+// `useFieldErrors`, in form order. A save runs up to two actions — the "+ New"
+// influencer (`createInfluencer`, key `name`) and the link itself
+// (`createRequestLink`/`updateRequestLink`) — whose schema keys map onto the
+// inputs here; any other key falls through to the banner.
+export const LINK_FORM_FIELDS = ['newName', 'label', 'maxHeads', 'expiryDate', 'expiryTime'] as const;
+
+const LINK_SERVER_TO_FORM: Record<string, (typeof LINK_FORM_FIELDS)[number]> = {
+  name: 'newName',
+  maxHeadcount: 'maxHeads',
+  expiresAt: 'expiryDate',
+};
+
+/** The link-form input a server-side `field` points at; unknown keys pass through. */
+export function linkFormField(field: string): string | undefined {
+  return LINK_SERVER_TO_FORM[field] ?? field;
+}
+
+/** Which expiry input a half-filled or unreadable expiry points at. */
+export function expiryField(date: string, time: string): 'expiryDate' | 'expiryTime' {
+  return date && !time ? 'expiryTime' : 'expiryDate';
+}
