@@ -921,7 +921,7 @@ type TemplateTierInsert = Database['public']['Tables']['event_template_tiers']['
 export async function createTemplate(input: CreateTemplateInput): Promise<CreateTemplateResult> {
   const parsed = createTemplateSchema.safeParse(input);
   if (!parsed.success) return invalidIssues(parsed.error);
-  const { venueId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress } = parsed.data;
+  const { venueId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress, houseRules, guestInfo } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -938,6 +938,8 @@ export async function createTemplate(input: CreateTemplateInput): Promise<Create
       auto_lock_offset_minutes: autoLockOffsetMinutes ?? null,
       location_name: locationName ?? null,
       location_address: locationAddress ?? null,
+      house_rules: houseRules ?? null,
+      guest_info: guestInfo ?? null,
     })
     .select('id')
     .single();
@@ -954,7 +956,7 @@ export async function createTemplate(input: CreateTemplateInput): Promise<Create
 export async function updateTemplate(input: UpdateTemplateInput): Promise<ActionResult> {
   const parsed = updateTemplateSchema.safeParse(input);
   if (!parsed.success) return invalidIssues(parsed.error);
-  const { templateId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress } = parsed.data;
+  const { templateId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes, locationName, locationAddress, houseRules, guestInfo } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -968,6 +970,8 @@ export async function updateTemplate(input: UpdateTemplateInput): Promise<Action
     ...(autoLockOffsetMinutes !== undefined ? { auto_lock_offset_minutes: autoLockOffsetMinutes } : {}),
     ...(locationName !== undefined ? { location_name: locationName } : {}),
     ...(locationAddress !== undefined ? { location_address: locationAddress } : {}),
+    ...(houseRules !== undefined ? { house_rules: houseRules } : {}),
+    ...(guestInfo !== undefined ? { guest_info: guestInfo } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 

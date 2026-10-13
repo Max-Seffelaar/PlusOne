@@ -23,6 +23,7 @@ export function EventGuestTextFields({
   onHouseRulesChange,
   onGuestInfoChange,
   errors,
+  note,
 }: {
   houseRules: string;
   guestInfo: string;
@@ -31,6 +32,8 @@ export function EventGuestTextFields({
   onGuestInfoChange?: (v: string) => void;
   /** The form's error state per field (z8uq9m5eb7). */
   errors?: { houseRules?: FieldErrorBinding; guestInfo?: FieldErrorBinding };
+  /** One line under the block (the template editor says where the texts go). */
+  note?: string;
 }): JSX.Element {
   const g = t.events.guestMail;
   return (
@@ -66,6 +69,7 @@ export function EventGuestTextFields({
         <FieldErrorFor error={errors?.guestInfo} className="mb-0" />
         <div className={hintClass}>{t.events.guestInfoHint}</div>
       </div>
+      {note && <p className="mt-3 border-t border-line pt-3 text-[12px] leading-[1.5] text-faint">{note}</p>}
     </section>
   );
 }

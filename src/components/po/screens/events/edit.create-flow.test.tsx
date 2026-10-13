@@ -23,7 +23,7 @@ const createEvent = vi.fn().mockResolvedValue(NEW_ID);
 const createFromTemplate = vi.fn().mockResolvedValue({ eventId: NEW_ID, contactSaved: true });
 
 let savedLocations: Array<{ id: string; name: string; addressLine: string; postalCode: string; city: string; country: string; placeId: string | null; address: string | null }> = [];
-let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean; location_name?: string | null; location_address?: string | null }> = [];
+let templates: Array<{ id: string; name: string; tierCount: number; landing_active: boolean; location_name?: string | null; location_address?: string | null; house_rules?: string | null; guest_info?: string | null }> = [];
 
 const mutation = () => ({ mutateAsync: vi.fn(), isPending: false });
 const updateEvent = vi.fn().mockResolvedValue(undefined);
@@ -557,5 +557,51 @@ describe('EventEdit field errors', () => {
     await waitFor(() => expect(nameBox).toHaveAttribute('aria-invalid', 'true'));
     expect(nameBox).toHaveAccessibleDescription(t.events.errName);
     expect(document.activeElement).toBe(nameBox);
+  });
+});
+
+// Templates keep the guest texts (z8uq9m4pnk, 20261016180000): the form
+// prefills both from the picked template, so the follow-up write after a
+// template create carries the template's texts instead of emptying them.
+describe('EventEdit template guest-text prefill', () => {
+  const withTexts = { id: 'tpl-txt', name: 'Club night', tierCount: 1, landing_active: true, house_rules: '21+, bring ID.', guest_info: 'Park at P2.\nSide entrance.' };
+  const rulesBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.guestMail.houseRulesLabel });
+  const infoBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.guestInfoLabel });
+
+  it('prefills both texts from the picked template and clears them when un-picked', () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    expect(rulesBox()).toHaveValue('21+, bring ID.');
+    expect(infoBox()).toHaveValue('Park at P2.\nSide entrance.');
+    fireEvent.click(screen.getByRole('button', { name: t.events.templateBlank }));
+    expect(rulesBox()).toHaveValue('');
+    expect(infoBox()).toHaveValue('');
+  });
+
+  it("writes the template's texts in the follow-up update, never empty ones", async () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    fillAndCreate();
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    expect(updateEvent.mock.calls[0][0]).toMatchObject({ houseRules: '21+, bring ID.', guestInfo: 'Park at P2.\nSide entrance.' });
+  });
+
+  it('keeps texts the user typed when a template is picked', () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.change(infoBox(), { target: { value: 'Cloakroom by the bar.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    expect(infoBox()).toHaveValue('Cloakroom by the bar.');
+    expect(rulesBox()).toHaveValue('');
+  });
+
+  it('does not make the form dirty just by picking a template with texts', () => {
+    templates = [withTexts];
+    render(<EventEdit isNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'Club night' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(nav.back).toHaveBeenCalledTimes(1);
   });
 });
