@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
 import type { PoInfluencer, PoRequestLink } from '@/features/po/queries';
-import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
+import { usePoEventForEdit, usePoEventOptions, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
 import { requestedDisplay } from '@/features/po/funnel';
 import { usePoCreateInfluencer, usePoUpdateLink } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -173,7 +173,7 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
   // Embedded (Promotion hub "Per event"): no explicit event in the URL yet →
   // default to the soonest upcoming event, same rule as the Overview tab.
   // (Shared venue-wide query key — standalone mode has it cached already.)
-  const eventsQ = usePoEvents();
+  const eventsQ = usePoEventOptions();
   const events = eventsQ.data ?? [];
   const fallback = embedded ? soonestUpcoming(events) ?? events[0] ?? null : null;
   const id = eventId ?? fallback?.id ?? '';

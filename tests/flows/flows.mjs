@@ -101,6 +101,16 @@ export const FLOWS = {
       'supabase/tests/database/guest_requests_decide',
     ],
   },
+  'requests-list': {
+    title: 'Snelheid P2 #5 (z8uq9m2xz2) — requests list without id lists: link labels from the venue links (archived too), full declined history, head count on More',
+    paths: [
+      'src/features/po/queries.ts',
+      'src/features/po/hooks.ts',
+      'src/components/po/screens/approvals',
+      'src/components/po/screens/home',
+      'src/components/po/screens/settings.tsx',
+    ],
+  },
   'guest-mail': {
     title: 'Gastcommunicatie F (6a) — Guest contact → add with "Send confirmation" → "You\'re on the list" mail → /s status page + .ics → /u opt-out',
     paths: [
@@ -120,6 +130,20 @@ export const FLOWS = {
       'src/components/po/screens/guests/',
       'src/components/po/screens/settings/venue',
       'src/components/po/screens/events/guest-mail.tsx',
+    ],
+  },
+  'quota-request-guest': {
+    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ approves → guest on the list → Home Updates card (Got it / Add guests / decline reason)',
+    paths: [
+      'src/features/quotas/',
+      'src/features/po/queries.ts',
+      'src/features/po/adapters.ts',
+      'src/features/po/hooks.ts',
+      'src/features/po/mutations.ts',
+      'src/components/po/screens/home',
+      'src/components/po/screens/guests/quick-add.tsx',
+      'src/components/po/screens/approvals',
+      'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
     ],
   },
   'team-mail': {
@@ -172,14 +196,42 @@ export const FLOWS = {
     ],
   },
   'event-contact': {
-    title: 'Gastcommunicatie F (6c) — event contact email: required, never pre-filled, domain-checked → guest mail reply-to + footer use the event address',
+    title: 'Gastcommunicatie F (6c) — event contact email: required, never pre-filled, domain-checked → guest mail reply-to + footer use the event address; field errors point at the field (z8uq9m5eb7)',
     paths: [
       'src/features/events/',
       'src/features/mail/',
       'src/features/po/queries.ts',
       'src/components/po/screens/events/edit.tsx',
       'src/components/po/screens/events/contact-email-field.tsx',
+      'src/components/po/screens/events/form-fields.ts',
+      'src/components/po/screens/events/location-fields.tsx',
+      'src/components/po/screens/templates.tsx',
+      'src/components/po/kit.tsx',
+      'src/components/po/field-error-style.ts',
+      'src/components/po/datetime-field.tsx',
+      'src/components/po/places-field.tsx',
+      'src/lib/field-error.ts',
+      'src/lib/db-errors.ts',
       'supabase/migrations/20261013180500_event_contact_email.sql',
+    ],
+  },
+  'guests-regulars': {
+    title: 'Snelheid P2 #6 (z8uq9m2xz2) — Regulars filter + address book read server-side: starred-only contacts read without counts, the address book counts from one contact_event_counts RPC, no contact id lists',
+    paths: [
+      'src/features/po/queries.ts',
+      'src/features/po/hooks.ts',
+      'src/features/po/keys.ts',
+      'src/components/po/screens/guests/',
+      'supabase/migrations/20261017120200_contact_event_counts.sql',
+    ],
+  },
+  'platform-reinvite': {
+    title: 'Platform invites — "Send invite" on an address with an open invite re-sends it (rate-limited inside 60 s), a double click sends once (z8uq9m5enh)',
+    paths: [
+      'src/components/po/screens/platform.tsx',
+      'src/features/platform/invite-actions.ts',
+      'src/features/auth/invite-mail.ts',
+      'src/features/po/mutations.ts',
     ],
   },
   'onboarding-ade-trial': {
@@ -211,6 +263,17 @@ export const FLOWS = {
       'src/app/auth/confirm/',
       'src/features/onboarding/components/steps/InviteStep',
       'src/app/onboarding/',
+    ],
+  },
+  'guest-add-patch': {
+    title: 'Snelheid P2 #14 (z8uq9m2xz2) — adding a guest patches one row instead of re-downloading the list; an upcoming event\'s stats panel does not poll',
+    paths: [
+      'src/features/po/mutations.ts',
+      'src/features/po/hooks.ts',
+      'src/features/po/queries.ts',
+      'src/components/po/screens/events.tsx',
+      'src/components/po/screens/events/',
+      'src/components/po/screens/guests/',
     ],
   },
   'team-crew-manage': {
@@ -251,6 +314,15 @@ export const FLOWS = {
       'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
+  'event-headcount-deeplink': {
+    title: 'Snelheid P2 (z8uq9m2xz2) — an event screen opened cold counts heads for that event only (venue_event_headcounts p_event_id), in parallel with the event row',
+    paths: [
+      'src/features/po/queries.ts',
+      'src/features/po/hooks.ts',
+      'src/components/po/screens/events.tsx',
+      'supabase/migrations/20261017120300_event_headcounts_single.sql',
+    ],
+  },
   'event-locations': {
     title: 'Event locations L — Company settings: two saved locations → event at the second → /e/[slug] → approve → /r/[token]',
     paths: [
@@ -267,6 +339,18 @@ export const FLOWS = {
       'src/app/r/',
     ],
   },
+  'events-window': {
+    title: 'Snelheid P2 #4 + #12 (z8uq9m2xz2) — one event window (upcoming + 30 days) shared by Home and Events, Past pages back on request, door candidates windowed',
+    paths: [
+      'src/features/po/hooks.ts',
+      'src/features/po/keys.ts',
+      'src/features/po/queries.ts',
+      'src/features/po/mutations.ts',
+      'src/components/po/screens/events.tsx',
+      'src/components/po/screens/home',
+      'src/components/po/door-branch.tsx',
+    ],
+  },
   'door-checkin': {
     title: 'Door check-in D — Check in all / Check in 1 (3/4), one row, undo refused with the setting off',
     paths: [
@@ -276,6 +360,13 @@ export const FLOWS = {
       'src/components/po/screens/door',
       'src/components/po/door-',
       'src/components/po/screens/settings/venue.tsx',
+    ],
+  },
+  'cockpit-realtime': {
+    title: 'Snelheid P2 #10 (z8uq9m2xz2) — desktop cockpit patches guests + arrivals from the realtime payload, aggregates ~every 5 s (desktop only)',
+    paths: [
+      'src/features/po/eventday/',
+      'src/features/po/hooks.ts',
     ],
   },
   'door-actor-chip': {
@@ -308,6 +399,14 @@ export const FLOWS = {
       'src/components/po/datetime-field',
       // Q11/Q12/Q16: the deep link reads the event's venue_id from fetchEventForEdit.
       'src/features/po/queries.ts',
+    ],
+  },
+  'tab-nav': {
+    title: 'Snelheid P2 #1 (z8uq9m2xz2) — po screens and tabs navigate client-only (pushState, no document/RSC request), Back/reload keep working, door navigation unchanged',
+    paths: [
+      'src/components/po/routes',
+      'src/components/po/app.tsx',
+      'src/components/po/use-door-override.ts',
     ],
   },
   'native-shell-guard': {

@@ -9,7 +9,7 @@
 import type { JSX } from 'react';
 import { t } from '@/lib/i18n';
 import { CONTACT_EMAIL_MAX, contactEmailField } from '@/features/events/schemas';
-import { Field, Label } from '../../kit';
+import { Field, FieldErrorFor, Label, fieldInputProps, type FieldErrorBinding } from '../../kit';
 
 /** The message to show for `value`, or null when it may be saved. */
 export function contactEmailProblem(value: string): string | null {
@@ -25,10 +25,13 @@ export function contactEmailValue(value: string): string {
 export function EventContactEmailField({
   value,
   onChange,
+  error,
 }: {
   value: string;
   /** Undefined = read-only (a role that can't edit this event). */
   onChange?: (v: string) => void;
+  /** The form's error state for this field (z8uq9m5eb7). */
+  error?: FieldErrorBinding;
 }): JSX.Element {
   return (
     <div data-testid="event-contact-email">
@@ -43,7 +46,9 @@ export function EventContactEmailField({
         onChange={onChange}
         maxLength={CONTACT_EMAIL_MAX}
         className="mb-2"
+        {...fieldInputProps(error)}
       />
+      <FieldErrorFor error={error} />
       <div className="mb-[18px] text-[12.5px] leading-[1.45] text-faint">{t.events.contactEmail.hint}</div>
     </div>
   );

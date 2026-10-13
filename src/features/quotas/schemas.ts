@@ -1,14 +1,45 @@
 import { z } from 'zod';
+import { PLUS_ONES_MAX } from '@/features/guests/quick-add-parser';
 
 const uuid = z.string().uuid();
 
-/** Staff asks for X extra slots with a motivation (#5). */
+/** Empty string from a form field -> null (optional, dataminimalisatie #9). */
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional();
+
+/**
+ * The guest the extra slots are for (z8uq9m2xyp). Optional on a request; on
+ * approval approve_quota_request adds exactly this guest on the requester's
+ * name. Same bounds as the guests form (name 500, +N 0..PLUS_ONES_MAX, phone
+ * 40) and as the DB CHECK quota_guest_payload_is_valid.
+ */
+export const quotaGuestSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(500),
+  plusOnes: z.number().int().min(0).max(PLUS_ONES_MAX),
+  tierId: uuid,
+  phone: optionalText(40),
+  note: optionalText(500),
+});
+export type QuotaGuestInput = z.input<typeof quotaGuestSchema>;
+
+/** Staff asks for X extra slots with a motivation (#5), optionally naming the guest. */
 export const quotaRequestSchema = z.object({
   eventId: uuid,
   requestedExtra: z.coerce.number().int().min(1, 'Ask for at least 1 spot').max(100),
   motivation: z.string().trim().min(1, 'Add a short reason').max(500),
+  guest: quotaGuestSchema.optional(),
 });
 export type QuotaRequestInput = z.input<typeof quotaRequestSchema>;
+
+/** The requester dismisses a decision on Home (z8uq9m2xyp). */
+export const markQuotaRequestSeenSchema = z.object({ requestId: uuid });
+export type MarkQuotaRequestSeenInput = z.input<typeof markQuotaRequestSeenSchema>;
 
 /**
  * Admin sets a member's DEFAULT quota at a venue (#4, role matrix §2). Per-user,

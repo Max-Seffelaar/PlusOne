@@ -40,6 +40,7 @@ import { Icon } from '../icon';
 import { BillingLockNote, BackBtn, Btn, Empty, Scroll, hitRingY2, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
+import { QuotaUpdatesCard } from './home-updates';
 import { HomeHeaderActions } from './home-header-actions';
 import { PulseTile } from './home-pulse';
 import { ComboChart } from './home-chart';
@@ -402,6 +403,7 @@ export function Home(): JSX.Element {
       <Scroll pad={0} bottom={28} className="po-screen-anim">
         <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-[22px] px-4 pb-2 pt-[18px] md:px-[38px] md:pt-[30px]">
           <PendingInvitesBanner />
+          <QuotaUpdatesCard />
 
           {/* greeting */}
           {nav.canGoBack && (

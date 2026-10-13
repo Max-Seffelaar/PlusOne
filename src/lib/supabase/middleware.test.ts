@@ -8,12 +8,17 @@ import { NextRequest } from 'next/server';
 // clears the auth cookie through setAll, as the real SSR client does.
 const getUser = vi.fn();
 const signOut = vi.fn();
+// No session by default → resolveMiddlewareUser takes the getUser() path, so
+// these demo-branch cases run exactly as before finding 9 (getClaims is
+// covered in middleware-claims.test.ts).
+const getSession = vi.fn(async () => ({ data: { session: null }, error: null }));
+const getClaims = vi.fn();
 let setAll: ((c: { name: string; value: string; options?: Record<string, unknown> }[]) => void) | null = null;
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: (_url: string, _key: string, opts: { cookies: { setAll: typeof setAll } }) => {
     setAll = opts.cookies.setAll;
-    return { auth: { getUser, signOut } };
+    return { auth: { getUser, signOut, getSession, getClaims } };
   },
 }));
 

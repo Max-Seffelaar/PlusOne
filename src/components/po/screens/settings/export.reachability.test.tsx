@@ -36,7 +36,7 @@ vi.mock('@/features/po/hooks', () => ({
   usePoProfile: () => ({ isLoading: false, data: undefined }),
   usePoSubscription: () => ({ data: undefined }),
   usePoCanManageTemplates: () => false,
-  usePoGuestRequests: () => ({ data: [] }),
+  usePoOpenRequestCount: () => ({ data: 0 }),
 }));
 vi.mock('@/features/po/mutations', () => ({
   usePoUpdateVenueSettings: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),

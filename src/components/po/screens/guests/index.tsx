@@ -94,7 +94,7 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
   // All-events mode is a server-windowed working set searched server-side (86ey9e8hz):
   // the debounced term goes to the query so a match outside the window is still
   // found, instead of downloading the whole venue and filtering in the browser.
-  const venue = useVenueGuests(allMode ? events : [], dq);
+  const venue = useVenueGuests(allMode, dq);
   const single = usePoGuests(scope ?? '');
   // Confirmation-mail state per guest (z8uq9m49k1): one event at a time.
   const mailStatus = usePoGuestMailStatus(scope).data;

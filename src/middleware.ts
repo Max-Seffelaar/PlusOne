@@ -54,7 +54,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   } else {
     request.headers.delete(REQUEST_PATH_HEADER);
   }
-  const { response, user, demoSessionEnded } = await updateSession(request);
+  // /login and / are the routes where the middleware acts on "signed in" (the
+  // redirect below), so they verify with GoTrue; everything else verifies the
+  // token locally (perf audit finding 9, see resolveMiddlewareUser).
+  const strict = pathname === '/login' || pathname === '/';
+  const { response, user, demoSessionEnded } = await updateSession(request, { strict });
   // The review demo account outside its window was just signed out globally
   // (86ey6bfug): its redirect/503 carries the cookie deletions, return it as is.
   if (demoSessionEnded) return response;

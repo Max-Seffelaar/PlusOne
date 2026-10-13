@@ -27,8 +27,8 @@ import type {
   ApproveGuestRequestInput,
   DecideGuestRequestInput,
 } from '@/features/requests/schemas';
-import { decideQuotaRequest, requestExtraSlots } from '@/features/quotas/actions';
-import type { DecideQuotaRequestInput, QuotaRequestInput } from '@/features/quotas/schemas';
+import { decideQuotaRequest, markQuotaRequestSeen, requestExtraSlots } from '@/features/quotas/actions';
+import type { DecideQuotaRequestInput, MarkQuotaRequestSeenInput, QuotaRequestInput } from '@/features/quotas/schemas';
 import {
   importContacts,
   addContactToEvent,
@@ -138,26 +138,35 @@ import {
 } from '@/features/platform/invite-actions';
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
-import type { CheckinArrival, PoRequestLink } from './queries';
+import { fetchGuests, type CheckinArrival, type PoRequestLink } from './queries';
 import { poKeys } from './keys';
+import { createClient } from '@/lib/supabase/client';
 import { classifyAddResult, type BulkAddRowResult } from './bulk';
-import { optimisticGuest, type OptimisticAddArgs } from './adapters';
+import { optimisticGuest, toPoGuestWithTiers, type OptimisticAddArgs } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
 import { supabaseGateway } from '@/features/door/outbox/gateway';
 import { getDeviceId, getDoorClient } from '@/features/door/offline/device';
 import { classifyError } from '@/features/door/outbox/replay';
 import { v7 as uuidv7 } from 'uuid';
 import { amsterdamHM, flipGuestStatus } from './eventday/cockpit';
+import { FieldActionError } from '@/lib/field-error';
 
 interface ActionLike {
   ok: boolean;
   message?: string;
+  /** The form field a MutationError is about (z8uq9m5eb7). */
+  field?: string;
 }
 
-/** Surface a server action's MutationError as a thrown error for React Query. */
+/** Surface a server action's MutationError as a thrown error for React Query;
+ *  a FieldActionError keeps the field it named, for the form to point at. */
 function throwOnError<T extends ActionLike>(res: T): T {
-  if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+  if (!res.ok) throw actionError(res);
   return res;
+}
+
+function actionError(res: ActionLike): FieldActionError {
+  return new FieldActionError(res.message ?? 'Er ging iets mis.', res.field);
 }
 
 /**
@@ -187,11 +196,54 @@ async function patchGuestsOptimistically(
 // the same prefix instead of drifting out of sync with a second copy.
 export const VENUE_GUESTS_PREFIX = [...poKeys.all, 'venue-guests'] as const;
 
+// The venue's event window carries every card's on-list/inside headcount
+// (usePoEvents, Home, the single-event read under it). Every write that moves a
+// headcount invalidates this prefix — that is what lets usePoEvents keep a
+// staleTime of minutes (Snelheid P2, P1-review follow-up). Prefix match, so no
+// venueId needed here.
+export const EVENTS_PREFIX = [...poKeys.all, 'events'] as const;
+
 function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+  invalidateAddDerived(qc, eventId);
+}
+
+/** Everything an add moves except the event's own guest list. */
+function invalidateAddDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+  // "Added by" per member and the per-tier registered counts move on every add;
+  // the stats poll only runs while the event is live (review #493).
+  void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
   void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+  void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+}
+
+/**
+ * Swap the optimistic row of a just-added guest for the server's row — one
+ * single-row read (with its "added by" / source provenance) instead of
+ * re-downloading the whole event (Snelheid P2, finding 14). Newest first, like
+ * usePoGuests orders the list. Returns false when it couldn't (no client id, a
+ * failed read, a row RLS doesn't show) or shouldn't: a list read in flight
+ * (setQueryData doesn't cancel it, and it may land without the new row). The
+ * caller then falls back to the refetch; it also skips the patch when there was
+ * no list to patch before the optimistic row (review #493).
+ */
+async function patchAddedGuest(qc: QueryClient, eventId: string, guestId: string | undefined): Promise<boolean> {
+  if (!guestId) return false;
+  const key = poKeys.guests(eventId);
+  const listIsPatchable = () => qc.getQueryData<Guest[]>(key) !== undefined && qc.isFetching({ queryKey: key }) === 0;
+  if (!listIsPatchable()) return false;
+  try {
+    const [row] = await fetchGuests(createClient(), eventId, { guestId });
+    // Re-check after the await: a refetch may have started meanwhile.
+    if (!row || !listIsPatchable()) return false;
+    const guest = toPoGuestWithTiers(row, qc.getQueryData<Tier[]>(poKeys.tiers(eventId)) ?? []);
+    qc.setQueryData<Guest[]>(key, (old) => [guest, ...(old ?? []).filter((g) => g.id !== guestId)]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // The settings cluster reuses the EXISTING (prev, FormData) → ActionState server
@@ -222,11 +274,26 @@ export function usePoAddGuest(eventId: string) {
       ]),
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prev);
+      invalidateAfterAdd(qc, eventId);
     },
-    // Reconcile with the server (real ids, role, audit) regardless of outcome —
-    // our own key-invalidation, never Next's revalidatePath (that won't touch
-    // the client React Query cache the po surface reads from).
-    onSettled: () => invalidateAfterAdd(qc, eventId),
+    // Reconcile with the server (real row, role, provenance): the one new row,
+    // not the whole list; the derived counts refetch. Our own key-invalidation,
+    // never Next's revalidatePath (that won't touch the client React Query
+    // cache the po surface reads from). Not awaited: the insert already
+    // succeeded and the row is on screen, so the mutation (and quick-add's form
+    // reset) must not wait for the patch read (review #493).
+    onSuccess: (_res, input, ctx) => {
+      invalidateAddDerived(qc, eventId);
+      // No list before onMutate: the cache now holds only the optimistic row,
+      // which must not pass for the whole event — refetch instead.
+      if (!ctx?.prev) {
+        void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+        return;
+      }
+      void patchAddedGuest(qc, eventId, input.id).then((ok) => {
+        if (!ok) void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      });
+    },
   });
 }
 
@@ -256,7 +323,10 @@ function guestMutation<TInput>(
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
       void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+      // An edit can change plus_ones, a removal frees heads: the cards' counts move.
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
       for (const key of extraKeys) {
         void qc.invalidateQueries({ queryKey: key as unknown[] });
       }
@@ -531,9 +601,11 @@ export function usePoCheckIn(eventId: string) {
       return optimisticCheckin(qc, eventId, guestId, 'in', plusOnes);
     },
     onError: (_err, _input, ctx) => {
-      if (!ctx) return;
-      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
-      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      if (ctx) {
+        qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+        qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      }
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -565,6 +637,7 @@ export function usePoTopUpCheckIn(eventId: string) {
     },
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -590,9 +663,11 @@ export function usePoVoidCheckIn(eventId: string) {
       return optimisticCheckin(qc, eventId, guestId, 'wait', 0);
     },
     onError: (_err, _input, ctx) => {
-      if (!ctx) return;
-      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
-      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      if (ctx) {
+        qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+        qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      }
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -637,9 +712,11 @@ export function usePoCheckOut(eventId: string) {
         : optimisticCheckin(qc, eventId, guestId, 'in', remainingHeads - 1);
     },
     onError: (_err, _input, ctx) => {
-      if (!ctx) return;
-      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
-      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      if (ctx) {
+        qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+        qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      }
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -702,7 +779,12 @@ export function usePoRefuseGuest(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      // A refusal takes heads off the list (and an undo puts them back): the
+      // event cards' counts move too (Snelheid P2 review).
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+    },
   });
 }
 
@@ -728,7 +810,12 @@ export function usePoUndoRefusal(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      // A refusal takes heads off the list (and an undo puts them back): the
+      // event cards' counts move too (Snelheid P2 review).
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+    },
   });
 }
 
@@ -768,18 +855,29 @@ export function usePoAckNote(eventId: string) {
  * optimistic update above, so they still need a refetch on settle (success OR
  * error: a failed revive/void can follow a peer's write that already landed,
  * see 86ey9e8fe review). Guests and arrivals are deliberately NOT invalidated
- * here: `onMutate` already patched them to the exact post-mutation shape, so
- * re-invalidating immediately after would just re-download what was just
- * written. The (throttled) realtime channel + a 60s safety poll on the
- * cockpit are the ADDITIONAL reconciliation path for peers and for a missed/
- * dropped realtime event — see usePoEventRealtime — but this device's own
- * write shouldn't have to wait on that for its tiers/stats/venue-guests to
- * catch up.
+ * here on success: `onMutate` already patched them to the exact
+ * post-mutation shape, so re-invalidating would just re-download what was
+ * just written. Peers' writes arrive through usePoEventRealtime, which patches
+ * guests/arrivals from the payload (Snelheid P2), plus the 60s safety poll.
  */
+/**
+ * After a FAILED cockpit check-in / top-up / void / check-out (review #491):
+ * the rollback restores the snapshot from before the tap, which can erase a
+ * peer's real check-in that the realtime patch put in since (a 23505 race is
+ * exactly that case). The realtime channel no longer refetches on every event,
+ * so refetch both lists here to land on the server's state.
+ */
+function healCheckinLists(qc: QueryClient, eventId: string): void {
+  void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
+}
+
 function invalidateCheckinDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
   void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+  // "Inside" on the event cards.
+  void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
 }
 
 // The approval inbox (S5) reads venue-wide and one screen decides requests from
@@ -802,6 +900,7 @@ export function usePoApproveRequest() {
         // An approved landing request becomes a guest — the venue-wide All-Guests
         // tab must refresh too, not just the per-event list (C17).
         void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
       }
     },
   });
@@ -822,6 +921,7 @@ export function usePoDecideRequest() {
         void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
         void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
       }
     },
   });
@@ -830,11 +930,31 @@ export function usePoDecideRequest() {
 export function usePoDecideQuota() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: DecideQuotaRequestInput & { eventId?: string }) =>
+    mutationFn: async (input: DecideQuotaRequestInput & { eventId?: string; hasGuest?: boolean }) =>
       throwOnError(await decideQuotaRequest(input)),
     onSuccess: (_res, input) => {
       void qc.invalidateQueries({ queryKey: QUOTA_REQUESTS_KEY });
-      if (input.eventId) void qc.invalidateQueries({ queryKey: poKeys.quota(input.eventId) });
+      if (input.eventId) {
+        void qc.invalidateQueries({ queryKey: poKeys.quota(input.eventId) });
+        // An approval that names a guest (z8uq9m2xyp) adds them to the list.
+        if (input.decision === 'approved' && input.hasGuest) {
+          void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
+          void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
+          void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        }
+      }
+    },
+  });
+}
+
+/** The requester dismisses a decision on Home (z8uq9m2xyp). Invalidates the
+ *  'quota-requests' prefix, which holds the Updates card's own key. */
+export function usePoMarkQuotaSeen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: MarkQuotaRequestSeenInput) => throwOnError(await markQuotaRequestSeen(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: QUOTA_REQUESTS_KEY });
     },
   });
 }
@@ -980,15 +1100,9 @@ function useInvalidateEvent() {
     if (venueId) {
       void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
       void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-      // poKeys.home is a SEPARATE cache entry from poKeys.events (its own fetch,
-      // its own 10s poll) — without this an event create/status-change/cancel
-      // only reached the mobile Home board on its next poll tick, not
-      // immediately, while the Events tab (poKeys.events, invalidated above)
-      // updated right away (86ey9e9v5: Home vs Events inconsistency after
-      // create/cancel). PR #228 fixed this ad hoc for the lock toggle only
-      // (usePoSetListLockOnHome); this generalizes it to every caller of
-      // useInvalidateEvent.
-      void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
+      // No separate poKeys.home invalidation (86ey9e9v5): since Snelheid P2 the
+      // Home board is a `select` over the same event window, `poKeys.home` is an
+      // alias of `poKeys.events`, and the line above already refreshes Home.
     }
   };
 }
@@ -999,14 +1113,13 @@ export function usePoCreateEvent() {
   return useMutation({
     mutationFn: async (input: CreateEventInput): Promise<string> => {
       const res = await createEvent(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return res.eventId;
     },
     onSuccess: () => {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });
@@ -1124,7 +1237,7 @@ export function usePoCreateTemplate() {
   return useMutation({
     mutationFn: async (input: CreateTemplateInput): Promise<string> => {
       const res = await createTemplate(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return res.templateId;
     },
     onSuccess: () => {
@@ -1196,14 +1309,13 @@ export function usePoCreateEventFromTemplate() {
     // stick (6c); the form retries it and says so if that fails too.
     mutationFn: async (input: CreateEventFromTemplateInput): Promise<{ eventId: string; contactSaved: boolean }> => {
       const res = await createEventFromTemplate(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return { eventId: res.eventId, contactSaved: res.contactSaved !== false };
     },
     onSuccess: () => {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });
