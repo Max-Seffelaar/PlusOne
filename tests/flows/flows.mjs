@@ -362,6 +362,16 @@ export const FLOWS = {
       'src/components/po/screens/platform',
     ],
   },
+  'kit-select': {
+    title: 'Kit Select (z8uq9m4a2w) — PlusOne dropdown: popover on a fine pointer, bottom sheet on touch; Platform audit + mail log',
+    paths: [
+      'src/components/po/native-back-intercept.ts',
+      'src/components/po/screens/platform-audit.tsx',
+      'src/components/po/screens/platform-access-log.tsx',
+      'src/components/po/screens/platform-mail-log.tsx',
+      'src/components/po/screens/guests/bulk-paste.tsx',
+    ],
+  },
   share: {
     title: 'Share-import S2 — text shared from WhatsApp/Mail/Notes/Excel lands on Paste a list with event + tier, imports once, never leaks (z8uq9m43m8)',
     paths: [
