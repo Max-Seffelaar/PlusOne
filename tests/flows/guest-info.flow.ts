@@ -12,7 +12,9 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  *   /s/[token]/google → the location changes AFTER the mail → that link
  *   redirects to Google with the NEW location and the details → the status
  *   page shows "Good to know" → editing only the info queues no "New
- *   details" mail → a made-up token gets the bare 404.
+ *   details" mail → a made-up token gets the bare 404 → Save as template
+ *   keeps both texts → a new event from that template starts with both and
+ *   (desktop) saves them (z8uq9m4pnk).
  *
  * Each variant creates its own event (stamped name), so the runs never share
  * one.
@@ -46,6 +48,12 @@ const DETAILS = `${INFO}\n\nHouse rules:\n${RULES}`;
 const PLACE = 'Club Vesper';
 const ADDRESS = 'Keizersgracht 1, Amsterdam';
 const MOVED = 'Paradiso, Weteringschans 6';
+
+/** dd-mm-yyyy, `daysAhead` from today: what the date field takes when typed. */
+function typedDate(daysAhead: number): string {
+  const d = new Date(Date.now() + daysAhead * 86_400_000);
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+}
 
 /** The newest mail Mailpit caught for `email`, polled (the drain runs after the response). */
 async function latestMailTo(email: string): Promise<{ text: string; html: string } | null> {
@@ -212,6 +220,57 @@ test('guest info: form → mail "Good to know" → live Google link → status p
     expect(g.headers()['location']).toBeUndefined();
     expect(await g.text()).toBe(await i.text());
   });
+
+  // ── Templates keep both texts (z8uq9m4pnk) ────────────────────────────────
+  const TPL = `Info tpl ${flow.variant} ${stamp}`;
+  const FROM_TPL = `From tpl ${flow.variant.split('-')[0]} ${stamp}`;
+  const INFO2 = 'Cloakroom by the bar.';
+  await page.goto(`/app/events/${eventId}/edit`);
+  await page.getByRole('button', { name: 'Save as template' }).click();
+  await page.getByPlaceholder('Template name, e.g. "Lofi, open air"').fill(TPL);
+  await page.getByRole('button', { name: 'Save template' }).click();
+  await flow.check(11, 'Save as template keeps the house rules AND the info for guests (DB truth)', async () => {
+    await expect(page.getByText(`"${TPL}" is saved.`)).toBeVisible();
+    await expect
+      .poll(async () => (await adminClient().from('event_templates').select('house_rules, guest_info').eq('name', TPL).maybeSingle()).data)
+      .toEqual({ house_rules: RULES, guest_info: INFO2 });
+  });
+
+  await page.goto('/app/events/new');
+  await page.waitForLoadState('networkidle').catch(() => {});
+  // The picker shows 4 templates (name-sorted) until "Show all"; other runs add theirs.
+  const chip = page.getByRole('button', { name: TPL });
+  await expect(page.getByRole('button', { name: 'Blank event' })).toBeVisible({ timeout: 20_000 });
+  if (!(await chip.isVisible())) await page.getByRole('button', { name: /^Show all/ }).click();
+  await chip.click();
+  const newBlock = page.getByRole('region', { name: 'For your guests' });
+  await flow.check(12, 'A new event from that template starts with both texts in the "For your guests" block', async () => {
+    await expect(newBlock.getByRole('textbox', { name: 'House rules (optional)' })).toHaveValue(RULES);
+    await expect(newBlock.getByRole('textbox', { name: 'Info for guests (optional)' })).toHaveValue(INFO2);
+  });
+  await newBlock.scrollIntoViewIfNeeded();
+  await flow.shot('template-prefills-guest-texts');
+  // The create itself goes through the typeable date field, so desktop only
+  // (as in event-contact / company-rename); the RPC path is pgTAP-proven.
+  if (flow.variant === 'desktop-browser') {
+    await flow.check(13, 'Creating it saves both texts on the new event (DB truth)', async () => {
+      await page.getByPlaceholder('e.g. FRENZY').fill(FROM_TPL);
+      const date = page.getByLabel('Pick a date').first();
+      await date.fill(typedDate(6));
+      await date.press('Enter');
+      const hour = page.getByLabel('Hour').first();
+      await hour.fill('22:00');
+      await hour.press('Enter');
+      await page.getByRole('textbox', { name: 'Contact email' }).fill('guests@clubvesper.test');
+      await page.getByRole('button', { name: 'Create event' }).click();
+      await page.waitForURL(/\/app\/events\/[^/]+/);
+      await expect
+        .poll(async () => (await adminClient().from('events').select('house_rules, guest_info').eq('name', FROM_TPL).maybeSingle()).data)
+        .toEqual({ house_rules: RULES, guest_info: INFO2 });
+    });
+  } else {
+    flow.skip(13, 'Creating from the template saves both texts — desktop variant only');
+  }
 
   await flow.check(10, 'No sideways scroll and no uncaught page errors', async () => {
     await expectNoHorizontalOverflow(flow);
