@@ -275,7 +275,7 @@ Besluiten Max 2026-10-12 (startprompt golf F):
 
 | Taak | Worker-sessie | PR | Status | Reviewer | Prod |
 |---|---|---|---|---|---|
-| 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | — | in bouw (herstart 2026-10-13) | na oplevering | `20261016190000` |
+| 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | [#494](https://github.com/Max-Seffelaar/PlusOne/pull/494) | opgeleverd 2026-10-13 (head `96f5c36`; main incl. #479/#495 gemerged; `supabase db reset` + `pnpm db:test` groen, 117 files / 3368 asserts; flows quota-request-guest + team-mail 4/4) | `session_011fDzCADzZQsv7TqTGCRUza` | `20261016190000` |
 | 7c Kit Select ([z8uq9m4a2w](https://app.clickup.com/t/z8uq9m4a2w)) | `session_014QHVZGmNf9anTyWc3TZ8T4` | [#496](https://github.com/Max-Seffelaar/PlusOne/pull/496) | opgeleverd 2026-10-13 (head `beb7ac4`; popover ≥1024 + fijne pointer, anders sheet; `invalid`/`describedBy`/`id` op de trigger); orchestrator-diff OK, 3 nits; CI loopt | orchestrator | — |
 | Form errors point at the field ([z8uq9m5eb7](https://app.clickup.com/t/z8uq9m5eb7)) — toegevoegd door Max 2026-10-13 (uit zijn test van #479) | `session_018bSTsV383wC4WesbUnSJFD` | — | in bouw; kit-patroon (invalid-state + scroll/focus-helper) + `{ ok:false, message, field? }` uit `invalidInput`; eerst event-formulier, dan templates; laag risico (CI = vloer). Kit-API gedeeld met 7c: `invalid`, `describedBy`, `id` op Field/TextArea/Select; 7c doet Select, deze taak Field/TextArea. Overlap met #479 (events/edit.tsx, templates.tsx) | orchestrator | — |
 | Wachtrij-fix #470 + #474 | `session_01RfXsXyEkhkrGYWnriBSd9v` | #470, #474 | **gemerged** (in train #477) | — | — |
