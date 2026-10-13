@@ -478,7 +478,7 @@ describe('EventEdit contact email', () => {
   });
 });
 
-// Templates keep the guest texts (z8uq9m4pnk, 20261016160000): the form
+// Templates keep the guest texts (z8uq9m4pnk, 20261016180000): the form
 // prefills both from the picked template, so the follow-up write after a
 // template create carries the template's texts instead of emptying them.
 describe('EventEdit template guest-text prefill', () => {

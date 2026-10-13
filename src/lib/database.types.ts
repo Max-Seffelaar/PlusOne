@@ -2637,9 +2637,7 @@ export type Database = {
       admin_list_user_sessions: {
         Args: { p_target: string }
         Returns: {
-          aal: string
           created_at: string
-          ip: string
           not_after: string
           session_id: string
           updated_at: string

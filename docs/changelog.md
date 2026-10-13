@@ -10,14 +10,26 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
 
-Milestone **Now** (ADE). Request Max 2026-10-12 ("guest_info in templates"). Spec #63(e) revised. Migration `20261016160000_template_guest_texts.sql` (after main's `20261016120000`…`150000`).
+Milestone **Now** (ADE). Request Max 2026-10-12 ("guest_info in templates"). Spec #63(e) revised. Migration `20261016180000_template_guest_texts.sql` (after main's `20261016120000`…`170000`; re-slotted from `…130000` and `…160000` as main moved).
 
 - **DB:** `event_templates.house_rules` / `guest_info`, nullable, the same CHECKs as `events` (`events_house_rules_len`, `events_guest_info_check`). `create_template_from_event` copies both, `create_event_from_template` puts both on the new event; bodies are `20261007135000` plus the two columns (SECURITY DEFINER, `search_path ''`, role checks and grants unchanged). No RLS/grant change: `event_templates` has table-level grants only.
 - **App:** template create/update actions + schemas take both texts; `fetchTemplates`/`fetchTemplate` read them. The template editor shows the same "For your guests" block (`EventGuestTextFields`, new `note` prop). The event form prefills both from a picked template, like location (`locBaseline`), so the follow-up write after a template create writes the template's texts, not empty ones; a prefilled text is not "dirty".
 - **Tests:** pgTAP `template_guest_texts.test.sql` (24: columns + CHECKs equal to events, copy both ways, NULL stays NULL, organizer allowed on their own venue's event, staff/organizer/anon denied, cross-tenant RLS 0 rows on a venue-2 template, a venue-1 organizer can't template a venue-2 event, function hygiene). Flow `guest-info` Q11–Q12 (Save as template keeps both → new event from it starts with and saves both).
 - Deliberate: an event-scoped organizer can write the guest texts on the company's templates (RLS `organizes_event_at_venue`), the same trust as template location; the admin sees the prefilled text before saving.
-- **Deploy order:** Max pushes `20261016160000` right after the merge; between deploy and push the Templates screen, template editor and the event form's template picker error (no shim, same as `20261007135000`).
+- **Deploy order:** Max pushes `20261016180000` right after the merge; between deploy and push the Templates screen, template editor and the event form's template picker error (no shim, same as `20261007135000`).
 - `contact_email` stays per event (out of scope).
+
+---
+
+## 2026-10-12 — Privacy train landed (#477) + contract step
+
+Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train landed on prod in one merge: train PR #477 carried #460 (column-level SELECT on `user_profiles`), #461 (definer stats + session RPCs inside the profile boundary, spec #64b), #464 (venue present/added), #466 (one who-did-what label, `venue_actor_names`, spec #64a), #469 (quota grants only for people tied to the company), #470 (readable audit lines), #474 (DateField flake + 44px calendar on touch) and #471 (dev scripts take the container from the checkout's config). #459 (the expand step) went first on its own. One `db push` after the Vercel prod deploy of #477 was Ready. Spec numbers moved because main took #62 (door payments) and #63 (guest info): ours is **#64**.
+
+- **Rehearsal 4** (main + the complete train, isolated `PlusOne_Train` stack, fresh reset): pgTAP 115 files / 3267 assertions PASS; vitest 3923 pass with only the 11 known Windows-only failures; type-check and lint clean.
+- **Prod checks after the push** (catalog only): head `20261016150000`; `authenticated` has no table-level SELECT on `user_profiles`, only `id`, `full_name`, `email`, `has_joined`; `my_profile()`, `venue_actor_names`, the reserved-name CHECK, both quota tie policies and both key-immutability triggers present; no app-readable view without `security_invoker`; no Vercel runtime errors.
+- **Reviews:** Max accepted the independent subagent fresh reviews as the CLAUDE.md fresh-session `/code-review` + `/security-review` gate for this train.
+- **Contract step (this PR):** `20261016170000_admin_sessions_drop_ip_aal` drops and recreates `admin_list_user_sessions` without the always-null `ip`/`aal` columns (`list_own_sessions` keeps both); `fetchActorLabels` loses its PGRST202 `user_profiles` fallback now that `venue_actor_names` is on prod. pgTAP `definer_profile_scope` C2/C3 now assert the columns are absent. Same rehearsal stack: pgTAP 115 files / 3267 assertions PASS.
+- **Left:** #467's hard-coded location strings in `translate.ts` could move into the i18n catalogue (not Now).
 
 ---
 

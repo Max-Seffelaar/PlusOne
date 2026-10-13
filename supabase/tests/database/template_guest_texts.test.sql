@@ -1,5 +1,5 @@
 -- pgTAP — templates keep the guest texts (z8uq9m4pnk,
--- 20261016160000_template_guest_texts.sql). Proves: the two columns exist with
+-- 20261016180000_template_guest_texts.sql). Proves: the two columns exist with
 -- the same CHECKs as events (house_rules 1..500, guest_info 1..1000 with no
 -- control characters except tab/LF/CR); Save as template copies both from the
 -- event; an event created from a template gets both; NULL stays NULL both ways;

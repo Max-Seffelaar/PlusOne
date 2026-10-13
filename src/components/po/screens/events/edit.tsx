@@ -312,7 +312,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           : { eventId: await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn, locationName, locationAddress, houseRules: rules, guestInfo: info, contactEmail: contact }), contactSaved: true };
         const newId = created.eventId;
         // The template RPC copies the template's CURRENT DB location and guest
-        // texts (20261007135000, 20261016160000), which can differ from the
+        // texts (20261007135000, 20261016180000), which can differ from the
         // cached ones the form showed (no realtime on templates). So after a
         // template create we always write what the user saw in the form (the
         // picked template prefilled it) — never diff against the cache. The event exists by now, so a failed write must never keep the

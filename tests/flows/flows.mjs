@@ -168,7 +168,7 @@ export const FLOWS = {
       'supabase/migrations/20261015160000_event_guest_info.sql',
       // Q11–Q13: Save as template → new event from it keeps both texts (z8uq9m4pnk).
       'src/components/po/screens/templates.tsx',
-      'supabase/migrations/20261016160000_template_guest_texts.sql',
+      'supabase/migrations/20261016180000_template_guest_texts.sql',
     ],
   },
   'event-contact': {
