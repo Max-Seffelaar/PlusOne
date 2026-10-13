@@ -22,7 +22,7 @@ import type { JSX } from 'react';
 import { t } from '@/lib/i18n';
 import { deriveEnd, rollEndDate } from '@/features/events/derive-end';
 import { DateField, TimeField } from '../../datetime-field';
-import { Label } from '../../kit';
+import { FieldErrorFor, Label, fieldInputProps, type FieldErrorBinding } from '../../kit';
 
 export interface Schedule {
   date: string;
@@ -37,12 +37,15 @@ export function ScheduleFields({
   endTouched,
   onEndTouchedChange,
   writable,
+  errors,
 }: {
   value: Schedule;
   onChange: (next: Schedule) => void;
   endTouched: boolean;
   onEndTouchedChange: (touched: boolean) => void;
   writable: boolean;
+  /** Field errors per input (z8uq9m5eb7, `useFieldErrors().bind`); the message sits under its row. */
+  errors?: Partial<Record<keyof Schedule, FieldErrorBinding>>;
 }): JSX.Element {
   /** A start-side change: re-derive the end while the user hasn't claimed it. */
   const setStart = (patch: Partial<Pick<Schedule, 'date' | 'time'>>): void => {
@@ -82,13 +85,14 @@ export function ScheduleFields({
       <div className="mb-[14px] flex gap-[10px]">
         <div className="min-w-0 flex-[1.35]">
           <Label className="mb-2">{t.events.fieldDate}</Label>
-          <DateField value={value.date} onChange={writable ? (v) => setStart({ date: v }) : undefined} />
+          <DateField value={value.date} onChange={writable ? (v) => setStart({ date: v }) : undefined} {...fieldInputProps(errors?.date)} />
         </div>
         <div className="min-w-0 flex-1">
           <Label className="mb-2">{t.events.fieldDoors}</Label>
-          <TimeField value={value.time} onChange={writable ? (v) => setStart({ time: v }) : undefined} />
+          <TimeField value={value.time} onChange={writable ? (v) => setStart({ time: v }) : undefined} {...fieldInputProps(errors?.time)} />
         </div>
       </div>
+      <FieldErrorFor error={errors?.date?.message ? errors.date : errors?.time} className="-mt-[6px] mb-[14px]" />
 
       {/* End time (optional, prefilled at doors + 6 h). Drives the
           Upcoming/Live/Past phase — a night with an end stays "Live" until it
@@ -96,13 +100,15 @@ export function ScheduleFields({
       <div className="mb-[14px] flex gap-[10px]">
         <div className="min-w-0 flex-[1.35]">
           <Label className="mb-2">{t.events.fieldEndDate}</Label>
-          <DateField value={value.endDate} anchor={value.date} onChange={writable ? setEndDate : undefined} />
+          <DateField value={value.endDate} anchor={value.date} onChange={writable ? setEndDate : undefined} {...fieldInputProps(errors?.endDate)} />
         </div>
         <div className="min-w-0 flex-1">
           <Label className="mb-2">{t.events.fieldEnd}</Label>
-          <TimeField value={value.endTime} onChange={writable ? setEndTime : undefined} />
+          <TimeField value={value.endTime} onChange={writable ? setEndTime : undefined} {...fieldInputProps(errors?.endTime)} />
         </div>
       </div>
+      <FieldErrorFor error={errors?.endDate?.message ? errors.endDate : errors?.endTime} className="-mt-[6px] mb-[14px]" />
     </>
   );
 }
+

@@ -6,12 +6,16 @@
  * (CLAUDE.md security checklist: "Errors returned to the client are generic").
  */
 
+import { firstIssueField } from './field-error';
+
 export interface MutationError {
   ok: false;
   /** Stable code the UI can branch on (the SQLSTATE, or 'unauthorized'/'invalid'). */
   code: string;
   /** Safe to show. */
   message: string;
+  /** The form field this is about (a schema key, never user input), when it is about one (z8uq9m5eb7). */
+  field?: string;
 }
 
 interface PostgrestLikeError {
@@ -79,11 +83,16 @@ export const unauthorized = (): MutationError => ({
   message: 'Your session expired. Log in again.',
 });
 
-export const invalidInput = (message = 'Check the details you entered.'): MutationError => ({
+export const invalidInput = (message = 'Check the details you entered.', field?: string): MutationError => ({
   ok: false,
   code: 'invalid',
   message,
+  ...(field ? { field } : {}),
 });
+
+/** A failed Zod parse as invalidInput: the first issue's message, and its field when the path names one. */
+export const invalidIssues = (error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] }): MutationError =>
+  invalidInput(error.issues[0]?.message, firstIssueField(error.issues));
 
 /** RLS silently filtered the row out of the write (0 rows, no Postgrest error) — not a false success. */
 export const notFound = (): MutationError => ({

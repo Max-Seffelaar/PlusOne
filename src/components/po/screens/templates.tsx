@@ -29,7 +29,8 @@ import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Btn, ColorSwatches, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress, hitRingY2 } from '../kit';
+import { Btn, ColorSwatches, Empty, Field, FieldErrorFor, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress, fieldInputProps, hitRingY2, useFieldErrors } from '../kit';
+import { errorField } from '@/lib/field-error';
 import { BottomBar } from '../shell';
 import { EventGuestTextFields } from './events/guest-mail';
 
@@ -110,6 +111,10 @@ export function Templates(): JSX.Element {
 }
 
 // ── Template editor ──────────────────────────────────────────────────────────
+// The template form's fields for useFieldErrors (z8uq9m5eb7): the action's
+// schema keys, so a server `field` lands on its input as-is.
+const TEMPLATE_FORM_FIELDS = ['name', 'capacity', 'locationName', 'locationAddress', 'autoLockOffsetMinutes', 'houseRules', 'guestInfo'] as const;
+
 export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Element {
   const nav = useNav();
   const { venueId, venueName } = usePoIdentity();
@@ -142,7 +147,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
   // both texts or neither, never one without the other. '' = none.
   const [houseRules, setHouseRules] = useState('');
   const [guestInfo, setGuestInfo] = useState('');
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5eb7); the rest is the banner.
+  const fe = useFieldErrors(TEMPLATE_FORM_FIELDS);
 
   // Hydrate from the loaded template (edit mode, and once after a fresh create).
   useEffect(() => {
@@ -192,27 +198,27 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
   };
 
   const save = async (): Promise<void> => {
-    setErr(null);
+    fe.reset();
     if (!name.trim()) {
-      setErr(t.templates.errName);
+      fe.fail(t.templates.errName, 'name');
       return;
     }
     if (autoOn && parseAutoLockOffsetMinutes(autoHours) === undefined) {
-      setErr(t.templates.errAutoLockHours);
+      fe.fail(t.templates.errAutoLockHours, 'autoLockOffsetMinutes');
       return;
     }
     if (houseRules.trim().length > HOUSE_RULES_MAX) {
-      setErr(t.events.houseRulesTooLong);
+      fe.fail(t.events.houseRulesTooLong, 'houseRules');
       return;
     }
     if (guestInfo.trim().length > GUEST_INFO_MAX) {
-      setErr(t.events.guestInfoTooLong);
+      fe.fail(t.events.guestInfoTooLong, 'guestInfo');
       return;
     }
     try {
       if (isCreating) {
         if (!venueId) {
-          setErr(t.templates.errNoVenue);
+          fe.fail(t.templates.errNoVenue);
           return;
         }
         const newId = await createTemplate.mutateAsync({ venueId, name: name.trim(), ...buildSettings() });
@@ -222,17 +228,17 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
         nav.back();
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.templates.errSave);
+      fe.fail(e instanceof Error ? e.message : t.templates.errSave, errorField(e));
     }
   };
 
   const remove = async (): Promise<void> => {
-    setErr(null);
+    fe.reset();
     try {
       await deleteTemplate.mutateAsync({ templateId });
       nav.back();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.templates.errDelete);
+      fe.fail(e instanceof Error ? e.message : t.templates.errDelete);
     }
   };
 
@@ -257,26 +263,30 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
         sub={isCreating ? undefined : detail.data?.name}
       />
       <Scroll bottom={120}>
-        {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
+        {fe.banner && <div role="alert" className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{fe.banner}</div>}
         {!writable && <Note icon="shield">{t.templates.noteViewOnly}</Note>}
 
         <Label className="mb-2">{t.templates.nameLabel}</Label>
         <Field
           placeholder={t.templates.namePlaceholder}
           value={name}
-          onChange={writable ? setName : undefined}
+          onChange={fe.edit('name', writable ? setName : undefined)}
           className="mb-[14px]"
+          {...fieldInputProps(fe.bind('name'))}
         />
+        <FieldErrorFor error={fe.bind('name')} className="-mt-[6px] mb-[14px]" />
 
         <Label className="mb-2">{t.templates.capacityLabel}</Label>
         <Field
           icon="users"
           placeholder={t.templates.capacityPlaceholder}
           value={capacity}
-          onChange={writable ? setCapacity : undefined}
+          onChange={fe.edit('capacity', writable ? setCapacity : undefined)}
           inputMode="numeric"
           className="mb-1.5"
+          {...fieldInputProps(fe.bind('capacity'))}
         />
+        <FieldErrorFor error={fe.bind('capacity')} />
         <p className="mb-[18px] text-[12px] leading-[1.5] text-faint">{t.templates.capacityHint}</p>
 
         {/* Event location (z8uq9m2vqc): copied onto every event made from this
@@ -287,19 +297,23 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
           ariaLabel={t.events.locationNameAria}
           placeholder={venueName || t.events.locationNamePlaceholder}
           value={locName}
-          onChange={writable ? setLocName : undefined}
+          onChange={fe.edit('locationName', writable ? setLocName : undefined)}
           maxLength={LOCATION_NAME_MAX}
           className="mb-2"
+          {...fieldInputProps(fe.bind('locationName'))}
         />
+        <FieldErrorFor error={fe.bind('locationName')} />
         <Field
           icon="pin"
           ariaLabel={t.events.locationAddressAria}
           placeholder={t.events.locationAddressPlaceholder}
           value={locAddress}
-          onChange={writable ? setLocAddress : undefined}
+          onChange={fe.edit('locationAddress', writable ? setLocAddress : undefined)}
           maxLength={LOCATION_ADDRESS_MAX}
           className="mb-1.5"
+          {...fieldInputProps(fe.bind('locationAddress'))}
         />
+        <FieldErrorFor error={fe.bind('locationAddress')} />
         <p className="mb-[18px] text-[12px] leading-[1.5] text-faint">{t.templates.locationHint}</p>
 
         {/* House rules + info for guests (z8uq9m4pnk): the same block as the
@@ -307,8 +321,9 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
         <EventGuestTextFields
           houseRules={houseRules}
           guestInfo={guestInfo}
-          onHouseRulesChange={writable ? setHouseRules : undefined}
-          onGuestInfoChange={writable ? setGuestInfo : undefined}
+          onHouseRulesChange={fe.edit('houseRules', writable ? setHouseRules : undefined)}
+          onGuestInfoChange={fe.edit('guestInfo', writable ? setGuestInfo : undefined)}
+          errors={{ houseRules: fe.bind('houseRules'), guestInfo: fe.bind('guestInfo') }}
           note={t.templates.guestTextsHint}
         />
 
@@ -324,7 +339,11 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
             title={t.templates.autoLockTitle}
             sub={autoOn && autoHours.trim() ? fmt(t.templates.autoLockOnSub, { n: autoHours }) : t.templates.autoLockOffSub}
             on={autoOn}
-            set={(v) => writable && setAutoOn(v)}
+            set={(v) => {
+              if (!writable) return;
+              fe.clear('autoLockOffsetMinutes');
+              setAutoOn(v);
+            }}
             last={!autoOn}
           />
           {autoOn && (
@@ -335,9 +354,11 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
                 inputMode="numeric"
                 placeholder={t.templates.autoLockHoursPlaceholder}
                 value={autoHours}
-                onChange={writable ? setAutoHours : undefined}
+                onChange={fe.edit('autoLockOffsetMinutes', writable ? setAutoHours : undefined)}
                 className="w-[140px]"
+                {...fieldInputProps(fe.bind('autoLockOffsetMinutes'))}
               />
+              <FieldErrorFor error={fe.bind('autoLockOffsetMinutes')} className="mb-0" />
             </div>
           )}
         </div>
