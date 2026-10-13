@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Sentry network noise S2: Postgrest-shaped fetch failures + Safari host suffix (z8uq9m5enh, PR A)
+
+Milestone **Now**. Trigger: Sentry issue C (2026-10-12), `PostgrestError: TypeError: Load failed (tolxwgqhppdcvnogdpel.supabase.co)`, `capture_source=query`, `po.screen=start`.
+
+- **Root cause:** postgrest-js 2.112 returns a failed fetch as a plain object (`message: "${name}: ${message}"`, `code`/`hint` empty, `details` = the stack), so `isNetworkNoise` (Error-only) missed it: offline it was reported, online it went out untagged with an empty `db_code`. Separately, Safari's `Load failed (<host>)` missed the anchored `NETWORK_MESSAGES`, even as a real TypeError.
+- **Fix (`src/lib/observability/capture.ts`):** one anchored matcher with an optional `TypeError: `/`FetchError: ` prefix and ` (<host>)` suffix, applied to Errors and Postgrest-like objects. Offline → dropped; online → reported as `PostgrestError` with `network:true`; `db_code` only when non-empty. A real TypeError stays an untagged issue. No `ignoreErrors`/inbound filter (would hide real outages).
+- **Tests:** `capture.test.ts` Error/Postgrest × with/without host × offline/online, look-alike texts stay untagged, empty code never becomes `db_code`, details (stack) never reach Sentry. 9 of the new cases fail on the old code.
+- **Runbook "Sentry triage":** network row names the Postgrest form + host suffix; the alert rule condition `tag network is not equal to true` is documented.
+- **Max, in Sentry:** set that condition on "Send a notification for high priority issues"; issue C → "Archive until escalating"; issue D only after PR B (platform-invite resend) ships.
+
+---
+
 ## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
 
 Milestone **Now** (ADE). Request Max 2026-10-12 ("guest_info in templates"). Spec #63(e) revised. Migration `20261016180000_template_guest_texts.sql` (after main's `20261016120000`…`170000`; re-slotted from `…130000` and `…160000` as main moved).
