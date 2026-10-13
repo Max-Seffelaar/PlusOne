@@ -1863,7 +1863,13 @@ JSONL-artefact: `jq` ontbreekt op deze machine → niet geschreven (waarschuwing
 
 ### 12.12 Approved Mockups
 
-Geen gegenereerd (designer zonder API-key); de wireframes in 12.1, 12.4 en 12.6 zijn de visuele referentie.
+Geen designer-afbeeldingen (geen API-key). Wel een HTML-mockup uit `/design-html` (2026-10-13, plan-driven uit de wireframes in 12.1/12.4/12.6 + `design-system.md`; zelfstandig bestand met gevendorde Pretext, mock-QR), ter review door Max — pas goedgekeurd na zijn feedback (status: v1, 0 iteraties):
+
+| Screen/Section | Mockup Path | Direction | Notes |
+|----------------|-------------|-----------|-------|
+| Alle frames (A–K) | `C:/Users/Maxse/.gstack/projects/Max-Seffelaar-PlusOne/designs/door-payments-20261013/finalized.html` | één pagina met 11 frames: A GuestDetail betaalbare rij · B–E Charge-sheet (waiting / paid / partial / offline) · F–J `/pay` (deur-QR, maillink, paid, not found, 503) · K cockpit-dialoog | bedragen €20.00 ticket / €2.50 fee pp / 2 personen; organisatiekant zonder fee; `/pay` via deur-QR zonder aantal-keuze; één bewegingsmoment (tik op de statusregel in B); cockpit-dialoog = één kolom 560 breed met QR 320 (twee kolommen bleken op 560 te smal); serve met `python -m http.server 8765` in die map |
+
+Metadata: `finalized.json` naast het bestand. Na Max' feedback: iteraties als surgical edits in hetzelfde bestand, daarna deze tabel bijwerken naar "approved".
 
 ### 12.13 Completion summary (design)
 
