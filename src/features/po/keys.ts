@@ -51,6 +51,9 @@ export const poKeys = {
   // distinct cached lists, so invalidating the ['po','contacts',venueId] prefix
   // refreshes every variant after a star/import/add write.
   contacts: (venueId: string, search = '') => [...poKeys.all, 'contacts', venueId, search] as const,
+  /** Starred contacts only (the Guests tab's Regulars filter) — under the same
+   *  ['po','contacts',venueId] prefix, so every contacts write refreshes it too. */
+  permanentContacts: (venueId: string) => [...poKeys.all, 'contacts', venueId, { permanentOnly: true }] as const,
   contactKeys: (venueId: string) => [...poKeys.all, 'contact-keys', venueId] as const,
   /** Contact ids opted in to venue updates (legal v0.3 decision 2). */
   contactOptIns: (venueId: string) => [...poKeys.all, 'contact-opt-ins', venueId] as const,
