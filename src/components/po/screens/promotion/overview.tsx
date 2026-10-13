@@ -18,7 +18,7 @@ import type { PoFunnel, PoLinkFunnelRow } from '@/features/po/queries';
 import { funnelConversion, requestedDisplay, sumFunnels } from '@/features/po/funnel';
 import {
   usePoCanCreateLink,
-  usePoEvents,
+  usePoEventOptions,
   usePoLinkFunnel,
   usePoPromoLabelFunnel,
   usePoPromoLeaderboard,
@@ -382,7 +382,7 @@ function LoadingState(): JSX.Element {
 // ── Tab body (rendered inside the Promotion hub) ─────────────────────────────
 export function PromotionOverview(): JSX.Element {
   const nav = useNav();
-  const eventsQ = usePoEvents();
+  const eventsQ = usePoEventOptions();
   const venueLinksQ = usePoVenueLinks();
   const [range, setRange] = useState<PromoRange>('30');
   const [pickedEventId, setPickedEventId] = useState<string | null>(null);

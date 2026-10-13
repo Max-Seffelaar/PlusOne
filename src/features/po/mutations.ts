@@ -712,7 +712,12 @@ export function usePoRefuseGuest(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      // A refusal takes heads off the list (and an undo puts them back): the
+      // event cards' counts move too (Snelheid P2 review).
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+    },
   });
 }
 
@@ -738,7 +743,12 @@ export function usePoUndoRefusal(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      // A refusal takes heads off the list (and an undo puts them back): the
+      // event cards' counts move too (Snelheid P2 review).
+      void qc.invalidateQueries({ queryKey: EVENTS_PREFIX });
+    },
   });
 }
 
@@ -994,15 +1004,9 @@ function useInvalidateEvent() {
     if (venueId) {
       void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
       void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-      // poKeys.home is a SEPARATE cache entry from poKeys.events (its own fetch,
-      // its own 10s poll) — without this an event create/status-change/cancel
-      // only reached the mobile Home board on its next poll tick, not
-      // immediately, while the Events tab (poKeys.events, invalidated above)
-      // updated right away (86ey9e9v5: Home vs Events inconsistency after
-      // create/cancel). PR #228 fixed this ad hoc for the lock toggle only
-      // (usePoSetListLockOnHome); this generalizes it to every caller of
-      // useInvalidateEvent.
-      void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
+      // No separate poKeys.home invalidation (86ey9e9v5): since Snelheid P2 the
+      // Home board is a `select` over the same event window, `poKeys.home` is an
+      // alias of `poKeys.events`, and the line above already refreshes Home.
     }
   };
 }
@@ -1020,7 +1024,6 @@ export function usePoCreateEvent() {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });
@@ -1217,7 +1220,6 @@ export function usePoCreateEventFromTemplate() {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
-        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });

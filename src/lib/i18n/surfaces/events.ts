@@ -28,6 +28,8 @@ export const events = {
   searchCloseAria: 'Close search',
   searchPlaceholder: 'Search by event name…',
   searchEmpty: 'No events match "{q}".',
+  /** Past + search with older pages not loaded yet: the search only covers what is loaded (Snelheid P2 review). */
+  searchEmptyPastWindow: 'No "{q}" in the last 30 days. Show older events to search further back.',
 
   // ── Event detail ────────────────────────────────────────────────────────────
   detailTitle: 'Event',

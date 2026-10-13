@@ -86,9 +86,12 @@ export function Events(): JSX.Element {
   const windowIds = new Set(data.map((e) => e.id));
   const older = when === 'past' && olderOn ? (past.data?.pages ?? []).flatMap((p) => p.events).filter((e) => !windowIds.has(e.id)) : [];
   const evs = [...data, ...older].filter((e) => e.when === when && (!q || e.name.toLowerCase().includes(q)));
-  const canShowOlder = when === 'past' && !isLoading && !isError && (!olderOn || past.hasNextPage || past.isLoading);
+  const canShowOlder =
+    when === 'past' && !isLoading && !isError && (!olderOn || past.hasNextPage || past.isLoading || past.isError);
   const showOlder = (): void => {
     if (!olderOn) setOlderOn(true);
+    // A failed first page has no next page to fetch: retry it (Snelheid P2 review).
+    else if (past.isError && !past.data) void past.refetch();
     else void past.fetchNextPage();
   };
   const months = [...new Set(evs.map((e) => e.month))];
@@ -165,7 +168,13 @@ export function Events(): JSX.Element {
           <Empty text={t.events.loadEventsError} />
         ) : evs.length === 0 ? (
           <Empty
-            text={q ? fmt(t.events.searchEmpty, { q: query.trim() }) : when === 'upcoming' ? t.events.emptyUpcoming : t.events.emptyPast}
+            text={
+              q
+                ? fmt(when === 'past' && !olderOn ? t.events.searchEmptyPastWindow : t.events.searchEmpty, { q: query.trim() })
+                : when === 'upcoming'
+                  ? t.events.emptyUpcoming
+                  : t.events.emptyPast
+            }
           />
         ) : (
           months.map((m) => (

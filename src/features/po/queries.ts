@@ -239,12 +239,16 @@ type VenueGuestTierEmbed = { name: string; color: string | null };
 type PoVenueGuestRaw = Omit<PoVenueGuestRow, keyof GuestSourceEmbedFlat> & GuestSourceEmbedRaw;
 type PoVenueGuestTierRaw = PoVenueGuestRaw & {
   guest_tiers: VenueGuestTierEmbed | VenueGuestTierEmbed[] | null;
+  events: { name: string } | { name: string }[] | null;
 };
 
 /** A venue-wide guest row with its tier flattened out of the embed. */
 export interface PoVenueGuestWithTier extends PoVenueGuestRow {
   tierName: string | null;
   tierColor: string | null;
+  /** The guest's event name, from the row's own embed (Snelheid P2 review): the
+   *  window reaches events of any age, so it can't come from the events window. */
+  eventName: string | null;
 }
 
 export interface VenueGuestsPage {
@@ -280,7 +284,7 @@ export async function fetchVenueGuestsWindow(
   let query = client
     .from('guests')
     .select(
-      `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, guest_tiers(name, color), ${GUEST_SOURCE_SELECT}`,
+      `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, anonymized_at, event_id, guest_tiers(name, color), events(name), ${GUEST_SOURCE_SELECT}`,
       // Exact on purpose (Snelheid P1 review): `estimated` read ~3x too low past
       // PostgREST's max-rows because the planner can't see the status/RLS
       // selectivity. guests_venue_created_idx keeps this count at ~0.5 s for
@@ -305,9 +309,15 @@ export async function fetchVenueGuestsWindow(
   const raw = (data ?? []) as PoVenueGuestTierRaw[];
   // The window is <= VENUE_GUESTS_WINDOW rows, so its adders are a small set.
   const labels = await fetchActorLabelsSafe(client, args.venueId, raw.map((g) => g.added_by));
-  const rows: PoVenueGuestWithTier[] = raw.map(({ guest_tiers, ...g }) => {
+  const rows: PoVenueGuestWithTier[] = raw.map(({ guest_tiers, events, ...g }) => {
     const tier = [guest_tiers].flat().filter(Boolean)[0] as VenueGuestTierEmbed | undefined;
-    return { ...flattenGuestSource(g, labels), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
+    const event = [events].flat().filter(Boolean)[0] as { name: string } | undefined;
+    return {
+      ...flattenGuestSource(g, labels),
+      tierName: tier?.name ?? null,
+      tierColor: tier?.color ?? null,
+      eventName: event?.name ?? null,
+    };
   });
   return { rows, total: count ?? rows.length };
 }

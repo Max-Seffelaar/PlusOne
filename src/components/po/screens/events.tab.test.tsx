@@ -37,12 +37,17 @@ const EVENTS = [
 
 // Older pages behind the 30-day window (Snelheid P2): one page with one event.
 const fetchNextPage = vi.fn();
+const refetch = vi.fn();
 let pastEnabledCalls: boolean[] = [];
+let pastFails = false;
 
 vi.mock('@/features/po/hooks', () => ({
   usePoEvents: () => ({ data: EVENTS, isLoading: false, isError: false }),
   usePoPastEvents: (enabled: boolean) => {
     pastEnabledCalls.push(enabled);
+    if (pastFails && enabled) {
+      return { data: undefined, hasNextPage: false, isLoading: false, isFetching: false, isError: true, fetchNextPage, refetch };
+    }
     return {
       data: enabled ? { pages: [{ events: [ev('e9', 'Old Rave', 'past')], next: null }] } : undefined,
       hasNextPage: false,
@@ -50,6 +55,7 @@ vi.mock('@/features/po/hooks', () => ({
       isFetching: false,
       isError: false,
       fetchNextPage,
+      refetch,
     };
   },
   usePoCanManageTemplates: () => roles.includes('admin') || organizes,
@@ -64,6 +70,7 @@ beforeEach(() => {
   roles = ['admin'];
   organizes = false;
   pastEnabledCalls = [];
+  pastFails = false;
   vi.clearAllMocks();
 });
 afterEach(cleanup);
@@ -162,5 +169,18 @@ describe('Events tab Past paging (Snelheid P2)', () => {
     expect(screen.getByText('Opening Night')).toBeInTheDocument();
     // The last page said "no more": the button is gone.
     expect(screen.queryByRole('button', { name: t.events.showOlder })).toBeNull();
+  });
+});
+
+describe('Events tab Past paging — a failed first page (Snelheid P2 review)', () => {
+  it('keeps the button and retries the page instead of leaving a dead end', () => {
+    pastFails = true;
+    render(<Events />);
+    fireEvent.click(screen.getByRole('button', { name: t.events.tabPast }));
+    fireEvent.click(screen.getByRole('button', { name: t.events.showOlder }));
+    expect(screen.getByText(t.events.loadEventsError)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t.events.showOlder }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(fetchNextPage).not.toHaveBeenCalled();
   });
 });
