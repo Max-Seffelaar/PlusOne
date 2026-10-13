@@ -17,7 +17,19 @@ Milestone **Now** (polish, golf F 7c). No migration.
 - **Decision, touch:** a sheet, not the native picker. The native list differs per device and never shows the accent row, and the longest lists (companies on the Platform screens) scroll better as 44px rows than on a wheel.
 - **Gotcha (found by the flow):** `.po-screen-anim` leaves an identity `transform` on the screen column after its entrance, which makes that column the containing block for `position: fixed`. An in-tree sheet stopped 73.5px above the viewport edge on a phone (above the tab bar, with the tab bar undimmed). Hence the portal. The kit InfoTip has the same latent issue (its 80px tab-bar padding is dead space on a phone); left as is, outside this task's scope.
 - **New string:** `shared.kit.selectCancel` = "Cancel".
-- **Tests:** `kit.select.test.tsx` (11: aria wiring, click/keyboard pick, no onChange on the same value, Escape does not bubble, type-ahead + cycling, outside tap / Cancel / Android back, sheet vs popover classes). Flow `kit-select` (Q1–Q12) on Platform → Audit and Mail log. `share` and `mail-status` flows pick through the new `pickKitOption` harness helper, since `selectOption` only works on a native select. `design-system.md` gets the Dropdown rule.
+- **Tests:** `kit.select.test.tsx` (13: aria wiring, click/keyboard pick, no onChange on the same value, Escape does not bubble, type-ahead + cycling, outside tap / Cancel / Android back, portalled sheet vs in-tree popover by matchMedia, a tap inside either panel is not an outside tap). Flow `kit-select` (Q1–Q12) on Platform → Audit and Mail log. `share` and `mail-status` flows pick through the new `pickKitOption` harness helper, since `selectOption` only works on a native select. `design-system.md` gets the Dropdown rule.
+
+---
+
+## 2026-10-12 — Privacy train landed (#477) + contract step
+
+Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train landed on prod in one merge: train PR #477 carried #460 (column-level SELECT on `user_profiles`), #461 (definer stats + session RPCs inside the profile boundary, spec #64b), #464 (venue present/added), #466 (one who-did-what label, `venue_actor_names`, spec #64a), #469 (quota grants only for people tied to the company), #470 (readable audit lines), #474 (DateField flake + 44px calendar on touch) and #471 (dev scripts take the container from the checkout's config). #459 (the expand step) went first on its own. One `db push` after the Vercel prod deploy of #477 was Ready. Spec numbers moved because main took #62 (door payments) and #63 (guest info): ours is **#64**.
+
+- **Rehearsal 4** (main + the complete train, isolated `PlusOne_Train` stack, fresh reset): pgTAP 115 files / 3267 assertions PASS; vitest 3923 pass with only the 11 known Windows-only failures; type-check and lint clean.
+- **Prod checks after the push** (catalog only): head `20261016150000`; `authenticated` has no table-level SELECT on `user_profiles`, only `id`, `full_name`, `email`, `has_joined`; `my_profile()`, `venue_actor_names`, the reserved-name CHECK, both quota tie policies and both key-immutability triggers present; no app-readable view without `security_invoker`; no Vercel runtime errors.
+- **Reviews:** Max accepted the independent subagent fresh reviews as the CLAUDE.md fresh-session `/code-review` + `/security-review` gate for this train.
+- **Contract step (this PR):** `20261016170000_admin_sessions_drop_ip_aal` drops and recreates `admin_list_user_sessions` without the always-null `ip`/`aal` columns (`list_own_sessions` keeps both); `fetchActorLabels` loses its PGRST202 `user_profiles` fallback now that `venue_actor_names` is on prod. pgTAP `definer_profile_scope` C2/C3 now assert the columns are absent. Same rehearsal stack: pgTAP 115 files / 3267 assertions PASS.
+- **Left:** #467's hard-coded location strings in `translate.ts` could move into the i18n catalogue (not Now).
 
 ---
 
