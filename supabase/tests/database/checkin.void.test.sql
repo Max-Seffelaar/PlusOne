@@ -1,6 +1,6 @@
 -- pgTAP — check-in terugdraaien / soft void (20260617020000_check_in_void.sql).
 -- Proves: only a door-scoped user (admin/doorhost/organizer) may void via the
--- new check_ins_update_door policy (staff cannot); a voided check-in is excluded
+-- new check_ins_update policy (door branch; was check_ins_update_door) (staff cannot); a voided check-in is excluded
 -- from event_stats_summary present_headcount; and a revive (un-void) clears the
 -- flag and re-sets arrivals fresh (the revive-aware cap trigger). Seed: admin Max
 -- (11..1) + doorhost Lisa (66..6) on Club Vesper, open event ee..01, tier dd..01.
