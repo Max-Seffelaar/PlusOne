@@ -12,9 +12,13 @@
  * overlay, Deur↔Taken segment, event override) is driven through raw
  * `window.history.pushState`/`replaceState` instead — no server round-trip — and
  * this local override SHADOWS the URL-derived door fields, because Next's
- * `usePathname`/`useSearchParams` do NOT reactively track raw History API calls:
- * they stay frozen at the last genuine router navigation and only resync on a
- * real router-driven nav or a browser back/forward popstate.
+ * `usePathname`/`useSearchParams` do NOT track a raw History API call whose
+ * state carries Next's `__NA` marker — the door passes `window.history.state`,
+ * which does — so they stay frozen at the last genuine router navigation and
+ * only resync on a real router-driven nav or a browser back/forward popstate.
+ * (A call with a `null` state IS synced by Next; that is how the po screens
+ * navigate client-only, `navMode` in routes.ts. Moving the door to that model
+ * would make this override unnecessary — a separate change.)
  *
  * The override must be dropped again the moment the URL becomes authoritative, or
  * it would mask a real navigation. Two triggers do that:

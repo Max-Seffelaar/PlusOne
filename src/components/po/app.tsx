@@ -31,7 +31,8 @@ import { AppShellChrome } from './app-chrome';
 import { AppScreens } from './app-screens';
 import { DesktopDoorAutoOpen, PoDoorBranch, type DoorNav } from './door-branch';
 import { type Nav, type ScreenName } from './context';
-import { doorPath, parseAppUrl, screenPath, tabPath, type DoorSeg } from './routes';
+import { doorPath, navMode, parseAppUrl, screenPath, tabPath, type DoorSeg } from './routes';
+import { createClient } from '@/lib/supabase/client';
 import { parentPathFor } from './nav-map';
 import { useDoorOverride, type DoorOverrideState } from './use-door-override';
 import type { TabKey } from './shell';
@@ -59,9 +60,15 @@ import type { DoorOverlay } from './screens/door';
 // event landed on the event's own detail page instead of the events list) on a
 // path the e2e test doesn't cover. A module variable resets only on a genuine
 // full page load, which is exactly the "nothing to pop yet" signal this needs.
-// Door sub-nav (`pushDoorState`) bypasses `router.push` entirely and sets the
-// flag directly.
+// Door sub-nav (`pushDoorState`) and the client-only screen pushes (`pushUrl`,
+// Snelheid P2) bypass `router.push` and set the flag directly.
 let hasPushedThisSession = false;
+
+// Client-only navigation bookkeeping (Snelheid P2, review #492; see `navMode`
+// in routes.ts). Module-level for the same reason as the flag above: they
+// describe this browser tab, not one React instance.
+let lastRouterNavAt = Date.now();
+let sessionGone = false;
 
 /**
  * Remount probe (86ey9uc87). Counts how often the shell MOUNTS, on `window` so
@@ -143,7 +150,8 @@ export function PlusOneApp(): JSX.Element {
     target.kind === 'screen' ? target.name : target.kind === 'door' ? 'deur' : target.tab;
   // Sentry po-screen context (fase 4.2): tag the active screen + a navigation
   // breadcrumb centrally, from the URL-derived key — every push/tab/back/replace
-  // flows through the router, so this fires on every real navigation for free.
+  // changes the URL (router or the client-only pushState in `navigate` below),
+  // so this fires on every real navigation for free.
   useEffect(() => {
     sentrySetTag('po.screen', activeScreenKey);
     sentryAddBreadcrumb({ category: 'navigation', message: activeScreenKey, level: 'info' });
@@ -164,14 +172,54 @@ export function PlusOneApp(): JSX.Element {
     apply();
   }, []);
 
-  const pushUrl = useCallback(
-    (url: string): void => {
-      hasPushedThisSession = true;
-      router.push(url);
+  // The auth client drops a dead session (revoked refresh token, remote
+  // logout) with SIGNED_OUT. Only remember it: the next navigation becomes a
+  // full load, so the middleware sends the user to /login. Navigating from the
+  // event itself would race signOutDevice's device wipe (review #492).
+  useEffect(() => {
+    let client: ReturnType<typeof createClient>;
+    try {
+      client = createClient();
+    } catch {
+      // No Supabase env (unit tests render the shell without one). In the app
+      // every read already needs this client, so nothing is lost here.
+      return;
+    }
+    const { data } = client.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') sessionGone = true;
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const navigate = useCallback(
+    (url: string, replace: boolean): void => {
+      const mode = navMode(url, {
+        current: window.location.pathname + window.location.search,
+        sessionGone,
+        msSinceRouterNav: Date.now() - lastRouterNavAt,
+      });
+      if (mode === 'none') return;
+      if (mode === 'document') {
+        if (replace) window.location.replace(url);
+        else window.location.assign(url);
+        return;
+      }
+      if (!replace) hasPushedThisSession = true;
+      if (mode === 'router') {
+        lastRouterNavAt = Date.now();
+        if (replace) router.replace(url);
+        else router.push(url);
+        return;
+      }
+      // `null`, never `window.history.state`: a state without `__NA` is what
+      // makes Next sync usePathname/useSearchParams (see isClientOnlyPath).
+      if (replace) window.history.replaceState(null, '', url);
+      else window.history.pushState(null, '', url);
     },
     [router],
   );
-  const replaceUrl = useCallback((url: string): void => router.replace(url), [router]);
+  const pushUrl = useCallback((url: string): void => navigate(url, false), [navigate]);
+  const replaceUrl = useCallback((url: string): void => navigate(url, true), [navigate]);
 
   // Mobile door sub-nav (guest/add overlay, Deur↔Taken segment, event
   // override) — raw History API, entirely bypassing `router.push/replace`
@@ -201,7 +249,7 @@ export function PlusOneApp(): JSX.Element {
       // after-create flows: "New event" → replace with the created event's
       // settings, so back returns to where the flow started instead of the stale
       // create form.
-      replace: (name: ScreenName, props = {}) => guarded(() => router.replace(screenPath(name, props))),
+      replace: (name: ScreenName, props = {}) => guarded(() => replaceUrl(screenPath(name, props))),
       // Real history to pop (pushed earlier this session) → let the browser go
       // back. Otherwise (cold deep link) → zoom out to the screen's parent
       // instead of no-op'ing or leaving the app. `replace`, NOT `pushUrl`: a
@@ -212,7 +260,7 @@ export function PlusOneApp(): JSX.Element {
       // child↔parent forever instead of climbing. `replace` swaps in place and
       // never latches, so a second cold back() computes a fresh parent from the
       // new (parent) target and keeps ascending (review fix).
-      back: () => guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target)))),
+      back: () => guarded(() => (hasPushedThisSession ? router.back() : replaceUrl(parentPathFor(target)))),
       setTab: (tab: TabKey) =>
         guarded(() => {
           if (tab === 'deur') {
@@ -237,7 +285,7 @@ export function PlusOneApp(): JSX.Element {
     // ever reads `doorState.overlay`, and depending on the whole object meant
     // every door sub-nav (Deur↔Taken, event switch) minted a new `nav` → new
     // `po` CONTEXT value, re-rendering every screen that reads it.
-    [target, doorState.overlay, router, guarded, pushUrl],
+    [target, doorState.overlay, router, guarded, pushUrl, replaceUrl],
   );
 
   // The door's sub-navigation, as ONE permanently stable object.
