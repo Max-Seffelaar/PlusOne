@@ -718,6 +718,8 @@ Geen LLM/prompt-wijzigingen.
 ```
 Aanbeveling: **`/plan-design-review`** vóór P2 voor de Charge-sheet en `/pay` (deursnelheid en vertrouwen zijn hier het product); na P2 `/design-review` op de live schermen.
 
+**Herzien 2026-10-13 (design-review, §12):** de IA-zin, de statetabel, de journey-regel en het diagram hierboven zijn uitgewerkt en op punten vervangen in §12 (volgorde bedrag → QR → hoofden; geen zichtbare 10 s-timer; Charge als primaire knop; bedrag als anker op `/pay`; de doorhost bepaalt k, de gast betaalt alleen; organisatiekant toont alleen ticketbedragen). Bij conflict wint §12.
+
 ### 10.20 NOT in scope
 
 Uitgesteld (gaan naar TODOS.md): `payment_fee_rules`-tabel (D19 B, bij P4b/P6); retry-wachtrij voor gefaalde refunds (D20.2 A, bij P4b of >3 rijen/week); pain.001-batch, abonnement-netting, volledige documentengine, blended-rate-rapport (P4b, D13); open shop met holds/oversell/sold-out/Queue-it (P2b, eigen spec-besluit tegen #10, D13); tweede PSP (P6, na validatie).
@@ -1527,17 +1529,385 @@ Geen: R1–R7 zijn beantwoord. Open **vragen** (P0, geen reviewbeslissingen) bli
 - Lake Score: 4/5 (D2, D4, D5, D6 kozen de 10/10-optie; D8 koos 8/10)
 - Suppressed findings (appendix): geen (geen bevindingen onder confidence 5)
 
+## 12. Design-review 2026-10-13 (gstack `/plan-design-review`) — werkdocument
+
+Scope (Max, D1 = A): alle zeven passes; zwaartepunt Charge-sheet (Deur-tab + cockpit) en `/pay/[token]`; Settings → Payments en de Platform-tab licht (state-tabel + kit-verwijzing). Design-system = `design-system.md`. Mockups: de gstack-designer had geen OpenAI-key (`No OpenAI API key found`, 0 van 0 afbeeldingen), dus tekst-wireframes in dit hoofdstuk. Outside voice (D2 = A): native Claude-subagent met koude lezing (Codex niet geïnstalleerd; `outside_status: unavailable`); zijn bevindingen F1–F12 zijn geverifieerd tegen de code (`GuestDetail.tsx:185–190` banner, `landing.ts:102/128`, `EventDayCockpit.tsx:835` modal 340px, `Stepper` floort op 0, `CountStepper` 32px) en hieronder per pass verwerkt.
+
+Step 0: design-compleetheid **5/10** (regels compleet, UI één zin per oppervlak). Een 10 = per oppervlak eerst/tweede/derde, volledige stateset incl. offline/noodrem/deelbetaling/sessieverloop, de hoofden-keuze en "nog niet bevestigd" als concrete controls, QR-maat en -contrast, responsive per viewport, screenreader-labels, Engelse copy.
+
+**Twee productregels van Max uit deze review (bindend, gelden voor elk oppervlak):**
+1. **De doorhost bepaalt het aantal, de gast betaalt alleen (D9.1-correctie).** De deur-QR draagt `?heads=k`; op `/pay` kan de gast via de deur-QR níets wijzigen — geen plus/min, geen tickets wegklikken — hij ziet "2 people · €45.00" als tekst en één knop Pay. Alleen de maillink (vooruitbetalen thuis, niemand bepaalt een aantal) heeft een aantal-keuze (D10.1). Dit vervangt in het design-doc "de pagina … laat de gast k verlagen".
+2. **Aan de organisatiekant tonen we alleen wat de organisatie verdient (D9.3-correctie).** Ticket €20.00 + servicefee €2.50: de gast betaalt €22.50 op zijn eigen telefoon en bon; de doorhost, de deurlijst, Settings → Payments en de cockpit tonen €20.00 (× hoofden). PlusOne's servicefee, de ondergrens en eventuele kickbacks (de ophoging die de company houdt) verschijnen nergens in de app-UI van de organisatie, alleen op de financiële documenten (weekstaat, self-billing-factuur, uitbetalingsdocument). Eén uitzondering: de Cash-knop toont het te innen totaal (D10.3), omdat de doorhost dat geld fysiek aanneemt.
+
+Rekenvoorbeeld in dit hoofdstuk: ticket €20.00, servicefee €2.50 per hoofd (illustratief; de echte fee volgt de ondergrens + ophoging), 2 personen → organisatiekant €40.00, gast €45.00.
+
+### 12.1 Pass 1 — Information Architecture: 4/10 → 9/10
+
+Gaten: het plan zette de stepper bovenaan en het bedrag nergens; Charge had geen plek naast de bestaande check-in-knoppen; de 10 s-wachttijd las als een lege sheet; `/pay` zette het bedrag op plek vijf. Besluiten (Max, 2026-10-13, alle = A):
+
+- **D3.1 Charge-sheet-volgorde:** bedrag → QR → compacte hoofden-rij → acties. Bedrag in display 34px als anker (organisatiekant: ticket × hoofden, regel 2 hierboven), QR direct eronder, hoofden als `CountStepper`-rij (44px-hit op touch), knoppen in de `BottomBar`. Past op 390×844 zonder scrollen.
+- **D3.2 Geen zichtbare timer:** de check-in-knop staat er vanaf t = 0 als `Check in 2 · not confirmed yet`; zodra realtime de betaling bevestigt flipt het label naar `Check in 2 · paid` (entrance alleen `translateY`). De 10 s uit §10.19 blijft bestaan als achtergrond-gratie op de outbox-uitkomst (webhook wint bij sync), nooit als aftelklok. Dit vervangt "na 10 s de keuze" in §10.19:701 en "online wacht de deur eerst tot 10 s" in het design-doc.
+- **D3.3 Plek in de BottomBar:** op een betaalbare rij met ongedekte hoofden wordt **Charge de primaire knop** (`Charge · €40.00 · 2`, icoon `money`); de bar blijft twee knoppen hoog. `Check in all` verhuist in de Charge-sheet (als `Check in k · not confirmed yet / paid`). Zodra gedekte hoofden = hoofden buiten, keert de huidige bar terug. De gestreepte `payBanner` (`GuestDetail.tsx:185–190`, "Paid guest list. Collect payment at the door.") wordt één live regel `€20.00 per person · 2 of 4 paid` (`text-[13.5px] text-text`; niets betaald: `· nothing paid yet`; alles betaald: `Paid · 4 people` met check-icoon in accent).
+- **D3.4 `/pay`-anker:** het bedrag dat de gast betaalt is de H1 (display 40px, het enige anker); venue + datum als eyebrow erboven; `2 people · Max · VIP` als sub; het aantal als tekst (deur-QR) of als hoofden-rij (maillink, D10.1); bedragblok met de regel "Service fee"; één knop `Pay €45.00`; PlusOne alleen in de `LandingFooter`. Hergebruikt het `/r/[token]`-frame (`LandingWrap`, `request-status.tsx`).
+
+Wireframe Charge-sheet (390px, outbox-deur; cockpit: zie Pass 6):
+
+```
+┌ Sheet (max-w 560, rounded-sheet, bg-elev, center=false) ─────────┐
+│ CHARGE · Max Seffelaar · [VIP] · 2 of 5 inside        Label 12px │
+│ €40.00                                         display 34px, text │
+│ 2 people · €20.00 each                         text-dim 13.5px   │
+│ ┌──── witte tegel 240×240, p-4, rounded-[20px] ────┐             │
+│ │               QR  (modules #0B0B0D, EC M)          │             │
+│ └────────────────────────────────────────────────────┘             │
+│ iDEAL · Apple Pay · Google Pay · card           text-faint 12px   │
+│ Can't scan? Show link                           quiet-knop, 44px  │
+│ PEOPLE PAYING NOW      [−]  2  [+]              CountStepper      │
+│ ● Waiting for payment…   →   ✓ Paid · 2 people  SyncDot / text-acc│
+├ BottomBar ───────────────────────────────────────────────────────┤
+│ [ Check in 2 · not confirmed yet ]  →  [ Check in 2 · paid ]      │
+│ [ Cash · €45.00 to collect ]   ghost, alleen als cash aan;        │
+│                                 cash_fee_mode 'none': Cash · €40.00│
+│ Let in free · reason               quiet, alleen admin/organizer  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Wireframe GuestDetail-BottomBar op een betaalbare rij (ongedekt > 0):
+
+```
+│ €20.00 per person · 2 of 4 paid                 text-[13.5px]     │
+│ [ Charge · €40.00 · 2 ]                         primary           │
+│ [ Check in one at a time  2/5 ]                 ghost (bestaand)  │
+```
+Een hoofd dat via "one at a time" binnenkomt zonder dekking krijgt dezelfde outbox-uitkomst "nog niet bevestigd" (toast `Checked in · not confirmed yet`, D11.2).
+
+Wireframe `/pay/[token]?heads=2` via de deur-QR (390px; de maillink-variant vervangt de aantal-regel door een `CountStepper`, default 1, cap 1 + N − gedekt):
+
+```
+┌ LandingWrap (px-4, kolom ≤ 390) ────────────────────────┐
+│ LOFI AMSTERDAM · SAT 18 OCT                eyebrow 12px │
+│ €45.00                                     display 40px │
+│ 2 people · Max · [VIP]                     text-dim 15  │
+│ Set by the door host                       text-faint 12│
+│ ┌ bg-elev rounded-[20px] border-line ───────────────┐   │
+│ │ 2 × Guest list                       €40.00       │   │
+│ │ Service fee                           €5.00       │   │
+│ │ Total                                €45.00       │   │
+│ └───────────────────────────────────────────────────┘   │
+│ [ Pay €45.00 ]                              primary 52  │
+│ iDEAL · Apple Pay · Google Pay · card       text-dim 13 │
+│ Secure checkout by Stripe · incl. VAT       text-dim 13 │
+│ No ticket. Show this screen or your name at the door.   │
+│ LandingFooter (PlusOne · Terms · Privacy)               │
+└─────────────────────────────────────────────────────────┘
+```
+
+Herbeoordeling 9/10: hiërarchie en primaire actie per oppervlak staan; open blijven de chip-states op de deurrij (Pass 5) en de cockpit-variant (Pass 6).
+
+### 12.2 Pass 2 — Interaction states: 5/10 → 9/10
+
+De tabel in §10.19 miste offline, noodrem, al betaald, verwijderde rij, sessieverloop, "nog niet gesynchroniseerd", deelbetaling en de bron van de succes-state; de foutstates kopieerden niet het anti-enumeratiegedrag van `/r/[token]`. Besluiten (Max, 2026-10-13, alle = A): **D4.1** `/pay`-fouten neutraal behalve de noodrem; **D4.2** offline-regel in de sheet + online pauze-detectie; **D4.3** betaalde aantallen in status en knoplabels, sessieverloop onzichtbaar voor de gast; **D4.4** `Paid` alleen na serververificatie, nooit op een query-parameter.
+
+Statetabel (wat de gebruiker ZIET; Engelse copy conform `copy-deck.md` §2 "knipoog nul"):
+
+```
+FEATURE / STATE          | WAT DE GEBRUIKER ZIET
+-------------------------|------------------------------------------------------------------
+Charge-sheet · loading   | QR-tegel als skeleton (bg-elev2) — komt vrijwel nooit voor: token zit in de snapshot
+Charge-sheet · empty     | tier zonder prijs of payments uit: geen Charge-knop, bar van vandaag
+Charge-sheet · no token  | rij nog niet gesynct én geen client-token (oude rij): tegel met klok-icoon
+                         | "Not available yet · syncing" + quiet "Try again"; cash en check-in blijven
+Charge-sheet · offline   | statusregel `Offline · payment confirms at next sync` (OfflineChip-stijl);
+                         | QR normaal; primaire knop `Check in 2 · not confirmed yet`
+Charge-sheet · paused    | online + 503 van de status-poll: `Online payment paused · cash or check in`,
+                         | QR opacity .4; cash/check-in ongewijzigd (offline toestel: niet detecteerbaar — geaccepteerd)
+Charge-sheet · waiting   | `● Waiting for payment…` (SyncDot, geen spinner, geen timer); knop live vanaf t = 0
+Charge-sheet · success   | regel flipt naar `✓ Paid · 2 people` (text-acc, translateY-entrance);
+                         | knop `Check in 2 · paid`
+Charge-sheet · partial   | `Paid ✓ · 1 of 2`; primair `Check in 1 · paid`; secundair `Check in 2 · 1 not confirmed`
+Charge-sheet · k changed | CountStepper wijzigt k → QR hertekent met nieuwe URL (?heads=k), bedrag = ticket × k (lokaal; geen fee-engine nodig,
+                         | de organisatiekant toont alleen ticketbedragen, 12.0 regel 2); open sessie met andere k wordt server-side verlopen (eng D2)
+Charge-sheet · cash      | ghost `Cash · €45.00 to collect` (cash_fee_mode 'fee') of `Cash · €40.00` ('none')
+                         | → ConfirmSheet (D10.4) → toast `Cash · 2 people`
+Charge-sheet · error     | outbox/replay-fout: bestaande SyncBar-foutpad; sheet toont niets extra's
+Deurrij-chip             | zie Pass 5 (drie states: te betalen / deels betaald / geen chip)
+-------------------------|------------------------------------------------------------------
+/pay · loading           | pagina rendert server-side met bedrag; geen spinner vóór de sessie (sessie pas bij Pay-tik, Pass 7)
+/pay · not synced        | klok-tegel (62px, bg-elev2) "Almost there" + "Your spot is being synced." —
+                         | poll elke 3 s, max 60 s, dan "Ask the door host to try again."
+/pay · 404/410/429/      | identiek en neutraal: tegel + `Nothing here.` (statusNotFoundTitle) + "Pay at the door."
+      removed/refused    | (zelfde regel als request-status.tsx:48–61; geen onderscheid, geen uitleg)
+/pay · 503 kill switch   | enige onderscheiden fout: "Online payment is paused." + "Pay at the door."
+/pay · cap lowered       | k boven het plafond → pagina toont het nieuwe aantal vóór betalen met één regel
+                         | "2 of your 3 spots are still open." (deur-QR: aantal als tekst; maillink: plus-knop disabled)
+/pay · already paid      | "Already paid · 2 people." + "Show this at the door." (zelfde succes-frame)
+/pay · checking          | na redirect: tegel + "Checking payment…" ≤ 5 s → valt terug op "Almost there"-poll
+/pay · success           | ALLEEN na serverlezing van entry_payments.status / sessie-status (nooit ?success):
+                         | bg-acc check-tegel, "Paid · 2 people · 23:41", body per herkomst (Pass 3)
+/pay · session expired   | onzichtbaar: dezelfde pagina; Pay maakt een nieuwe sessie (expire-and-recreate)
+/pay · error (5xx)       | neutrale fout "Something went wrong. Pay at the door." + retry-knop
+-------------------------|------------------------------------------------------------------
+Settings → Payments      | loading skeleton · empty "Payments are off" + één alinea type 3 + `Turn on` (admin/finance)
+  (licht)                | · error: FormError inline · success: saldo + laatste weekstaat als Row · partial: mandaat
+                         | ontbreekt → primaire knop vervangen door RefusedAction met reden
+Platform-tab (licht)     | loading skeleton · empty "No open items" (Empty) · error inline · success: run approved →
+                         | payout-regel · partial: reserve-tekort → run blijft draft met bedrag; needs_refund als Row-lijst
+```
+
+Herbeoordeling 9/10: elke state heeft een uitweg naar de deur; open blijft alleen de mandaat-flow in Settings (Pass 7, licht).
+
+### 12.3 Pass 3 — User journey & emotionele boog: 5/10 → 9/10
+
+Het plan had één journey-zin per actor. Gaten: de succes-copy sprak de deurregel tegen ("no need to screenshot" vs. "de gast toont zijn Betaald-scherm"), de Stripe-stap was de ene lichte, naamloze pagina in een donkere flow, en de walk-in-verkoop kostte drie bewegingen. Besluiten (Max, 2026-10-13, alle = A): **D5.1** twee succes-varianten naar herkomst (deur-QR met `?heads=k`: "Show this to the door host."; maillink: "You're on the list." + bestaande `successInfo` + "Receipt sent to m•••@…"); **D5.2** Checkout-branding in het Stripe-dashboard (logo, accent `#B5A6FF`, donkere achtergrond), regelitem `LOFI Amsterdam · Sat 18 Oct · Guest list · 2 people`, statement-descriptor-suffix met de venue (`PLUSONE* LOFI`, ≤ 22 tekens totaal), bon-mail noemt venue + event als eerste regel — P2-acceptatie-eis, naast de test-mode-checklist (T23); **D5.3** `AddOnSpot` op een betaalbare tier opent de GuestDetail met de Charge-sheet al open (k = 1 + N).
+
+Storyboard (5 s visceraal · 5 min gedrag · 5 jaar reflectief):
+
+```
+STAP | ACTOR    | DOET                                   | VOELT                    | PLAN SPECIFICEERT
+-----|----------|----------------------------------------|--------------------------|------------------------------------------
+ 1   | doorhost | opent rij, ziet "€20.00 pp · 0 of 2 paid" | weet wat te innen         | live regel i.p.v. banner (D3.3)
+ 2   | doorhost | tikt Charge · €40.00 · 2                 | één tik, geen vraag       | primair in de bar; k default (Pass 7)
+ 3   | doorhost | draait telefoon naar de gast            | bedrag + QR groot genoeg  | 34px bedrag, 240px witte QR-tegel (D3.1, Pass 5)
+ 4   | gast     | scant, ziet €45.00 bij LOFI            | "juiste plek, juist bedrag" | bedrag als H1, venue eyebrow (D3.4)
+ 5   | gast     | tikt Pay → Stripe (donker, LOFI-regel)  | herkent de naam           | branding + regelitem (D5.2)
+ 6   | gast     | Apple Pay / iDEAL, terug op /pay        | "klaar"                   | Checking… ≤ 5 s → Paid (D4.4)
+ 7   | doorhost | ziet label flippen naar "Check in 2 · paid" | nooit gewacht          | live knop, geen timer (D3.2)
+ 7b  | doorhost | offline / webhook traag: gast toont scherm | geen discussie          | "Show this to the door host." (D5.1)
+ 8   | doorhost | tikt Check in 2 · paid                  | af                        | outbox-write zoals vandaag
+ 9   | walk-in  | Add on the spot → sheet opent direct    | verkoop in één beweging   | D5.3
+10   | gast     | 5 min: bon-mail "LOFI · Sat 18 Oct"     | bewijs in de inbox        | payment_receipt (T17), venue eerst
+11   | gast     | weken later: afschrift "PLUSONE* LOFI"  | geen verrassing, geen dispute | descriptor-suffix (D5.2)
+12   | admin    | weekstaat klopt op de cent              | vertrouwen in PlusOne     | P4a (licht in deze review)
+```
+
+Breekpunten die blijven: de gast heeft netwerk nodig (festival-gate meet apart, design-doc premisse 7); een offline toestel plus noodrem is op het toestel onzichtbaar (D4.2, geaccepteerd).
+
+Herbeoordeling 9/10.
+
+### 12.4 Pass 4 — AI-slop-risico: 6/10 → 9/10
+
+Classificatie: Charge-sheet, GuestDetail, Settings → Payments en Platform-tab = **OPERATE** (app-UI-regels); `/pay/[token]` = publieke transactiepagina (operate: de gast rondt één taak af). Hard-rejection-check: generiek kaartgrid nee; gestapelde kaarten als UI — risico in Settings/Platform (hieronder weggenomen); kop zonder actie nee (bedrag + Pay); herhaalde stemming nee; carrousel nee; **onthemed browser surface** (standaard Stripe Checkout) → opgelost met D5.2; **klein laag-contrast type** (fee-regel) → `--dim` ≥ 13px (D3.4). Litmus na de besluiten: merk herkenbaar JA (sheet: kit-tokens; `/pay`: de venue is het merk, PlusOne in de footer) · één anker JA (het bedrag) · scanbaar op koppen JA (bedrag, QR, knop) · één taak per sectie JA (cash en override zijn eigen sheets) · kaarten nodig JA (alleen de QR-tegel en het bedragblok) · beweging verbetert hiërarchie JA (alleen de paid-flip, D6.2) · premium zonder schaduwen JA.
+
+Besluiten (Max, 2026-10-13):
+- **D6.1 = A, met aanvulling van Max:** Settings → Payments en de Platform-tab krijgen de vorm van `billing.tsx` (`Top`, één display-getal, `Label` + `Row`-lijsten), geen StatTile-grid. **Max' eis voor Settings → Payments (bindend voor P4a):** bovenaan moet in één blik staan (1) **wanneer de eerstvolgende uitbetaling is**, (2) **welk bedrag wordt uitbetaald** en (3) **hoeveel de kosten zijn** die ervan afgaan — als consolidatie: geïnde ticketbedragen − refunds/chargebacks − verrekend abonnement = uitbetaling (het "uitbetalingsdocument" dat overblijft). **Regel 2 uit 12.0 geldt hier:** PlusOne's servicefee is geen kostenpost van de organisatie en staat nergens in dit scherm; een eventuele kickback zit in het uitbetaalde bedrag maar wordt in de app nooit als regel getoond, alleen op de documenten. Daaronder **alle financiële documenten onder elkaar** (weekstaat, self-billing-inkoopfactuur, uitbetalingsdocument, later bonnen/creditnota's), elk **in PDF te bekijken én te downloaden** in de app — via de kit-helpers `openExternal()`/`downloadFile()` (native shell: Capacitor-browser; nooit `target="_blank"`). Wireframe:
+
+```
+┌ Top: Payments ─────────────────────────────────────────────┐
+│ NEXT PAYOUT · MON 20 OCT                        Label      │
+│ €1,284.50                                       display 34 │
+│ collected €1,420.00 · refunds −€40.00 · subscription −€95.50│
+│ (text-dim 13.5; tabular-nums)                              │
+│ DOCUMENTS                                       Label      │
+│ Row  Weekly statement · 13–19 Oct        [view] [download] │
+│ Row  Self-billing invoice · SB-2026-0042 [view] [download] │
+│ Row  Payout statement · 20 Oct           [view] [download] │
+│ SETTINGS                                        Label      │
+│ Row  Mandate · signed 2 Oct by Max                   chev   │
+│ ToggleRow  Cash at the door   (géén fee-regel: D11.1)      │
+└────────────────────────────────────────────────────────────┘
+```
+  De document-engine zelf (nummering, issuer-entiteit) blijft P4a/P4b; deze review legt alleen vast wat de admin ziet en dat elk document bekeken én gedownload kan worden.
+- **D6.2 = A:** precies één bewegingsmoment: bij bevestiging schuift de statusregel `✓ Paid · 2 people` in met `translateY(6px→0)` 180 ms ease-out (bestaande `po-anim-*`-klasse), het knoplabel wisselt zonder animatie; de wacht-dot is statisch (`SyncDot`, geen pulse); de `/pay`-succes-tegel gebruikt dezelfde entrance; niets anders beweegt; alles achter `prefers-reduced-motion`.
+
+Herbeoordeling 9/10: geen hard rejections meer; open blijft de visuele uitwerking van het documentenblok (P4a).
+
+### 12.5 Pass 5 — Design-system-alignment: 6/10 → 9/10
+
+Het plan verwees naar `design-system.md` en "de bestaande deur-sheets", maar legde geen tokens, componenten of maten vast; "groot QR" en "badge op de rij" waren geen spec; de geldnotatie was impliciet NL terwijl de UI Engels is. Besluiten (Max, 2026-10-13, alle = A): **D7.1** `PayChip` wordt één kit-chip met drie states; **D7.2** `QrTile` als kit-primitive (SVG, offline gerenderd); **D7.3** `formatMoney(cents)` → `€52.50`, altijd twee decimalen.
+
+Token- en componentmapping (één vocabulaire met `design-system.md`; nieuwe primitives landen in `kit.tsx` in dezelfde PR, CLAUDE.md "New UI primitive → kit.tsx"):
+
+```
+ELEMENT                     | COMPONENT / TOKEN                                   | NIEUW?
+----------------------------|-----------------------------------------------------|-----------------------------
+Charge-sheet container      | shell `Sheet` (center=false, max-w 560, rounded-sheet, bg-elev, border-line) | nee
+Kop-label "CHARGE · naam"   | kit `Label` (12px 700 uppercase, --faint) + `TierChip` (door) | nee
+Bedrag                      | font-display 34px 800 tracking -0.02em text-text, tabular-nums | nee (formatMoney nieuw)
+Sub "2 people · €20.00 each"| text-[13.5px] text-dim (ticketprijs, nooit de fee)   | nee
+QR                          | kit `QrTile({ value, size: 240 | 320, ariaLabel })`: bg-white rounded-[20px] p-4, modules #0B0B0D, EC M, quiet zone 4 modules, SVG via `qrcode.toString({ type: 'svg' })`, memo op value, role="img" | JA (kit)
+Methoden-regel              | text-[12px] text-faint                              | nee
+"Can't scan? Show link"     | kit `Btn kind="quiet"` 44px, icoon `link` → `CopyableField` in een tweede `Sheet` | nee
+Hoofden-rij                 | kit `CountStepper` + `min` prop (vloer 1) + `hitArea44`-ring op touch (visueel 32px, hit 44px, `touch-density.test.ts`) | kit-uitbreiding (min)
+Statusregel                 | kit `SyncDot` (statisch) + text-dim; paid: `Icon check2` + text-acc; aria-live="polite" | nee
+Primaire knop               | kit `Btn kind="primary" full` 52px, icoon `check`; labels `Check in {k} · not confirmed yet` / `· paid` | nee
+Cash                        | kit `Btn kind="ghost" full`, icoon `money`, label `Cash · €45.00 to collect` (cash_fee_mode 'fee') of `Cash · €40.00` ('none') → shell `ConfirmSheet` (icon money, confirm "Mark as paid") | nee
+Organisatiekant-bedragen    | altijd ticket × hoofden via `formatMoney`; servicefee, ondergrens en kickback nooit in de app-UI van de organisatie (12.0 regel 2) | regel
+Override (admin/organizer)  | kit `Btn kind="quiet"` "Let in free · reason" → `ConfirmSheet` met `TextArea` (reden verplicht) | nee
+Offline/pauze-regel         | `OfflineChip`-stijl (bestaand) / text-dim met `Icon warn`  | nee
+Deurrij-chip                | kit `PayChip({ state: 'due'|'partial'|'paid', amountCents, heads, paidHeads })`: due = border-dashed border-line text-text `€50 · 2`; partial = border-line text-dim `2/4 paid`; paid = geen chip; NOOIT bg-acc/text-acc | kit-uitbreiding (vervangt boolean)
+GuestDetail live regel      | text-[13.5px] text-text; vervangt `payBanner` (GuestDetail.tsx:185–190) | nee
+/pay-frame                  | `LandingWrap` + `LandingFooter` + `publicRouteViewport` (zoals /r) | nee
+/pay eyebrow                | `Label`-stijl 12px --faint uppercase                 | nee
+/pay bedrag H1              | font-display 40px 800 tracking -0.02em, tabular-nums | nee
+/pay bedragblok             | bg-elev rounded-[20px] border-line p-4; rijen text-[15px] incl. de regel "Service fee" (alleen aan de gastkant); totaal font-display 20px | nee
+/pay Pay-knop               | `Btn kind="primary" full` 52px                      | nee
+/pay status-tegels          | 62px rounded-[20px] bg-elev2 / bg-acc (request-status.tsx-patroon) | nee
+Settings → Payments         | `Top`, display 34px getal, `Label`, `Row` (chev / view / download), `ToggleRow`, `RefusedAction` | nee
+Platform-lijsten            | `Row`-lijsten per subscherm, `Empty`                  | nee
+Geldnotatie                 | `formatMoney(cents)` in `src/features/payments/format.ts` → `€52.50` (altijd 2 decimalen, geen spatie); billing houdt `formatPriceAmount` | JA (payments format.ts)
+Copy                        | Engels, `copy-deck.md` §2 "knipoog nul"; nieuwe keys `t.door.pay.*` en `t.landing.pay.*` (geen Nederlandse strings uit §10.19 in code) | catalogus
+```
+
+Alle bedragen in dit hoofdstuk lezen als `€45.00` (D7.3). Nieuwe kleuren, fonts of radii: geen.
+
+Herbeoordeling 9/10: open blijft alleen de visuele vorm van het documentenblok in Settings (P4a).
+
+### 12.6 Pass 6 — Responsive & toegankelijkheid: 4/10 → 9/10
+
+Het plan had één regel. Besluiten (Max, 2026-10-13, beide = A): **D8.1** één `ChargeSheet`-component met twee maten (outbox-deur: bottom-sheet, QR 240; cockpit: `Sheet center` 560px, QR 320, `Btn desktop`-dichtheid, Esc sluit, Enter = primaire knop; de cockpit-rij krijgt dezelfde `PayChip`; cash in de cockpit via de bestaande online check-in-actie, want de cockpit heeft geen outbox); **D8.2** het onderstaande blok is bindend en wordt een acceptatie-item in de P2-flow onder `tests/flows/`.
+
+Viewport-matrix (chrome op 1024, content op `md:`, dichtheid op de pointer — `design-system.md` T1):
+
+```
+VIEWPORT                     | DEUR-VARIANT        | CHARGE-SHEET                              | /pay
+-----------------------------|---------------------|-------------------------------------------|----------------------------------
+390 telefoon (touch)         | outbox-deur         | bottom-sheet full-width, QR 240, 52px-knoppen | één kolom, px-4, Pay 52px
+768–834 iPad portrait (touch)| outbox-deur         | Sheet max-w 560 gecentreerd, QR 320; GuestDetail in de 640-kolom | zelfde kolom, gecentreerd
+1024–1366 iPad landscape     | outbox-deur         | zelfde 560-sheet; sidebar-chrome; 44px blijft (pointer: coarse) | n.v.t. (gast-telefoon)
+  (touch, pointer: coarse)   |                     |                                           |
+≥ 1024 desktop (muis)        | cockpit             | Sheet center 560, QR 320, Btn desktop, Esc/Enter | n.v.t.
+```
+
+Toegankelijkheid (bindend):
+- **Tikdoelen:** elk control ≥ 44px op touch; `CountStepper` visueel 32px met `hitArea44`-ring; "Can't scan? Show link" als 44px-quiet-knop; Pay en check-in 52px. Guard: `tests/unit/touch-density.test.ts` + layout-suite.
+- **Screenreader:** `QrTile` `role="img"` aria-label `Payment QR code · {first name} · {k} people · {amount}`; statusregel `aria-live="polite"` (zegt "Paid · 2 people" bij de flip); primaire knop draagt aantal én state in de tekst zelf; stepper-knoppen `aria-label` "Fewer people"/"More people", op de cap `aria-disabled` plus de zichtbare reden "2 of your 3 spots are still open."; `/pay` Pay-knop `aria-label` "Pay €52.50 for 2 people"; de succes-tegel kondigt zich aan via dezelfde live-region.
+- **Toetsenbord (cockpit, /pay op desktop):** focus gaat bij openen de sheet in (eerste control) en keert bij sluiten terug naar de aanroepende knop; Esc sluit; Enter op de primaire knop; focusvolgorde `/pay`: stepper → Pay → link in de footer.
+- **Contrast:** bedragen `text-text` op `bg-elev` (> 15:1); sub-regels `text-dim` (0,58 wit ≈ 7,5:1 op #161618); `text-faint` (0,40 ≈ 4,3:1 op #161618) alleen voor ≥ 12px bold uppercase labels en de methoden-regel, nooit voor body of bedragen; QR-modules #0B0B0D op wit.
+- **Zoom en tekstgrootte:** `/pay` gebruikt `publicRouteViewport` (user-scalable, WCAG 1.4.4) zoals `/r`; body ≥ 16px; bedragen `tabular-nums`.
+- **Reduced motion:** `prefers-reduced-motion` schakelt de paid-flip-entrance uit (opacity blijft altijd 1).
+- **Licht/donker:** `/pay` is donker zoals `/r` (gebruiksscène: deuropening, nacht); een lichte variant voor de maillink overdag staat als TODO (zie 12.9), niet in v1.
+
+Herbeoordeling 9/10: open blijft de lichte `/pay`-variant (bewust uitgesteld).
+
+### 12.7 Pass 7 — Open ontwerpbeslissingen (register, ongescoord)
+
+Alle onderstaande beslissingen zijn genomen (Max, 2026-10-13); de tabel noemt per besluit wat er zonder zou gebeuren.
+
+```
+BESLISSING                                        | BESLUIT                                                     | ANDERS WAS GEBEURD
+--------------------------------------------------|-------------------------------------------------------------|--------------------------------------------
+Aantal op /pay via de deur-QR                     | VAST: doorhost bepaalt k, gast kan niets wijzigen (Max, D9.1-correctie) | gast klikt tickets weg; deur weet niet wat betaald is
+Aantal op /pay via de maillink                    | D10.1 = A: gast kiest 1 … 1 + N − gedekt (default 1)         | +4-gast moet alles ineens betalen of niets
+Moment van de Checkout-sessie                     | D10.2 = A: pas bij de Pay-tik ("Opening checkout…" ≤ 2 s); pagina rendert server-side zonder sessie | elke open van de link reserveert 30 min hoofden
+Wat de organisatiekant aan bedragen ziet          | Max (D9.3-correctie): alleen ticketbedragen; fee/kickback alleen op documenten | onze marge zichtbaar in Settings en op de deur
+Cash: met of zonder onze servicefee               | Max (D10.3): per company instelbaar, `cash_fee_mode` 'fee' | 'none'; bij 'fee' toont de Cash-knop het te innen totaal | óf fee uit eigen zak van de organisatie, óf gratis sluiproute
+Wie zet fee-instellingen (ophoging, cash-fee)     | D11.1 = A: platform-admin in de Platform-tab via `set_company_fee_settings` (is_platform_admin(), geaudit); Settings toont alleen de cash-schakelaar | company ziet ondergrens en kickback in Settings
+Cash-stap                                         | D10.4 = A: ConfirmSheet "Cash received · €… / 2 people / Mark as paid", vast serverbedrag, geen wisselgeld, geen vrij veld | kassascherm met vrij bedrag
+Override                                          | D9.2 = A: alleen gerenderd voor admin/organizer als quiet-knop "Let in free · reason" → ConfirmSheet met verplichte reden | doorhost haalt een admin midden in de rij
+Default hoofden + snapshot-velden                 | D9.4 = A: k = max(1, outside − paidHeads − openHeads), cap idem; model/snapshot krijgt doorPriceCents, paidHeads, openHeads, payToken (raw, alleen op het toestel), cashFeeMode; CountStepper krijgt min | default 1, extra tik per groep; velden verzonnen tijdens de bouw
+"Check in one at a time" op een betaalbare rij    | D11.2 = A: blijft; elke tik boekt "not confirmed yet" + toast; chip toont deelstatus | verborgen sluiproute of gedragsbreuk
+Mandaat-stap en Platform-lijsten (licht)          | D11.3 = A: defaults als P4a-startpunt — mandaat = ConfirmSheet + ConsentCheck + "Sign mandate", actor + tijdstip, Row "Mandate · signed 2 Oct by Max", zonder mandaat RefusedAction; Platform: per zorg een Row-lijst, needs_refund met "Open in Stripe" (openExternal) en automatisch "resolved" na charge.refunded; /plan-design-review opnieuw bij P4a | ad-hoc modal en een "dashboard"
+Lichte /pay-variant overdag                       | D11.4 = A: TODOS.md, P3, trigger maillink-afhaak > 10 % | niet genoteerd
+```
+
+Gevolgen voor eerdere teksten (verwerkt in deze PR): design-doc "Bindende regels" (QR-regel: gast kan k niet wijzigen via de deur; sessie bij Pay-tik; fee-configuratie door platform-admin; cash-fee per company; "online wacht de deur eerst tot 10 s" → gratie op de uitkomst), plan §10.19:701 (vervangen door §12), §11 D2-tekst "sessie bij openen" → bij Pay-tik (expire-and-recreate blijft), eng T20 (de TS-fee-engine is voor de deur niet meer nodig: de organisatiekant toont ticket × k; `/pay` leest het gastbedrag server-side uit dezelfde SQL `payment_amount_for`, dus T20 krimpt tot één contracttest op dat pad), spec #62 (nieuw sub-item m).
+
+### 12.8 NOT in scope (design)
+
+- **Settings → Payments en Platform-tab als wireframe:** alleen vorm (billing.tsx-patroon), Max' consolidatie-eis (12.4) en de P4a-defaults (12.7); de designronde volgt bij P4a zodra jurist/accountant de mandaattekst en de documenten hebben bevestigd.
+- **Refund-UI voor admin/finance** (lijst + ConfirmSheet met de twee opties ticket-only / alles): P2-geld, niet ontworpen in deze ronde; volgt dezelfde ConfirmSheet-vorm.
+- **Dispute-bewijs-UI** in de Platform-tab: P2-acceptatie-eis op de webhook, UI = Row-lijst; geen eigen ontwerp.
+- **Bon- en document-PDF's** (document-engine): P4a/P4b; alleen de regel "venue + event als eerste regel" (D5.2) en "bekijken én downloaden in de app" (12.4) zijn vastgelegd.
+- **Tap to Pay-UI** (P3a/P3b): volgt het entitlement; de Charge-sheet krijgt daar een derde knop/pad, niet nu ontworpen.
+- **Open shop** (P2b) en **lichte publieke pagina's** (TODO, D11.4).
+
+### 12.9 What already exists (hergebruik)
+
+`Sheet`/`ConfirmSheet`/`BottomBar` (`shell.tsx`), `GuestDetail` check-in-BottomBar (group-first, `CountPill`), `Stepper`/`CountStepper`, `PayChip` (wordt uitgebreid), `TierChip`, `SyncDot`/`OfflineChip`, `Label`/`Row`/`ToggleRow`/`Note`/`Empty`/`RefusedAction`/`ConsentCheck`/`CopyableField`, `openExternal()`/`downloadFile()`, `hitArea44`, `LandingWrap`/`LandingFooter`/`publicRouteViewport` en het not-found-patroon van `request-status.tsx`, `billing.tsx` als Settings-subscherm, Platform-tab `Row`-navigatie, `qrcode` (dependency), `formatPriceAmount` (blijft voor abonnementen), copy-deck §2 strings (`successInfo`, `statusNotFoundTitle`), de tokens en breakpoints uit `design-system.md`.
+
+### 12.10 TODOS.md
+
+Eén voorstel, door Max geaccepteerd (D11.4 = A): lichte variant van `/pay` en `/r` achter `prefers-color-scheme` — P3, trigger: maillink-afhaak > 10 % in de eerste-euro-meting. Toegevoegd aan `TODOS.md` onder "Payments (Fase 14)".
+
+### 12.11 Implementation Tasks (design)
+
+Synthesized from this review's findings. Each task derives from a specific finding above. Run with Claude Code or Codex; checkbox as you ship. T1–T25 blijven (§10.26, §11.17); hieronder de design-aanvullingen en -correcties (ratio-aanname: features ~30×, tests ~50×).
+
+- [ ] **T20 (correctie, P1)** — de TS-fee-engine is voor de deur niet meer nodig (organisatiekant toont ticket × k, 12.0 regel 2); `/pay` leest het gastbedrag server-side via `payment_amount_for`; T20 krimpt tot de contracttest op dat ene pad (RPC-output ≡ wat de pagina toont).
+- [ ] **T26 (P1, human: ~2d / CC: ~45min)** — deur — `ChargeSheet` (één component, `size: 'phone' | 'wide'`): bedrag → `QrTile` → `CountStepper` → statusregel (`aria-live`) → BottomBar (`Check in k · not confirmed yet / paid`, Cash-ghost, admin-only "Let in free"); Charge als primaire knop op een betaalbare rij; `payBanner` → live regel; `AddOnSpot` opent de sheet op een betaalbare tier; cockpit-dialoog via `Sheet center` 560.
+  - Surfaced by: 12.1 D3.1–D3.3, 12.2, 12.3 D5.3, 12.6 D8.1, 12.7 D9.2/D9.4/D10.4/D11.2
+  - Files: `src/features/door/components/ChargeSheet.tsx` (nieuw), `GuestDetail.tsx`, `AddOnSpot.tsx`, `CheckInList.tsx`, `src/features/po/eventday/EventDayCockpit.tsx`, `src/lib/i18n/surfaces/door.ts` (`t.door.pay.*`)
+  - Verify: `pnpm qa:flows door-charge` (Q1–Q12), `pnpm vitest run src/features/door`, `door-render-isolation.test.tsx` groen
+- [ ] **T27 (P1, human: ~1d / CC: ~20min)** — kit — `PayChip` met drie states (`due | partial | paid`, nooit accent), `QrTile` (SVG via `qrcode.toString`, wit, #0B0B0D, EC M, quiet zone 4, 240/320, `role="img"`), `CountStepper` `min` + `hitArea44`, `formatMoney(cents)` in `src/features/payments/format.ts` (`€52.50`, tabular-nums).
+  - Surfaced by: 12.5 D7.1–D7.3
+  - Files: `src/components/po/kit.tsx`, `src/components/po/kit.tap-target.test.tsx`, `src/features/payments/format.ts` + test
+  - Verify: `pnpm vitest run src/components/po tests/unit/touch-density.test.ts`
+- [ ] **T28 (P1, human: ~1d / CC: ~20min)** — deurmodel/snapshot — `doorPriceCents`, `paidHeads`, `openHeads`, `payToken` (raw, alleen op het toestel), `cashFeeMode` in `model.ts` + expliciete kolomlijst (hoort bij T8); `pay: boolean` wordt afgeleid; default k = max(1, outside − paid − open).
+  - Surfaced by: 12.7 D9.4
+  - Files: `src/features/door/model.ts`, `queries.ts`, `offline/persister.ts`, `sync/useDoorSync.ts`
+  - Verify: vitest op de adapter; `DOOR_CACHE_BUSTER` bump (T8)
+- [ ] **T29 (P1, human: ~2d / CC: ~45min)** — `/pay/[token]` — server-gerenderde pagina (RPC `get_pay_page`, SECURITY DEFINER, zelfde throttle als `get_request_status`, minimale payload: voornaam, venue, event, tier, ticket × k, servicefee, totaal, gedekt/plafond, status); deur-variant (`?heads=k`, aantal als tekst) vs maillink-variant (`CountStepper`); sessie-RPC pas bij Pay; states uit 12.2 (neutraal not-found, 503 apart, Almost-there-poll ≤ 60 s, already-paid, checking ≤ 5 s); succes alleen na serverlezing, copy per herkomst; `publicRouteViewport`.
+  - Surfaced by: 12.1 D3.4, 12.2 D4.1/D4.3/D4.4, 12.3 D5.1, 12.7 D10.1/D10.2 + Max' regel 1
+  - Files: `src/app/pay/[token]/page.tsx`, `src/components/po/pay-page.tsx`, `src/lib/i18n/surfaces/landing.ts` (`t.landing.pay.*`), migratie `get_pay_page` + pgTAP (throttle, neutrale output voor ongeldig/verwijderd)
+  - Verify: `pnpm qa:flows pay-page` (Q1–Q10), pgTAP, `tests/e2e/layout` entry voor `/pay`
+- [ ] **T30 (P1, human: ~1d / CC: ~25min)** — fee-instellingen platform-admin — `cash_fee_mode` ('fee' | 'none', default 'fee') naast `service_fee_fixed_cents`/`service_fee_bp` op `company_payout_accounts`; `set_company_fee_settings` (`is_platform_admin()`, geaudit); geen UPDATE-grant voor `authenticated` op die kolommen; Platform-tab company-scherm: drie `Row`s; Settings → Payments: alleen `ToggleRow Cash at the door`; `payment_amount_for` leest `cash_fee_mode` voor cash.
+  - Surfaced by: 12.7 D11.1 + Max' regel 2 + D10.3
+  - Files: migratie, `supabase/tests/database/company_fee_settings.test.sql` (allowed/denied), `src/components/po/screens/platform-company.tsx`, `src/components/po/screens/settings/payments.tsx` (nieuw)
+  - Verify: `pnpm db:test -- …company_fee_settings.test.sql`; grant-matrix-test
+- [ ] **T31 (P2, human: ~2h / CC: ~10min)** — Stripe-stap — Checkout-branding (dashboard), regelitem `{venue} · {datum} · Guest list · {k} people`, `statement_descriptor_suffix` met venue (≤ 22 tekens totaal, afkappen), bon-mail venue + event eerst; opnemen in de test-mode-checklist (T23).
+  - Surfaced by: 12.3 D5.2
+  - Files: `src/features/payments/stripe-adapter.ts`, `src/features/mail/` template, `docs/runbook.md`
+  - Verify: test-mode-sessie toont venue in regelitem en descriptor; fixture-test op de sessie-parameters
+- [ ] **T32 (P2, human: ~1d / CC: ~20min)** — a11y + flows — aria-labels (QrTile, Pay-knop, stepper), `aria-live` statusregel, focus in/uit de sheet, Esc/Enter in de cockpit, reduced-motion; flows `door-charge` en `pay-page` met de Q-nummers uit de handoff; layout-suite-entries.
+  - Surfaced by: 12.6 D8.2
+  - Files: `tests/flows/door-charge.flow.ts`, `tests/flows/pay-page.flow.ts`, `tests/flows/flows.mjs`, `tests/e2e/layout/`
+  - Verify: `pnpm qa:flows door-charge`, `pnpm qa:flows pay-page`, `pnpm e2e:layout`
+- [ ] **T33 (P2 — P4a, human: ~2d / CC: ~45min)** — Settings → Payments — kopblok "next payout · bedrag · aftrek (refunds, chargebacks, abonnement)" als consolidatie zonder PlusOne-fee; documentenlijst (weekstaat, self-billing, uitbetalingsdocument) elk met view (`openExternal`) en download (`downloadFile`); mandaat via ConfirmSheet + ConsentCheck; `/plan-design-review` opnieuw op dit scherm vóór de bouw.
+  - Surfaced by: 12.4 D6.1 (Max' eis), 12.7 D11.3
+  - Files: `src/components/po/screens/settings/payments.tsx`, `src/features/po/hooks` (ledger-aggregaat), document-RPC's (P4a)
+  - Verify: flow `settings-payments`; handoff-vragen op view/download in de native shell (geen `target="_blank"`)
+
+_No new tasks from Pass 4 beyond T31/T33 (slop-regels zijn vastgelegd als vorm, niet als werk)._
+
+JSONL-artefact: `jq` ontbreekt op deze machine → niet geschreven (waarschuwing: installeer jq voor `/autoplan`-aggregatie).
+
+### 12.12 Approved Mockups
+
+Geen gegenereerd (designer zonder API-key); de wireframes in 12.1, 12.4 en 12.6 zijn de visuele referentie.
+
+### 12.13 Completion summary (design)
+
+```
+  +====================================================================+
+  |         DESIGN PLAN REVIEW — COMPLETION SUMMARY                    |
+  +====================================================================+
+  | System Audit         | design-system.md aanwezig; UI-scope: Charge-sheet (deur + cockpit), /pay, Settings → Payments (licht), Platform-tab (licht) |
+  | Step 0               | 5/10; focus D1 = A (deur + /pay zwaar, rest licht) |
+  | Pass 1  (Info Arch)  | 4/10 → 9/10 after fixes                            |
+  | Pass 2  (States)     | 5/10 → 9/10 after fixes                            |
+  | Pass 3  (Journey)    | 5/10 → 9/10 after fixes                            |
+  | Pass 4  (AI Slop)    | 6/10 → 9/10 after fixes                            |
+  | Pass 5  (Design Sys) | 6/10 → 9/10 after fixes                            |
+  | Pass 6  (Responsive) | 4/10 → 9/10 after fixes                            |
+  | Pass 7  (Decisions)  | 12 resolved, 0 deferred                            |
+  +--------------------------------------------------------------------+
+  | NOT in scope         | written (6 items)                                  |
+  | What already exists  | written                                            |
+  | TODOS.md updates     | 1 item proposed (accepted)                         |
+  | Approved Mockups     | 0 generated, 0 approved (no API key; wireframes)   |
+  | Decisions made       | 29 added to plan (26 option-besluiten + 3 productregels van Max) |
+  | Decisions deferred   | 0                                                  |
+  | Overall design score | 4/10 → 9/10                                        |
+  +====================================================================+
+```
+
+Plan is design-complete (elke pass ≥ 8). Na implementatie: `/design-review` op de live schermen (Charge-sheet, `/pay`), en `/plan-design-review` opnieuw op Settings → Payments vóór P4a.
+
+### 12.14 Unresolved decisions
+
+Geen. Open **vragen** (P0: jurist, accountant, Stripe-meeting) blijven in het design-doc §Open Questions; de cash-fee-afspraak per company en de kickback-afspraken zijn commerciële keuzes per company, geen reviewbeslissingen.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR | mode: HOLD SCOPE, 0 critical gaps (16 ledger rows approved, 15 tasks, 5 deferred items in TODOS.md; 2026-10-12, commit 6b2200f6) |
-| Outside Review | codex (`/plan-ceo-review` + `/plan-eng-review` outside voice) | Independent 2nd opinion | 2 | UNAVAILABLE | no completed external review: Codex not installed; native fallback unavailable (no TaskOutput in this session) |
+| Outside Review | codex (`/plan-ceo-review` + `/plan-eng-review` outside voice; `/plan-design-review` design voices) | Independent 2nd opinion | 4 | UNAVAILABLE | no completed external review: Codex not installed (CEO, Eng, Design); the design round got a native in-host Claude subagent cold read instead (`design-outside-voices`, issues_found, F1–F12 applied in §12) — native is not outside coverage |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | ISSUES OPEN | 51 issues (9 architecture, 6 code quality, 31 test gaps, 5 performance), 0 critical gaps, 0 unresolved; all mapped to tasks T1–T25 (mode FULL_REVIEW) |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score: 4/10 → 9/10, 29 decisions (26 option decisions D3–D11 + 3 product rules from Max), 0 unresolved, 1 TODO; text wireframes (designer had no API key); 2026-10-13, commit 2655fa12 |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
-- **OUTSIDE COVERAGE:** provider codex, phase plan-review, unavailable twice (CEO 2026-10-12 and Eng 2026-10-13: not installed; native fallback skipped, TaskOutput capability missing); 0 findings, no clean-review credit. The office-hours design doc did receive an independent cold read by a Claude subagent (same harness; recorded in the design doc), which does not count as outside coverage.
-- **VERDICT:** CEO CLEARED; ENG ISSUES OPEN (mapped work, 0 critical gaps, 0 unresolved) — eng review required: re-run `/plan-eng-review` or `/review` on the P1 PR once T18 + Lane A exist.
+- **OUTSIDE COVERAGE:** provider codex — phase plan-review unavailable twice (CEO 2026-10-12, Eng 2026-10-13: not installed; native fallback skipped, TaskOutput capability missing) and phase design unavailable (2026-10-13: not installed; a native in-host Claude subagent ran instead and is logged as `design-outside-voices` with `outside_status: unavailable`). No clean-review credit from any outside phase.
+- **VERDICT:** CEO + DESIGN CLEARED; ENG ISSUES OPEN (mapped work, 0 critical gaps, 0 unresolved) — eng review required: re-run `/plan-eng-review` or `/review` on the P1 PR once T18 + Lane A exist. The design decisions in §12 (fixed head count on the door QR, session on the Pay tap, ticket-only amounts on the venue side, platform-admin fee settings, `cash_fee_mode`) touch eng tasks T2, T8, T20 and T26–T33 and must be part of that re-run.
 
 NO UNRESOLVED DECISIONS

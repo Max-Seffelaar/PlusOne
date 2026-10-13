@@ -64,6 +64,18 @@ Deferred work with an owner and an upgrade trigger. Format: `~/.claude/skills/gs
 **Priority:** P3
 **Depends on:** P4a live and the first-euro measurement; the fee rules table
 
+### Light variant of the public pages (`/pay`, `/r`)
+
+**What:** A `prefers-color-scheme: light` variant of the public token pages (`/pay/[token]`, `/r/[token]`): a light token set beside the near-black one in `design-system.md`, applied only to the public landing frame.
+
+**Why:** The approval mail link is opened at home in daylight; the pages are dark because the use scene that matters most is a doorway at night. A dark page in bright light is readable (contrast ≥ 7:1) but less comfortable, and the mail-link drop-off is unmeasured.
+
+**Context:** Design review 2026-10-13 (plan §12, Pass 6, D11.4 = A, Max). `/r` has been dark since launch without complaints. Building it means a second visual truth for public pages and a new token set, so it waits for evidence.
+
+**Effort:** M (human) / S (CC + gstack)
+**Priority:** P3
+**Depends on:** the first-euro measurement — upgrade trigger: mail-link Checkout drop-off above 10 %
+
 ## Completed
 
 _(none yet)_
