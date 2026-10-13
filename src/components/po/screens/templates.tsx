@@ -22,7 +22,7 @@ import {
   usePoDeleteTemplateTier,
   usePoUpdateTemplate,
 } from '@/features/po/mutations';
-import { LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
+import { GUEST_INFO_MAX, HOUSE_RULES_MAX, LOCATION_ADDRESS_MAX, LOCATION_NAME_MAX } from '@/features/events/schemas';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { parseAutoLockOffsetMinutes } from '@/features/events/auto-lock-hours';
 import { TIER_ALIASES_UI } from '@/features/guests/tiers';
@@ -31,6 +31,7 @@ import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Btn, ColorSwatches, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress, hitRingY2 } from '../kit';
 import { BottomBar } from '../shell';
+import { EventGuestTextFields } from './events/guest-mail';
 
 const col = 'flex h-full flex-col';
 
@@ -137,6 +138,10 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
   // so its events follow the company address.
   const [locName, setLocName] = useState('');
   const [locAddress, setLocAddress] = useState('');
+  // The "For your guests" block the template hands to new events (z8uq9m4pnk):
+  // both texts or neither, never one without the other. '' = none.
+  const [houseRules, setHouseRules] = useState('');
+  const [guestInfo, setGuestInfo] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
   // Hydrate from the loaded template (edit mode, and once after a fresh create).
@@ -151,6 +156,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
     setAutoHours(d.auto_lock_offset_minutes != null ? String(Math.abs(d.auto_lock_offset_minutes) / 60) : '');
     setLocName(d.location_name ?? '');
     setLocAddress(d.location_address ?? '');
+    setHouseRules(d.house_rules ?? '');
+    setGuestInfo(d.guest_info ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.data?.id]);
 
@@ -167,6 +174,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
     autoLockOffsetMinutes: number | null;
     locationName: string | null;
     locationAddress: string | null;
+    houseRules: string | null;
+    guestInfo: string | null;
   } => {
     const capNum = capacity.trim() === '' ? NaN : Number.parseInt(capacity, 10);
     const offset = autoOn ? parseAutoLockOffsetMinutes(autoHours) : null;
@@ -177,6 +186,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
       autoLockOffsetMinutes: offset ?? null,
       locationName: locName.trim() || null,
       locationAddress: locAddress.trim() || null,
+      houseRules: houseRules.trim() || null,
+      guestInfo: guestInfo.trim() || null,
     };
   };
 
@@ -188,6 +199,14 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
     }
     if (autoOn && parseAutoLockOffsetMinutes(autoHours) === undefined) {
       setErr(t.templates.errAutoLockHours);
+      return;
+    }
+    if (houseRules.trim().length > HOUSE_RULES_MAX) {
+      setErr(t.events.houseRulesTooLong);
+      return;
+    }
+    if (guestInfo.trim().length > GUEST_INFO_MAX) {
+      setErr(t.events.guestInfoTooLong);
       return;
     }
     try {
@@ -282,6 +301,16 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
           className="mb-1.5"
         />
         <p className="mb-[18px] text-[12px] leading-[1.5] text-faint">{t.templates.locationHint}</p>
+
+        {/* House rules + info for guests (z8uq9m4pnk): the same block as the
+            event form, copied onto every event made from this template. */}
+        <EventGuestTextFields
+          houseRules={houseRules}
+          guestInfo={guestInfo}
+          onHouseRulesChange={writable ? setHouseRules : undefined}
+          onGuestInfoChange={writable ? setGuestInfo : undefined}
+          note={t.templates.guestTextsHint}
+        />
 
         <Label className="mb-[10px]">{t.templates.settingsLabel}</Label>
         <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">

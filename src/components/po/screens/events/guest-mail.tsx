@@ -22,12 +22,15 @@ export function EventGuestTextFields({
   guestInfo,
   onHouseRulesChange,
   onGuestInfoChange,
+  note,
 }: {
   houseRules: string;
   guestInfo: string;
   /** Undefined = read-only (a role that can't edit this event). */
   onHouseRulesChange?: (v: string) => void;
   onGuestInfoChange?: (v: string) => void;
+  /** One line under the block (the template editor says where the texts go). */
+  note?: string;
 }): JSX.Element {
   const g = t.events.guestMail;
   return (
@@ -59,6 +62,7 @@ export function EventGuestTextFields({
         />
         <div className={hintClass}>{t.events.guestInfoHint}</div>
       </div>
+      {note && <p className="mt-3 border-t border-line pt-3 text-[12px] leading-[1.5] text-faint">{note}</p>}
     </section>
   );
 }

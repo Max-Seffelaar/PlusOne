@@ -226,4 +226,23 @@ export async function clickUntilVisible(button: Locator, next: Locator, timeout 
   }).toPass({ timeout });
 }
 
+/**
+ * Pick an option in a kit `Select` (z8uq9m4a2w): it is a listbox, not a native
+ * `<select>`, so `selectOption` no longer applies. Opens the combobox, clicks the
+ * row (by its `data-value`, or by its exact label) in the popover or the touch
+ * sheet, and waits for the list to close.
+ */
+export async function pickKitOption(combo: Locator, opt: { value: string } | { label: string }): Promise<void> {
+  const page = combo.page();
+  await combo.click();
+  const list = page.getByRole('listbox');
+  await expect(list).toBeVisible();
+  const row =
+    'value' in opt
+      ? list.locator(`[role="option"][data-value="${opt.value}"]`)
+      : list.getByRole('option', { name: opt.label, exact: true });
+  await row.click();
+  await expect(list).toHaveCount(0);
+}
+
 export { expect };

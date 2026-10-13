@@ -164,9 +164,13 @@ select is((select count(*)::int from public.audit_log a
 
 -- The invitee reads the longer trial on their own subscription.
 select pg_temp.login('c1000000-0000-4000-8000-000000000011');
-select ok((select trial_ends_at > now() + interval '14 days' from public.subscriptions
+-- Date-independent: from 2026-10-13 on, now() + 14 days already reaches the
+-- ADE end, so "past the normal 14 days" no longer holds. What B7 proves is
+-- that the invitee reads the same ADE trial end under RLS that B2 checked.
+select is((select trial_ends_at from public.subscriptions
            where venue_id = current_setting('test.cas1')::uuid),
-          'B7 the new owner sees a trial end past the normal 14 days (while before ADE)');
+          greatest(timestamptz '2026-10-27 00:00:00 Europe/Amsterdam', now() + interval '14 days'),
+          'B7 the new owner reads the ADE trial end on their own subscription');
 reset role;
 
 -- A second company (switcher quick-create) is a normal trial: one invite, one comp.
