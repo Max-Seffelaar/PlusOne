@@ -273,6 +273,14 @@ Besluiten Max 2026-10-12 (startprompt golf F):
 
 **Update 2026-10-13 middag:** #480 (`20261016170000`) en #479 (gemerged als **`20261016180000`**, niet `…160000`) staan op prod (geverifieerd). Taak 8 botste daarmee en is **opnieuw geslot naar `20261016190000`**. Main was rood op `platform_invite_ade_trial.test.sql` B7 (datumklif: vanaf 2026-10-13 is `now()+14d` ≥ 27 okt); #495 heeft dat in main gerepareerd. Max gaf toestemming om #496 (7c) te mergen als alles klaar en goed is. Merge- en prod-push-volgorde (timestamps): 8 `20261016190000` → #482 `20261017120000`+`…120100` → #481 `20261017120200` → #484 `20261017120300` → #485 `20261018120000` → #488 → #489. PR's zonder migratie (#483, #486, #487, #490–#493, 7c) mergen na hun review in elke volgorde; de PR die daarna komt merget main opnieuw.
 
+**Besluiten Max 2026-10-13 (middag):**
+- **PostHog (taak 10) geparkeerd.** #485, #488 en #489 zijn gesloten; de branches blijven bestaan. Slot `20261018120000` vervalt. Komt het terug, dan eerst de blokkerende review-bevinding fixen: de `/ingest`-rewrite stuurt de sessie-cookie en de Authorization-header door naar PostHog. Kanttekening van de orchestrator: Sentry meet fouten en performance, PostHog meet productgebruik (features, funnels). De funnel-cijfers die we nu nodig hebben komen uit Platform R, uit de eigen database.
+- **Merge-train in plaats van per-PR mergen.** Eerst alle PR's klaar:
+  - de blokkerende en should-fix-bevindingen verwerkt, plus een delta-review waar iets blokkerends was;
+  - main gemerged en CI groen per PR.
+  
+  Daarna bouwt de orchestrator één train-branch met alle heads in timestamp-volgorde. De train krijgt volledige CI, een `supabase db reset` met `pnpm db:test` en de flows. Max test één keer, op de train. Daarna één merge en één `Push-PlusOneProd` met de nieuwste timestamp; de push direct na Vercel Ready. De losse PR's sluiten als gemerged zodra hun commits in main staan. Precedent: privacy-train #477.
+
 | Taak | Worker-sessie | PR | Status | Reviewer | Prod |
 |---|---|---|---|---|---|
 | 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | [#494](https://github.com/Max-Seffelaar/PlusOne/pull/494) | opgeleverd 2026-10-13 (head `96f5c36`; main incl. #479/#495 gemerged; `supabase db reset` + `pnpm db:test` groen, 117 files / 3368 asserts; flows quota-request-guest + team-mail 4/4) | `session_011fDzCADzZQsv7TqTGCRUza` | `20261016190000` |
@@ -284,7 +292,7 @@ Besluiten Max 2026-10-12 (startprompt golf F):
 | 9-AUTH getClaims / SW-timeout | `session_01QJLy7bUqwGj2drEKHDnW4t` | [#483](https://github.com/Max-Seffelaar/PlusOne/pull/483), [#487](https://github.com/Max-Seffelaar/PlusOne/pull/487) | opgeleverd | `session_01GFRtRxNMtVVN7hYNNj3JNK` | — |
 | 9-FE RPC's | `session_01Bz1NMNNq7KxjGim64Nbi18` | [#481](https://github.com/Max-Seffelaar/PlusOne/pull/481), [#484](https://github.com/Max-Seffelaar/PlusOne/pull/484) | opgeleverd | `session_01Q2Z3JN3NcXApe1JEiFHDHb` | `20261017120200`, `…120300` |
 | 9-FE front-end | idem | [#486](https://github.com/Max-Seffelaar/PlusOne/pull/486), [#490](https://github.com/Max-Seffelaar/PlusOne/pull/490), [#491](https://github.com/Max-Seffelaar/PlusOne/pull/491), [#492](https://github.com/Max-Seffelaar/PlusOne/pull/492), [#493](https://github.com/Max-Seffelaar/PlusOne/pull/493) | opgeleverd | `session_01MnDiaZwCmairJbPSXwQ5cq` | — |
-| 10 PostHog (keyless) | `session_0179XDwivmrsRhhzNjatKtdS` | [#485](https://github.com/Max-Seffelaar/PlusOne/pull/485), [#488](https://github.com/Max-Seffelaar/PlusOne/pull/488), [#489](https://github.com/Max-Seffelaar/PlusOne/pull/489) | opgeleverd; live pas na go + key + legal C → A | `session_01ENZ4ZYviDvH9cQ8QuZowxb` | `20261018120000` |
+| 10 PostHog | `session_0179XDwivmrsRhhzNjatKtdS` (gestopt) | #485, #488, #489 | **geparkeerd** (Max, 2026-10-13); PR's gesloten, branches blijven bestaan | `session_01ENZ4ZYviDvH9cQ8QuZowxb` (CHANGES op #485) | slot vervalt |
 
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
