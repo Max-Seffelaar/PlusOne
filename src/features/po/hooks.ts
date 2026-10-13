@@ -31,6 +31,7 @@ import {
   fetchRequestDecisionCounts,
   type PoRequestDecisionCounts,
   fetchQuotaRequests,
+  fetchMyQuotaUpdates,
   fetchContacts,
   fetchContactKeyRows,
   fetchContactMarketingOptIns,
@@ -110,6 +111,7 @@ import {
   toPoContactProfile,
   toPoGuestRequest,
   toPoQuotaRequest,
+  toPoQuotaUpdate,
   toRecap,
   tierRole,
   toPoTeamMember,
@@ -148,6 +150,7 @@ import {
   type PoContactProfile,
   type PoGuestRequest,
   type PoQuotaRequest,
+  type PoQuotaUpdate,
   type PoRecap,
   type PoTeamMember,
   type PoInvite,
@@ -990,6 +993,23 @@ export function usePoQuotaRequests() {
     queryFn: async () => {
       const rows = await fetchQuotaRequests(createClient(), venueId ?? '');
       return rows.map((r) => toPoQuotaRequest(r));
+    },
+  });
+}
+
+/**
+ * Home Updates card (z8uq9m2xyp): decisions on the signed-in user's own quota
+ * requests at the active company that they have not dismissed yet. Every role
+ * can file a request, so this runs for everyone; RLS returns only own rows.
+ */
+export function usePoMyQuotaUpdates() {
+  const { venueId, userId } = usePoIdentity();
+  return useQuery<PoQuotaUpdate[]>({
+    queryKey: poKeys.myQuotaUpdates(venueId ?? '', userId),
+    enabled: !!venueId && !!userId,
+    queryFn: async () => {
+      const rows = await fetchMyQuotaUpdates(createClient(), venueId ?? '', userId);
+      return rows.map((r) => toPoQuotaUpdate(r));
     },
   });
 }

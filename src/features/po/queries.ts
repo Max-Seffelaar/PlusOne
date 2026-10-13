@@ -699,13 +699,49 @@ export interface PoQuotaRequestRow {
   requesterName: string;
   /** What the requester label is — render through kit ActorName. */
   requesterKind: ActorKind;
+  /** The guest the request names (z8uq9m2xyp); null = quota only. */
+  guest: PoQuotaRequestGuest | null;
+}
+
+/** The guest a quota request names (z8uq9m2xyp) — added on approval. */
+export interface PoQuotaRequestGuest {
+  name: string;
+  plusOnes: number;
+  tierId: string;
+  /** Resolved tier name; null when the tier is no longer on the event. */
+  tierName: string | null;
+}
+
+/** quota_requests.guest_payload → the guest, or null for anything malformed
+ *  (the DB CHECK guarantees the shape; this only narrows the Json type). */
+export function parseQuotaGuestPayload(payload: unknown): Omit<PoQuotaRequestGuest, 'tierName'> | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.name !== 'string' || typeof p.plus_ones !== 'number' || typeof p.tier_id !== 'string') return null;
+  return { name: p.name, plusOnes: p.plus_ones, tierId: p.tier_id };
+}
+
+/** Max tier ids per `.in()` (CLAUDE.md scale rule: chunk to ≤120). */
+const TIER_NAME_CHUNK = 120;
+
+/** Tier names for the tiers quota requests name, in ≤120-id chunks. */
+async function fetchTierNames(client: Client, tierIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  for (const chunk of chunkIds(tierIds, TIER_NAME_CHUNK)) {
+    const { data, error } = await client.from('guest_tiers').select('id, name').in('id', chunk);
+    if (error) throw error;
+    for (const tier of data ?? []) names.set(tier.id, tier.name);
+  }
+  return names;
 }
 
 /**
  * Pending quota requests across the given events, oldest first, with the
  * requester name resolved in a second round-trip — mirrors the desktop guests
  * page exactly so both surfaces stay RLS-safe (no FK-embed guessing; an
- * unreadable profile just falls back to "Onbekend").
+ * unreadable profile just falls back to "Onbekend"). A request that names a
+ * guest (z8uq9m2xyp) carries it, with its tier name, so the decider sees who
+ * the slots are for.
  */
 export async function fetchQuotaRequests(
   client: Client,
@@ -713,17 +749,23 @@ export async function fetchQuotaRequests(
 ): Promise<PoQuotaRequestRow[]> {
   const { data: reqs, error } = await client
     .from('quota_requests')
-    .select('id, event_id, requested_extra, motivation, created_at, user_id')
+    .select('id, event_id, requested_extra, motivation, created_at, user_id, guest_payload')
     .eq('venue_id', venueId)
     .eq('status', 'pending')
     .order('created_at', { ascending: true });
   if (error) throw error;
 
   const rows = reqs ?? [];
-  const labels = await fetchActorLabelsSafe(client, venueId, rows.map((r) => r.user_id));
+  const guests = new Map(rows.map((r) => [r.id, parseQuotaGuestPayload(r.guest_payload)]));
+  const tierIds = [...new Set([...guests.values()].flatMap((g) => (g ? [g.tierId] : [])))];
+  const [labels, tierNames] = await Promise.all([
+    fetchActorLabelsSafe(client, venueId, rows.map((r) => r.user_id)),
+    fetchTierNames(client, tierIds),
+  ]);
 
   return rows.map((r) => {
     const who = actorRef(r.user_id, labels);
+    const guest = guests.get(r.id) ?? null;
     return {
       id: r.id,
       eventId: r.event_id,
@@ -732,7 +774,68 @@ export async function fetchQuotaRequests(
       created_at: r.created_at,
       requesterName: who.text,
       requesterKind: who.kind,
+      guest: guest ? { ...guest, tierName: tierNames.get(guest.tierId) ?? null } : null,
     };
+  });
+}
+
+/** One decision on the user's own quota request, not yet dismissed (z8uq9m2xyp). */
+export interface PoMyQuotaUpdateRow {
+  id: string;
+  eventId: string;
+  eventName: string;
+  requestedExtra: number;
+  status: 'approved' | 'denied';
+  decisionReason: string | null;
+  decidedAt: string;
+  /** The guest the approval added (fulfilled), else null. */
+  guestId: string | null;
+  /** The guest the request named — null after retention or when none. */
+  guest: Omit<PoQuotaRequestGuest, 'tierName'> | null;
+}
+
+/** How many undismissed decisions the Updates card shows at most. */
+const MY_QUOTA_UPDATES_LIMIT = 5;
+
+/**
+ * The caller's own decided quota requests at this company that they have not
+ * dismissed yet (seen_at null), newest decision first — the Home Updates card.
+ * RLS quota_requests_select already limits a non-admin to their own rows; the
+ * user_id filter keeps an admin's card about their OWN requests too. Bounded
+ * (partial index quota_requests_user_unseen_idx).
+ */
+export async function fetchMyQuotaUpdates(
+  client: Client,
+  venueId: string,
+  userId: string
+): Promise<PoMyQuotaUpdateRow[]> {
+  const { data, error } = await client
+    .from('quota_requests')
+    .select('id, event_id, requested_extra, status, decision_reason, decided_at, guest_id, guest_payload, events(name)')
+    .eq('venue_id', venueId)
+    .eq('user_id', userId)
+    .neq('status', 'pending')
+    .is('seen_at', null)
+    .order('decided_at', { ascending: false })
+    .limit(MY_QUOTA_UPDATES_LIMIT);
+  if (error) throw error;
+
+  return (data ?? []).flatMap((r) => {
+    if ((r.status !== 'approved' && r.status !== 'denied') || !r.decided_at) return [];
+    const ev = [r.events].flat()[0] as { name: string } | undefined;
+    return [
+      {
+        id: r.id,
+        eventId: r.event_id,
+        eventName: ev?.name ?? '',
+        requestedExtra: r.requested_extra,
+        status: r.status,
+        decisionReason: r.decision_reason,
+        decidedAt: r.decided_at,
+        guestId: r.guest_id,
+        guest: parseQuotaGuestPayload(r.guest_payload),
+      },
+    ];
   });
 }
 

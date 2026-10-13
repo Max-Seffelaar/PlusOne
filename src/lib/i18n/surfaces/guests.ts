@@ -154,6 +154,9 @@ export const guests = {
     quotaFull: 'Quota full',
     overQuota: 'That puts you over your quota for this event. Ask an admin to raise it.',
     requestSent: 'Request sent. An admin will decide on it.',
+    // z8uq9m2xyp — name the guest in the request; on approval they're on the list.
+    requestWithGuest: "Put {guest} on the list when it's approved",
+    requestSentWithGuest: 'Request sent. {guest} goes on the list once an admin approves it.',
     requestExtraLabel: 'Request {n} more {slots}',
     requestMotivPlaceholder: 'Why do you need these slots?',
     requestSendFailed: "Couldn't send.",
