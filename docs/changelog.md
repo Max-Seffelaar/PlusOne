@@ -128,6 +128,16 @@ Milestone **≥5** (perf audit finding 5, list half; the badge was P1). Branch `
 - **Review round (2026-10-13):** the 7-day window on declined / auto-approved history is taken out again: it changed spec #12/#43/#48 without a decision (and made Home's "no requests yet" card and the all-history decision counts disagree with the list). The history stays complete until Max decides; the 414 fix (no id list, ranged read) stays. Links are read only when a row references one.
 - **Tests:** `guest-requests.query.test.ts` (no `.in()`, archived/default/unknown labels, server order, no links read without link refs); flow `requests-list` (6 checks × 4 variants; Q3 now asserts a month-old declined request still shows with its label).
 
+## 2026-10-12 — Snelheid P2 #10: cockpit patches from the realtime payload (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-cockpit-patch`. No migration.
+
+- **What was costly:** every realtime change on the desktop event-day cockpit invalidated the full guest list (+ tiers read + actor names), the arrivals, tier occupancy, the 5-RPC stats bundle and the event-detail header, throttled only to 500 ms: about two full re-downloads per second per open cockpit at a door rush.
+- **Fix:** `usePoEventRealtime` patches `poKeys.guests` and `poKeys.arrivals` straight from the `guests` / `check_ins` payloads (`src/features/po/eventday/realtime-patch.ts`, pure, like the door's `onRealtimeCheckIn`). Only a row the payload can't build (a peer's new guest, an unknown tier) refetches the list (500 ms coalesce). Tier occupancy, stats and the event-detail header refresh leading + trailing at most every 5 s. A resubscribe after a drop still refetches everything (#0b); the 60 s safety poll is unchanged.
+- **Measured** (`scripts/perf/p2-measure-cockpit.mjs`: real Chromium at 1280 px on the cockpit, a peer checks in 20 guests at 2/s through the service role, requests counted until 6 s after the last; dev servers on origin/main and on the branch): **352 → 21 requests** (21.5 → 1.3 req/s), full guest-list reads 32 → 0, check-in reads 32 → 0; both show 20/40 inside at the end.
+- **Review round (2026-10-13):** a patch that lands while a fetch of that list is in flight also queues a refetch of that list (`setQueryData` doesn't cancel a running fetch); a failed cockpit check-in / top-up / void / check-out refetches guests + arrivals after its rollback (`healCheckinLists`), so it can't erase a peer's check-in; the guest patch rebuilds the row through `toPoGuest` (one adapter) from the full payload plus the cached provenance, and refetches on a partial payload; a void only clears the very check-in the cache holds; payloads for another event are ignored; a guests change refetches only guests. Re-measured on the branch: 28 requests for the same 20 check-ins (still 0 list reads, 20/40 inside).
+- **Tests:** `realtime-patch.test.ts`; `hooks.eventRealtime.test.tsx` rewritten to the new contract (patch, no list refetch, C19 detail refresh, no venue-guests, ~5 s aggregates, resubscribe heals); flow `cockpit-realtime` (desktop only, 6 checks).
+
 ---
 
 ## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)

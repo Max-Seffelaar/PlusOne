@@ -593,9 +593,11 @@ export function usePoCheckIn(eventId: string) {
       return optimisticCheckin(qc, eventId, guestId, 'in', plusOnes);
     },
     onError: (_err, _input, ctx) => {
-      if (!ctx) return;
-      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
-      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      if (ctx) {
+        qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+        qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      }
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -627,6 +629,7 @@ export function usePoTopUpCheckIn(eventId: string) {
     },
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -652,9 +655,11 @@ export function usePoVoidCheckIn(eventId: string) {
       return optimisticCheckin(qc, eventId, guestId, 'wait', 0);
     },
     onError: (_err, _input, ctx) => {
-      if (!ctx) return;
-      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
-      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      if (ctx) {
+        qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+        qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      }
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -699,9 +704,11 @@ export function usePoCheckOut(eventId: string) {
         : optimisticCheckin(qc, eventId, guestId, 'in', remainingHeads - 1);
     },
     onError: (_err, _input, ctx) => {
-      if (!ctx) return;
-      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
-      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      if (ctx) {
+        qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+        qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+      }
+      healCheckinLists(qc, eventId);
     },
     onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
@@ -840,14 +847,23 @@ export function usePoAckNote(eventId: string) {
  * optimistic update above, so they still need a refetch on settle (success OR
  * error: a failed revive/void can follow a peer's write that already landed,
  * see 86ey9e8fe review). Guests and arrivals are deliberately NOT invalidated
- * here: `onMutate` already patched them to the exact post-mutation shape, so
- * re-invalidating immediately after would just re-download what was just
- * written. The (throttled) realtime channel + a 60s safety poll on the
- * cockpit are the ADDITIONAL reconciliation path for peers and for a missed/
- * dropped realtime event — see usePoEventRealtime — but this device's own
- * write shouldn't have to wait on that for its tiers/stats/venue-guests to
- * catch up.
+ * here on success: `onMutate` already patched them to the exact
+ * post-mutation shape, so re-invalidating would just re-download what was
+ * just written. Peers' writes arrive through usePoEventRealtime, which patches
+ * guests/arrivals from the payload (Snelheid P2), plus the 60s safety poll.
  */
+/**
+ * After a FAILED cockpit check-in / top-up / void / check-out (review #491):
+ * the rollback restores the snapshot from before the tap, which can erase a
+ * peer's real check-in that the realtime patch put in since (a 23505 race is
+ * exactly that case). The realtime channel no longer refetches on every event,
+ * so refetch both lists here to land on the server's state.
+ */
+function healCheckinLists(qc: QueryClient, eventId: string): void {
+  void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
+}
+
 function invalidateCheckinDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
