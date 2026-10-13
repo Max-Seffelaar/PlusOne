@@ -281,6 +281,12 @@ Besluiten Max 2026-10-12 (startprompt golf F):
   
   Daarna bouwt de orchestrator één train-branch met alle heads in timestamp-volgorde. De train krijgt volledige CI, een `supabase db reset` met `pnpm db:test` en de flows. Max test één keer, op de train. Daarna één merge en één `Push-PlusOneProd` met de nieuwste timestamp; de push direct na Vercel Ready. De losse PR's sluiten als gemerged zodra hun commits in main staan. Precedent: privacy-train #477.
 
+- **Train-regels (Max 2026-10-13, "Okay, lets go"):**
+  - **Cutoff 2026-10-13 22:00 Amsterdam (20:00 UTC).** Een PR die dan goedgekeurd en groen is, gaat mee; de rest gaat naar de volgende ronde.
+  - **Fout tijdens Max' test:** een kleine fix (≤ ~1 uur) gaat in de PR zelf, daarna wordt de train opnieuw gebouwd. Bij een grotere fix gaat de PR eruit, de rest merget, en die PR volgt later apart. Een security- of privacyfout gaat nooit live.
+  - **#484, #490 en #493 zijn één groep:** samen erin of samen eruit.
+  - **Een migratie-PR die eruit gaat krijgt later een nieuw slot,** omdat de CLI een oudere migratie dan de nieuwste op prod weigert.
+
 | Taak | Worker-sessie | PR | Status | Reviewer | Prod |
 |---|---|---|---|---|---|
 | 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | [#494](https://github.com/Max-Seffelaar/PlusOne/pull/494) | opgeleverd 2026-10-13 (head `96f5c36`; main incl. #479/#495 gemerged; `supabase db reset` + `pnpm db:test` groen, 117 files / 3368 asserts; flows quota-request-guest + team-mail 4/4) | `session_011fDzCADzZQsv7TqTGCRUza` | `20261016190000` |
