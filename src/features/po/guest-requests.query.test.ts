@@ -1,31 +1,30 @@
 /**
  * fetchGuestRequests (Snelheid P2, perf audit finding 5): the "via" labels come
  * from the venue-scoped links list, never a `request_links.in('id', …)` id list
- * (that 414'd past ~205 events with requests); pending requests are always all
- * loaded, the declined / auto-approved history is windowed by event start.
+ * (that 414'd past ~205 events with requests). One ranged, venue-scoped read in
+ * server order; the history is not windowed (an open product decision, review
+ * #486), and no links read happens when no row references a link.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { fetchGuestRequests, type PoLinkOption } from './queries';
 
 type Call = [string, ...unknown[]];
 
-function row(id: string, created_at: string, status: string, request_link_id: string | null, extra = {}) {
+function row(id: string, status: string, request_link_id: string | null) {
   return {
-    id, created_at, status, request_link_id,
+    id, created_at: '2026-10-01T00:00:00Z', status, request_link_id,
     full_name: id, email: null, phone: null, plus_ones: 0, motivation: null, event_id: 'e1',
     decision_reason: null, decision_message: null, decided_via: status === 'approved' ? 'auto' : 'manual',
-    marketing_opt_in: false, ...extra,
+    marketing_opt_in: false,
   };
 }
 
-function makeClient(pending: unknown[], decided: unknown[]) {
-  const queries: Call[][] = [];
+function makeClient(rows: unknown[]) {
+  const calls: Call[] = [];
   const from = vi.fn((table: string) => {
     if (table !== 'guest_requests') throw new Error(`unexpected table read: ${table}`);
-    const calls: Call[] = [];
-    queries.push(calls);
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'is', 'or', 'gte', 'order']) {
+    for (const m of ['select', 'eq', 'is', 'or', 'order']) {
       chain[m] = vi.fn((...args: unknown[]) => {
         calls.push([m, ...args]);
         return chain;
@@ -34,13 +33,10 @@ function makeClient(pending: unknown[], decided: unknown[]) {
     chain.in = vi.fn(() => {
       throw new Error('fetchGuestRequests must not send an .in() id list');
     });
-    chain.range = vi.fn(() => {
-      const isPending = calls.some(([m, a, b]) => m === 'eq' && a === 'status' && b === 'pending');
-      return Promise.resolve({ data: isPending ? pending : decided, error: null });
-    });
+    chain.range = vi.fn(() => Promise.resolve({ data: rows, error: null }));
     return chain;
   });
-  return { client: { from } as never, queries };
+  return { client: { from } as never, calls };
 }
 
 const LINKS: PoLinkOption[] = [
@@ -49,12 +45,14 @@ const LINKS: PoLinkOption[] = [
   { id: 'l-old', eventId: 'e1', isDefault: false, label: 'Archived Promo', archived: true },
 ];
 
-describe('fetchGuestRequests — labels without id lists, windowed history', () => {
-  it('labels from the links list (archived links too), default flagged, unknown silent, oldest first', async () => {
-    const { client } = makeClient(
-      [row('p2', '2026-10-03T00:00:00Z', 'pending', 'l-promo'), row('p1', '2026-10-01T00:00:00Z', 'pending', 'l-default')],
-      [row('d1', '2026-10-02T00:00:00Z', 'denied', 'l-old', { events: { starts_at: 'x' } }), row('a1', '2026-10-04T00:00:00Z', 'approved', 'l-gone', { events: { starts_at: 'x' } })],
-    );
+describe('fetchGuestRequests — labels without id lists', () => {
+  it('labels from the links list (archived links too), default flagged, unknown silent, server order kept', async () => {
+    const { client, calls } = makeClient([
+      row('p1', 'pending', 'l-default'),
+      row('d1', 'denied', 'l-old'),
+      row('p2', 'pending', 'l-promo'),
+      row('a1', 'approved', 'l-gone'),
+    ]);
     const links = vi.fn(async () => LINKS);
     const rows = await fetchGuestRequests(client, 'v1', { links });
 
@@ -66,21 +64,16 @@ describe('fetchGuestRequests — labels without id lists, windowed history', () 
       ['Jayden Promo', false],
       [null, false],
     ]);
-    // The embed only feeds the window filter; it never reaches the row shape.
-    expect(rows.every((r) => !('events' in r))).toBe(true);
+    expect(calls).toContainEqual(['eq', 'venue_id', 'v1']);
+    expect(calls).toContainEqual(['is', 'anonymized_at', null]);
+    expect(calls).toContainEqual(['or', 'status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)']);
   });
 
-  it('windows only the declined / auto-approved history, by event start', async () => {
-    const { client, queries } = makeClient([], []);
-    await fetchGuestRequests(client, 'v1', { decidedSinceIso: '2026-10-05T00:00:00Z', links: async () => [] });
-
-    const pendingQ = queries.find((c) => c.some(([m, a, b]) => m === 'eq' && a === 'status' && b === 'pending'));
-    const decidedQ = queries.find((c) => c.some(([m]) => m === 'or'));
-    expect(pendingQ?.some(([m]) => m === 'gte')).toBe(false);
-    expect(decidedQ).toContainEqual(['gte', 'events.starts_at', '2026-10-05T00:00:00Z']);
-    for (const q of queries) {
-      expect(q).toContainEqual(['eq', 'venue_id', 'v1']);
-      expect(q).toContainEqual(['is', 'anonymized_at', null]);
-    }
+  it('asks for no links when no row references one (e.g. a role that sees no requests)', async () => {
+    const { client } = makeClient([row('p1', 'pending', null)]);
+    const links = vi.fn(async () => LINKS);
+    const rows = await fetchGuestRequests(client, 'v1', { links });
+    expect(links).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({ viaLabel: null, viaStandard: false });
   });
 });

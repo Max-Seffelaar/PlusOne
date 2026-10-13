@@ -19,7 +19,6 @@ import { meter, fmtKB } from './scale-audit.mjs';
 import { adminUserClient, PERF_VENUE } from './p2-seed.mjs';
 
 const RUNS = 5;
-const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function oldFetchGuestRequests(client, venueId) {
   const { data, error } = await client
@@ -59,10 +58,9 @@ async function main() {
   });
   try {
     const po = await server.ssrLoadModule('@/features/po/queries.ts');
-    const since = new Date(Date.now() - RECENT_MS).toISOString();
     const sides = [
       ['before', () => oldFetchGuestRequests(client, PERF_VENUE)],
-      ['after', () => po.fetchGuestRequests(client, PERF_VENUE, { decidedSinceIso: since })],
+      ['after', () => po.fetchGuestRequests(client, PERF_VENUE)],
     ];
     console.log('| Requests list (Home / Requests) | Requests | Longest URL | Bytes | Time (median of 5) | Rows | Result |');
     console.log('|---|---|---|---|---|---|---|');

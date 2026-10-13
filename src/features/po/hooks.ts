@@ -936,13 +936,13 @@ export function usePoQuota(eventId: string) {
 // decided request drops off on success.
 
 /**
- * Landing-page guest requests for the active venue: every pending one, plus the
- * declined / auto-approved history of events in the recent window (the same
- * 7-day past window as Home — Snelheid P2 finding 5). The "via" labels come
- * from the venue links query's cache (the inbox's link filter and Home's empty
- * card read the same key), fetched in parallel when it is missing or older than
- * a minute — never an id list. Mounted by Home and Requests (and the desktop
- * door picker's board); the More row and the nav badge use the head count.
+ * Landing-page guest requests for the active venue (pending, declined,
+ * auto-approved). The "via" labels come from the venue links query's cache
+ * (the inbox's link filter and Home's empty card read the same key), fetched
+ * when it is missing or older than a minute and only if a row references a
+ * link — never an id list (Snelheid P2 finding 5). Mounted by Home and
+ * Requests (and the desktop door picker's board); the More row and the nav
+ * badge use the head count.
  */
 export function usePoGuestRequests() {
   const { venueId } = usePoIdentity();
@@ -954,7 +954,6 @@ export function usePoGuestRequests() {
       const client = createClient();
       const vid = venueId ?? '';
       const rows = await fetchGuestRequests(client, vid, {
-        decidedSinceIso: recentEventsSinceIso(),
         links: () =>
           qc.fetchQuery({
             queryKey: poKeys.venueLinks(vid),

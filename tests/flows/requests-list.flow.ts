@@ -2,13 +2,14 @@ import { test, expect, expectNoHorizontalOverflow } from './harness';
 import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
 
 /**
- * Flow: the requests list without id lists, windowed (Snelheid P2 finding 5,
+ * Flow: the requests list without id lists (Snelheid P2 finding 5,
  * z8uq9m2xz2 9-FE), in all four variants.
  *
  *   admin@ on Club Vesper → Requests: a pending request reads "via Flow
  *   Promo"; Declined holds the request that came through a link archived
- *   since ("via Old Promo"), but not the one for an event that ended a month
- *   ago (history window) → no request_links?id=in.(…) on the wire → More,
+ *   since ("via Old Promo"), and still the one for an event that ended a
+ *   month ago (the history is not windowed: an open product decision, review
+ *   #486) → no request_links?id=in.(…) on the wire → More,
  *   opened cold: the Requests row badge comes from the head count, never the
  *   request list.
  *
@@ -55,7 +56,7 @@ test.beforeAll(async () => {
   ] as never, { onConflict: 'id', ignoreDuplicates: true })).error);
 });
 
-test('requests list: labels from the venue links, windowed history, head count on More', async ({ page, context, flow, baseURL }) => {
+test('requests list: labels from the venue links, full history, head count on More', async ({ page, context, flow, baseURL }) => {
   const host = new URL(baseURL ?? 'http://localhost:3000').hostname;
   await context.addCookies([{ name: 'po_active_venue', value: VENUE, domain: host, path: '/' }]);
   const rest: { method: string; url: string }[] = [];
@@ -79,8 +80,9 @@ test('requests list: labels from the venue links, windowed history, head count o
   await flow.check(2, 'A declined request keeps the label of a link archived since ("via Old Promo")', async () => {
     await expect(page.getByText('via Old Promo').first()).toBeVisible();
   });
-  await flow.check(3, 'The declined history skips events that ended more than a week ago', async () => {
-    await expect(page.getByText('Declined Long Ago')).toHaveCount(0);
+  await flow.check(3, 'The declined history still includes a request for an event that ended a month ago, with its label', async () => {
+    await expect(page.getByText('Declined Long Ago').first()).toBeVisible();
+    await expect(page.getByText('via Past Promo').first()).toBeVisible();
   });
   await flow.check(4, 'No request_links read sends an id list (no id=in.(…))', async () => {
     expect(rest.filter((r) => r.url.includes('/rest/v1/request_links?') && r.url.includes('id=in.'))).toEqual([]);

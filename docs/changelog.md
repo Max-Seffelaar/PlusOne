@@ -22,15 +22,15 @@ Milestone **Now** (polish, golf F 7c). No migration.
 
 ---
 
-## 2026-10-12 — Snelheid P2 #5: requests list without id lists, windowed (z8uq9m2xz2, 9-FE)
+## 2026-10-12 — Snelheid P2 #5: requests list without id lists (z8uq9m2xz2, 9-FE)
 
 Milestone **≥5** (perf audit finding 5, list half; the badge was P1). Branch `claude/z8uq9m2xz2-requests-list`. No migration.
 
 - **What broke at scale:** `fetchGuestRequests` read every pending/denied/auto row in one unranged call (silently capped at 1 000), then `request_links.in('id', <every link id>)`: on a 300-event venue the URL is 11.8 kB and the read fails with HTTP 414, taking Home's request tiles and the Requests inbox down with it.
-- **Fix:** the "via" labels come from the venue-scoped `fetchVenueRequestLinks`, through the same React Query key the inbox's link filter and Home's empty card already read (`fetchQuery`, 60 s fresh), in parallel with the requests. That base read now carries archived links too (flagged), so a request keeps its label after its link is archived; `usePoVenueLinks` drops them with `select`. Pending requests are always all loaded (ranged); the declined / auto-approved history is windowed to events from the last 7 days on (`RECENT_EVENTS_WINDOW_MS`, Home's window, via an `events!inner(starts_at)` embed). More's Requests row uses the pending head count (`usePoOpenRequestCount`, the badge's key) instead of the full list.
-- **Measured** (`scripts/perf/p2-measure-requests.mjs`, `p2-seed.mjs` venue, admin through RLS): before 2 requests then **414 URI too long** (11 801-char URL); after 4 requests, longest URL 510 chars, 367 rows, ~29 ms.
-- **Behaviour change for Max to confirm:** declined and auto-approved requests of events that ended more than a week ago no longer show in the inbox (the decision counts RPC is unchanged).
-- **Tests:** `guest-requests.query.test.ts` (no `.in()`, archived/default/unknown labels, window only on the history); flow `requests-list` (6 checks × 4 variants).
+- **Fix:** the "via" labels come from the venue-scoped `fetchVenueRequestLinks`, through the same React Query key the inbox's link filter and Home's empty card already read (`fetchQuery`, 60 s fresh), when a request row references a link (a role that sees no requests pays for no links read). The read is ranged. That base read now carries archived links too (flagged), so a request keeps its label after its link is archived; `usePoVenueLinks` drops them with `select`. More's Requests row uses the pending head count (`usePoOpenRequestCount`, the badge's key) instead of the full list.
+- **Measured** (`scripts/perf/p2-measure-requests.mjs`, `p2-seed.mjs` venue, admin through RLS): before 2 requests then **414 URI too long** (11 801-char URL); after 3 requests, longest URL 444 chars, all 600 rows, ~59 ms.
+- **Review round (2026-10-13):** the 7-day window on declined / auto-approved history is taken out again: it changed spec #12/#43/#48 without a decision (and made Home's "no requests yet" card and the all-history decision counts disagree with the list). The history stays complete until Max decides; the 414 fix (no id list, ranged read) stays. Links are read only when a row references one.
+- **Tests:** `guest-requests.query.test.ts` (no `.in()`, archived/default/unknown labels, server order, no links read without link refs); flow `requests-list` (6 checks × 4 variants; Q3 now asserts a month-old declined request still shows with its label).
 
 ---
 

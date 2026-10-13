@@ -102,7 +102,7 @@ export const FLOWS = {
     ],
   },
   'requests-list': {
-    title: 'Snelheid P2 #5 (z8uq9m2xz2) — requests list without id lists: link labels from the venue links (archived too), windowed declined history, head count on More',
+    title: 'Snelheid P2 #5 (z8uq9m2xz2) — requests list without id lists: link labels from the venue links (archived too), full declined history, head count on More',
     paths: [
       'src/features/po/queries.ts',
       'src/features/po/hooks.ts',
