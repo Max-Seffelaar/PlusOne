@@ -11,12 +11,25 @@ describe('patchGuestsFromRow', () => {
     expect(patchGuestsFromRow(undefined, { id: 'x', status: 'approved' }, tiers)).toEqual({ next: undefined, needsRefetch: false });
   });
 
-  it('patches only the fields the payload carries and keeps the rest', () => {
-    const prev = [g('a', { note: 'keep', addedByName: 'Max' } as Partial<Guest>), g('b')];
-    const { next, needsRefetch } = patchGuestsFromRow(prev, { id: 'a', status: 'refused', note_priority: 'high' }, tiers);
+  const full = (id: string, over: Record<string, unknown> = {}) => ({
+    id, full_name: id, plus_ones: 0, status: 'approved', tier_id: 't1', note: null, note_priority: 'none',
+    note_acknowledged_at: null, created_at: '2026-10-12T20:00:00Z', contact_id: null, anonymized_at: null,
+    source: 'app', ...over,
+  }) as never;
+
+  it('rebuilds the row through toPoGuest from the full payload, keeping the cached provenance', () => {
+    const prev = [g('a', { addedByName: 'Max', at: '22:10' } as Partial<Guest>), g('b')];
+    const { next, needsRefetch } = patchGuestsFromRow(prev, full('a', { status: 'refused', note: 'VIP', note_priority: 'high' }), tiers);
     expect(needsRefetch).toBe(false);
-    expect(next?.[0]).toMatchObject({ status: 'refused', flag: 'high', note: 'keep', addedByName: 'Max' });
+    expect(next?.[0]).toMatchObject({ status: 'refused', flag: 'high', note: 'VIP', addedByName: 'Max', tierName: 'Regular' });
+    // A leftover optimistic field (the 'HH:MM' `at`) does not survive: the adapter never sets it.
+    expect(next?.[0]).not.toHaveProperty('at', '22:10');
     expect(next?.[1]).toBe(prev[1]);
+  });
+
+  it('a partial payload asks for a refetch instead of half-patching', () => {
+    const prev = [g('a')];
+    expect(patchGuestsFromRow(prev, { id: 'a', status: 'refused' }, tiers)).toEqual({ next: prev, needsRefetch: true });
   });
 
   it('pending and denied leave the list like removed does; an unseen listed row needs a refetch', () => {
@@ -41,6 +54,11 @@ describe('patchArrivalsFromCheckIn', () => {
   it('a void of a different check-in never erases the one the cache holds', () => {
     const set = patchArrivalsFromCheckIn(new Map(), row('c2', false));
     expect(patchArrivalsFromCheckIn(set, row('c1', true))?.get('a')?.id).toBe('c2');
+  });
+
+  it('a void never clears an optimistic arrival (no id yet)', () => {
+    const optimistic = new Map([['a', { arrived: 0, at: '2026-10-12T22:00:00Z' }]]);
+    expect(patchArrivalsFromCheckIn(optimistic, row('c1', true))?.get('a')).toEqual({ arrived: 0, at: '2026-10-12T22:00:00Z' });
   });
 
   it('leaves an uncached map alone', () => {

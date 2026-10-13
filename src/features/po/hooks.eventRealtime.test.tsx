@@ -89,6 +89,15 @@ afterEach(() => {
   statusCb = null;
 });
 
+/** A full guests row as Realtime delivers it on UPDATE (replica identity default). */
+const guestRow = (id: string, over: Record<string, unknown> = {}): Payload => ({
+  new: {
+    id, event_id: 'event-1', full_name: id, plus_ones: 0, status: 'approved', tier_id: 't1', note: null,
+    note_priority: 'none', note_acknowledged_at: null, created_at: '2026-10-12T20:00:00Z', contact_id: null,
+    anonymized_at: null, source: 'app', ...over,
+  },
+});
+
 const checkIn = (guestId: string, voided = false): Payload => ({
   new: { id: `ci-${guestId}`, guest_id: guestId, plus_ones_arrived: 1, checked_at: '2026-10-12T22:00:00Z', voided_at: voided ? '2026-10-12T22:05:00Z' : null },
 });
@@ -106,7 +115,7 @@ describe('usePoEventRealtime — patch from the payload (Snelheid P2 #10)', () =
   it('a peer check-in patches the guest and the arrivals in place: no list refetch, aggregates refresh (C19), venue-guests untouched', async () => {
     const { qc, spy } = await mount();
     act(() => {
-      handlers.guests({ new: { id: 'g1', status: 'checked_in', plus_ones: 1 } });
+      handlers.guests(guestRow('g1', { status: 'checked_in', plus_ones: 1 }));
       handlers.check_ins(checkIn('g1'));
     });
 
@@ -129,10 +138,10 @@ describe('usePoEventRealtime — patch from the payload (Snelheid P2 #10)', () =
     act(() => handlers.check_ins(checkIn('g1', true)));
     expect(qc.getQueryData<Map<string, CheckinArrival>>(poKeys.arrivals('event-1'))?.has('g1')).toBe(false);
 
-    act(() => handlers.guests({ new: { id: 'g2', status: 'removed' } }));
+    act(() => handlers.guests(guestRow('g2', { status: 'removed' })));
     expect(qc.getQueryData<Guest[]>(poKeys.guests('event-1'))?.map((g) => g.id)).toEqual(['g1']);
 
-    act(() => handlers.guests({ new: { id: 'g1', status: 'approved', tier_id: 't2' } }));
+    act(() => handlers.guests(guestRow('g1', { status: 'approved', tier_id: 't2' })));
     expect(qc.getQueryData<Guest[]>(poKeys.guests('event-1'))?.[0]).toMatchObject({ tierId: 't2', tierName: 'VIP', role: 'VIP' });
   });
 
@@ -140,16 +149,42 @@ describe('usePoEventRealtime — patch from the payload (Snelheid P2 #10)', () =
     const { spy } = await mount();
     vi.useFakeTimers();
     try {
-      act(() => handlers.guests({ new: { id: 'g-new', status: 'approved', full_name: 'New' } }));
+      act(() => handlers.guests(guestRow('g-new', { full_name: 'New' })));
       expect(includesKey(invalidatedKeys(spy), poKeys.guests('event-1'))).toBe(true);
       // Past the 500 ms list-refetch window, so the next one fires on its leading edge.
       act(() => vi.advanceTimersByTime(600));
       spy.mockClear();
-      act(() => handlers.guests({ new: { id: 'g1', status: 'approved', tier_id: 't-unknown' } }));
+      act(() => handlers.guests(guestRow('g1', { tier_id: 't-unknown' })));
       expect(includesKey(invalidatedKeys(spy), poKeys.guests('event-1'))).toBe(true);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a patch that lands while a list fetch is in flight also queues a refetch of that list (review #491)', async () => {
+    const { qc, spy } = await mount();
+    let release: (v: Guest[]) => void = () => {};
+    void qc.fetchQuery({ queryKey: poKeys.guests('event-1'), queryFn: () => new Promise<Guest[]>((r) => (release = r)) });
+    spy.mockClear();
+    act(() => handlers.guests(guestRow('g1', { status: 'checked_in' })));
+    expect(includesKey(invalidatedKeys(spy), poKeys.guests('event-1'))).toBe(true);
+    // Only the list whose fetch was running: arrivals untouched by a guests change.
+    expect(includesKey(invalidatedKeys(spy), poKeys.arrivals('event-1'))).toBe(false);
+    release([]);
+  });
+
+  it('a partial payload (columns missing) refetches instead of half-patching the row', async () => {
+    const { qc, spy } = await mount();
+    act(() => handlers.guests({ new: { id: 'g1', status: 'checked_in' } }));
+    expect(qc.getQueryData<Guest[]>(poKeys.guests('event-1'))?.find((g) => g.id === 'g1')?.status).toBe('wait');
+    expect(includesKey(invalidatedKeys(spy), poKeys.guests('event-1'))).toBe(true);
+  });
+
+  it('ignores a payload for another event', async () => {
+    const { qc, spy } = await mount();
+    act(() => handlers.guests(guestRow('g1', { event_id: 'event-2', status: 'checked_in' })));
+    expect(qc.getQueryData<Guest[]>(poKeys.guests('event-1'))?.find((g) => g.id === 'g1')?.status).toBe('wait');
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('a resubscribe after a drop refetches everything (#0b)', async () => {
@@ -171,7 +206,7 @@ describe('usePoEventRealtime throttling (86ey9e8fe → ~5 s for aggregates)', ()
       // 8 check-ins, each touching guests AND check_ins (16 events).
       act(() => {
         for (let i = 0; i < 8; i++) {
-          handlers.guests({ new: { id: i % 2 ? 'g1' : 'g2', status: 'checked_in' } });
+          handlers.guests(guestRow(i % 2 ? 'g1' : 'g2', { status: 'checked_in' }));
           handlers.check_ins(checkIn(i % 2 ? 'g1' : 'g2'));
         }
       });

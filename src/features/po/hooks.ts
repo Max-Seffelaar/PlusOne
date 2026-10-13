@@ -826,8 +826,9 @@ export function usePoCheckinArrivals(eventId: string, options?: { refetchInterva
 // The guest list and the arrivals are patched straight from those payloads
 // (Snelheid P2, finding 10 — like the door's onRealtimeCheckIn): no request at
 // all for an ordinary check-in, void, top-up or edit. Only a row the payload
-// can't build (a peer's new guest, an unknown tier) falls back to a refetch of
-// the list, coalesced over REALTIME_REFETCH_THROTTLE_MS. The aggregates that do
+// can't build (a peer's new guest, an unknown tier), or a patch that landed
+// while a fetch of that list was in flight, falls back to a refetch of that
+// list, coalesced over REALTIME_REFETCH_THROTTLE_MS. The aggregates that do
 // need the server (tier occupancy, the 5-RPC stats bundle, the event-detail
 // header) refresh at most every REALTIME_AGGREGATE_THROTTLE_MS.
 const REALTIME_REFETCH_THROTTLE_MS = 500;
@@ -876,10 +877,18 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     // Previous channel status → refetch on resubscribe after a drop (#0b).
     let prevStatus: ChannelStatus | null = null;
 
-    const refetchLists = leadingTrailing(() => {
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
-    }, REALTIME_REFETCH_THROTTLE_MS);
+    const refetchGuests = leadingTrailing(
+      () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+      REALTIME_REFETCH_THROTTLE_MS,
+    );
+    const refetchArrivals = leadingTrailing(
+      () => void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) }),
+      REALTIME_REFETCH_THROTTLE_MS,
+    );
+    // setQueryData doesn't cancel a running fetch: when one is in flight, its
+    // (older) snapshot would land on top of the patch. Patch anyway (instant),
+    // and queue one more refetch so the list ends on the newer state (review #491).
+    const inFlight = (queryKey: readonly unknown[]): boolean => qc.isFetching({ queryKey }) > 0;
     const refreshAggregates = leadingTrailing(() => {
       void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
@@ -892,17 +901,23 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     }, REALTIME_AGGREGATE_THROTTLE_MS);
 
     const onGuest = (row: RealtimeGuestRow): void => {
+      // The channel filters on event_id already; this keeps the patch correct
+      // whatever the channel config says.
+      if (row.event_id && row.event_id !== eventId) return;
       const { next, needsRefetch } = patchGuestsFromRow(
         qc.getQueryData<Guest[]>(poKeys.guests(eventId)),
         row,
         qc.getQueryData<Tier[]>(poKeys.tiers(eventId)),
       );
-      if (needsRefetch) refetchLists.call();
-      else if (next) qc.setQueryData<Guest[]>(poKeys.guests(eventId), next);
+      if (next && !needsRefetch) qc.setQueryData<Guest[]>(poKeys.guests(eventId), next);
+      // A guests change never moves check_ins: only the guest list refetches.
+      if (needsRefetch || inFlight(poKeys.guests(eventId))) refetchGuests.call();
       refreshAggregates.call();
     };
     const onCheckIn = (row: RealtimeCheckInRow): void => {
+      if (row.event_id && row.event_id !== eventId) return;
       qc.setQueryData<Map<string, CheckinArrival>>(poKeys.arrivals(eventId), (old) => patchArrivalsFromCheckIn(old, row));
+      if (inFlight(poKeys.arrivals(eventId))) refetchArrivals.call();
       refreshAggregates.call();
     };
 
@@ -932,7 +947,8 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
           // Heal a missed burst: a resubscribe after a drop replays nothing, so
           // refetch the cockpit queries to close the gap (#0b).
           if (shouldRefetchOnStatus(prevStatus, st)) {
-            refetchLists.call();
+            refetchGuests.call();
+            refetchArrivals.call();
             refreshAggregates.call();
           }
           prevStatus = st;
@@ -943,7 +959,8 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     return () => {
       cancelled = true;
       setRealtimeConnected(false);
-      refetchLists.cancel();
+      refetchGuests.cancel();
+      refetchArrivals.cancel();
       refreshAggregates.cancel();
       if (channel) void client.removeChannel(channel);
     };

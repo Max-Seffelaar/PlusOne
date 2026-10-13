@@ -31,7 +31,7 @@ const GAP_MS = 500;
 const TAIL_MS = 6_000;
 const TERMS_VERSION = /TERMS_VERSION = '([^']+)'/.exec(readFileSync(new URL('../../src/lib/legal.ts', import.meta.url), 'utf8'))?.[1];
 
-if (!/127\.0\.0\.1|localhost/.test(SUPABASE_URL)) throw new Error('local stack only');
+if (!['127.0.0.1', 'localhost'].includes(new URL(SUPABASE_URL).hostname)) throw new Error('local stack only');
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const must = (what, { error }) => {
   if (error) throw new Error(`${what}: ${error.message}`);
