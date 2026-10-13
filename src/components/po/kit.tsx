@@ -409,6 +409,9 @@ export function TierPicker({
  * the trigger. Keys: ↑↓ Home End PageUp PageDown, Enter/Space picks, Esc and Tab
  * close, typing jumps to the first label that starts with the typed text.
  * `placeholder` is the "" option on top (an "All venues" filter value).
+ * `invalid`/`describedBy`/`id` follow the kit-input error API shared with
+ * Field/TextArea: on the trigger (the focusable element), plus the field error
+ * border while the list is closed.
  */
 export function Select({
   value,
@@ -418,6 +421,9 @@ export function Select({
   ariaLabel,
   icon,
   className,
+  invalid,
+  describedBy,
+  id,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -427,6 +433,12 @@ export function Select({
   ariaLabel?: string;
   icon?: IconName;
   className?: string;
+  /** Marks the field as failing validation: `aria-invalid` + the error border. */
+  invalid?: boolean;
+  /** Id of the error/help text, as `aria-describedby` on the trigger. */
+  describedBy?: string;
+  /** Id of the trigger, so a scroll-and-focus helper can find it. */
+  id?: string;
 }): JSX.Element {
   const items = placeholder != null ? [{ value: '', label: placeholder }, ...options] : options;
   const selectedIndex = items.findIndex((o) => o.value === value);
@@ -566,9 +578,12 @@ export function Select({
     <div ref={wrapRef} className={cn('relative', className)}>
       <button
         ref={triggerRef}
+        id={id}
         type="button"
         role="combobox"
         aria-label={ariaLabel}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -578,7 +593,7 @@ export function Select({
         // 48px + border = the 50px Field height; the whole box is the tap target.
         className={cn(
           'flex min-h-[50px] w-full cursor-pointer items-center gap-[11px] rounded-field border bg-elev px-[15px] text-left outline-none focus-visible:border-acc',
-          open ? 'border-acc' : 'border-line',
+          open ? 'border-acc' : invalid ? fieldErrorBorder : 'border-line',
         )}
       >
         {icon && (

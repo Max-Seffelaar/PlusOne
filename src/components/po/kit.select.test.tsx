@@ -11,7 +11,7 @@ import type { JSX } from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { t } from '@/lib/i18n';
-import { Select } from './kit';
+import { Select, fieldErrorBorder } from './kit';
 import { runNativeBackIntercept } from './native-back-intercept';
 
 afterEach(cleanup);
@@ -233,5 +233,22 @@ describe('Select', () => {
     expect(screen.getByRole('listbox')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('option', { name: 'Cologne' }));
     expect(combo()).toHaveTextContent('Cologne');
+  });
+
+  it('kit-input error API: invalid / describedBy / id land on the trigger, error border while closed', () => {
+    const { rerender } = render(
+      <Select value="" onChange={() => {}} ariaLabel="City" options={OPTIONS} invalid describedBy="city-err" id="city" />,
+    );
+    const trigger = combo();
+    expect(trigger).toHaveAttribute('id', 'city');
+    expect(trigger).toHaveAttribute('aria-invalid', 'true');
+    expect(trigger).toHaveAttribute('aria-describedby', 'city-err');
+    expect(trigger.className).toContain(fieldErrorBorder);
+    fireEvent.click(trigger);
+    expect(trigger.className).toContain('border-acc');
+    rerender(<Select value="" onChange={() => {}} ariaLabel="City" options={OPTIONS} />);
+    expect(combo()).not.toHaveAttribute('aria-invalid');
+    expect(combo()).not.toHaveAttribute('aria-describedby');
+    expect(combo().className).not.toContain(fieldErrorBorder);
   });
 });
