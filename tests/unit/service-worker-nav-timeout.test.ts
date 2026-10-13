@@ -97,9 +97,10 @@ const deferred = (): Deferred => {
   return { promise, resolve: resolveFn, reject: rejectFn };
 };
 
-function loadSw() {
+/** `shared` = a later worker instance (cold start) on the same device's Cache Storage. */
+function loadSw(shared?: Storage) {
   const listeners = new Map<string, (e: Record<string, unknown>) => void>();
-  const storage = new Storage();
+  const storage = shared ?? new Storage();
   // Per-URL network: a Deferred the test settles when it wants; default instant.
   const network = new Map<string, Deferred>();
   const self = {
@@ -110,13 +111,29 @@ function loadSw() {
     clients: { claim: async () => undefined, matchAll: async () => [] },
   };
   const fetchImpl = async (input: { url: string } | string): Promise<Res> => {
-    const d = network.get(bare(href(input)));
+    const d = network.get(href(input)) ?? network.get(bare(href(input)));
     return d ? d.promise : res(`net:${new URL(href(input)).pathname}`);
   };
-  const ResponseStub = {
-    error: () => res('network-error', { status: 0, type: 'error' }),
-    redirect: (u: string, status = 302) => res(`redirect:${u}`, { status }),
-  };
+  // `new Response(text)` is how the worker stores its small meta entries.
+  class ResponseStub {
+    status = 200;
+    type = 'default';
+    redirected = false;
+    tag = 'meta';
+    constructor(private readonly body: string) {}
+    text() {
+      return Promise.resolve(this.body);
+    }
+    clone() {
+      return this;
+    }
+    static error() {
+      return res('network-error', { status: 0, type: 'error' });
+    }
+    static redirect(u: string, status = 302) {
+      return res(`redirect:${u}`, { status });
+    }
+  }
   new Function('self', 'caches', 'fetch', 'Response', 'URL', SW_SOURCE)(self, storage, fetchImpl, ResponseStub, URL);
 
   /** Fire a navigation; returns the served promise + a flag that flips when it settles. */
@@ -136,8 +153,10 @@ function loadSw() {
     });
     return state;
   }
-  /** A write: the page's fetch of a server action (POST). The SW never responds to it. */
-  function post(path: string) {
+  /** A write: the page's fetch of a server action (POST). The SW never responds to it.
+   *  The clock moves 1 ms on each side, as it does between real events. */
+  async function post(path: string) {
+    await vi.advanceTimersByTimeAsync(1);
     let responded = false;
     listeners.get('fetch')!({
       request: { url: new URL(path, ORIGIN).href, method: 'POST', mode: 'cors' },
@@ -147,6 +166,7 @@ function loadSw() {
       waitUntil: () => undefined,
     });
     if (responded) throw new Error('the SW must not answer a write');
+    await vi.advanceTimersByTimeAsync(1);
   }
   function message(data: unknown) {
     listeners.get('message')!({ data, waitUntil: () => undefined });
@@ -167,6 +187,7 @@ async function swWithCached(paths: string[]) {
     sw.navigate(p);
     await flush();
   }
+  await vi.advanceTimersByTimeAsync(5);
   return sw;
 }
 
@@ -324,7 +345,7 @@ describe('service worker — navigation timeout (finding 11)', () => {
 describe('service worker — navigation timeout after a write (86eykm7rk)', () => {
   it('venue switch on lie-fi: the pre-switch /app is NOT served at the timeout; the new render is', async () => {
     const sw = await swWithCached(['/app']);
-    sw.post('/app'); // switchActiveVenueAction
+    await sw.post('/app'); // switchActiveVenueAction
     const d = sw.slow('/app');
     const nav = sw.navigate('/app'); // window.location.assign('/app')
     await vi.advanceTimersByTimeAsync(TIMEOUT * 3);
@@ -337,7 +358,7 @@ describe('service worker — navigation timeout after a write (86eykm7rk)', () =
 
   it('once a page rendered after the write is cached, the timeout serves it again', async () => {
     const sw = await swWithCached(['/app']);
-    sw.post('/app');
+    await sw.post('/app');
     sw.slow('/app').resolve(res('after-switch'));
     sw.navigate('/app');
     await flush();
@@ -353,7 +374,7 @@ describe('service worker — navigation timeout after a write (86eykm7rk)', () =
     const sw = await swWithCached(['/app']);
     const early = sw.slow('/app/guests');
     sw.navigate('/app/guests'); // in flight
-    sw.post('/app'); // the write happens meanwhile
+    await sw.post('/app'); // the write happens meanwhile
     early.resolve(res('pre-write-guests'));
     await flush();
     sw.slow('/app');
@@ -364,7 +385,7 @@ describe('service worker — navigation timeout after a write (86eykm7rk)', () =
 
   it('a seed-session after the write refreshes /app and makes it servable again', async () => {
     const sw = await swWithCached(['/app']);
-    sw.post('/app');
+    await sw.post('/app');
     sw.message({ type: 'seed-session', paths: ['/app'] });
     await flush();
     sw.slow('/app');
@@ -375,7 +396,7 @@ describe('service worker — navigation timeout after a write (86eykm7rk)', () =
 
   it('after a write the PII-free door page is still served at the timeout, the session picker is not', async () => {
     const sw = await swWithCached(['/door', '/door/e1']);
-    sw.post('/app');
+    await sw.post('/app');
     sw.slow('/door/e1');
     const door = sw.navigate('/door/e1');
     await vi.advanceTimersByTimeAsync(TIMEOUT);
@@ -388,7 +409,7 @@ describe('service worker — navigation timeout after a write (86eykm7rk)', () =
 
   it('/ on lie-fi after a write → waits (no redirect into a stale /app)', async () => {
     const sw = await swWithCached(['/app']);
-    sw.post('/app');
+    await sw.post('/app');
     sw.slow('/');
     const nav = sw.navigate('/');
     await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
@@ -397,16 +418,69 @@ describe('service worker — navigation timeout after a write (86eykm7rk)', () =
 
   it('OFFLINE after a write still boots the cached /app (offline path unchanged)', async () => {
     const sw = await swWithCached(['/app']);
-    sw.post('/app');
+    await sw.post('/app');
     sw.slow('/app').reject(new TypeError('offline'));
     const nav = sw.navigate('/app');
     await flush();
     expect(nav.value?.tag).toBe('net:/app');
   });
 
+  it('a switch that lands on a DEEP LINK keeps the pre-switch /app unservable (delta review)', async () => {
+    const sw = await swWithCached(['/app']);
+    await sw.post('/app'); // "Switch to …" from an event / billing / platform screen
+    sw.slow('/app/events').resolve(res('events-after-switch'));
+    sw.navigate('/app/events'); // the assign lands here, fresh
+    await flush();
+    sw.slow('/app');
+    const home = sw.navigate('/app'); // later, slow: the cached /app is still pre-switch
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
+    expect(home.settled).toBe(false);
+    sw.slow('/app/guests'); // uncached deep link → its /app fallback is pre-switch too
+    const guests = sw.navigate('/app/guests');
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
+    expect(guests.settled).toBe(false);
+    sw.slow('/app/events');
+    const events = sw.navigate('/app/events'); // the post-switch entry itself is fine
+    await vi.advanceTimersByTimeAsync(TIMEOUT);
+    expect(events.value?.tag).toBe('events-after-switch');
+  });
+
+  it('a COLD worker (restart after the write) still refuses the pre-switch /app', async () => {
+    const warm = await swWithCached(['/app']);
+    await warm.post('/app');
+    await flush();
+    const cold = loadSw(warm.storage); // same Cache Storage, fresh in-memory state
+    cold.slow('/app');
+    const nav = cold.navigate('/app');
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
+    expect(nav.settled).toBe(false);
+  });
+
+  it('an entry cached under another query string than the fresh one is still checked', async () => {
+    const sw = await swWithCached(['/app/door?event=A']);
+    await sw.post('/app');
+    sw.slow('/app/door?event=B').resolve(res('door-b-after'));
+    sw.navigate('/app/door?event=B');
+    await flush();
+    sw.slow('/app/door?event=C');
+    const nav = sw.navigate('/app/door?event=C'); // ignoreSearch could hit the stale ?event=A copy
+    await vi.advanceTimersByTimeAsync(TIMEOUT * 2);
+    expect(nav.settled).toBe(false);
+  });
+
+  it('meta entries live in the session bucket only and go with sign-out', async () => {
+    const sw = await swWithCached(['/app']);
+    await sw.post('/app');
+    await flush();
+    expect(sw.storage.holding('/__po-sw/last-write')).toEqual([SESSION]);
+    sw.message({ type: 'session-wipe' });
+    await flush();
+    expect(sw.storage.buckets.has(SESSION)).toBe(false);
+  });
+
   it('a cross-origin write (Supabase REST) does not count', async () => {
     const sw = await swWithCached(['/app']);
-    sw.post('https://abc.supabase.co/rest/v1/guests');
+    await sw.post('https://abc.supabase.co/rest/v1/guests');
     sw.slow('/app');
     const nav = sw.navigate('/app');
     await vi.advanceTimersByTimeAsync(TIMEOUT);
