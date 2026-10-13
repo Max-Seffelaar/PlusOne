@@ -187,8 +187,8 @@ test('event contact: required, not pre-filled, domain-checked, used by guest mai
   await flow.check(9, 'The field says why, right under it (aria-describedby, role=alert); nothing saved, no top banner', async () => {
     const placement = await focusedFieldPlacement(page);
     expect(placement.description).toBe('Add a contact email for guests.');
-    const alerts = page.getByRole('alert');
-    await expect(alerts).toHaveCount(1);
+    // Scoped to the form: Next's route announcer is an (empty) role=alert too.
+    await expect(page.locator('.po-scroll').getByRole('alert')).toHaveCount(1);
     await expect(page.getByTestId('event-contact-email').getByRole('alert')).toHaveText('Add a contact email for guests.');
     const { data } = await adminClient().from('events').select('contact_email').eq('id', eventId ?? '').single();
     expect(data?.contact_email).toBe(eventAddress);
