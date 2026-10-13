@@ -127,6 +127,59 @@ describe('network noise', () => {
     expect(captureException.mock.calls[0][1].tags.network).toBe('true');
   });
 
+  // postgrest-js 2.112 turns a failed fetch into a plain object (code/hint empty,
+  // details = the stack); Safari appends the host to the message.
+  const host = 'tolxwgqhppdcvnogdpel.supabase.co';
+  const pgNet = (message: string) => ({ message, details: 'TypeError: Load failed\n    at fetch', hint: '', code: '' });
+  const matrix: Array<[string, () => unknown]> = [
+    ['Error', () => new TypeError('Load failed')],
+    ['Error + host', () => new TypeError(`Load failed (${host})`)],
+    ['Postgrest', () => pgNet('TypeError: Load failed')],
+    ['Postgrest + host', () => pgNet(`TypeError: Load failed (${host})`)],
+    ['Postgrest FetchError', () => pgNet('FetchError: Failed to fetch')],
+  ];
+
+  it.each(matrix)('offline %s is dropped', (_n, make) => {
+    online = false;
+    captureUnexpectedError(make(), { source: 'query' });
+    expect(captureException).not.toHaveBeenCalled();
+    expect(addBreadcrumb).not.toHaveBeenCalled();
+  });
+
+  it.each(matrix)('online %s is reported with network=true and no empty db_code', (_n, make) => {
+    const err = make();
+    captureUnexpectedError(err, { source: 'query' });
+    expect(captureException).toHaveBeenCalledOnce();
+    const [reported, opts] = captureException.mock.calls[0];
+    expect(opts.tags).toEqual({ capture_source: 'query', network: 'true' });
+    expect(reported).toBeInstanceOf(Error);
+    expect(reported.message).toBe((err as { message: string }).message);
+    expect(JSON.stringify(captureException.mock.calls)).not.toContain('at fetch');
+  });
+
+  it('a Postgrest network object keeps a non-empty code as db_code', () => {
+    captureUnexpectedError({ ...pgNet('TypeError: Failed to fetch'), code: 'X1' }, ctx);
+    expect(captureException.mock.calls[0][1].tags).toEqual({ capture_source: 'mutation', db_code: 'X1', network: 'true' });
+  });
+
+  it.each([
+    'Load failed because of a bug',
+    'TypeError: Load failed (two words)',
+    'SyntaxError: Load failed',
+    'oops TypeError: Failed to fetch',
+  ])('look-alike text is not network noise: %s', (msg) => {
+    captureUnexpectedError(new Error(msg), ctx);
+    captureUnexpectedError(pgNet(msg), ctx);
+    expect(captureException).toHaveBeenCalledTimes(2);
+    for (const [, opts] of captureException.mock.calls) expect(opts.tags.network).toBeUndefined();
+  });
+
+  it('online real TypeError stays an issue without the network tag (Postgrest shape too)', () => {
+    captureUnexpectedError(pgNet("TypeError: Cannot read properties of undefined (reading 'id')"), ctx);
+    expect(captureException).toHaveBeenCalledOnce();
+    expect(captureException.mock.calls[0][1].tags).toEqual({ capture_source: 'mutation' });
+  });
+
   it('AbortError is always dropped', () => {
     captureUnexpectedError(new DOMException('aborted', 'AbortError'), ctx);
     expect(captureException).not.toHaveBeenCalled();

@@ -141,6 +141,9 @@ export const requests = {
   denyHeading: 'Deny',
   declineFromLanding: 'Request from {name}',
   denyFromQuota: 'Quota request from {name}',
+  // z8uq9m2xyp — the guest a quota request names, on the card and in the deny sheet.
+  quotaFor: 'For: {guest} · {tier}',
+  quotaForNoTier: 'For: {guest}',
   reasonLabel: 'Reason',
   // z8uq9m2vga: a landing decline's note goes to the guest (mail + status page).
   declineNoteLabel: 'Note to the guest',

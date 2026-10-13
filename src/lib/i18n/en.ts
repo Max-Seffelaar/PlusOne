@@ -102,6 +102,14 @@ export const en = {
   quotaRequests: {
     alreadyHandled: 'This request has already been handled.',
     notDecidable: 'This request has already been handled or cannot be decided by you.',
+    // z8uq9m2xyp — an approval that names a guest rolls back as a whole.
+    guestNoFit: "The guest needs more spots than this request adds, so nothing changed. Decline it with a reason instead.",
+    guestTierFull: "The guest's tier is full, so nothing changed. Decline it with a reason instead.",
+    guestCapacity: 'The event is at capacity, so nothing changed. Decline it with a reason instead.',
+    guestListLocked: 'The list is locked for this person, so nothing changed. Unlock the list or decline with a reason.',
+    guestTierGone: "The guest's tier is no longer on this event, so nothing changed. Decline it with a reason instead.",
+    guestCannotAdd: "This person can't add guests to this event, so nothing changed. Decline it with a reason instead.",
+    guestInvalid: "That guest can't go with this request. Check the name and tier.",
   },
 } as const;
 

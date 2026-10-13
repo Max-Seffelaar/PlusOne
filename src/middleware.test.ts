@@ -298,3 +298,23 @@ describe('middleware — a shared guest list never rides along in next=', () => 
     expect(new URL(res.headers.get('location')!).searchParams.get('next')).toBe('/app/contacts?text=a%20b');
   });
 });
+
+describe('middleware — which routes verify with GoTrue (perf audit finding 9)', () => {
+  beforeEach(() => updateSessionMock.mockReset());
+
+  // /login and / redirect a signed-in user away; a revoked-but-unexpired token
+  // accepted there would bounce between /login and the /app layout's getUser().
+  it.each(['/login', '/'])('%s → strict (getUser)', async (path) => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    await middleware(new NextRequest(`http://localhost:3000${path}`));
+    expect(updateSessionMock.mock.calls[0][1]).toEqual({ strict: true });
+  });
+
+  it.each(['/app', '/app/guests', '/door/e1', '/consent', '/login/extra'])('%s → local claims', async (path) => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    await middleware(new NextRequest(`http://localhost:3000${path}`));
+    expect(updateSessionMock.mock.calls[0][1]).toEqual({ strict: false });
+  });
+});

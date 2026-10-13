@@ -15,6 +15,7 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { t } from '@/lib/i18n';
+import { FieldActionError } from '@/lib/field-error';
 
 const NEW_ID = 'e0000000-0000-4000-8000-0000000000aa';
 const nav = { push: vi.fn(), replace: vi.fn(), back: vi.fn(), setTab: vi.fn(), openDoor: vi.fn(), canGoBack: true };
@@ -475,6 +476,87 @@ describe('EventEdit contact email', () => {
     fillAndCreate();
     await waitFor(() => expect(createFromTemplate).toHaveBeenCalled());
     expect(createFromTemplate.mock.calls.at(-1)?.[0]).toMatchObject({ contactEmail: 'night@club.test' });
+  });
+});
+
+// z8uq9m5eb7: a save refused over one field points at that field — red box,
+// message under it (role=alert, aria-describedby), focus there — whether the
+// form's own check or the server refused it. Only field-less errors are the banner.
+describe('EventEdit field errors', () => {
+  const contactBox = (): HTMLElement => screen.getByRole('textbox', { name: t.events.contactEmail.label });
+  const createBtn = (): HTMLElement => screen.getByRole('button', { name: t.events.createEvent });
+
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function fillWithoutContact(): void {
+    fillAndCreate();
+    createEvent.mockClear();
+    nav.replace.mockClear();
+    fireEvent.change(contactBox(), { target: { value: '' } });
+  }
+
+  it('an empty contact email: marked, described, focused and scrolled to; no banner', async () => {
+    render(<EventEdit isNew />);
+    fillWithoutContact();
+    (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
+    fireEvent.click(createBtn());
+
+    await waitFor(() => expect(contactBox()).toHaveAttribute('aria-invalid', 'true'));
+    expect(contactBox()).toHaveAccessibleDescription(t.events.contactEmail.required);
+    expect(document.activeElement).toBe(contactBox());
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(within(screen.getByTestId('event-contact-email')).getByRole('alert')).toHaveTextContent(t.events.contactEmail.required);
+    // Exactly one alert: the field's own, no copy of it in a top banner.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(createEvent).not.toHaveBeenCalled();
+  });
+
+  it('typing in the field clears its error', async () => {
+    render(<EventEdit isNew />);
+    fillWithoutContact();
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(contactBox()).toHaveAttribute('aria-invalid', 'true'));
+    fireEvent.change(contactBox(), { target: { value: 'n' } });
+    expect(contactBox()).not.toHaveAttribute('aria-invalid');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a server refusal with a field lands on that field', async () => {
+    createEvent.mockRejectedValueOnce(new FieldActionError(t.events.contactEmail.noDomain, 'contactEmail'));
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    await waitFor(() => expect(contactBox()).toHaveAttribute('aria-invalid', 'true'));
+    expect(contactBox()).toHaveAccessibleDescription(t.events.contactEmail.noDomain);
+    expect(document.activeElement).toBe(contactBox());
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('a server schema key maps to its input (endsAt -> the end time)', async () => {
+    createEvent.mockRejectedValueOnce(new FieldActionError('The end must be after the start', 'endsAt'));
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    const [, endTime] = screen.getAllByRole('combobox', { name: t.shared.datetime.hourAria });
+    await waitFor(() => expect(endTime).toHaveAttribute('aria-invalid', 'true'));
+    expect(endTime).toHaveAccessibleDescription('The end must be after the start');
+  });
+
+  it('a server refusal without a field is the banner, no field marked', async () => {
+    createEvent.mockRejectedValueOnce(new FieldActionError("You don't have rights for this."));
+    render(<EventEdit isNew />);
+    fillAndCreate();
+    expect(await screen.findByRole('alert')).toHaveTextContent("You don't have rights for this.");
+    expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+  });
+
+  it('an empty name points at the name field', async () => {
+    render(<EventEdit isNew />);
+    fireEvent.click(createBtn());
+    const nameBox = screen.getByPlaceholderText(t.events.namePlaceholder);
+    await waitFor(() => expect(nameBox).toHaveAttribute('aria-invalid', 'true'));
+    expect(nameBox).toHaveAccessibleDescription(t.events.errName);
+    expect(document.activeElement).toBe(nameBox);
   });
 });
 

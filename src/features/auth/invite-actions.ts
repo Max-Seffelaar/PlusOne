@@ -13,6 +13,7 @@ import { inviteSchema, revokeInviteSchema, resendInviteSchema, respondInviteSche
 import { canGrantRoles, type VenueRole } from './roles';
 import { isDemoReviewUser } from './review-window';
 import { t } from '@/lib/i18n';
+import { OPEN_INVITE_EXISTS_MESSAGE } from '@/lib/db-errors';
 
 export interface ActionState {
   ok: boolean;
@@ -157,7 +158,7 @@ export async function inviteUserAction(
 
   if (inviteError) {
     if (inviteError.code === '23505') {
-      return { ok: false, error: 'There’s already an open invite for this email.' };
+      return { ok: false, error: OPEN_INVITE_EXISTS_MESSAGE };
     }
     console.error('inviteUser: invite insert failed', inviteError.message);
     return { ok: false, error: "Couldn't record the invite." };

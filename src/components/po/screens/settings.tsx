@@ -10,8 +10,7 @@ import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { venueCapabilities } from '@/features/venues/access';
 import type { PoSubscription } from '@/features/po/adapters';
-import { usePoProfile, usePoSubscription, usePoCanManageTemplates, usePoGuestRequests, usePoIsPlatformAdmin } from '@/features/po/hooks';
-import { isOpenGuestRequest } from '@/features/po/adapters';
+import { usePoProfile, usePoSubscription, usePoCanManageTemplates, usePoOpenRequestCount, usePoIsPlatformAdmin } from '@/features/po/hooks';
 import { useNav, usePo } from '../context';
 import { venueEntryScreen } from '../nav-map';
 import { Icon } from '../icon';
@@ -45,10 +44,11 @@ export function Meer(): JSX.Element {
   // "no rights" rows (S6 feedback). RLS stays the real boundary; these mirror each
   // target screen's own gate. canManageTemplates = admin OR organizer-at-venue.
   const showRequests = isAdmin || canManageTemplates;
-  // Open-requests count for the row badge — same source + shared definition as the
-  // More-tab badge and Home tile, so the count matches everywhere (T9). This makes
-  // the tab's "2" legible: it points at THIS row.
-  const openRequestCount = (usePoGuestRequests().data ?? []).filter(isOpenGuestRequest).length;
+  // Open-requests count for the row badge — the same pending head count as the
+  // More-tab badge (usePoOpenRequestCount, same key), so the count matches
+  // everywhere (T9) without downloading the request list (Snelheid P2). This
+  // makes the tab's "2" legible: it points at THIS row.
+  const openRequestCount = usePoOpenRequestCount(showRequests).data ?? 0;
   const showContacts = caps.viewSettings || canManageTemplates;
   const showImport = isAdmin || isFinance;
   const showRegulars = isAdmin || isFinance;

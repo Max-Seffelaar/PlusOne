@@ -1854,9 +1854,12 @@ export type Database = {
           decided_by: string | null
           decision_reason: string | null
           event_id: string
+          guest_id: string | null
+          guest_payload: Json | null
           id: string
           motivation: string | null
           requested_extra: number
+          seen_at: string | null
           status: Database["public"]["Enums"]["request_status"]
           user_id: string
           venue_id: string
@@ -1867,9 +1870,12 @@ export type Database = {
           decided_by?: string | null
           decision_reason?: string | null
           event_id: string
+          guest_id?: string | null
+          guest_payload?: Json | null
           id?: string
           motivation?: string | null
           requested_extra: number
+          seen_at?: string | null
           status?: Database["public"]["Enums"]["request_status"]
           user_id: string
           venue_id: string
@@ -1880,9 +1886,12 @@ export type Database = {
           decided_by?: string | null
           decision_reason?: string | null
           event_id?: string
+          guest_id?: string | null
+          guest_payload?: Json | null
           id?: string
           motivation?: string | null
           requested_extra?: number
+          seen_at?: string | null
           status?: Database["public"]["Enums"]["request_status"]
           user_id?: string
           venue_id?: string
@@ -1900,6 +1909,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quota_requests_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
             referencedColumns: ["id"]
           },
           {
@@ -2765,6 +2781,13 @@ export type Database = {
         Args: { p_key: string; p_max: number; p_window_min: number }
         Returns: boolean
       }
+      contact_event_counts: {
+        Args: { p_venue_id: string }
+        Returns: {
+          contact_id: string
+          event_count: number
+        }[]
+      }
       contact_marketing_opt_ins: {
         Args: { p_venue_id: string }
         Returns: {
@@ -3161,7 +3184,12 @@ export type Database = {
         Returns: undefined
       }
       mask_email: { Args: { p_email: string }; Returns: string }
+      my_event_ids_with_roles: {
+        Args: { p_roles: Database["public"]["Enums"]["venue_role"][] }
+        Returns: string[]
+      }
       my_notification_prefs: { Args: never; Returns: Json }
+      my_organized_event_ids: { Args: never; Returns: string[] }
       my_pending_invites: {
         Args: never
         Returns: {
@@ -3185,6 +3213,11 @@ export type Database = {
           terms_accepted_at: string
           terms_version: string
         }[]
+      }
+      my_venue_ids: { Args: never; Returns: string[] }
+      my_venue_ids_with_roles: {
+        Args: { p_roles: Database["public"]["Enums"]["venue_role"][] }
+        Returns: string[]
       }
       notification_bundle_slot: {
         Args: { p_kind: string; p_source: string; p_venue: string }
@@ -3409,6 +3442,8 @@ export type Database = {
         Args: { p_search?: string }
         Returns: number
       }
+      profile_name_key: { Args: { p_name: string }; Returns: string }
+      profile_name_key_reserved: { Args: { p_key: string }; Returns: boolean }
       promote_guest_to_contact: {
         Args: { p_guest_id: string }
         Returns: undefined
@@ -3418,6 +3453,11 @@ export type Database = {
       push_dispatch_setting: { Args: { p_name: string }; Returns: string }
       push_dispatch_token_valid: { Args: { p_token: string }; Returns: boolean }
       push_outbox_sweep: { Args: never; Returns: number }
+      quota_guest_payload_is_valid: { Args: { p: Json }; Returns: boolean }
+      quota_requester_guest_block: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: string
+      }
       record_auth_invite_mail: {
         Args: { p_recipient_hash: string; p_venue_id: string }
         Returns: string
@@ -3459,6 +3499,10 @@ export type Database = {
         Args: { p_obj: Json; p_redaction: Json }
         Returns: Json
       }
+      redact_quota_request_payload_audit: {
+        Args: { p_request_ids: string[] }
+        Returns: number
+      }
       request_decision_counts: {
         Args: { p_event_id?: string; p_venue_id: string }
         Returns: {
@@ -3498,6 +3542,7 @@ export type Database = {
           requests_anonymized: number
         }[]
       }
+      run_quota_request_payload_retention: { Args: never; Returns: number }
       search_contacts_for_reuse: {
         Args: { p_query?: string; p_venue_id: string }
         Returns: {
@@ -3611,7 +3656,7 @@ export type Database = {
         }[]
       }
       venue_event_headcounts: {
-        Args: { p_since?: string; p_venue_id: string }
+        Args: { p_event_id?: string; p_since?: string; p_venue_id: string }
         Returns: {
           event_id: string
           present: number

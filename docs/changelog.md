@@ -21,6 +21,86 @@ Milestone **Now** (Max's Android test 2026-10-13: no permission prompt after a c
 
 ---
 
+## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
+
+Golf F, task 8. Branch `claude/z8uq9m2xyp-quota-flow`, migration
+`20261016190000_quota_request_guest_payload` (slot moved three times by the
+orchestrator: …120000 → #459, …170000 → #480, …160000/…180000 → #479). Spec #66 (#65 is
+claimed by the open PostHog branches), #5 amended.
+
+- **DB:** `quota_requests.guest_payload` (shape CHECK + tier-of-this-event insert
+  guard, no UPDATE grant), `guest_id` (fulfilled = `approved` + `guest_id`; no new
+  enum value, expand-only), `seen_at` (column grant + policy
+  `quota_requests_seen_own`; a guard trigger keeps that permissive policy from
+  changing a decision). A decline needs a visible reason on every path (AFTER
+  UPDATE guard, 23514). `approve_quota_request` = the #469 body + one guest
+  insert on the requester's name through the ordinary triggers (45001/45002/
+  45005), list lock for the requester (45007), tier gone (45008); any failure
+  rolls back the override too. Payload retention: nightly
+  `run_quota_request_payload_retention` (pg_cron 03:40) + a trigger that takes the
+  payload along when the created guest is anonymized; audit diffs scrubbed.
+- **Review #494 round 1:** erasure on request (blocking): anonymizing a contact
+  (`forget_contact`, retention step 6) nulls every payload in that company with
+  the same phone digits, whatever the status (`contacts_anonymize_quota_payload`).
+  Nits: a requester without guest rights or a cancelled event gets 45009 with
+  neutral copy instead of "list locked" (helper now
+  `quota_requester_guest_block`, returns the reason); a malformed `tier_id`
+  reaches the shape CHECK (23514) instead of a 22P02 cast error; approvals take
+  the quota trigger's advisory lock before reading the current quota, so two
+  concurrent approvals for one requester both count; the nightly audit scrub
+  covers this run's ids plus a 7-day window instead of all history. pgTAP 77 → 85.
+- **App:** Add guest's "Request more slots" panel sends the typed guest
+  (toggle, on by default); the Requests → Quota card shows "For: {guest} · {tier}";
+  Home gets `QuotaUpdatesCard` (`home-updates.tsx`; one line in `home.tsx`);
+  approve errors map to "nothing changed" copy.
+- **Tests:** pgTAP `quota_requests_guest_payload.test.sql` (77: payload, approve,
+  rollbacks, lock, decline reason, seen_at, role matrix, retention); fixtures in
+  `push_outbox`/`team_mail` now decline with a reason, `quota_requests_column_grant`
+  A2 lists `seen_at`. Vitest: schemas, actions, adapters. Flow
+  `quota-request-guest` (14 checks); `team-mail` flow switches the new guest
+  toggle off and declines its leftovers with a reason.
+- **Gotchas:** `decision_reason` is now mandatory on a quota decline in the DB, so
+  any script or fixture that declines without one fails with 23514. The Updates
+  card reads its own small query, so it adds nothing to Home's board queries
+  (PR #490 also changes `home.tsx`).
+
+---
+
+## 2026-10-13 — Form errors point at the field (z8uq9m5eb7)
+
+Milestone **Now** (onboarding programme, wave F). Branch `claude/z8uq9m5eb7-field-errors`. UI + action return shape, no migration, no RLS.
+
+- **Problem (Max, testing #479):** a failed event save showed one line at the top of the form ("Add a contact email for guests."). Nothing moved, no field was marked; on a phone or a long form it looked like nothing happened.
+- **Kit pattern:** every kit input (`Field`, `TextArea`, `PlacesField`, `DateField`, `TimeField`) takes `invalid` (aria-invalid + `fieldErrorBorder`), `describedBy` and `id` on the real input; `useFieldErrors(fields)` hands them out per field, scrolls to and focuses the field after a failure (centred, smooth unless reduced motion, webview-guarded), and clears the error when that field is edited. `FieldErrorFor` renders the message (`role="alert"`) under the input. `focusFirstInvalid` for forms that mark fields themselves. Field-error colour tokens moved to `field-error-style.ts` (re-exported by the kit) so `places-field.tsx` can use them without an import cycle. `Select` untouched here: 7c (#496) gave it the same three props, so `useFieldErrors` works on it as-is.
+- **Server shape:** `MutationError.field?` (a schema key, never input); `invalidInput(message, field?)` and `invalidIssues(zodError)` (first issue's top-level key). The event and template actions (`createEvent`, `updateEvent`, `createEventFromTemplate`, `createTemplate`, `updateTemplate`) return it, the contact-email required/no-domain refusals name `contactEmail`. `throwOnError` throws a `FieldActionError` (still an `Error`) that keeps the field; `errorField(e)` reads it.
+- **Surfaces:** event form (name, date/time, end, location name/address, house rules, info for guests, contact email, auto-close) and template editor (name, capacity, location, auto-lock hours). The location block moved to `events/location-fields.tsx` to keep `edit.tsx` under 800 lines.
+- **Tests:** `kit.field-errors.test.tsx` (marking, describedby, focus, scroll, reduced motion, clear-on-edit, banner), `src/lib/field-error.test.ts` (Zod → field, no echo, optional field), `edit.create-flow.test.tsx` (client check and server `{field}` land on the field; field-less = banner), `actions.contact-email.test.ts` asserts the field. Flow `event-contact` checks 8–9: focus + scroll into the visible form area in all four variants.
+
+---
+
+## 2026-10-13 — Sentry network noise S2: Postgrest-shaped fetch failures + Safari host suffix (z8uq9m5enh, PR A)
+
+Milestone **Now**. Trigger: Sentry issue C (2026-10-12), `PostgrestError: TypeError: Load failed (tolxwgqhppdcvnogdpel.supabase.co)`, `capture_source=query`, `po.screen=start`.
+
+- **Root cause:** postgrest-js 2.112 returns a failed fetch as a plain object (`message: "${name}: ${message}"`, `code`/`hint` empty, `details` = the stack), so `isNetworkNoise` (Error-only) missed it: offline it was reported, online it went out untagged with an empty `db_code`. Separately, Safari's `Load failed (<host>)` missed the anchored `NETWORK_MESSAGES`, even as a real TypeError.
+- **Fix (`src/lib/observability/capture.ts`):** one anchored matcher with an optional `TypeError: `/`FetchError: ` prefix and ` (<host>)` suffix, applied to Errors and Postgrest-like objects. Offline → dropped; online → reported as `PostgrestError` with `network:true`; `db_code` only when non-empty. A real TypeError stays an untagged issue. No `ignoreErrors`/inbound filter (would hide real outages).
+- **Tests:** `capture.test.ts` Error/Postgrest × with/without host × offline/online, look-alike texts stay untagged, empty code never becomes `db_code`, details (stack) never reach Sentry. 9 of the new cases fail on the old code.
+- **Runbook "Sentry triage":** network row names the Postgrest form + host suffix; the alert rule condition `tag network is not equal to true` is documented.
+- **Max, in Sentry:** set that condition on "Send a notification for high priority issues"; issue C → "Archive until escalating"; issue D only after PR B (platform-invite resend) ships.
+
+## 2026-10-13 — Platform invite: inviting again = sending again (z8uq9m5enh B, Sentry noise S2)
+
+Milestone **Now** (onboarding programme October 2026, wave F task 11). Spec #65 (new), #49 refined. No migration.
+
+- **Cause** (Sentry SENTRY-CITRON-CLOUD-D, 2026-10-12): Max typed an address with an open platform invite into "Send invite" again. The unique index `platform_invites_open_unique` refused it, no mail went, and the refusal "There’s already an open invite for this email." landed as a Sentry issue. The Resend button on the card could not give this message.
+- **Action** (`src/features/platform/invite-actions.ts`): the resend path is now one internal helper (`resendOpenInvite`: budget → `sendInviteEmail` → `last_sent_at` bump, mail before bump per review #437). `resendBetaInviteAction` uses it unchanged (its tests are untouched and green). On 23505, `inviteBetaCustomerAction` looks the open row up through the user-scoped client (ILIKE with `_`/`%`/`\` escaped = `lower(email)`, `revoked_at is null`, plus an exact JS re-check of the address) and calls the same helper: one budget unit, one mail, one bump. Answers "Already invited. Sent the invite again."; the existing rate-limit / mail-failure copy for 'recent', a spent budget or a failed send (no bump). The second form's note and ADE choice are never written; if they differ, the message says the first invite's are kept. A row revoked in between gives the generic failure, nothing spent. The platform-admin probe still runs first: a non-platform-admin gets `NOT_ALLOWED` before the insert, never an "already invited" or rate-limit signal.
+- **Review follow-up:** the 60-second per-address case ('recent', Resend and re-invite alike) now has its own copy, `INVITE_RECENTLY_SENT_MESSAGE` ("Too many invite emails to this address just now. Try again in a minute."), and it sits in `EXPECTED_MESSAGES`, so the S2 scenario no longer opens a Sentry issue under a new text. The hourly per-admin budget keeps "Too many invite emails just now. Try again in a bit." and stays reportable: a spent budget is what a stolen platform-admin session leaves. A failed re-invite lookup logs its code; after ADE the hidden toggle no longer counts as "a different ADE setting".
+- **Form** (`platform.tsx` InviteForm): a `useRef` double-submit guard (two clicks in one frame both read a stale `isPending`). The form clears on success, the new path included.
+- **Team invite**: behaviour unchanged. Its refusal is now the exported `OPEN_INVITE_EXISTS_MESSAGE` in `src/lib/db-errors.ts` and sits in `EXPECTED_MESSAGES`, so it is a breadcrumb, not an issue (runbook "Sentry triage" rule 3). The string keeps its curly apostrophe (U+2019); `db-errors.open-invite.test.ts` pins it and proves a straight apostrophe does not match. The runbook names `capture.test.ts` for this test; that file sits under `src/lib/observability/**`, which PR A owns, so the test lives beside `db-errors.ts`.
+- **Tests:** vitest — 12 new cases on the 23505 path (one budget/mail/bump, recent → no bump, spent budget → no mail, non-admin → NOT_ALLOWED before the insert, different note/ADE → row untouched + message, `_` escaped, mismatched row never mailed, vanished row), the team-invite string classified as expected, and an InviteForm component test (two clicks in one tick → one `mutate`; verified red without the ref). New flow `platform-reinvite` (Q1–Q6: invite → same address within 60 s rate-limited, no second mail → after the window the green message, second mail, bumped `last_sent_at` on the one row, one audited update → double click sends one invite). Its own flow file (one flow.json per flow; it waits out the 60 s window).
+
+---
+
 ## 2026-10-13 — Kit Select: PlusOne dropdown (z8uq9m4a2w)
 
 Milestone **Now** (polish, golf F 7c). No migration.
@@ -32,6 +112,90 @@ Milestone **Now** (polish, golf F 7c). No migration.
 - **Kit-input error API** (agreed with z8uq9m5eb7, field errors): optional `invalid` (`aria-invalid` + `fieldErrorBorder` while closed), `describedBy` (`aria-describedby`) and `id`, all on the trigger. No call site uses them yet.
 - **New string:** `shared.kit.selectCancel` = "Cancel".
 - **Tests:** `kit.select.test.tsx` (14: the error API, aria wiring, click/keyboard pick, no onChange on the same value, Escape does not bubble, type-ahead + cycling, outside tap / Cancel / Android back, portalled sheet vs in-tree popover by matchMedia, a tap inside either panel is not an outside tap). Flow `kit-select` (Q1–Q12) on Platform → Audit and Mail log. `share` and `mail-status` flows pick through the new `pickKitOption` harness helper, since `selectOption` only works on a native select. `design-system.md` gets the Dropdown rule.
+
+---
+
+## 2026-10-12 — Snelheid P2 #6: Regulars + address book server-side (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5** (perf audit finding 6). Branch `claude/z8uq9m2xz2-regulars-rpc`. Migration `20261017120200_contact_event_counts`.
+
+- **What was slow:** the Guests tab's Regulars filter downloaded the whole address book, and every contact list counted "N× on a list" in the browser with a sequential loop over 120-id `guests.in('contact_id', …)` chunks (29 requests / 838 kB / ~550 ms on a 3 000-contact venue, refetched after every contact write).
+- **Fix:** `contact_event_counts(p_venue_id, p_permanent_only)` — one GROUP BY, SECURITY INVOKER (role-relative through guests/contacts RLS), venue-scoped in SQL, explicit execute grant matrix. `fetchContacts` takes a scope (`{ search, permanentOnly }`) instead of a new fetcher; rows and counts run in parallel. `usePoPermanentContacts` has its own key under the `['po','contacts',venueId]` prefix, so every contacts write still refreshes it.
+- **Measured** (`scripts/perf/p2-measure-contacts.mjs` on the `p2-seed.mjs` venue, admin through RLS, median of 5): Regulars 29 → 2 requests, 838 → 59 kB, 574 → 76 ms (1 / 52 kB / 14 ms after the review round); address book 29 → 6 requests, 838 → 595 kB, 549 → 309 ms.
+- **Review round (2026-10-13):** the Regulars read skips the counts (`fetchContacts(…, { permanentOnly: true, withCounts: false })`; the filter only reads ids): 1 request / 52 kB / 14 ms. With that gone the RPC lost `p_permanent_only` and no longer reads `contacts` at all; the unused `search` option is dropped from the contacts scope. pgTAP now pins doorhost, user_manager and a user with no membership (16).
+- **Tests:** pgTAP `contact_event_counts.test.sql` (15: invoker, grants, admin = superuser truth, distinct events, removed rows, permanent-only, organizer and staff = their own direct RLS read, cross-venue, anon); `queries.test.ts` pins one RPC and no `.in()`; flow `guests-regulars` (6 checks × 4 variants).
+
+## 2026-10-12 — Snelheid P2: single-event headcounts (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5** (P1-review follow-up). Branch `claude/z8uq9m2xz2-event-headcounts`. Migration `20261017120300_event_headcounts_single`.
+
+- **What was slow:** `usePoEvent`'s cache-miss path (deep link or refresh on an event screen) read the event row, then called `venue_event_headcounts` with `p_since = starts_at`, which aggregates every later event: for the oldest event of a 300-event venue all 300 rows, as a second sequential round-trip.
+- **Fix:** an optional `p_event_id` on `venue_event_headcounts` (still SECURITY INVOKER, now stated; the 2-argument function is dropped so there is one overload, and the deployed call shapes resolve unchanged). `fetchEventHeadcounts` takes a scope `{ sinceIso, eventId }` like `fetchEvents`; `usePoEvent` fires both reads in parallel.
+- **Measured** (`scripts/perf/p2-measure-headcounts.mjs`, oldest event of the `p2-seed.mjs` venue, admin through RLS, median of 5): 2 sequential waves → 1, 300 aggregated rows → 1, 25 kB → <1 kB, 146 → 10 ms.
+- **Review round (2026-10-13):** `fetchEventHeadcounts` also still takes the positional `sinceIso` string, so callers on either signature (the events-window PR, untyped `.mjs` perf scripts) keep their window in any merge order (`event-headcounts.query.test.ts`); pgTAP +2 (partial-arrival `present` on the single-event path, an organizer asking for an event they don't organize gets no row).
+- **Tests:** pgTAP `event_headcounts_single.test.sql` (13: one overload, invoker, grants, venue-wide unchanged, single row = its venue-wide row, since+event combine, other venue empty, staff own-guests-only); `hooks.usePoEvent.test.tsx` pins the id scope and the parallel start; flow `event-headcount-deeplink` (3 checks × 4 variants).
+
+## 2026-10-12 — Snelheid P2 #4 + #12: one event window for Home and Events (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-events-window`. No migration.
+
+- **What grew with venue age:** `usePoEvents` (Events tab and ~13 pickers) read every event plus a headcount aggregate over every guest the venue ever had; Home read its own 7-day copy (poll 10 s) and the desktop door auto-open read every event again for its candidates. Three event reads, two headcount aggregates, two of them full history.
+- **Fix:** one window query (`poKeys.events`: every upcoming event + the last 30 days, with headcounts for exactly those) stored as raw rows + plain-object heads, and `select` per shape: `usePoEvents` → `PoEvent[]`, `usePoHomeEvents` → the board (7-day slice, live-first, organizer gate from `usePoOrganizerEventIds`, now = the fetch time so the poll still re-sorts). `poKeys.home` is now an alias of the events key, so every existing Home invalidation hits the shared query. `usePoEvent` seeds from the window. `usePoDoorCandidates` keeps its own key and query state (N7 `hasData`/`fetchStatus`/`isError` exactly as before, no door re-render on Home's poll) and reads the window's `sinceIso`. Past pages further back on "Show older events" (`usePoPastEvents`, keyset on `(starts_at, id)`, 30 per page, keyed on the window's lower bound so pages continue exactly where it stops). `fetchEvents` gains an `id` tiebreak, a `before` cursor and a `limit`.
+- **staleTime:** `usePoEvents` 30 s → 5 min, **after** every write that moves a headcount invalidates the `['po','events']` prefix (`EVENTS_PREFIX`: add, bulk add, edit, tier change, remove, cockpit check-in/out, approve/decide).
+- **Measured** (`scripts/perf/p2-measure-events.mjs`, `p2-seed.mjs` venue, 300 events, admin through RLS, median of 5): Home 3 requests / 130 kB / 434 rows → 3 / 68 kB / 270; then tapping Events 2 requests / 126 kB / 600 rows → 0 (shared cache). Trade-off: Home's 10 s poll reads the 30-day window instead of 7 days (28 → 38 kB, 134 → 180 rows).
+- **Review round (2026-10-13):** the All-guests tab no longer depends on the window (event name from an `events(name)` embed on the guest row, no `events.length` gate: a quiet season still lists the venue's guests); Requests and Promotion pick events from `usePoEventOptions` (every event, rows only, no headcount aggregate); staleTime drops to 30 s while an event in the window is live (door outbox and other devices move Inside), refuse/undo-refusal invalidate the events prefix; the window's lower bound is day-rounded so a refetch never resets loaded Past pages; a failed "Show older events" can be retried; a Past search that finds nothing says it only covered the last 30 days; `poKeys.home` duplicate invalidations removed; the perf seed's local-only guard compares the parsed host.
+- **Tests:** `events.tab.test.tsx` (Past paging), `mutations.eventsInvalidate.test.tsx`, `hooks.usePoEvent.test.tsx` seeds the window shape, i18n snapshot (+1 string); flow `events-window` (5 checks × 4 variants); `pnpm e2e:smoke` 12/12 locally (incl. `door-offline-reload`, `app-home-events-visible`).
+
+## 2026-10-12 — Snelheid P2 #14 + own organizer scope (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-minor`. No migration.
+
+- **Guest add patches one row:** `usePoAddGuest` swaps its optimistic row for the server's row through a single-row read (`fetchGuests(…, { guestId })`, same select and status filter, with "added by" provenance) instead of re-downloading the event; tiers, quota and the venue-wide list still refresh, and a failed read falls back to the list refetch. Measured (`scripts/perf/p2-measure-minor.mjs`, 1 000-guest event, admin through RLS): 4 requests / 485 kB / 90 ms → 2 / 1 kB / 17 ms.
+- **No second tiers read:** `usePoGuests` takes tier names/colours from the event's `poKeys.tiers` query (`qc.fetchQuery`, 30 s fresh; one shared `fetchPoTiers`) instead of reading `guest_tiers` next to `usePoTiers`.
+- **Stats poll only when live:** `EventView` passed `isLive` unconditionally, so an upcoming event's detail polled the 5-RPC stats bundle every 15 s; it now passes `ev.phase === 'live'`.
+- **Own organizer scope (P1-review follow-up):** `assignOrganizer` / `removeOrganizer` re-render the `/app` layout when the target is the caller (`revalidateOwnCrewScope`), so the venue switcher's crew access set follows; `no-dead-revalidate-path.test.ts` allows exactly that one call in `src/features/events`. `inviteExternalCrew` only creates an invite (a company never inserts a crew row, #24), so it cannot change the caller's scope and gets no call.
+- **Not done:** bulk-paste contact matching in one RPC needs a new SQL function, i.e. a migration slot this work stream was not assigned (only `20261017120200`/`120300`); left for a follow-up.
+- **Review round:**
+  - **Patch guards.** The patch is skipped, and the list refetched, when there was no list before the optimistic row, or when a list read is in flight before or after the row read: `setQueryData` doesn't cancel that read.
+  - **Non-blocking `onSuccess`.** The mutation no longer waits for the patch read, so quick-add's form resets at once.
+  - **Stats.** `invalidateAddDerived` and `guestMutation` invalidate `poKeys.eventStats`, so an upcoming event's panel follows its own writes without the poll.
+  - **One adapter.** `toPoGuestWithTiers` in `adapters.ts` is used by both `usePoGuests` and the patch.
+  - **`assignOrganizer`.** It revalidates its own scope even when the quota save fails, since the organizer row is already in.
+  - **Flow.** Q2 is scoped to the new guest's row.
+- **Tests:** `guest-add-patch.test.tsx` (one-row patch, newest first, fallback; tiers reused; empty cache, in-flight read, non-blocking success, eventStats); `no-dead-revalidate-path.test.ts`; flow `guest-add-patch` (4 checks × 4 variants).
+
+## 2026-10-12 — Snelheid P2 #5: requests list without id lists (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5** (perf audit finding 5, list half; the badge was P1). Branch `claude/z8uq9m2xz2-requests-list`. No migration.
+
+- **What broke at scale:** `fetchGuestRequests` read every pending/denied/auto row in one unranged call (silently capped at 1 000), then `request_links.in('id', <every link id>)`: on a 300-event venue the URL is 11.8 kB and the read fails with HTTP 414, taking Home's request tiles and the Requests inbox down with it.
+- **Fix:** the "via" labels come from the venue-scoped `fetchVenueRequestLinks`, through the same React Query key the inbox's link filter and Home's empty card already read (`fetchQuery`, 60 s fresh), when a request row references a link (a role that sees no requests pays for no links read). The read is ranged. That base read now carries archived links too (flagged), so a request keeps its label after its link is archived; `usePoVenueLinks` drops them with `select`. More's Requests row uses the pending head count (`usePoOpenRequestCount`, the badge's key) instead of the full list.
+- **Measured** (`scripts/perf/p2-measure-requests.mjs`, `p2-seed.mjs` venue, admin through RLS): before 2 requests then **414 URI too long** (11 801-char URL); after 3 requests, longest URL 444 chars, all 600 rows, ~59 ms.
+- **Review round (2026-10-13):** the 7-day window on declined / auto-approved history is taken out again: it changed spec #12/#43/#48 without a decision (and made Home's "no requests yet" card and the all-history decision counts disagree with the list). The history stays complete until Max decides; the 414 fix (no id list, ranged read) stays. Links are read only when a row references one.
+- **Tests:** `guest-requests.query.test.ts` (no `.in()`, archived/default/unknown labels, server order, no links read without link refs); flow `requests-list` (6 checks × 4 variants; Q3 now asserts a month-old declined request still shows with its label).
+
+## 2026-10-12 — Snelheid P2 #10: cockpit patches from the realtime payload (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-cockpit-patch`. No migration.
+
+- **What was costly:** every realtime change on the desktop event-day cockpit invalidated the full guest list (+ tiers read + actor names), the arrivals, tier occupancy, the 5-RPC stats bundle and the event-detail header, throttled only to 500 ms: about two full re-downloads per second per open cockpit at a door rush.
+- **Fix:** `usePoEventRealtime` patches `poKeys.guests` and `poKeys.arrivals` straight from the `guests` / `check_ins` payloads (`src/features/po/eventday/realtime-patch.ts`, pure, like the door's `onRealtimeCheckIn`). Only a row the payload can't build (a peer's new guest, an unknown tier) refetches the list (500 ms coalesce). Tier occupancy, stats and the event-detail header refresh leading + trailing at most every 5 s. A resubscribe after a drop still refetches everything (#0b); the 60 s safety poll is unchanged.
+- **Measured** (`scripts/perf/p2-measure-cockpit.mjs`: real Chromium at 1280 px on the cockpit, a peer checks in 20 guests at 2/s through the service role, requests counted until 6 s after the last; dev servers on origin/main and on the branch): **352 → 21 requests** (21.5 → 1.3 req/s), full guest-list reads 32 → 0, check-in reads 32 → 0; both show 20/40 inside at the end.
+- **Review round (2026-10-13):** a patch that lands while a fetch of that list is in flight also queues a refetch of that list (`setQueryData` doesn't cancel a running fetch); a failed cockpit check-in / top-up / void / check-out refetches guests + arrivals after its rollback (`healCheckinLists`), so it can't erase a peer's check-in; the guest patch rebuilds the row through `toPoGuest` (one adapter) from the full payload plus the cached provenance, and refetches on a partial payload; a void only clears the very check-in the cache holds; payloads for another event are ignored; a guests change refetches only guests. Re-measured on the branch: 28 requests for the same 20 check-ins (still 0 list reads, 20/40 inside).
+- **Tests:** `realtime-patch.test.ts`; `hooks.eventRealtime.test.tsx` rewritten to the new contract (patch, no list refetch, C19 detail refresh, no venue-guests, ~5 s aggregates, resubscribe heals); flow `cockpit-realtime` (desktop only, 6 checks).
+
+## 2026-10-12 — Snelheid P2 #1: po screens navigate without a server round-trip (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5**. Branch `claude/z8uq9m2xz2-pushstate-nav`. No migration.
+
+- **What was slow:** every po tab or screen tap was a `router.push` on the dynamic `/app/[[...segments]]` route: middleware → GoTrue → a fra1 function → an RSC payload that renders `null` (P1's `staleTimes` only covered revisits).
+- **Fix:** `app.tsx` `pushUrl` / `replaceUrl` (and `nav.replace` / the cold-`back` fallback) call `history.pushState(null, '', url)` / `replaceState` for `/app` screens and tabs (`isClientOnlyPath` in `routes.ts`). Next 15 copies its internal history state onto a `null`-state entry and fires ACTION_RESTORE, so `usePathname` / `useSearchParams` follow and back/forward traverse with no fetch. Door URLs (`/app/door…`) and anything outside `/app` still use the router (door navigation stays out of this change, §4 taak 9); the door's raw-history sub-nav and `useDoorOverride` are unchanged. URLs stay real and bookmarkable (G1); `PlusOneApp` still mounts via `app-client.tsx` with `ssr:false`.
+- **Measured** (`scripts/perf/p2-measure-nav.mjs`: real Chromium, admin on Club Vesper, Home → Events → Guests → More → Events → Guests, dev servers on origin/main and the branch): first visits 1 doc/RSC request and ~700 ms click → URL each (revisits 0 / ~150 ms via P1's `staleTimes`) → **0 requests on every tap, ~90–180 ms**, desktop and phone.
+- **What the client-only tap skips:** the per-tap middleware/layout pass (consent/MFA/membership gates). They still run on every document load, server action and data request, RLS stays the boundary, and `navMode` (`routes.ts`) keeps three server passes: a `SIGNED_OUT` auth event makes the next po tap a full document load (middleware → `/login`), one navigation per 5 minutes (`MIDDLEWARE_PASS_MS`) goes through the router, and the URL already showing pushes nothing (no duplicate history entry).
+- **Review round:** `navMode` + the session-gone and middleware-pass rules above; `isClientOnlyPath` strips `#fragments`; the test pins every `ScreenName` via `satisfies`, the null-state call and the `navMode` table; `app.session-gone.test.tsx` (SIGNED_OUT → the next tap is `location.assign`); `p2-measure-nav.mjs` refuses a non-local Supabase URL and restores the admin profile row it touches.
+- **Tests:** `routes.client-nav.test.ts` (every screen and tab client-only, every door URL and non-`/app` path through the router); flow `tab-nav` (5 checks × 4 variants: no document/RSC request across Home → Events → Guests → More → Contacts, Back, reload lands on the same screen, Check-in still opens the door); `pnpm e2e:smoke` 12/12 locally (incl. `app-shell-no-remount`, `app-home-events-visible`, `door-offline-reload`); `door-render-isolation.test.tsx` and the shell guards unchanged and green.
+
+---
 
 ## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
 
@@ -55,6 +219,43 @@ Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train 
 - **Reviews:** Max accepted the independent subagent fresh reviews as the CLAUDE.md fresh-session `/code-review` + `/security-review` gate for this train.
 - **Contract step (this PR):** `20261016170000_admin_sessions_drop_ip_aal` drops and recreates `admin_list_user_sessions` without the always-null `ip`/`aal` columns (`list_own_sessions` keeps both); `fetchActorLabels` loses its PGRST202 `user_profiles` fallback now that `venue_actor_names` is on prod. pgTAP `definer_profile_scope` C2/C3 now assert the columns are absent. Same rehearsal stack: pgTAP 115 files / 3267 assertions PASS.
 - **Left:** #467's hard-coded location strings in `translate.ts` could move into the i18n catalogue (not Now).
+
+## 2026-10-12 — Snelheid P2, 9-DB: set-based RLS on the hot tables + one check_ins UPDATE policy (z8uq9m2xz2)
+
+Milestone **≥5** (perf audit 2026-10 finding 13 + advisor `multiple_permissive_policies`). High-risk surface (RLS, SECURITY DEFINER helpers): fresh-session `/code-review` + `/security-review` before merge. Branch `claude/z8uq9m2xz2-rls-set-based`.
+
+- **`20261017120000_rls_set_based_helpers.sql`:** four constant-argument SECURITY DEFINER helpers (`my_venue_ids()`, `my_venue_ids_with_roles(roles)`, `my_event_ids_with_roles(roles)`, `my_organized_event_ids()`) and the 12 policies on `guests`, `check_ins`, `refusals`, `guest_requests`, `events` rewritten as `x in (select helper(const))` plus `(select is_platform_admin())`. Each rewrite is a local substitution of the old helper by its definition, so the platform-admin disjunct stays inside an AND where the old helper sat inside one (`guest_requests_decide`, `guests_update`, `guests_insert`). `has_venue_role(event_venue(e), R)` became `e in my_event_ids_with_roles(R)`, the closest copy of the old expression (`venue_id in …` would be equivalent too: `set_event_scope` overwrites `venue_id` from the event since 20260713160000 and `events_pin_venue` keeps it immutable). The old helpers stay (expand-only, ~50 other policies and RPCs use them) and now carry a comment naming their set-based copy.
+- **`20261017120100_check_ins_update_policy_merge.sql`:** `check_ins_update_door` + `check_ins_update_own_device` → one `check_ins_update` whose USING/WITH CHECK are the ORs of the two (permissive policies combine per clause). The RESTRICTIVE `check_ins_void_requires_uncheck` is untouched.
+- **Proof:** `supabase/tests/database/rls_set_based_parity.test.sql` runs 267 probes per persona on the seed (9 personas, 5 tables, select/update/insert, every write rolled back by a sentinel exception) under the new policies, restores the old policy text in the same transaction, runs them again and requires identical outcomes. Further assertions pin the whole new matrix (9 × 15 cells, writes included) and check that the per-row helpers and the set helpers agree for every fixture user × venue/event × role set (review #482: the rule now has two spellings). Deliberate mutations (P hoisted out of `guest_requests_decide`'s AND; staff branch widened in `guests_select`; a condition added to `has_venue_role` only) all fail. The merged `check_ins_update` policy and `check_ins.synced_by` carry the security rationale the dropped policies had.
+- **Measured** (`scripts/perf/rls-set-based-seed.sql` + `-explain.sql`, local stack, staff Tom, `guests?event_id=eq.…`, warm): 150 guests 18.8–19.3 ms → 0.5–1.4 ms; 25 000 guests 3156–4145 ms → 5.2–5.5 ms (buffers 175 527 → 532). Same visible rows (15 / 2 500).
+- **Advisors (splinter, local):** `multiple_permissive_policies` 1 → 0, `auth_rls_initplan` 0 → 0; `authenticated_security_definer_function_executable` 99 → 103 (the four helpers, same class as `has_venue_role`; each returns only the caller's own ids).
+- **Tests:** `pnpm db:test` 116 files / 3 305 assertions green on a plain `supabase db reset` on 2026-10-12 (from 2026-10-13 `platform_invite_ade_trial` B7 fails on main too: a date time-bomb, `now() + 14 d` passed the ADE end) (after `pnpm db:fresh` the dev-mfa platform flag on admin@ fails ~12 unrelated assertions, as CLAUDE.md documents); `pnpm db:test:concurrency` green; lint, tsc clean.
+- **Left:** the other ~50 helper-per-row policies (quotas, tiers, contacts, …) can move table by table when a read there gets hot; the door-code comments in `src/features/door/outbox/gateway.ts` still name `check_ins_update_door` (door code is outside this PR's fence).
+
+---
+
+## 2026-10-12 — Snelheid P2, 9-AUTH A: middleware verifies the token locally (z8uq9m2xz2)
+
+Milestone **≥5** (perf audit 2026-10-06, finding 9). High-risk (middleware = auth): fresh-session `/code-review` + `/security-review` before merge. No migration. Branch `claude/z8uq9m2xz2-middleware-getclaims`.
+
+- **What:** `updateSession` (`src/lib/supabase/middleware.ts`) resolves the user through `resolveMiddlewareUser`: `getSession()` (the same cookie refresh as before) → when the access token is asymmetric (`alg` not `HS*`, a `kid`) `getClaims()` verifies signature and `exp` against the project JWKS (module-cached 10 min) → no GoTrue call. Every other case calls `getUser()` exactly as before: symmetric token, no session, JWKS fetch error, bad signature, expired token, missing `sub`. Layout, data pages and server actions keep their own `getUser()`.
+- **Strict routes:** `/login` and `/` still use `getUser()` (`src/middleware.ts` passes `strict`). They are where the middleware acts on "signed in" (redirect to `/app`); a revoked-but-unexpired token accepted there would loop between `/login` and the `/app` layout's `getUser()`. Verified locally: after a global sign-out, `/app` (document and RSC) gets the layout's redirect to `/login`, `/login` renders 200.
+- **Accepted residual:** a session revoked server-side (sign-out elsewhere, remote logout, deleted/banned user) passes the middleware until its access token expires (≤ JWT expiry). PostgREST and Realtime already accept that token until `exp`, so the old middleware `getUser()` never closed the window; the layout/actions still refuse it. The `/app` layout refuses it on the next **document** load only: a soft (in-app) navigation does not re-render the layout, so the shell keeps working until `exp` (its page segment serves no data). A signing key revoked in the dashboard keeps verifying for up to the JWKS TTL (10 min) on a warm instance.
+- **Review follow-ups (#483, fresh session):** an unknown `kid` made auth-js ask GoTrue itself and the fallback asked again; a GoTrue **token verdict** from `getClaims()` (401/403 with `bad_jwt`, `user_not_found`, `user_banned`, `session_expired`) is now taken as the answer (one GoTrue call). Delta review: only that verdict. auth-js turns any non-5xx JSON error into an `AuthApiError`, including a 4xx from the JWKS fetch, and a `null` there would loop `/app` ↔ `/login`, so JWKS 4xx falls back to `getUser()` (tested for 429/404/400/401/403). The reviewer's forged-token cases are committed (`alg:none`, unknown kid, RS256 header over the EC key, lowercase `hs256`, `jku`, duplicate `alg`, cookie `expires_at` in the future around an expired JWT): all end without a user unless GoTrue vouches.
+- **Local stack:** CLI 2.119 signs user sessions with ES256 (JWKS at `/auth/v1/.well-known/jwks.json`), so the fast path runs locally too; the HS256 fallback is covered by unit tests (`src/lib/supabase/middleware-claims.test.ts`, real ES256 keys via WebCrypto, only `fetch` stubbed).
+- **Measured (local, in-process `updateSession`, N=300):** `getUser()` p50 66 ms / p95 79 ms → `getClaims()` p50 0.95 ms / p95 1.6 ms, 0 GoTrue calls. Prod check after deploy: Vercel → Observability → Middleware duration (P75) and Sentry `http.client` spans to `/auth/v1/user` per RSC navigation (expected 0).
+
+---
+
+## 2026-10-12 — Snelheid P2, 9-AUTH B: service-worker navigation timeout (z8uq9m2xz2)
+
+Milestone **≥5** (perf audit 2026-10-06, finding 11). High-risk (service worker): fresh-session `/code-review` + `/security-review` before merge. No migration. Branch `claude/z8uq9m2xz2-sw-timeout`.
+
+- **What:** network-first navigations in `public/service-worker.js` race the fetch against `NAV_TIMEOUT_MS = 3500` (`raceNavigation`). At the timeout the same fallback chain the offline path uses answers (`offlineStart` for `/`, the exact URL, then `fallbackFor`), but only if it has something; with nothing cached the worker keeps waiting for the network, never an early error page.
+- **Unchanged:** the buckets (`plusone-shell-*` / `plusone-session-*`), `navigationCache`, `fallbackFor`, `putInCache`, the epoch check, `clearDeviceCaches()`. The fetch is never aborted; its own `.then` still writes a late response under its own request URL into the same bucket, or wipes the session cache on a late opaqueredirect (307 → /login). `event.waitUntil(network)` keeps the worker alive for that late write.
+- **Guards:** `tests/unit/service-worker-cache-scope.test.ts` and `tests/unit/no-stale-pwa-artifacts.test.ts` green, unmodified. New `tests/unit/service-worker-nav-timeout.test.ts` (13 cases, fake timers; 5 of them fail on the old worker).
+- **Review follow-up (#487, fresh session, should-fix): no stale `/app` after a write (86eykm7rk).** The venue switch and onboarding run a server action (same-origin POST) and then hard-navigate (to `/app` or a deep link) to get a NEW render; on a slow network the timeout would have answered with the pre-switch page. The worker records the last same-origin write and, for every stored SESSION page, when its fetch started. Both are small number entries under `/__po-sw/` in SESSION_CACHE itself, so they survive a worker restart and go with sign-out. On a timeout a SESSION page is served only when every cached entry for that path (any query string, because lookups use `ignoreSearch`) was fetched after the last write. The fallback (`/app` for a deep link) is checked on its own. Otherwise: shell pages as is, or wait for the network as before. The offline path is unchanged. Delta review: a first version kept one global in-memory counter, so a switch landing on `/app/x` made the stale `/app` servable again, and a cold worker forgot the write; both are now tested. `/` on a timeout redirects to Home (`/app`) like the middleware; the Deur tab stays the OFFLINE start (review nit). Accepted residual: right after a deploy a slow-but-online user can boot the previous build's cached shell until the late response refreshes it, the same as offline. Tests: 26 in `service-worker-nav-timeout.test.ts` (freshness forced to "fresh": 7 fail; write marker in memory only: the cold-worker test fails).
+- **Measured (local dev stack, SW opted in via `po:sw-dev-cache`, door@, 390 px, a proxy delays `/app` documents by 15 s, N=5):** boot of `/app` to DOMContentLoaded median 15.7 s → 3.53 s. Normal network: 754 ms → 681 ms (noise, no regression).
 
 ---
 

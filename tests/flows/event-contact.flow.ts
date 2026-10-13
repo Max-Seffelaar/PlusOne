@@ -12,6 +12,11 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  *   with it → edit shows it, a change saves → a guest added with an email
  *   gets "You're on the list" with reply-to + footer = the EVENT address.
  *
+ *   Field errors point at the field (z8uq9m5eb7, checks 8–9): Save with the
+ *   contact email emptied scrolls to that field and focuses it, red border +
+ *   the message under it (aria-describedby), inside the visible scroll area
+ *   (under the sticky header, above the bottom bar) — in all four variants.
+ *
  * Each variant creates its own event (a stamped name), so the four runs never
  * share one; the company contact is left alone (guest-mail.flow.ts covers the
  * company fallback on the seed event).
@@ -38,6 +43,37 @@ async function fillNameAndStart(page: Page, name: string): Promise<void> {
   const hour = page.getByLabel('Hour').first();
   await hour.fill('22:00');
   await hour.press('Enter');
+}
+
+/**
+ * Where the focused input sits: its box (`data-field-shell`) against the
+ * visible part of the form's scroll area (between the sticky top bar and the
+ * fixed bottom bar) and the window.
+ */
+async function focusedFieldPlacement(page: Page): Promise<{
+  label: string | null;
+  invalid: string | null;
+  describedBy: string | null;
+  description: string | null;
+  inScrollArea: boolean;
+  inWindow: boolean;
+}> {
+  return page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    const box = (el?.closest('[data-field-shell]') as HTMLElement | null) ?? el;
+    const area = el?.closest('.po-scroll') as HTMLElement | null;
+    const r = box?.getBoundingClientRect();
+    const a = area?.getBoundingClientRect();
+    const describedBy = el?.getAttribute('aria-describedby') ?? null;
+    return {
+      label: el?.getAttribute('aria-label') ?? null,
+      invalid: el?.getAttribute('aria-invalid') ?? null,
+      describedBy,
+      description: describedBy ? document.getElementById(describedBy)?.textContent ?? null : null,
+      inScrollArea: !!r && !!a && r.top >= a.top - 1 && r.bottom <= a.bottom + 1,
+      inWindow: !!r && r.top >= 0 && r.bottom <= window.innerHeight,
+    };
+  });
 }
 
 async function eventIdByName(name: string): Promise<string | null> {
@@ -136,7 +172,30 @@ test('event contact: required, not pre-filled, domain-checked, used by guest mai
   await expect(editField).toHaveValue(eventAddress);
   await editField.scrollIntoViewIfNeeded();
   await flow.shot('edit-event-contact');
+
+  // z8uq9m5eb7: Save with the address emptied, from the top of the form —
+  // the save has to bring the user to the field, not the other way round.
+  await editField.fill('');
+  await page.evaluate(() => document.querySelector('.po-scroll')?.scrollTo({ top: 0 }));
+  await page.getByRole('button', { name: 'Save event' }).click();
+  await flow.check(8, 'Save with an empty contact email: focus lands on that field, scrolled into the visible form area', async () => {
+    await expect
+      .poll(async () => focusedFieldPlacement(page), { timeout: 5_000 })
+      .toMatchObject({ label: 'Contact email', invalid: 'true', inScrollArea: true, inWindow: true });
+  });
+  await flow.shot('field-error-contact-email');
+  await flow.check(9, 'The field says why, right under it (aria-describedby, role=alert); nothing saved, no top banner', async () => {
+    const placement = await focusedFieldPlacement(page);
+    expect(placement.description).toBe('Add a contact email for guests.');
+    // Scoped to the form: Next's route announcer is an (empty) role=alert too.
+    await expect(page.locator('.po-scroll').getByRole('alert')).toHaveCount(1);
+    await expect(page.getByTestId('event-contact-email').getByRole('alert')).toHaveText('Add a contact email for guests.');
+    const { data } = await adminClient().from('events').select('contact_email').eq('id', eventId ?? '').single();
+    expect(data?.contact_email).toBe(eventAddress);
+  });
+
   await editField.fill(changedAddress);
+  await expect(editField).not.toHaveAttribute('aria-invalid', 'true');
   await page.getByRole('button', { name: 'Save event' }).click();
   await flow.check(5, 'Edit shows the stored address, and a changed one saves (DB truth)', async () => {
     await expect

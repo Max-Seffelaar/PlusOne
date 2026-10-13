@@ -104,6 +104,8 @@ describe('createEvent', () => {
     (createClient as Mock).mockResolvedValue(f.client);
     const res = await createEvent({ venueId: VENUE, name: 'Night', startsAt: STARTS } as never);
     expect(res.ok).toBe(false);
+    // z8uq9m5eb7: the Zod refusal names its field, so the form points at it.
+    expect(res).toMatchObject({ ok: false, code: 'invalid', field: 'contactEmail' });
     expect(f.ops).toHaveLength(0);
   });
 
@@ -112,7 +114,9 @@ describe('createEvent', () => {
     const f = fakeClient(null);
     (createClient as Mock).mockResolvedValue(f.client);
     const res = await createEvent({ venueId: VENUE, name: 'Night', startsAt: STARTS, contactEmail: 'a@nomail.invalid' });
-    expect(res).toMatchObject({ ok: false, message: t.events.contactEmail.noDomain });
+    expect(res).toMatchObject({ ok: false, message: t.events.contactEmail.noDomain, field: 'contactEmail' });
+    // Generic copy, never the typed address echoed back.
+    expect(JSON.stringify(res)).not.toContain('nomail');
     expect(writes(f.ops)).toHaveLength(0);
   });
 });
@@ -177,7 +181,7 @@ describe('updateEvent', () => {
     const f = fakeClient({ contact_email: null });
     (createClient as Mock).mockResolvedValue(f.client);
     const res = await updateEvent({ eventId: EVENT, name: 'Renamed' });
-    expect(res).toMatchObject({ ok: false, message: t.events.contactEmail.required });
+    expect(res).toMatchObject({ ok: false, message: t.events.contactEmail.required, field: 'contactEmail' });
     expect(writes(f.ops)).toHaveLength(0);
   });
 

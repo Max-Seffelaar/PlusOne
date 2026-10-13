@@ -16,7 +16,7 @@
  */
 import { type JSX, useState } from 'react';
 import { t } from '@/lib/i18n';
-import { usePoCanCreateLink, usePoEvents } from '@/features/po/hooks';
+import { usePoCanCreateLink, usePoEventOptions } from '@/features/po/hooks';
 import { useNav, usePo } from '../../context';
 import { Empty, IconBtn, Scroll, Seg, Top } from '../../kit';
 import { CreateLinkFlow } from './create-link-flow';
@@ -43,7 +43,7 @@ export function PromotionHub({ tab, eventId }: { tab?: string; eventId?: string 
   // the venue's event list already needed elsewhere in the hub; defaults to
   // the same "soonest upcoming, else newest" pick as the Overview tab, and
   // CreateLinkFlow's own EventPicker lets the user redirect it before saving.
-  const eventsQ = usePoEvents();
+  const eventsQ = usePoEventOptions();
   const events = eventsQ.data ?? [];
   const defaultEvent = soonestUpcoming(events) ?? events[0] ?? null;
   const [creating, setCreating] = useState(false);

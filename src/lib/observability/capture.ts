@@ -14,12 +14,20 @@ function isExpected(error: unknown): boolean {
   return false;
 }
 
-/** Browser/GoTrue "the request never got an answer" errors, per engine. */
-const NETWORK_MESSAGES = /^(Load failed|Failed to fetch|NetworkError when attempting to fetch resource\.?)$/;
+/**
+ * Browser/GoTrue "the request never got an answer" errors, per engine. Two optional
+ * wrappers, nothing looser: postgrest-js returns a failed fetch as a plain object whose
+ * message is `${name}: ${message}` ("TypeError: Load failed"), and Safari appends the
+ * host ("Load failed (x.supabase.co)"). Anchored on both ends so bug text never matches.
+ */
+const NETWORK_MESSAGES =
+  /^(?:(?:TypeError|FetchError): )?(?:Load failed|Failed to fetch|NetworkError when attempting to fetch resource\.?)(?: \([^()\s]+\))?$/;
 
 function isNetworkNoise(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return error.name === 'AuthRetryableFetchError' || NETWORK_MESSAGES.test(error.message);
+  if (error instanceof Error) {
+    return error.name === 'AuthRetryableFetchError' || NETWORK_MESSAGES.test(error.message);
+  }
+  return isPostgrestLike(error) && NETWORK_MESSAGES.test(error.message);
 }
 
 /**
@@ -57,9 +65,11 @@ export function captureUnexpectedError(error: unknown, context: CaptureContext):
     const wrapped = new Error(error.message);
     wrapped.name = 'PostgrestError';
     reported = wrapped;
-    tags.db_code = error.code;
+    // postgrest-js leaves code/hint empty for a client-side fetch failure.
+    if (error.code) tags.db_code = error.code;
     if (error.hint) extra.hint = error.hint;
-  } else if (isNetworkNoise(error)) {
+  }
+  if (isNetworkNoise(error)) {
     // Online and still failing: worth seeing, but grouped apart from real bugs.
     tags.network = 'true';
   }

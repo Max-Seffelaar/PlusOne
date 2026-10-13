@@ -23,7 +23,7 @@ import { fmt, t } from '@/lib/i18n';
 import {
   usePoCanCreateLink,
   usePoCanManageTemplates,
-  usePoEvents,
+  usePoEventOptions,
   usePoGuestRequests,
   usePoQuotaRequests,
   usePoRequestDecisionCounts,
@@ -113,7 +113,7 @@ export function Aanvragen({
   const seeInbox = canManageTemplates || canSeeRequestInbox(roles);
   const ownOnly = !seeInbox && canSeeOwnRequests(roles);
   const noAccess = !seeInbox && !ownOnly;
-  const eventsQuery = usePoEvents();
+  const eventsQuery = usePoEventOptions();
   const events = eventsQuery.data ?? [];
   const gReqs = usePoGuestRequests();
   const qReqs = usePoQuotaRequests();
@@ -263,7 +263,12 @@ export function Aanvragen({
   const approveQuota = async (req: PoQuotaRequest): Promise<void> => {
     setErr(null);
     try {
-      await decideQuota.mutateAsync({ requestId: req.id, decision: 'approved', eventId: req.eventId });
+      await decideQuota.mutateAsync({
+        requestId: req.id,
+        decision: 'approved',
+        eventId: req.eventId,
+        hasGuest: req.guestLabel !== null,
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.requests.approveQuotaFailed);
     }
@@ -589,6 +594,17 @@ export function Aanvragen({
                     </div>
                   </div>
                   {r.reason && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.reason}”</div>}
+                  {/* z8uq9m2xyp: the guest the slots are for; approving adds them. */}
+                  {r.guestLabel && (
+                    <div className="mb-[13px] flex items-center gap-[8px] rounded-[12px] bg-acc-dim px-[12px] py-[9px] text-[13.5px] text-text">
+                      <Icon name="user" size={15} className="shrink-0 text-acc" />
+                      <span className="min-w-0 flex-1 truncate font-semibold" data-testid="quota-request-guest">
+                        {r.guestTier
+                          ? fmt(t.requests.quotaFor, { guest: r.guestLabel, tier: r.guestTier })
+                          : fmt(t.requests.quotaForNoTier, { guest: r.guestLabel })}
+                      </span>
+                    </div>
+                  )}
                   {canDecide ? (
                     <div className="flex gap-2">
                       <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, nameKind: r.whoKind, eventId: r.eventId })}>
