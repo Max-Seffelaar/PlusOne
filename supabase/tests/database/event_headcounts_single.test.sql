@@ -18,7 +18,7 @@ begin
 end;
 $fn$;
 
-select plan(11);
+select plan(13);
 
 -- ── Shape ────────────────────────────────────────────────────────────────────
 select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -40,6 +40,14 @@ insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, so
   values ('ee000000-0000-7000-8000-0000000c1e02', 'dd000000-0000-7000-8000-0000000c1d02',
           'Headcount Gast', 2, '11111111-1111-4111-8111-111111111111', 'app');
 
+-- A partial arrival on the second event: +3 with 1 companion through the door.
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, source)
+  values ('cc000000-0000-7000-8000-0000000c1c03', 'ee000000-0000-7000-8000-0000000c1e02',
+          'dd000000-0000-7000-8000-0000000c1d02', 'Partial Gast', 3, '11111111-1111-4111-8111-111111111111', 'app');
+insert into public.check_ins (guest_id, event_id, checked_by, plus_ones_arrived)
+  values ('cc000000-0000-7000-8000-0000000c1c03', 'ee000000-0000-7000-8000-0000000c1e02',
+          '11111111-1111-4111-8111-111111111111', 1);
+
 -- ── Admin ────────────────────────────────────────────────────────────────────
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is((select count(*)::int from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001')),
@@ -54,13 +62,22 @@ select is((select row(registered, present)::text from public.venue_event_headcou
   '6 admin: the single-event row equals that event''s row of the venue-wide aggregate');
 select is((select registered from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001',
             p_event_id => 'ee000000-0000-7000-8000-0000000c1e02')),
-  3, '7 admin: 1 + plus_ones on the second event');
+  7, '7 admin: 1 + plus_ones on the second event (+2 and +3)');
+select is((select present from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001',
+            p_event_id => 'ee000000-0000-7000-8000-0000000c1e02')),
+  2, '7b admin: present counts arrived heads on the single-event path (1 + 1 of a +3)');
 select is((select count(*)::int from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001',
             now() + interval '6 days', 'ee000000-0000-7000-8000-000000000001')),
   0, '8 p_since and p_event_id combine (event 1 starts before the cutoff)');
 select is((select count(*)::int from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000002',
             p_event_id => 'ee000000-0000-7000-8000-000000000001')),
   0, '9 an event of another venue yields nothing (venue filter still applies)');
+
+-- ── Organizer of event 1 asking for event 2 (not theirs) ────────────────────
+select pg_temp.login('44444444-4444-4444-8444-444444444444');
+select is((select count(*)::int from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001',
+            p_event_id => 'ee000000-0000-7000-8000-0000000c1e02')),
+  0, '9b organizer: an event they do not organize has no row (p_event_id never widens RLS)');
 
 -- ── Staff: own guests only ──────────────────────────────────────────────────
 select pg_temp.login('55555555-5555-4555-8555-555555555555');

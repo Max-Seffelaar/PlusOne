@@ -437,9 +437,12 @@ export interface EventHeadcount {
 export async function fetchEventHeadcounts(
   client: Client,
   venueId: string,
-  scope: { sinceIso?: string; eventId?: string } = {}
+  // A bare string is the older positional `sinceIso` form, still accepted so
+  // callers written against either signature (and untyped .mjs perf scripts)
+  // keep their window instead of silently aggregating the whole history.
+  scope: { sinceIso?: string; eventId?: string } | string = {}
 ): Promise<Map<string, EventHeadcount>> {
-  const { sinceIso, eventId } = scope;
+  const { sinceIso, eventId } = typeof scope === 'string' ? { sinceIso: scope, eventId: undefined } : scope;
   const counts = new Map<string, EventHeadcount>();
   // Throw, don't swallow: a silently-eaten error here rendered every stat tile
   // as a plausible-looking 0 for days when prod missed the RPC's migration
