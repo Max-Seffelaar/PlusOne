@@ -336,7 +336,8 @@ values ('9f000000-0000-7000-8000-000000000011', 'ee000000-0000-7000-8000-0000000
 update public.user_notification_prefs set notification_prefs = '{}'
  where user_id = '55555555-5555-4555-8555-555555555555';
 update public.quota_requests
-   set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
+   set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
+       decision_reason = 'Lijst zit vol' -- a decline needs a reason since 20261016180000
  where id = '9f000000-0000-7000-8000-000000000011';
 delete from public.venue_memberships
  where venue_id = 'aa000000-0000-7000-8000-000000000001' and user_id = '55555555-5555-4555-8555-555555555555';
@@ -474,7 +475,8 @@ select ok(
 update public.guest_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
        decision_message = 'Full tonight.'
  where status = 'pending';
-update public.quota_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
+update public.quota_requests set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
+       decision_reason = 'Full tonight.'
  where status = 'pending';
 select is(
   (select count(*)::int from public.team_digest_due(current_date + 1, 100)), 0,

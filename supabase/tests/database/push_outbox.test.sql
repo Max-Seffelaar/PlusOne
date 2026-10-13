@@ -221,7 +221,8 @@ select is(
   1, 'D4 a replayed decision does not queue a second push (dedupe key)');
 
 update public.quota_requests
-   set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()
+   set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
+       decision_reason = 'Lijst zit vol' -- a decline needs a reason since 20261016180000
 where id = '9a000000-0000-7000-8000-000000000002';
 select is(
   pg_temp.recipients('9a000000-0000-7000-8000-000000000002', 'quota_request_decided'),
