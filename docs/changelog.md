@@ -11,7 +11,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-10-13 — Quota approval: adjust the guest before approving (z8uq9m5kux)
 
 Follow-up to Max's test of the golf-F train (#502). Branch
-`claude/z8uq9m5kux-quota-adjust`, migration `20261018120000_quota_request_adjust`.
+`claude/z8uq9m5kux-quota-adjust`, migration `20261018130000_quota_request_adjust`.
 Spec #67 (refines #66 and #5).
 
 - **DB:** `approve_quota_request(p_request_id, p_extra, p_tier_id, p_plus_ones)`:

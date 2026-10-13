@@ -3,7 +3,8 @@
 -- only be approved or declined as a whole. The admin now adjusts it first, the
 -- way the Requests E approve sheet already does for landing requests. Max
 -- confirmed three adjustments: another tier, fewer plus-ones, fewer extra spots.
--- Slot 20261018120000 (prod is on 20261017120300).
+-- Slot 20261018130000 (prod is on 20261017120300; …120000 is taken by the
+-- open PostHog branches, analytics_opt_out).
 --
 -- WHAT THIS ADDS
 --
@@ -54,7 +55,7 @@ alter table public.quota_requests
 
 comment on column public.quota_requests.approved_extra is
   'z8uq9m5kux: the extra spots the approval granted (<= requested_extra). Set by '
-  'approve_quota_request only; null on rows approved before 20261018120000 (= requested_extra).';
+  'approve_quota_request only; null on rows approved before 20261018130000 (= requested_extra).';
 comment on column public.quota_requests.approved_tier_id is
   'z8uq9m5kux: the tier the approval put the named guest on (may differ from the payload). '
   'Set by approve_quota_request only.';

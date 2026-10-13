@@ -144,7 +144,7 @@ export const FLOWS = {
       'src/components/po/screens/guests/quick-add.tsx',
       'src/components/po/screens/approvals',
       'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
-      'supabase/migrations/20261018120000_quota_request_adjust.sql',
+      'supabase/migrations/20261018130000_quota_request_adjust.sql',
       'src/components/po/kit.tsx',
     ],
   },

@@ -1,5 +1,5 @@
 -- pgTAP — Quota approval with adjustments (z8uq9m5kux, migration
--- 20261018120000; run: pnpm db:test). An admin adjusts a quota request before
+-- 20261018130000; run: pnpm db:test). An admin adjusts a quota request before
 -- approving it: another tier of the same event, fewer plus-ones, fewer extra
 -- spots. Only down, checked in the database, atomic, audited.
 --
