@@ -94,6 +94,7 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   const withGuest = page.getByTestId('quota-request-with-guest');
   await expect(withGuest).toBeVisible();
   await page.getByPlaceholder('Why do you need these slots?').fill(`Guest ${tag}`);
+  await withGuest.scrollIntoViewIfNeeded();
   await flow.shot('staff-request-with-guest');
 
   await flow.check(1, 'The request panel offers "Put {guest} on the list when it\'s approved", switched on', async () => {
