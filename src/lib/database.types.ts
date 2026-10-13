@@ -2385,6 +2385,7 @@ export type Database = {
           email: string
           first_name: string | null
           full_name: string
+          has_joined: boolean | null
           id: string
           is_platform_admin: boolean
           last_name: string | null
@@ -2399,6 +2400,7 @@ export type Database = {
           email: string
           first_name?: string | null
           full_name: string
+          has_joined?: boolean | null
           id: string
           is_platform_admin?: boolean
           last_name?: string | null
@@ -2413,6 +2415,7 @@ export type Database = {
           email?: string
           first_name?: string | null
           full_name?: string
+          has_joined?: boolean | null
           id?: string
           is_platform_admin?: boolean
           last_name?: string | null
@@ -3165,6 +3168,20 @@ export type Database = {
           roles: Database["public"]["Enums"]["venue_role"][]
         }[]
       }
+      my_profile: {
+        Args: never
+        Returns: {
+          email: string
+          first_name: string
+          full_name: string
+          id: string
+          last_name: string
+          mfa_snooze_until: string
+          phone: string
+          terms_accepted_at: string
+          terms_version: string
+        }[]
+      }
       notification_bundle_slot: {
         Args: { p_kind: string; p_source: string; p_venue: string }
         Returns: {
@@ -3581,6 +3598,14 @@ export type Database = {
         Returns: boolean
       }
       uuid_generate_v7: { Args: never; Returns: string }
+      venue_actor_names: {
+        Args: { p_ids: string[]; p_venue_id: string }
+        Returns: {
+          display_name: string
+          is_support: boolean
+          user_id: string
+        }[]
+      }
       venue_event_headcounts: {
         Args: { p_since?: string; p_venue_id: string }
         Returns: {

@@ -13,7 +13,7 @@
  * calendar never needs 1970. `month`/`onMonthChange` are controlled by the field
  * so typing a date moves the visible month with the keystroke.
  *
- * Density: touch sizes (44px arrows/caption) by default; the compact desktop
+ * Density: touch sizes (44px arrows/caption/day buttons) by default; the compact desktop
  * sizes apply only at ≥1024px AND a fine pointer (`lg:[@media(pointer:fine)]:`),
  * so an iPad in landscape — desktop width, finger input — keeps 44px targets
  * (T1, design-system.md "Breakpoints & tablet").
@@ -53,7 +53,9 @@ export function PoDayPicker({
       weekStartsOn={1}
       showOutsideDays
       classNames={{
-        root: 'select-none p-3',
+        // Touch: 8px padding so 7 x 46px columns (44px button + 1px cell padding)
+        // fit a 375px phone with a 16px gutter each side (338px + border).
+        root: 'select-none p-2 lg:[@media(pointer:fine)]:p-3',
         months: 'relative flex flex-col',
         month: 'w-full',
         nav: 'absolute right-0 top-0 flex items-center gap-1.5',
@@ -74,9 +76,9 @@ export function PoDayPicker({
           'pointer-events-none flex items-center gap-1 rounded-[9px] border border-line bg-elev2 px-[10px] py-[6px] font-display text-[14px] font-bold text-text',
         month_grid: 'mt-2 w-full border-collapse',
         weekday: 'pb-1.5 text-center font-body text-[11px] font-bold uppercase tracking-[0.04em] text-faint',
-        day: 'p-[2px] text-center',
+        day: 'p-px text-center lg:[@media(pointer:fine)]:p-[2px]',
         day_button:
-          'flex h-[40px] w-[40px] cursor-pointer items-center justify-center rounded-[10px] font-body text-[14px] text-text transition-colors hover:bg-white/[0.07] lg:[@media(pointer:fine)]:h-[34px] lg:[@media(pointer:fine)]:w-[34px] lg:[@media(pointer:fine)]:text-[13.5px]',
+          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-[10px] font-body text-[14px] text-text transition-colors hover:bg-white/[0.07] lg:[@media(pointer:fine)]:h-[34px] lg:[@media(pointer:fine)]:w-[34px] lg:[@media(pointer:fine)]:text-[13.5px]',
         today: '[&>button]:font-bold [&>button]:text-acc',
         selected: '[&>button]:bg-acc [&>button]:font-bold [&>button]:text-bg [&>button]:hover:bg-acc',
         outside: 'opacity-35',

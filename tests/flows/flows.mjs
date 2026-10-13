@@ -163,6 +163,8 @@ export const FLOWS = {
       'src/app/s/',
       'src/components/po/guest-status.tsx',
       'src/components/po/screens/events/edit.tsx',
+      'src/components/po/screens/events/guest-mail.tsx',
+      'src/features/po/guest-mail.ts',
       'supabase/migrations/20261015160000_event_guest_info.sql',
     ],
   },
@@ -271,6 +273,14 @@ export const FLOWS = {
       'src/components/po/screens/door',
       'src/components/po/door-',
       'src/components/po/screens/settings/venue.tsx',
+    ],
+  },
+  'door-actor-chip': {
+    title: 'Door row at phone width — the who-did-what chip stays inside its caption and the row; no sideways scroll (#466 V1b)',
+    paths: [
+      'src/features/door/components/CheckInList.tsx',
+      'src/components/po/kit.tsx',
+      'src/features/audit/actor-labels.ts',
     ],
   },
   'door-tasks-tab': {

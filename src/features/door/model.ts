@@ -10,6 +10,8 @@ import type { CheckInRow, DoorEventMeta, DoorSnapshot, GuestRow, TierRow } from 
 import { formatShortDate, formatDateTime } from '@/features/po/format';
 import { tierRole } from '@/lib/po/tier';
 import { computeHeadcounts, type HeadcountRow } from '@/features/po/headcount';
+import { t } from '@/lib/i18n';
+import type { ActorKind } from '@/lib/po/actor-kind';
 
 export type NotePriority = 'none' | 'low' | 'high';
 
@@ -22,6 +24,8 @@ export interface DoorGuest {
   tierColor: string;
   tierIcon: IconName;
   addedByName: string;
+  /** What `addedByName` is (spec #64a) — render through kit ActorName. */
+  addedByKind?: ActorKind;
   addedAt: string;
   /** Last 4 digits of the phone number, or null (decision #27). */
   last4: string | null;
@@ -29,6 +33,7 @@ export interface DoorGuest {
   notePriority: NotePriority;
   acknowledged: boolean;
   ackByName?: string;
+  ackByKind?: ActorKind;
   inside: boolean;
   /** Had a check-in that was undone at the door (soft void) → back to "onderweg". */
   voided: boolean;
@@ -42,6 +47,7 @@ export interface DoorGuest {
   pay: boolean;
   inAt?: string;
   inByName?: string;
+  inByKind?: ActorKind;
   arrived?: number;
   /** Turned away at the door (guests.status = 'refused'). */
   refused: boolean;
@@ -108,12 +114,20 @@ export function indexCheckIns(checkIns: CheckInRow[]): Map<string, CheckInRow> {
   return map;
 }
 
+/** An actor id's kind on the door (spec #64a): the snapshot's own kind; a label
+ *  without one (older persisted snapshot) is a member's name; no label at all
+ *  is unknown. */
+function kindAt(id: string, profiles: Record<string, string>, kinds?: Record<string, ActorKind>): ActorKind {
+  return kinds?.[id] ?? (profiles[id] != null ? 'member' : 'unknown');
+}
+
 function toDoorGuest(
   g: GuestRow,
   tierById: Map<string, TierRow>,
   checkInByGuest: Map<string, CheckInRow>,
   profiles: Record<string, string>,
   refusedReason?: string,
+  profileKinds?: Record<string, ActorKind>,
 ): DoorGuest {
   const tier = tierById.get(g.tier_id);
   const role = tierRole(tier?.name ?? '');
@@ -132,19 +146,22 @@ function toDoorGuest(
     tierIcon: role.icon,
     // added_by is NULL only for auto-approved request-link guests (F1) — the
     // system, not a person, put them on the list.
-    addedByName: g.added_by ? profiles[g.added_by] ?? 'Unknown' : 'Via request link',
+    addedByName: g.added_by ? profiles[g.added_by] ?? t.shared.actor.unknown : t.door.addedViaRequestLink,
+    addedByKind: g.added_by ? kindAt(g.added_by, profiles, profileKinds) : 'system',
     addedAt: formatShortDate(g.created_at),
     last4: lastFour(g.phone),
     note: g.note,
     notePriority: g.note_priority,
     acknowledged: g.note_acknowledged_at != null,
     ackByName: g.note_acknowledged_by ? profiles[g.note_acknowledged_by] : undefined,
+    ackByKind: g.note_acknowledged_by ? kindAt(g.note_acknowledged_by, profiles, profileKinds) : undefined,
     inside: active,
     voided: ci != null && ci.voided_at != null,
     checkInId: ci?.id ?? null,
     pay: false,
     inAt: active ? formatDateTime(ci.checked_at) : undefined,
-    inByName: active ? profiles[ci.checked_by] ?? 'Door' : undefined,
+    inByName: active ? profiles[ci.checked_by] ?? t.shared.actor.unknown : undefined,
+    inByKind: active ? kindAt(ci.checked_by, profiles, profileKinds) : undefined,
     arrived: active ? ci.plus_ones_arrived : undefined,
     refused: g.status === 'refused',
     refusedReason,
@@ -169,9 +186,9 @@ export function buildDoorView(snapshot: DoorSnapshot): DoorView {
   const refused: DoorGuest[] = [];
   for (const g of snapshot.guests) {
     if (g.status === 'refused') {
-      refused.push(toDoorGuest(g, tierById, checkInByGuest, snapshot.profiles, reasonByGuest.get(g.id)));
+      refused.push(toDoorGuest(g, tierById, checkInByGuest, snapshot.profiles, reasonByGuest.get(g.id), snapshot.profileKinds));
     } else {
-      guests.push(toDoorGuest(g, tierById, checkInByGuest, snapshot.profiles));
+      guests.push(toDoorGuest(g, tierById, checkInByGuest, snapshot.profiles, undefined, snapshot.profileKinds));
     }
   }
 

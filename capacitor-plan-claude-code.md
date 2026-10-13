@@ -136,7 +136,7 @@ N1, N3 en N5 raken alle drie `app.tsx`/root layout → bewust sequentieel. Max i
 
 ## 5. Wat we bewust NIET nu doen
 
-Web-push-adapter · scheduled/reminder-pushes · notification-preferences-matrix (één toggle volstaat) · Stripe smart readers (#34 route B; Tap to Pay zelf is sinds 2026-10-11 golf 6, beslissing 17) · ops-module-push (#35) · de volledige app lokaal bundelen · billing/IAP/checkout in de app (CLAUDE.md-regel, Apple IAP) · een store-staging-omgeving · widgets/live activities · per-device push-analytics · `@sentry/capacitor` (native-shell-crashes) · in-app account-deletion-flow (invite-only, zie §1) · een minimum-versie/kill-switch voor de shell (remote-URL: een deploy ís de update).
+Web-push-adapter · scheduled/reminder-pushes · notification-preferences-matrix (één toggle volstaat) · Stripe smart readers (#34 route B — **definitief afgewezen 2026-10-12, Max: één toestel per doorhost, geen losse terminal**; Tap to Pay zelf is sinds 2026-10-11 golf 6, beslissing 17; de iPad-deur houdt QR, Android-tablets alleen met NFC/GMS/Android 13+ tegen Stripe's apparaatlijst) · ops-module-push (#35) · de volledige app lokaal bundelen · billing/IAP/checkout in de app (CLAUDE.md-regel, Apple IAP) · een store-staging-omgeving · widgets/live activities · per-device push-analytics · `@sentry/capacitor` (native-shell-crashes) · in-app account-deletion-flow (invite-only, zie §1) · een minimum-versie/kill-switch voor de shell (remote-URL: een deploy ís de update).
 
 ## 6. Release-checklist (draft — afvinken in S5)
 
