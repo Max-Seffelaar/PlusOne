@@ -11,7 +11,8 @@
 --   * everyone else keeps their name — the operator once they are a real
 --     member, and a former member;
 --   * admin_list_user_sessions never reveals another member's MFA level (aal)
---     or IP address, while list_own_sessions still shows the caller their own;
+--     or IP address — since the contract step 20261016170000 it has no such
+--     columns at all — while list_own_sessions still shows the caller their own;
 --   * the existing gates are unchanged (staff gets no stats rows, cannot list
 --     a colleague's sessions; anon executes none of it).
 --
@@ -197,12 +198,18 @@ select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- Max, admin of T
 select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
             where session_id in ('5e000000-0000-4000-8000-0000000000a1', '5e000000-0000-4000-8000-0000000000a2')), 2,
   'C1 the admin still lists the member''s sessions (remote logout works)');
-select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
-            where aal is not null), 0,
-  'C2 …but every aal is null');
-select is((select count(*)::int from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
-            where ip is not null), 0,
-  'C3 …and every ip is null (minimisation; sessions are account-wide, not per company)');
+-- Both the OUT-parameter names and the return type's own columns: a RETURNS
+-- SETOF <composite> carrying ip/aal would slip past proargnames alone.
+select ok((select not ('aal' = any(coalesce(p.proargnames, '{}')))
+                  and not exists (select 1 from pg_type t join pg_attribute a on a.attrelid = t.typrelid
+                                  where t.oid = p.prorettype and a.attname = 'aal' and not a.attisdropped)
+             from pg_proc p where p.oid = 'public.admin_list_user_sessions(uuid)'::regprocedure),
+  'C2 …but it has no aal column (contract step 20261016170000)');
+select ok((select not ('ip' = any(coalesce(p.proargnames, '{}')))
+                  and not exists (select 1 from pg_type t join pg_attribute a on a.attrelid = t.typrelid
+                                  where t.oid = p.prorettype and a.attname = 'ip' and not a.attisdropped)
+             from pg_proc p where p.oid = 'public.admin_list_user_sessions(uuid)'::regprocedure),
+  'C3 …and no ip column (minimisation; sessions are account-wide, not per company)');
 select is((select user_agent from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')
             where session_id = '5e000000-0000-4000-8000-0000000000a1'), 'probe-agent',
   'C3b user_agent stays, so the admin can tell sessions apart');
