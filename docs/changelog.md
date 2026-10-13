@@ -79,6 +79,16 @@ Milestone **≥5** (perf audit finding 6). Branch `claude/z8uq9m2xz2-regulars-rp
 - **Review round (2026-10-13):** the Regulars read skips the counts (`fetchContacts(…, { permanentOnly: true, withCounts: false })`; the filter only reads ids): 1 request / 52 kB / 14 ms. With that gone the RPC lost `p_permanent_only` and no longer reads `contacts` at all; the unused `search` option is dropped from the contacts scope. pgTAP now pins doorhost, user_manager and a user with no membership (16).
 - **Tests:** pgTAP `contact_event_counts.test.sql` (15: invoker, grants, admin = superuser truth, distinct events, removed rows, permanent-only, organizer and staff = their own direct RLS read, cross-venue, anon); `queries.test.ts` pins one RPC and no `.in()`; flow `guests-regulars` (6 checks × 4 variants).
 
+## 2026-10-12 — Snelheid P2: single-event headcounts (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5** (P1-review follow-up). Branch `claude/z8uq9m2xz2-event-headcounts`. Migration `20261017120300_event_headcounts_single`.
+
+- **What was slow:** `usePoEvent`'s cache-miss path (deep link or refresh on an event screen) read the event row, then called `venue_event_headcounts` with `p_since = starts_at`, which aggregates every later event: for the oldest event of a 300-event venue all 300 rows, as a second sequential round-trip.
+- **Fix:** an optional `p_event_id` on `venue_event_headcounts` (still SECURITY INVOKER, now stated; the 2-argument function is dropped so there is one overload, and the deployed call shapes resolve unchanged). `fetchEventHeadcounts` takes a scope `{ sinceIso, eventId }` like `fetchEvents`; `usePoEvent` fires both reads in parallel.
+- **Measured** (`scripts/perf/p2-measure-headcounts.mjs`, oldest event of the `p2-seed.mjs` venue, admin through RLS, median of 5): 2 sequential waves → 1, 300 aggregated rows → 1, 25 kB → <1 kB, 146 → 10 ms.
+- **Review round (2026-10-13):** `fetchEventHeadcounts` also still takes the positional `sinceIso` string, so callers on either signature (the events-window PR, untyped `.mjs` perf scripts) keep their window in any merge order (`event-headcounts.query.test.ts`); pgTAP +2 (partial-arrival `present` on the single-event path, an organizer asking for an event they don't organize gets no row).
+- **Tests:** pgTAP `event_headcounts_single.test.sql` (13: one overload, invoker, grants, venue-wide unchanged, single row = its venue-wide row, since+event combine, other venue empty, staff own-guests-only); `hooks.usePoEvent.test.tsx` pins the id scope and the parallel start; flow `event-headcount-deeplink` (3 checks × 4 variants).
+
 ---
 
 ## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)

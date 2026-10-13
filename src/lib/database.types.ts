@@ -3656,7 +3656,7 @@ export type Database = {
         }[]
       }
       venue_event_headcounts: {
-        Args: { p_since?: string; p_venue_id: string }
+        Args: { p_event_id?: string; p_since?: string; p_venue_id: string }
         Returns: {
           event_id: string
           present: number

@@ -275,6 +275,15 @@ export const FLOWS = {
       'supabase/migrations/20261007135000_template_location.sql',
     ],
   },
+  'event-headcount-deeplink': {
+    title: 'Snelheid P2 (z8uq9m2xz2) — an event screen opened cold counts heads for that event only (venue_event_headcounts p_event_id), in parallel with the event row',
+    paths: [
+      'src/features/po/queries.ts',
+      'src/features/po/hooks.ts',
+      'src/components/po/screens/events.tsx',
+      'supabase/migrations/20261017120300_event_headcounts_single.sql',
+    ],
+  },
   'event-locations': {
     title: 'Event locations L — Company settings: two saved locations → event at the second → /e/[slug] → approve → /r/[token]',
     paths: [
