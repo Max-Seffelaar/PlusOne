@@ -161,6 +161,10 @@ export const FLOWS = {
       'src/components/po/screens/settings/notification-prefs.tsx',
       'src/components/po/screens/settings/profile.tsx',
       'supabase/migrations/20261013180600_notification_prefs.sql',
+      // z8uq9m5kux: the flow approves through the quota approve sheet, and the
+      // migration redefines team_mails_claim (the decision mail's count).
+      'src/components/po/screens/approvals',
+      'supabase/migrations/20261018130000_quota_request_adjust.sql',
     ],
   },
   'mail-status': {

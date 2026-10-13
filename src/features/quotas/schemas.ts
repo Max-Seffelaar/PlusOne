@@ -64,7 +64,9 @@ export type DefaultQuotaInput = z.input<typeof defaultQuotaSchema>;
  * bound (extra 1..requested, plus-ones 0..asked, a tier of the same event).
  */
 export const quotaAdjustSchema = z.object({
-  extra: z.number().int().min(1).max(100).optional(),
+  // No upper bound here: the cap is the request's own requested_extra, which
+  // approve_quota_request enforces (a raw insert may exceed the form's 100).
+  extra: z.number().int().min(1).optional(),
   tierId: uuid.optional(),
   plusOnes: z.number().int().min(0).max(PLUS_ONES_MAX).optional(),
 });

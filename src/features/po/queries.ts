@@ -877,7 +877,6 @@ export async function fetchMyQuotaUpdates(
   });
 }
 
-
 export interface RecapGuestRow {
   id: string;
   full_name: string;
