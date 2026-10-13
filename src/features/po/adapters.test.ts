@@ -1176,6 +1176,7 @@ describe('toPoQuotaRequest', () => {
       at: '2 hr ago',
       guestLabel: null,
       guestTier: null,
+      guest: null,
     });
   });
 
@@ -1191,6 +1192,8 @@ describe('toPoQuotaRequest', () => {
     );
     expect(r.guestLabel).toBe('Lisa de Vries +1');
     expect(r.guestTier).toBe('Backstage');
+    // z8uq9m5kux: the approve sheet starts from the guest as asked.
+    expect(r.guest).toEqual({ name: 'Lisa de Vries', plusOnes: 1, tierId: 't1' });
   });
 
   it('omits +0 and keeps a gone tier as null', () => {
@@ -1228,6 +1231,10 @@ describe('toPoQuotaUpdate', () => {
     decidedAt: new Date(now.getTime() - 3_600_000).toISOString(),
     guestId: null,
     guest: null,
+    approvedExtra: null,
+    approvedTierId: null,
+    approvedPlusOnes: null,
+    approvedTierName: null,
   };
 
   it('an approval without a guest raised the quota', () => {
@@ -1248,7 +1255,38 @@ describe('toPoQuotaUpdate', () => {
     expect(toPoQuotaUpdate({ ...row, status: 'denied', decisionReason: ' List is full ' }, now)).toMatchObject({
       kind: 'declined',
       reason: 'List is full',
+      changes: null,
     });
+  });
+
+  // z8uq9m5kux — approved with changes.
+  const guest = { name: 'Lisa de Vries', plusOnes: 3, tierId: 't1' };
+
+  it('an approval as asked (approved_* equal, or null from before) has no changes', () => {
+    expect(toPoQuotaUpdate(row, now).changes).toBeNull();
+    expect(
+      toPoQuotaUpdate({ ...row, guestId: 'g1', guest, approvedExtra: 2, approvedTierId: 't1', approvedPlusOnes: 3 }, now).changes
+    ).toBeNull();
+  });
+
+  it('a trimmed quota shows the spots granted and what was asked', () => {
+    const u = toPoQuotaUpdate({ ...row, approvedExtra: 1 }, now);
+    expect(u.extra).toBe(1);
+    expect(u.changes).toEqual({ extra: { granted: 1, asked: 2 }, plusOnes: null, tier: null });
+  });
+
+  it('a guest on another tier with fewer plus-ones: both changes, the label uses the granted +N', () => {
+    const u = toPoQuotaUpdate(
+      { ...row, guestId: 'g1', guest, approvedExtra: 2, approvedTierId: 't2', approvedPlusOnes: 1, approvedTierName: 'Backstage' },
+      now
+    );
+    expect(u.guestLabel).toBe('Lisa de Vries +1');
+    expect(u.changes).toEqual({ extra: null, plusOnes: { granted: 1, asked: 3 }, tier: { name: 'Backstage' } });
+  });
+
+  it('after retention (payload gone) only the trim is still known', () => {
+    const u = toPoQuotaUpdate({ ...row, guestId: 'g1', approvedExtra: 1, approvedTierId: 't2', approvedPlusOnes: 0 }, now);
+    expect(u.changes).toEqual({ extra: { granted: 1, asked: 2 }, plusOnes: null, tier: null });
   });
 });
 

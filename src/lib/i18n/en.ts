@@ -106,6 +106,8 @@ export const en = {
     guestTierGone: "The guest's tier is no longer on this event, so nothing changed. Decline it with a reason instead.",
     guestCannotAdd: "This person can't add guests to this event, so nothing changed. Decline it with a reason instead.",
     guestInvalid: "That guest can't go with this request. Check the name and tier.",
+    // z8uq9m5kux — an adjusted approval the database refuses (stale sheet).
+    adjustInvalid: "That change doesn't fit this request anymore. Close it and try again.",
   },
 } as const;
 

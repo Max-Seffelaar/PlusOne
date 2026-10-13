@@ -923,12 +923,15 @@ export function Stepper({ value, onChange, max }: { value: number; onChange: (v:
 export function CountStepper({
   value,
   onChange,
+  min = 0,
   max,
   lessLabel,
   moreLabel,
 }: {
   value: number;
   onChange: (v: number) => void;
+  /** Lowest value the minus button reaches (default 0). */
+  min?: number;
   max?: number;
   lessLabel: string;
   moreLabel: string;
@@ -941,13 +944,35 @@ export function CountStepper({
   const atMax = max != null && value >= max;
   return (
     <div className="flex items-center gap-[10px]">
-      <button type="button" className={btn} disabled={value <= 0} onClick={() => onChange(Math.max(0, value - 1))} aria-label={lessLabel}>
+      <button type="button" className={btn} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))} aria-label={lessLabel}>
         <Icon name="minus" size={15} sw={2.4} />
       </button>
       <span className="min-w-[22px] text-center font-display text-[17px] font-extrabold tabular-nums text-text">{value}</span>
       <button type="button" className={btn} disabled={atMax} onClick={() => onChange(atMax ? value : value + 1)} aria-label={moreLabel}>
         <Icon name="plus" size={15} sw={2.4} stroke="#B5A6FF" />
       </button>
+    </div>
+  );
+}
+
+// ── DecisionSummary ─────────────────────────────────────────────────────────
+// The one-line "what this decision does" box above a confirm button (Requests E
+// approve sheet; z8uq9m5kux reuses it for the quota approval). The text is
+// pre-formatted by the caller, so the kit needs no per-surface copy.
+export function DecisionSummary({
+  children,
+  approve = true,
+  testId,
+}: {
+  children: ReactNode;
+  /** false = the decision declines (close icon instead of a check). */
+  approve?: boolean;
+  testId?: string;
+}): JSX.Element {
+  return (
+    <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]" data-testid={testId}>
+      <Icon name={approve ? 'check2' : 'close'} size={18} stroke="#B5A6FF" sw={2.4} />
+      <span className="text-[13.5px] leading-[1.4] text-text">{children}</span>
     </div>
   );
 }

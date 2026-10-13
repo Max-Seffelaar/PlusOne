@@ -135,6 +135,19 @@ describe('describeAuditEntry', () => {
     expect(line.text).toBe('approved the quota request from Tom Bakker');
   });
 
+  it('names the spots an (adjusted) quota approval granted (z8uq9m5kux)', () => {
+    const line = describeAuditEntry(
+      row({
+        entity_type: 'quota_requests',
+        action: 'approve',
+        guest_name: null,
+        subject_name: 'Tom Bakker',
+        diff: { before: { status: 'pending', approved_extra: null }, after: { status: 'approved', approved_extra: 1 } },
+      })
+    );
+    expect(line.text).toBe('approved 1 more spot for Tom Bakker');
+  });
+
   it('describes a membership role change', () => {
     const line = describeAuditEntry(
       row({

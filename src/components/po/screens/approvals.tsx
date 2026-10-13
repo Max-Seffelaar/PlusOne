@@ -38,6 +38,7 @@ import { canDecideRequests, canSeeOwnRequests, canSeeRequestInbox } from '@/feat
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
 import { buildDecideInput, buildDeclineInput, type SplitDecision } from '@/features/requests/approval';
 import type { PoLinkOption } from '@/features/po/queries';
+import type { QuotaAdjustInput } from '@/features/quotas/schemas';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import { ActorAvatar, ActorName, Avatar, Btn, Empty, KeepMePostedBadge, Label, MiniChip, Note, Top, hitRingY7, press } from '../kit';
@@ -48,6 +49,7 @@ import { soonestUpcoming } from './promotion/shared';
 const col = 'flex h-full flex-col';
 
 type Tab = 'landing' | 'quota';
+type ApproveSubject = { kind: 'landing'; req: PoGuestRequest } | { kind: 'quota'; req: PoQuotaRequest };
 
 /** Small event tag shown on each card in "Alle events" mode. */
 function EventTag({ name }: { name: string }): JSX.Element {
@@ -130,13 +132,15 @@ export function Aanvragen({
   // Request-link filter (F1): '' = all links; applies to pending + denied + auto.
   const [linkSel, setLinkSel] = useState('');
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
-  const [assign, setAssign] = useState<PoGuestRequest | null>(null);
+  // The one approve sheet (Requests E): a landing request, or a quota request
+  // to adjust before approving (z8uq9m5kux).
+  const [approve, setApprove] = useState<ApproveSubject | null>(null);
   const [deny, setDeny] = useState<DenyTarget | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const venueLinks = usePoVenueLinks();
   const [creatingLink, setCreatingLink] = useState(false);
 
-  const tiersQuery = usePoTiers(assign?.eventId ?? '');
+  const tiersQuery = usePoTiers(approve?.req.eventId ?? '');
   // Requests E (z8uq9m2vga): approve, split, trim and decline all go through
   // one decision (decide_guest_request) with exactly one mail to the guest.
   const decideReq = usePoDecideRequest();
@@ -226,19 +230,22 @@ export function Aanvragen({
   };
   const openAssign = (req: PoGuestRequest): void => {
     setErr(null);
-    setAssign(req);
+    setApprove({ kind: 'landing', req });
+  };
+  const openApproveQuota = (req: PoQuotaRequest): void => {
+    setErr(null);
+    setApprove({ kind: 'quota', req });
   };
   const createTierFor = (eid: string): void => {
-    setAssign(null);
+    setApprove(null);
     nav.push('tiers', { id: eid });
   };
 
-  const confirmApproveLanding = async (decision: SplitDecision): Promise<void> => {
-    if (!assign) return;
+  const confirmApproveLanding = async (req: PoGuestRequest, decision: SplitDecision): Promise<void> => {
     setErr(null);
     try {
-      await decideReq.mutateAsync(buildDecideInput(assign, decision));
-      setAssign(null);
+      await decideReq.mutateAsync(buildDecideInput(req, decision));
+      setApprove(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.requests.approveFailed);
     }
@@ -260,15 +267,18 @@ export function Aanvragen({
     }
   };
 
-  const approveQuota = async (req: PoQuotaRequest): Promise<void> => {
+  const confirmApproveQuota = async (req: PoQuotaRequest, adjust: QuotaAdjustInput): Promise<void> => {
     setErr(null);
     try {
       await decideQuota.mutateAsync({
         requestId: req.id,
         decision: 'approved',
+        // z8uq9m5kux: only what the admin changed; empty = as asked.
+        ...(Object.keys(adjust).length > 0 ? { adjust } : {}),
         eventId: req.eventId,
         hasGuest: req.guestLabel !== null,
       });
+      setApprove(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.requests.approveQuotaFailed);
     }
@@ -393,7 +403,7 @@ export function Aanvragen({
       )}
 
       <div className="po-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-[28px]">
-        {err && !assign && !deny && <ErrLine msg={err} />}
+        {err && !approve && !deny && <ErrLine msg={err} />}
 
         {loading ? (
           <Empty text={t.requests.loading} />
@@ -610,7 +620,7 @@ export function Aanvragen({
                       <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, nameKind: r.whoKind, eventId: r.eventId })}>
                         {t.requests.deny}
                       </Btn>
-                      <Btn sm kind="primary" full icon="check2" disabled={quotaBusy} onClick={() => void approveQuota(r)}>
+                      <Btn sm kind="primary" full icon="check2" disabled={quotaBusy} onClick={() => openApproveQuota(r)}>
                         {fmt(t.requests.approveExtra, { n: r.extra })}
                       </Btn>
                     </div>
@@ -644,20 +654,23 @@ export function Aanvragen({
           onClose={() => setLinkPickerOpen(false)}
         />
       )}
-      {assign && (
+      {approve && (
         <AssignSheet
-          req={assign}
-          eventName={nameById.get(assign.eventId) ?? ''}
+          target={
+            approve.kind === 'landing'
+              ? { kind: 'landing', req: approve.req, onConfirm: (decision) => void confirmApproveLanding(approve.req, decision) }
+              : { kind: 'quota', req: approve.req, onConfirm: (adjust) => void confirmApproveQuota(approve.req, adjust) }
+          }
+          eventName={nameById.get(approve.req.eventId) ?? ''}
           tiers={tiersQuery.data ?? []}
           tiersLoading={tiersQuery.isLoading}
-          pending={decideReq.isPending}
+          pending={approve.kind === 'landing' ? decideReq.isPending : decideQuota.isPending}
           error={err}
           onClose={() => {
-            setAssign(null);
+            setApprove(null);
             setErr(null);
           }}
-          onConfirm={(decision) => void confirmApproveLanding(decision)}
-          onCreateTier={() => createTierFor(assign.eventId)}
+          onCreateTier={() => createTierFor(approve.req.eventId)}
         />
       )}
       {creatingLink && linkEvent && (

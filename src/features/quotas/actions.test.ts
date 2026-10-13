@@ -134,6 +134,60 @@ describe('decideQuotaRequest — only granted columns reach quota_requests', () 
   });
 });
 
+// z8uq9m5kux — an approval adjusted first: only the changes travel.
+describe('decideQuotaRequest — adjusted approval', () => {
+  const OTHER_TIER = 'dd000000-0000-7000-8000-000000000009';
+
+  it('sends exactly the adjustments that were made, as RPC arguments', async () => {
+    const { rpc, from } = mockSupabase();
+
+    const res = await decideQuotaRequest({
+      requestId: REQUEST_ID,
+      decision: 'approved',
+      adjust: { extra: 1, tierId: OTHER_TIER, plusOnes: 0 },
+    });
+
+    expect(res).toEqual({ ok: true });
+    expect(rpc).toHaveBeenCalledWith('approve_quota_request', {
+      p_request_id: REQUEST_ID,
+      p_extra: 1,
+      p_tier_id: OTHER_TIER,
+      p_plus_ones: 0,
+    });
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('a partial adjustment sends only that argument (the rest stays "as asked")', async () => {
+    const { rpc } = mockSupabase();
+    await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'approved', adjust: { plusOnes: 2 } });
+    expect(rpc).toHaveBeenCalledWith('approve_quota_request', { p_request_id: REQUEST_ID, p_plus_ones: 2 });
+  });
+
+  it('out-of-range adjustments never reach the database', async () => {
+    const { rpc } = mockSupabase();
+    for (const adjust of [{ extra: 0 }, { extra: 101 }, { plusOnes: -1 }, { plusOnes: 51 }, { tierId: 'not-a-uuid' }]) {
+      const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'approved', adjust });
+      expect(res).toMatchObject({ ok: false });
+    }
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a deny cannot carry adjustments', async () => {
+    const { rpc, from } = mockSupabase();
+    const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'denied', reason: 'Full', adjust: { extra: 1 } });
+    expect(res).toMatchObject({ ok: false });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('an adjustment the database refuses (22023) is neutral catalogue copy, not the DB text', async () => {
+    const { rpc } = mockSupabase();
+    rpc.mockResolvedValueOnce({ error: { code: '22023', message: 'Pick a tier of this event.' } } as never);
+    const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'approved', adjust: { tierId: OTHER_TIER } });
+    expect(res).toMatchObject({ ok: false, message: t.quotaRequests.adjustInvalid });
+  });
+});
+
 // z8uq9m2xyp — a request that names the guest, the guest-add failures of an
 // approval, and the requester's "Got it".
 const EVENT_ID = 'ee000000-0000-7000-8000-000000000001';

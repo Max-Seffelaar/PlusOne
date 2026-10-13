@@ -144,6 +144,22 @@ export const requests = {
   // z8uq9m2xyp — the guest a quota request names, on the card and in the deny sheet.
   quotaFor: 'For: {guest} · {tier}',
   quotaForNoTier: 'For: {guest}',
+  // z8uq9m5kux — the approve sheet for a quota request: adjust, then approve.
+  quotaApproveSub: '{event} · asked for +{n}',
+  quotaApproveSubNoEvent: 'Asked for +{n}',
+  quotaSpotsQuestion: 'Extra spots',
+  quotaSpotsHint: 'They asked for {n}. You can approve fewer, never more.',
+  quotaSpotsLess: 'One spot less',
+  quotaSpotsMore: 'One spot more',
+  quotaGuestHeading: 'Guest · {guest}',
+  quotaPlusOnesLabel: 'Plus-ones',
+  quotaPlusOnesHint: 'They asked for +{n}. You can lower it, not raise it.',
+  quotaPlusLess: 'One plus-one less',
+  quotaPlusMore: 'One plus-one more',
+  quotaTierQuestion: 'Which tier?',
+  quotaTierGone: "The tier they picked is gone. Pick another one.",
+  quotaSummary: '+{extra} of {requested} spots',
+  quotaSummaryGuest: '+{extra} of {requested} spots · {guest} on {tier}',
   reasonLabel: 'Reason',
   // z8uq9m2vga: a landing decline's note goes to the guest (mail + status page).
   declineNoteLabel: 'Note to the guest',

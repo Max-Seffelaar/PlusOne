@@ -916,6 +916,8 @@ export interface PoQuotaRequest {
   guestLabel: string | null;
   /** The named guest's tier name; null when none or the tier is gone. */
   guestTier: string | null;
+  /** The named guest as asked — the approve sheet starts from it (z8uq9m5kux). */
+  guest: { name: string; plusOnes: number; tierId: string } | null;
 }
 
 /** "Lisa de Vries +1" / "Lisa de Vries" — one format for card, sheet and Home. */
@@ -934,6 +936,7 @@ export function toPoQuotaRequest(row: PoQuotaRequestRow, now?: Date): PoQuotaReq
     at: relativeTime(row.created_at, now),
     guestLabel: row.guest ? quotaGuestLabel(row.guest) : null,
     guestTier: row.guest?.tierName ?? null,
+    guest: row.guest ? { name: row.guest.name, plusOnes: row.guest.plusOnes, tierId: row.guest.tierId } : null,
   };
 }
 
@@ -949,6 +952,39 @@ export interface PoQuotaUpdate {
   /** Decline reason; null on an approval. */
   reason: string | null;
   at: string;
+  /** What the admin changed before approving (z8uq9m5kux); null = as asked. */
+  changes: PoQuotaUpdateChanges | null;
+}
+
+/** "Approved with changes": only the parts that differ from the request. */
+export interface PoQuotaUpdateChanges {
+  /** Spots granted vs asked, when trimmed. */
+  extra: { granted: number; asked: number } | null;
+  /** The guest's plus-ones given vs asked, when lowered. */
+  plusOnes: { granted: number; asked: number } | null;
+  /** The tier the guest went on instead of the one asked; its name, or null
+   *  when the tier is unreadable/gone (the change still shows, unnamed). */
+  tier: { name: string | null } | null;
+}
+
+/** The changes an approval made, or null when it granted what was asked (or
+ *  predates z8uq9m5kux: approved_* null). The payload may be gone (retention);
+ *  then only the trim is known. */
+export function quotaUpdateChanges(row: PoMyQuotaUpdateRow): PoQuotaUpdateChanges | null {
+  if (row.status !== 'approved') return null;
+  const extra =
+    row.approvedExtra != null && row.approvedExtra < row.requestedExtra
+      ? { granted: row.approvedExtra, asked: row.requestedExtra }
+      : null;
+  const plusOnes =
+    row.guest && row.approvedPlusOnes != null && row.approvedPlusOnes < row.guest.plusOnes
+      ? { granted: row.approvedPlusOnes, asked: row.guest.plusOnes }
+      : null;
+  const tier =
+    row.guest && row.approvedTierId != null && row.approvedTierId !== row.guest.tierId
+      ? { name: row.approvedTierName }
+      : null;
+  return extra || plusOnes || tier ? { extra, plusOnes, tier } : null;
 }
 
 export function toPoQuotaUpdate(row: PoMyQuotaUpdateRow, now?: Date): PoQuotaUpdate {
@@ -957,11 +993,16 @@ export function toPoQuotaUpdate(row: PoMyQuotaUpdateRow, now?: Date): PoQuotaUpd
     id: row.id,
     eventId: row.eventId,
     eventName: row.eventName,
-    extra: row.requestedExtra,
+    // What was granted: a trimmed approval never reads as the full one.
+    extra: row.approvedExtra ?? row.requestedExtra,
     kind,
-    guestLabel: kind === 'fulfilled' && row.guest ? quotaGuestLabel(row.guest) : null,
+    guestLabel:
+      kind === 'fulfilled' && row.guest
+        ? quotaGuestLabel({ name: row.guest.name, plusOnes: row.approvedPlusOnes ?? row.guest.plusOnes })
+        : null,
     reason: kind === 'declined' ? row.decisionReason?.trim() || null : null,
     at: relativeTime(row.decidedAt, now),
+    changes: quotaUpdateChanges(row),
   };
 }
 

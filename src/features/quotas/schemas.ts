@@ -58,15 +58,33 @@ export const defaultQuotaSchema = z.object({
 });
 export type DefaultQuotaInput = z.input<typeof defaultQuotaSchema>;
 
-/** Admin decision on a request: approve (writes the override) or deny (#4/#5). */
+/**
+ * What the admin changed before approving (z8uq9m5kux). Each field is optional
+ * and means "as asked" when left out; approve_quota_request re-checks every
+ * bound (extra 1..requested, plus-ones 0..asked, a tier of the same event).
+ */
+export const quotaAdjustSchema = z.object({
+  extra: z.number().int().min(1).max(100).optional(),
+  tierId: uuid.optional(),
+  plusOnes: z.number().int().min(0).max(PLUS_ONES_MAX).optional(),
+});
+export type QuotaAdjustInput = z.input<typeof quotaAdjustSchema>;
+
+/** Admin decision on a request: approve (writes the override, optionally
+ *  adjusted) or deny (#4/#5). */
 export const decideQuotaRequestSchema = z
   .object({
     requestId: uuid,
     decision: z.enum(['approved', 'denied']),
     reason: z.string().trim().max(500).optional(),
+    adjust: quotaAdjustSchema.optional(),
   })
   .refine((v) => v.decision !== 'denied' || (v.reason && v.reason.length > 0), {
     message: 'Give a reason for declining',
     path: ['reason'],
+  })
+  .refine((v) => v.decision === 'approved' || v.adjust === undefined, {
+    message: 'Only an approval can be adjusted',
+    path: ['adjust'],
   });
 export type DecideQuotaRequestInput = z.input<typeof decideQuotaRequestSchema>;

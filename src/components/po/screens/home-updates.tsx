@@ -6,6 +6,9 @@
  *   raised    — "Your quota for {event} went up by +{n}"   → Add guests
  *   fulfilled — "{guest} is on the list for {event}"       → View list
  *   declined  — "Your request for {event} was declined" + the reason
+ * An approval that was adjusted first (z8uq9m5kux) says so under the headline:
+ * "Approved with changes: +1 spots instead of +2, on Backstage." The numbers
+ * in the headline are what was granted, never what was asked.
  * "Got it" and the action both set seen_at (the requester's own column, RLS
  * quota_requests_seen_own); the card disappears with the next read. Reads its
  * own small query (usePoMyQuotaUpdates), so it adds nothing to Home's board
@@ -16,7 +19,7 @@ import { type JSX, useState } from 'react';
 import { fmt, t } from '@/lib/i18n';
 import { usePoMyQuotaUpdates } from '@/features/po/hooks';
 import { usePoMarkQuotaSeen } from '@/features/po/mutations';
-import type { PoQuotaUpdate } from '@/features/po/adapters';
+import type { PoQuotaUpdate, PoQuotaUpdateChanges } from '@/features/po/adapters';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Btn } from '../kit';
@@ -27,6 +30,17 @@ function headline(u: PoQuotaUpdate): string {
     return fmt(t.home.updateRaisedGuest, { guest: u.guestLabel, event: u.eventName });
   }
   return fmt(t.home.updateRaised, { event: u.eventName, n: u.extra });
+}
+
+/** "Approved with changes: …" — only the parts that differ from the request. */
+function changesLine(c: PoQuotaUpdateChanges): string {
+  const parts: string[] = [];
+  if (c.extra) {
+    parts.push(fmt(c.extra.granted === 1 ? t.home.updateChangeExtraOne : t.home.updateChangeExtra, { n: c.extra.granted, asked: c.extra.asked }));
+  }
+  if (c.plusOnes) parts.push(fmt(t.home.updateChangePlusOnes, { n: c.plusOnes.granted, asked: c.plusOnes.asked }));
+  if (c.tier) parts.push(c.tier.name ? fmt(t.home.updateChangeTier, { tier: c.tier.name }) : t.home.updateChangeTierUnnamed);
+  return fmt(t.home.updateChanged, { changes: parts.join(', ') });
 }
 
 function UpdateRow({ u, busy, onSeen, onAction }: {
@@ -52,6 +66,11 @@ function UpdateRow({ u, busy, onSeen, onAction }: {
         <div className="min-w-0 flex-1">
           <div className="font-display text-[15px] font-bold leading-[1.3] text-text">{headline(u)}</div>
           {sub && <div className="mt-0.5 break-words text-[13px] leading-[1.45] text-dim">{sub}</div>}
+          {u.changes && (
+            <div className="mt-0.5 break-words text-[13px] leading-[1.45] text-acc" data-testid="quota-update-changes">
+              {changesLine(u.changes)}
+            </div>
+          )}
           <div className="mt-0.5 text-[12px] text-faint">{u.at}</div>
         </div>
       </div>
