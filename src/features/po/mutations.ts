@@ -142,7 +142,7 @@ import { fetchGuests, type CheckinArrival, type PoRequestLink } from './queries'
 import { poKeys } from './keys';
 import { createClient } from '@/lib/supabase/client';
 import { classifyAddResult, type BulkAddRowResult } from './bulk';
-import { optimisticGuest, tierRole, toPoGuest, type OptimisticAddArgs } from './adapters';
+import { optimisticGuest, toPoGuestWithTiers, type OptimisticAddArgs } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
 import { supabaseGateway } from '@/features/door/outbox/gateway';
 import { getDeviceId, getDoorClient } from '@/features/door/offline/device';
@@ -196,6 +196,9 @@ function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
 /** Everything an add moves except the event's own guest list. */
 function invalidateAddDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+  // "Added by" per member and the per-tier registered counts move on every add;
+  // the stats poll only runs while the event is live (review #493).
+  void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
   void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
 }
@@ -205,16 +208,22 @@ function invalidateAddDerived(qc: QueryClient, eventId: string): void {
  * single-row read (with its "added by" / source provenance) instead of
  * re-downloading the whole event (Snelheid P2, finding 14). Newest first, like
  * usePoGuests orders the list. Returns false when it couldn't (no client id, a
- * failed read, a row RLS doesn't show): the caller falls back to the refetch.
+ * failed read, a row RLS doesn't show) or shouldn't: a list read in flight
+ * (setQueryData doesn't cancel it, and it may land without the new row). The
+ * caller then falls back to the refetch; it also skips the patch when there was
+ * no list to patch before the optimistic row (review #493).
  */
 async function patchAddedGuest(qc: QueryClient, eventId: string, guestId: string | undefined): Promise<boolean> {
   if (!guestId) return false;
+  const key = poKeys.guests(eventId);
+  const listIsPatchable = () => qc.getQueryData<Guest[]>(key) !== undefined && qc.isFetching({ queryKey: key }) === 0;
+  if (!listIsPatchable()) return false;
   try {
     const [row] = await fetchGuests(createClient(), eventId, { guestId });
-    if (!row) return false;
-    const tier = qc.getQueryData<Tier[]>(poKeys.tiers(eventId))?.find((t) => t.id === row.tier_id);
-    const guest = toPoGuest(row, { role: tierRole(tier?.name ?? '').role, tierName: tier?.name, tierColor: tier?.color });
-    qc.setQueryData<Guest[]>(poKeys.guests(eventId), (old) => [guest, ...(old ?? []).filter((g) => g.id !== guestId)]);
+    // Re-check after the await: a refetch may have started meanwhile.
+    if (!row || !listIsPatchable()) return false;
+    const guest = toPoGuestWithTiers(row, qc.getQueryData<Tier[]>(poKeys.tiers(eventId)) ?? []);
+    qc.setQueryData<Guest[]>(key, (old) => [guest, ...(old ?? []).filter((g) => g.id !== guestId)]);
     return true;
   } catch {
     return false;
@@ -254,12 +263,20 @@ export function usePoAddGuest(eventId: string) {
     // Reconcile with the server (real row, role, provenance): the one new row,
     // not the whole list; the derived counts refetch. Our own key-invalidation,
     // never Next's revalidatePath (that won't touch the client React Query
-    // cache the po surface reads from).
-    onSuccess: async (_res, input) => {
+    // cache the po surface reads from). Not awaited: the insert already
+    // succeeded and the row is on screen, so the mutation (and quick-add's form
+    // reset) must not wait for the patch read (review #493).
+    onSuccess: (_res, input, ctx) => {
       invalidateAddDerived(qc, eventId);
-      if (!(await patchAddedGuest(qc, eventId, input.id))) {
+      // No list before onMutate: the cache now holds only the optimistic row,
+      // which must not pass for the whole event — refetch instead.
+      if (!ctx?.prev) {
         void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+        return;
       }
+      void patchAddedGuest(qc, eventId, input.id).then((ok) => {
+        if (!ok) void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      });
     },
   });
 }
@@ -290,6 +307,7 @@ function guestMutation<TInput>(
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
       void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
       for (const key of extraKeys) {
         void qc.invalidateQueries({ queryKey: key as unknown[] });

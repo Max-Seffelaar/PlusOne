@@ -46,7 +46,9 @@ const requestId = (e, k) => `fe0a3000-0000-7000-8000-${hex12('f', e * 2 + k)}`;
 const guestId = (e, i) => `fe0a3000-0000-7000-8000-${hex12('a', e * GUESTS_PER_EVENT + i)}`;
 
 function assertLocal() {
-  if (!/127\.0\.0\.1|localhost/.test(SUPABASE_URL)) {
+  // The parsed host, not a substring: `https://<ref>.supabase.co/?localhost` must
+  // not pass (there is no staging, and the prod key lives on Max's machine).
+  if (!['127.0.0.1', 'localhost'].includes(new URL(SUPABASE_URL).hostname)) {
     throw new Error(`p2-seed refuses a non-local Supabase URL (${SUPABASE_URL}) — local stack only.`);
   }
   if (!SERVICE_ROLE_KEY || !ANON_KEY) throw new Error('missing Supabase keys — run with node --env-file=.env.local');

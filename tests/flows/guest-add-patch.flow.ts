@@ -78,7 +78,14 @@ test('guest add patches one row; an upcoming event\'s stats do not poll', async 
   await page.waitForLoadState('networkidle').catch(() => {});
   await flow.shot('list-after-add');
   await flow.check(2, 'The new guest is on the list with the server\'s provenance ("Added by …")', async () => {
-    await expect(page.getByText(/Added by/).first()).toBeVisible();
+    // Scoped to the new guest's row: an element holding the new name and
+    // "Added by" but not the seeded guest (which already carries added_by), so
+    // an unpatched optimistic row can't pass on the fixture's caption (review #493).
+    const newRow = page.locator('div, li, a, button')
+      .filter({ hasText: name })
+      .filter({ hasText: /Added by/ })
+      .filter({ hasNotText: 'Patch Existing' });
+    await expect(newRow.filter({ visible: true }).first()).toBeVisible();
   });
   await flow.check(3, 'The add read ONE row (guests?id=eq.…) and never re-downloaded the event\'s list', async () => {
     const guestReads = rest.filter((u) => u.includes('/rest/v1/guests?') && u.includes(`event_id=eq.${EVENT}`));

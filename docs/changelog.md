@@ -31,7 +31,14 @@ Milestone **≥5**. Branch `claude/z8uq9m2xz2-minor`. No migration.
 - **Stats poll only when live:** `EventView` passed `isLive` unconditionally, so an upcoming event's detail polled the 5-RPC stats bundle every 15 s; it now passes `ev.phase === 'live'`.
 - **Own organizer scope (P1-review follow-up):** `assignOrganizer` / `removeOrganizer` re-render the `/app` layout when the target is the caller (`revalidateOwnCrewScope`), so the venue switcher's crew access set follows; `no-dead-revalidate-path.test.ts` allows exactly that one call in `src/features/events`. `inviteExternalCrew` only creates an invite (a company never inserts a crew row, #24), so it cannot change the caller's scope and gets no call.
 - **Not done:** bulk-paste contact matching in one RPC needs a new SQL function, i.e. a migration slot this work stream was not assigned (only `20261017120200`/`120300`); left for a follow-up.
-- **Tests:** `guest-add-patch.test.tsx` (one-row patch, newest first, fallback; tiers reused); `no-dead-revalidate-path.test.ts`; flow `guest-add-patch` (4 checks × 4 variants).
+- **Review round:**
+  - **Patch guards.** The patch is skipped, and the list refetched, when there was no list before the optimistic row, or when a list read is in flight before or after the row read: `setQueryData` doesn't cancel that read.
+  - **Non-blocking `onSuccess`.** The mutation no longer waits for the patch read, so quick-add's form resets at once.
+  - **Stats.** `invalidateAddDerived` and `guestMutation` invalidate `poKeys.eventStats`, so an upcoming event's panel follows its own writes without the poll.
+  - **One adapter.** `toPoGuestWithTiers` in `adapters.ts` is used by both `usePoGuests` and the patch.
+  - **`assignOrganizer`.** It revalidates its own scope even when the quota save fails, since the organizer row is already in.
+  - **Flow.** Q2 is scoped to the new guest's row.
+- **Tests:** `guest-add-patch.test.tsx` (one-row patch, newest first, fallback; tiers reused; empty cache, in-flight read, non-blocking success, eventStats); `no-dead-revalidate-path.test.ts`; flow `guest-add-patch` (4 checks × 4 variants).
 
 ---
 

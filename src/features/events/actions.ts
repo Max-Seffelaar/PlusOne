@@ -530,8 +530,6 @@ async function upsertCrewQuota(supabase: ServerClient, eventId: string, userId: 
     .upsert({ event_id: eventId, user_id: userId, quota_override: quota }, { onConflict: 'event_id,user_id' });
 }
 
-/** Add an existing (external) user as crew of an event, with an optional guest
- *  quota (admin — RLS; role-only since the #20 refinement 2026-06-24). */
 /**
  * The `/app` layout derives the caller's crew access set (`organizerVenues`:
  * which companies they reach through event crew). po invalidates its own React
@@ -545,6 +543,8 @@ function revalidateOwnCrewScope(targetUserId: string, callerId: string): void {
   if (targetUserId === callerId) revalidatePath('/app', 'layout');
 }
 
+/** Add an existing (external) user as crew of an event, with an optional guest
+ *  quota (admin — RLS; role-only since the #20 refinement 2026-06-24). */
 export async function assignOrganizer(input: AssignOrganizerInput): Promise<ActionResult> {
   const parsed = assignOrganizerSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
@@ -572,7 +572,11 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   }
   if (quota !== undefined) {
     const { error: qErr } = await upsertCrewQuota(supabase, eventId, userId, quota);
-    if (qErr) return mapMutationError(qErr);
+    if (qErr) {
+      // The organizer row is already in: the caller's scope changed either way.
+      revalidateOwnCrewScope(userId, ctx.user.id);
+      return mapMutationError(qErr);
+    }
   }
   revalidateOwnCrewScope(userId, ctx.user.id);
   return { ok: true };

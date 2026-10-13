@@ -103,6 +103,7 @@ import {
 import {
   toPoEvent,
   toPoGuest,
+  toPoGuestWithTiers,
   toPoTier,
   type HomeEvent,
   toPoContact,
@@ -688,18 +689,15 @@ export function usePoGuests(eventId: string, options?: { refetchInterval?: numbe
       // The tier names/colours come from the event's tiers query (Snelheid P2,
       // finding 14): the screens that list guests mount usePoTiers too, so a
       // fresh copy is reused instead of reading guest_tiers a second time.
+      // Note: fetchPoTiers is the tiers-WITH-usage read (guest_tiers + the
+      // occupancy aggregate RPC), so on a cold tiers cache the list runs that
+      // GROUP BY too and errors if it fails. Accepted: every screen that lists
+      // guests mounts usePoTiers anyway, and one key must hold one shape.
       const [guests, tiers] = await Promise.all([
         fetchGuests(createClient(), eventId),
         qc.fetchQuery({ queryKey: poKeys.tiers(eventId), queryFn: () => fetchPoTiers(eventId), staleTime: 30_000 }),
       ]);
-      const tierById = new Map(tiers.map((t) => [t.id, t]));
-      return sortGuestsNewestFirst(guests).map((g) =>
-        toPoGuest(g, {
-          role: tierRole(tierById.get(g.tier_id)?.name ?? '').role,
-          tierName: tierById.get(g.tier_id)?.name,
-          tierColor: tierById.get(g.tier_id)?.color ?? undefined,
-        }),
-      );
+      return sortGuestsNewestFirst(guests).map((g) => toPoGuestWithTiers(g, tiers));
     },
   });
 }
