@@ -43,7 +43,7 @@ export async function adminListSessions(targetUserId: string): Promise<SessionRo
     updatedAt: s.updated_at,
     notAfter: s.not_after,
     userAgent: s.user_agent,
-    // Null since 20261016130000: a member's IP and MFA level stay with them.
+    // The RPC has no ip/aal since 20261016170000: a member's IP and MFA level stay with them.
     ip: null,
     aal: null,
     isCurrent: false,

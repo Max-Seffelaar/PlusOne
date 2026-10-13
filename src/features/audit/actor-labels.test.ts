@@ -166,14 +166,13 @@ describe('fetchActorLabels', () => {
     expect(rpcCalls).toEqual([]);
   });
 
-  it('falls back to the RLS profile read only while the RPC is not deployed (PGRST202)', async () => {
+  it('throws a missing RPC too: the PGRST202 user_profiles fallback is gone (contract step)', async () => {
     const { client, profileReads } = fakeClient({
       rpcError: { code: 'PGRST202' },
       profiles: [{ id: 'u1', full_name: 'Tom Bakker' }],
     });
-    const labels = await fetchActorLabels(client, 'v1', ['u1', 'u2']);
-    expect(profileReads).toEqual([['u1', 'u2']]);
-    expect(Object.fromEntries(labels)).toEqual({ 'u1': 'Tom Bakker' });
+    await expect(fetchActorLabels(client, 'v1', ['u1', 'u2'])).rejects.toMatchObject({ code: 'PGRST202' });
+    expect(profileReads).toEqual([]);
   });
 
   it('throws any other RPC error (no silent widening, no silent blank)', async () => {

@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Kit Select: PlusOne dropdown (z8uq9m4a2w)
+
+Milestone **Now** (polish, golf F 7c). No migration.
+
+- **Why:** the kit `Select` was a native `<select>`; the OS drew the list (white on Windows, wheel on iPhone, dialog on Android). #463 only made the options readable.
+- **What:** `Select` in `src/components/po/kit.tsx` is now a select-only combobox with the same API (value, onChange, options, placeholder, ariaLabel, icon, className), so the call sites (platform mail log ×5, access log, audit, bulk paste ×2) are untouched. Density is read once on open with the `datetime-field` query (`(min-width: 1024px) and (pointer: fine)`): a popover right under the field with a fine pointer (36px rows), a bottom sheet everywhere else (max 560px, 44px rows, field label as title, Cancel, backdrop, safe-area padding), portalled to `<body>`. Selected row: `bg-acc-dim`, lavender text, check. Focus stays on the trigger (`aria-activedescendant`); ↑↓ Home End PgUp PgDn, Enter/Space, Esc/Tab, type-ahead. The Android back button closes the sheet (`useNativeBackIntercept`).
+- **Decision, touch:** a sheet, not the native picker. The native list differs per device and never shows the accent row, and the longest lists (companies on the Platform screens) scroll better as 44px rows than on a wheel.
+- **Gotcha (found by the flow):** `.po-screen-anim` leaves an identity `transform` on the screen column after its entrance, which makes that column the containing block for `position: fixed`. An in-tree sheet stopped 73.5px above the viewport edge on a phone (above the tab bar, with the tab bar undimmed). Hence the portal. The kit InfoTip has the same latent issue (its 80px tab-bar padding is dead space on a phone); left as is, outside this task's scope.
+- **Kit-input error API** (agreed with z8uq9m5eb7, field errors): optional `invalid` (`aria-invalid` + `fieldErrorBorder` while closed), `describedBy` (`aria-describedby`) and `id`, all on the trigger. No call site uses them yet.
+- **New string:** `shared.kit.selectCancel` = "Cancel".
+- **Tests:** `kit.select.test.tsx` (14: the error API, aria wiring, click/keyboard pick, no onChange on the same value, Escape does not bubble, type-ahead + cycling, outside tap / Cancel / Android back, portalled sheet vs in-tree popover by matchMedia, a tap inside either panel is not an outside tap). Flow `kit-select` (Q1–Q12) on Platform → Audit and Mail log. `share` and `mail-status` flows pick through the new `pickKitOption` harness helper, since `selectOption` only works on a native select. `design-system.md` gets the Dropdown rule.
+
+---
+
 ## 2026-10-12 — Snelheid P2 #6: Regulars + address book server-side (z8uq9m2xz2, 9-FE)
 
 Milestone **≥5** (perf audit finding 6). Branch `claude/z8uq9m2xz2-regulars-rpc`. Migration `20261017120200_contact_event_counts`.
@@ -16,6 +30,33 @@ Milestone **≥5** (perf audit finding 6). Branch `claude/z8uq9m2xz2-regulars-rp
 - **Fix:** `contact_event_counts(p_venue_id, p_permanent_only)` — one GROUP BY, SECURITY INVOKER (role-relative through guests/contacts RLS), venue-scoped in SQL, explicit execute grant matrix. `fetchContacts` takes a scope (`{ search, permanentOnly }`) instead of a new fetcher; rows and counts run in parallel. `usePoPermanentContacts` has its own key under the `['po','contacts',venueId]` prefix, so every contacts write still refreshes it.
 - **Measured** (`scripts/perf/p2-measure-contacts.mjs` on the `p2-seed.mjs` venue, admin through RLS, median of 5): Regulars 29 → 2 requests, 838 → 59 kB, 574 → 76 ms; address book 29 → 6 requests, 838 → 595 kB, 549 → 309 ms.
 - **Tests:** pgTAP `contact_event_counts.test.sql` (15: invoker, grants, admin = superuser truth, distinct events, removed rows, permanent-only, organizer and staff = their own direct RLS read, cross-venue, anon); `queries.test.ts` pins one RPC and no `.in()`; flow `guests-regulars` (6 checks × 4 variants).
+
+---
+
+## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
+
+Milestone **Now** (ADE). Request Max 2026-10-12 ("guest_info in templates"). Spec #63(e) revised. Migration `20261016180000_template_guest_texts.sql` (after main's `20261016120000`…`170000`; re-slotted from `…130000` and `…160000` as main moved).
+
+- **DB:** `event_templates.house_rules` / `guest_info`, nullable, the same CHECKs as `events` (`events_house_rules_len`, `events_guest_info_check`). `create_template_from_event` copies both, `create_event_from_template` puts both on the new event; bodies are `20261007135000` plus the two columns (SECURITY DEFINER, `search_path ''`, role checks and grants unchanged). No RLS/grant change: `event_templates` has table-level grants only.
+- **App:** template create/update actions + schemas take both texts; `fetchTemplates`/`fetchTemplate` read them. The template editor shows the same "For your guests" block (`EventGuestTextFields`, new `note` prop). The event form prefills both from a picked template, like location (`locBaseline`), so the follow-up write after a template create writes the template's texts, not empty ones; a prefilled text is not "dirty".
+- **Tests:** pgTAP `template_guest_texts.test.sql` (24: columns + CHECKs equal to events, copy both ways, NULL stays NULL, organizer allowed on their own venue's event, staff/organizer/anon denied, cross-tenant RLS 0 rows on a venue-2 template, a venue-1 organizer can't template a venue-2 event, function hygiene). Flow `guest-info` Q11–Q12 (Save as template keeps both → new event from it starts with and saves both).
+- Deliberate: an event-scoped organizer can write the guest texts on the company's templates (RLS `organizes_event_at_venue`), the same trust as template location; the admin sees the prefilled text before saving.
+- **Deploy order:** Max pushes `20261016180000` right after the merge; between deploy and push the Templates screen, template editor and the event form's template picker error (no shim, same as `20261007135000`).
+- `contact_email` stays per event (out of scope).
+
+---
+
+## 2026-10-12 — Privacy train landed (#477) + contract step
+
+Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train landed on prod in one merge: train PR #477 carried #460 (column-level SELECT on `user_profiles`), #461 (definer stats + session RPCs inside the profile boundary, spec #64b), #464 (venue present/added), #466 (one who-did-what label, `venue_actor_names`, spec #64a), #469 (quota grants only for people tied to the company), #470 (readable audit lines), #474 (DateField flake + 44px calendar on touch) and #471 (dev scripts take the container from the checkout's config). #459 (the expand step) went first on its own. One `db push` after the Vercel prod deploy of #477 was Ready. Spec numbers moved because main took #62 (door payments) and #63 (guest info): ours is **#64**.
+
+- **Rehearsal 4** (main + the complete train, isolated `PlusOne_Train` stack, fresh reset): pgTAP 115 files / 3267 assertions PASS; vitest 3923 pass with only the 11 known Windows-only failures; type-check and lint clean.
+- **Prod checks after the push** (catalog only): head `20261016150000`; `authenticated` has no table-level SELECT on `user_profiles`, only `id`, `full_name`, `email`, `has_joined`; `my_profile()`, `venue_actor_names`, the reserved-name CHECK, both quota tie policies and both key-immutability triggers present; no app-readable view without `security_invoker`; no Vercel runtime errors.
+- **Reviews:** Max accepted the independent subagent fresh reviews as the CLAUDE.md fresh-session `/code-review` + `/security-review` gate for this train.
+- **Contract step (this PR):** `20261016170000_admin_sessions_drop_ip_aal` drops and recreates `admin_list_user_sessions` without the always-null `ip`/`aal` columns (`list_own_sessions` keeps both); `fetchActorLabels` loses its PGRST202 `user_profiles` fallback now that `venue_actor_names` is on prod. pgTAP `definer_profile_scope` C2/C3 now assert the columns are absent. Same rehearsal stack: pgTAP 115 files / 3267 assertions PASS.
+- **Left:** #467's hard-coded location strings in `translate.ts` could move into the i18n catalogue (not Now).
+
+---
 
 ## 2026-10-12 — Fase 14 door payments: office-hours + CEO review, approach C (86exxuuu7)
 
