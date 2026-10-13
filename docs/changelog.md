@@ -118,6 +118,16 @@ Milestone **≥5**. Branch `claude/z8uq9m2xz2-minor`. No migration.
   - **Flow.** Q2 is scoped to the new guest's row.
 - **Tests:** `guest-add-patch.test.tsx` (one-row patch, newest first, fallback; tiers reused; empty cache, in-flight read, non-blocking success, eventStats); `no-dead-revalidate-path.test.ts`; flow `guest-add-patch` (4 checks × 4 variants).
 
+## 2026-10-12 — Snelheid P2 #5: requests list without id lists (z8uq9m2xz2, 9-FE)
+
+Milestone **≥5** (perf audit finding 5, list half; the badge was P1). Branch `claude/z8uq9m2xz2-requests-list`. No migration.
+
+- **What broke at scale:** `fetchGuestRequests` read every pending/denied/auto row in one unranged call (silently capped at 1 000), then `request_links.in('id', <every link id>)`: on a 300-event venue the URL is 11.8 kB and the read fails with HTTP 414, taking Home's request tiles and the Requests inbox down with it.
+- **Fix:** the "via" labels come from the venue-scoped `fetchVenueRequestLinks`, through the same React Query key the inbox's link filter and Home's empty card already read (`fetchQuery`, 60 s fresh), when a request row references a link (a role that sees no requests pays for no links read). The read is ranged. That base read now carries archived links too (flagged), so a request keeps its label after its link is archived; `usePoVenueLinks` drops them with `select`. More's Requests row uses the pending head count (`usePoOpenRequestCount`, the badge's key) instead of the full list.
+- **Measured** (`scripts/perf/p2-measure-requests.mjs`, `p2-seed.mjs` venue, admin through RLS): before 2 requests then **414 URI too long** (11 801-char URL); after 3 requests, longest URL 444 chars, all 600 rows, ~59 ms.
+- **Review round (2026-10-13):** the 7-day window on declined / auto-approved history is taken out again: it changed spec #12/#43/#48 without a decision (and made Home's "no requests yet" card and the all-history decision counts disagree with the list). The history stays complete until Max decides; the 414 fix (no id list, ranged read) stays. Links are read only when a row references one.
+- **Tests:** `guest-requests.query.test.ts` (no `.in()`, archived/default/unknown labels, server order, no links read without link refs); flow `requests-list` (6 checks × 4 variants; Q3 now asserts a month-old declined request still shows with its label).
+
 ---
 
 ## 2026-10-12 — Templates keep house rules + info for guests (z8uq9m4pnk, follow-up of z8uq9m4a5n)
