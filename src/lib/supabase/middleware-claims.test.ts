@@ -13,6 +13,8 @@ const USER = { id: '0199a000-0000-7000-8000-000000000001', email: 'staff@venue.t
 
 type Calls = { jwks: number; user: number; token: number };
 let calls: Calls;
+// Any URL the fake GoTrue does not serve (e.g. a `jku` an attacker points at).
+let unexpected: string[];
 let jwksStatus: number;
 let userStatus: number;
 let signingKey: CryptoKeyPair;
@@ -26,11 +28,12 @@ const b64url = (bytes: Uint8Array | string): string =>
   Buffer.from(typeof bytes === 'string' ? bytes : bytes).toString('base64url');
 
 async function sign(
-  header: Record<string, unknown>,
+  header: Record<string, unknown> | string,
   payload: Record<string, unknown>,
   key: CryptoKey | null
 ): Promise<string> {
-  const head = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  const rawHeader = typeof header === 'string' ? header : JSON.stringify(header);
+  const head = `${b64url(rawHeader)}.${b64url(JSON.stringify(payload))}`;
   if (!key) return `${head}.${b64url('not-a-signature')}`;
   const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(head));
   return `${head}.${b64url(new Uint8Array(sig))}`;
@@ -76,6 +79,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   calls = { jwks: 0, user: 0, token: 0 };
+  unexpected = [];
   jwksStatus = 200;
   userStatus = 200;
   projectUrl = `https://proj${String(++urlSeq).padStart(4, '0')}abcdefgh.supabase.co`;
@@ -103,6 +107,7 @@ beforeEach(() => {
         calls.token++;
         return json(400, { code: 'refresh_token_not_found', message: 'Invalid Refresh Token' });
       }
+      unexpected.push(url.href);
       throw new Error(`unexpected fetch ${url.href}`);
     })
   );
@@ -227,5 +232,52 @@ describe('resolveMiddlewareUser — symmetric token (local stack): exactly as be
     const res = await run(null);
     expect(res.user).toBeNull();
     expect(calls).toEqual({ jwks: 0, user: 0, token: 0 });
+  });
+});
+
+// Forged-token cases from the fresh-session review of #483: every one must end
+// with no user unless GoTrue itself vouches, and never fetch anything but the
+// project's own JWKS / GoTrue.
+describe('resolveMiddlewareUser — forged tokens never fail open', () => {
+  afterEach(() => expect(unexpected).toEqual([]));
+
+  it('unknown kid, GoTrue rejects → no user, ONE GoTrue call (auth-js already asked)', async () => {
+    userStatus = 401;
+    const token = await sign({ alg: 'ES256', typ: 'JWT', kid: 'attacker-kid' }, claims(), otherKey.privateKey);
+    const res = await run(sessionCookie(token));
+    expect(res.user).toBeNull();
+    expect(calls.user).toBe(1);
+  });
+
+  it('unknown kid (e.g. a key just rotated out), GoTrue accepts → user, still one call', async () => {
+    const token = await sign({ alg: 'ES256', typ: 'JWT', kid: 'rotated-kid' }, claims(), signingKey.privateKey);
+    const res = await run(sessionCookie(token));
+    expect(res.user).toEqual(USER);
+    expect(calls.user).toBe(1);
+  });
+
+  it.each([
+    ['alg none + a known kid', { alg: 'none', typ: 'JWT', kid: KID }],
+    ['RS256 header over the EC key', { alg: 'RS256', typ: 'JWT', kid: KID }],
+    ['lowercase hs256 + kid', { alg: 'hs256', typ: 'JWT', kid: KID }],
+    ['jku pointing at an attacker JWKS', { alg: 'ES256', typ: 'JWT', kid: KID, jku: 'https://attacker.example/jwks.json' }],
+  ])('%s → no user', async (_l, header) => {
+    userStatus = 401;
+    const res = await run(sessionCookie(await sign(header, claims(), otherKey.privateKey)));
+    expect(res.user).toBeNull();
+  });
+
+  it('duplicate "alg" key (last one wins for both parsers) → no user', async () => {
+    userStatus = 401;
+    const header = `{"alg":"ES256","alg":"HS256","typ":"JWT","kid":"${KID}"}`;
+    const res = await run(sessionCookie(await sign(header, claims(), otherKey.privateKey)));
+    expect(res.user).toBeNull();
+  });
+
+  it('cookie says not expired, JWT exp is in the past → validateExp refuses, GoTrue decides', async () => {
+    userStatus = 401;
+    const res = await run(sessionCookie(await es256(claims(-60)), 3600));
+    expect(res.user).toBeNull();
+    expect(calls.token).toBe(0);
   });
 });

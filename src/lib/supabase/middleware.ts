@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { isAuthApiError } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
 import { AUTH_COOKIE_MAX_AGE } from './cookie-options';
 import { requiredServerEnv } from '../env';
@@ -59,10 +60,18 @@ async function userFromGoTrue(auth: AuthClient): Promise<MiddlewareUser | null> 
  * getSession() first runs the same cookie refresh getUser() used to trigger,
  * so token rotation is untouched. What the fast path does NOT see until the
  * token expires (≤ the JWT expiry): a revoked session (sign-out elsewhere,
- * remote logout), a revoked refresh token, a deleted or banned user. The same
- * token is already accepted by PostgREST and Realtime until `exp`, so a
- * middleware getUser() never closed that window; layouts, pages with server
- * data and every server action keep their own getUser().
+ * remote logout), a revoked refresh token, a deleted or banned user — and a
+ * signing key revoked in the dashboard keeps verifying for up to the JWKS TTL
+ * (10 min) on a warm instance. The same token is already accepted by PostgREST
+ * and Realtime until `exp`, so a middleware getUser() never closed that window.
+ * Pages with server data and every server action keep their own getUser(); the
+ * /app layout refuses such a token on the next DOCUMENT load only — an in-app
+ * (soft) navigation does not re-render the layout, so the shell keeps working
+ * until `exp` (its page segment serves no data).
+ *
+ * An unknown `kid` makes auth-js ask GoTrue itself (getUser(token)); when
+ * GoTrue already answered with an API error we take that answer instead of
+ * asking a second time.
  */
 export async function resolveMiddlewareUser(auth: AuthClient, { strict = false }: { strict?: boolean } = {}): Promise<MiddlewareUser | null> {
   if (strict) return userFromGoTrue(auth);
@@ -77,6 +86,10 @@ export async function resolveMiddlewareUser(auth: AuthClient, { strict = false }
       const email = data.claims.email;
       return { id: sub, email: typeof email === 'string' ? email : undefined };
     }
+    // GoTrue already refused this token (unknown kid → auth-js asked it): same
+    // answer a second getUser() would give. A missing session (session_not_found)
+    // is not an AuthApiError, so it still takes the getUser() path below.
+    if (isAuthApiError(error)) return null;
   } catch {
     // Fall through to GoTrue: never fail open, never fail closed on a JWKS outage.
   }
@@ -92,8 +105,10 @@ export async function resolveMiddlewareUser(auth: AuthClient, { strict = false }
 // would bounce between /login and the /app layout's own getUser().
 //
 // When `checkMfa` is set and there is a user, it also computes the MFA gate
-// using the SAME authenticated client (the one getUser succeeds on), so the
-// role lookup runs as the signed-in user. Only done for protected routes, and
+// using the SAME authenticated client, so the role lookup runs as the signed-in
+// user. On the fast path no getUser() ran: getAuthenticatorAssuranceLevel()
+// then reads the AAL from the same locally verified JWT. (No caller passes
+// `checkMfa` today.) Only done for protected routes, and
 // the role lookup is skipped once the session is already AAL2.
 export async function updateSession(
   request: NextRequest,
