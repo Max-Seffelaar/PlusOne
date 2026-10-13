@@ -75,6 +75,10 @@ export const en = {
     profileSubOff: 'Off for this device.',
     profileBlocked: "Blocked in your phone's settings. Open Settings → Apps → PlusOne → Notifications to allow them.",
     profileError: 'Could not change notifications. Check your connection and try again.',
+    /** The native shell is still asking whether this build can push (z8uq9m5kuy). */
+    profileChecking: 'Checking this device…',
+    /** This build cannot push; `code` names the gate, for a support question. */
+    profileUnavailable: (code: string) => `Not available in this version of the app. Update PlusOne, then try again. (Code: ${code})`,
     /** "On" was saved, but FCM or the server did not answer yet; the app retries on
      *  every start. Toast after the ask card, error line in Profile. */
     onPending: "Turned on, but we couldn't register this device yet. It finishes the next time the app is online.",

@@ -8,6 +8,19 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-13 — Android push could not be turned on (z8uq9m5kuy)
+
+Milestone **Now** (Max's Android test 2026-10-13: no permission prompt after a clean install, nothing to turn on in Settings → Apps → PlusOne → Notifications, and no push option in the app). Draft PR, needs a **new Android build** for the native half.
+
+- **Ruled out, with evidence:** `POST_NOTIFICATIONS` is in `AndroidManifest.xml`; `com.google.gms.google-services` is applied when `android/app/google-services.json` exists (it is committed, package `app.plusone.guestlist`, and Codemagic's `REQUIRE_GOOGLE_SERVICES=true` fails a build without it); `PushConfigPlugin` is registered before `super.onCreate`; the `registration`/`registrationError` listeners are there; `requestPermissions()` is called from the ask card and the Profile toggle, and `isNativeShell()`/`getPlatform()` are right on Android (`window.androidBridge`). Prod has one Android FCM row in `push_tokens` (first seen 2026-10-08, aggregate only), so the pipeline works on at least one build. The missing launch prompt itself is by design (consent-first: ask card after 8 s, or the Profile toggle).
+- **The weak spot all three symptoms share:** every push surface hung off one web-side promise, `CapacitorPushProvider.ready()`. Only it created the notification channel, and only after the Firebase check (`PlusOnePushConfig.isConfigured()`) and a lazy plugin chunk. When that path does not complete, Android has no channel (the system screen lists nothing to turn on), `checkPermission()` answers `unsupported` or never answers, the ask card never shows and the Profile row rendered nothing — so a device test could not say which gate closed. Not reproduced on a device here (no Android SDK in the session); the fix removes the single point of failure and makes the next test name the gate.
+- **Native (`PushConfigPlugin.load()`):** creates the `approvals` channel at launch, in Java, independent of Firebase and the webview. Name/description come from `res/values/plusone_push.xml` and are pinned to `t.push.channelName`/`channelDescription` by `tests/unit/capacitor-native-shell.test.ts` (both sides write the same channel; the last write wins).
+- **Web (`capacitor-provider.ts`):** `isConfigured()` is capped at `CONFIG_TIMEOUT_MS` (5 s); a call that never answers is a retryable failure, not a frozen run. New `unsupportedReason()` on the provider seam (`not-native` / `no-firebase` / `ios-no-fcm` / `bridge-error`), diagnostics only.
+- **Profile (`push-settings-card.tsx`):** in the native shell the row no longer disappears: "Checking this device…" while the answer is out, and "Not available in this version of the app… (Code: …)" without a toggle when the build cannot push. The web still renders nothing; the role gate (`canReceivePush`: admin, staff or organizer here) is unchanged — a platform admin in a venue without a membership still sees no row.
+- **Tests:** vitest for the reasons, the never-answering config call (timeout + retry), the row's checking/unavailable states, and the native channel guard.
+
+---
+
 ## 2026-10-13 — Kit Select: PlusOne dropdown (z8uq9m4a2w)
 
 Milestone **Now** (polish, golf F 7c). No migration.

@@ -16,12 +16,16 @@
  *   says so; the next start online finishes it (and any owed account write).
  * - Blocked at OS level (Android denied twice): Android will not prompt again,
  *   so the row explains where to allow it instead of a toggle that does nothing.
+ * - Native shell that cannot push (z8uq9m5kuy): the row stays, without a toggle,
+ *   and says so with the gate's code. An empty Profile was indistinguishable from
+ *   "the setting is missing", so a device test could not say which gate closed.
+ *   On the web the row still renders nothing.
  */
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
-import { getNotificationProvider, type PushPermission } from '@/features/notifications/provider';
+import { getNotificationProvider, type PushPermission, type PushUnsupportedReason } from '@/features/notifications/provider';
 import { disablePush, enablePush, isPushOnHere } from '@/features/notifications/push-client';
 import { Icon } from './icon';
 import { Toggle } from './kit';
@@ -31,6 +35,8 @@ export function PushSettingsRow({ canReceive }: { canReceive: boolean }): JSX.El
   const [onHere, setOnHere] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState<PushUnsupportedReason | null>(null);
+  const native = getNotificationProvider().isSupported();
 
   const refresh = useCallback(() => {
     const provider = getNotificationProvider();
@@ -41,15 +47,36 @@ export function PushSettingsRow({ canReceive }: { canReceive: boolean }): JSX.El
     setOnHere(isPushOnHere());
     void provider
       .checkPermission()
-      .then(setPerm)
-      .catch(() => setPerm('unsupported'));
+      .then(async (next) => {
+        if (next === 'unsupported') setReason((await provider.unsupportedReason().catch(() => null)) ?? 'bridge-error');
+        setPerm(next);
+      })
+      .catch(() => {
+        setReason('bridge-error');
+        setPerm('unsupported');
+      });
   }, []);
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   // Same gate as the ask card: a role push v1 never targets gets no toggle.
-  if (!canReceive || perm === null || perm === 'unsupported') return null;
+  if (!canReceive || !native) return null;
+  if (perm === null || perm === 'unsupported') {
+    return (
+      <div className="flex items-start gap-[12px] border-b border-line2 py-[14px]" data-testid="push-row-unavailable">
+        <span className="mt-px text-faint">
+          <Icon name="bell" size={19} />
+        </span>
+        <div className="flex-1">
+          <div className="text-[14.5px] font-semibold text-text">{t.push.profileTitle}</div>
+          <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">
+            {perm === null ? t.push.profileChecking : t.push.profileUnavailable(reason ?? 'bridge-error')}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const on = perm === 'granted' && onHere;
   const blocked = perm === 'denied';

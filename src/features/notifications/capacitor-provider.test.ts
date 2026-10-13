@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CapacitorPushProvider,
+  CONFIG_TIMEOUT_MS,
   INVALIDATE_TIMEOUT_MS,
   LAUNCH_TAP_TIMEOUT_MS,
   LISTEN_RETRY_MS,
@@ -76,7 +77,7 @@ function fakePush() {
 }
 
 let push: ReturnType<typeof fakePush>;
-let configured: boolean | 'reject';
+let configured: boolean | 'reject' | 'hang';
 let platform: string;
 /** What the config plugin's getLaunchTarget answers; 'missing' = an older shell (the proxy never settles). */
 let launch: { id?: string; data?: Record<string, unknown> } | 'missing' | 'reject';
@@ -95,6 +96,7 @@ function deps(): CapacitorPushDeps {
       const methods: Record<string, unknown> = {
         isConfigured: async () => {
           if (configured === 'reject') throw new Error('"PlusOnePushConfig" plugin is not implemented on android');
+          if (configured === 'hang') return new Promise<never>(() => undefined);
           return tokenTransport === undefined ? { configured } : { configured, tokenTransport };
         },
       };
@@ -162,6 +164,44 @@ describe('gates: never touch Firebase when this build cannot push', () => {
     await flush();
     expect(loadedPush).toBe(false);
     expect(invalidate).not.toHaveBeenCalled();
+  });
+});
+
+describe('unsupported reason + a config call that never answers (z8uq9m5kuy)', () => {
+  it.each([
+    ['web', 'web', true, 'not-native'],
+    ['Android without google-services.json', 'android', false, 'no-firebase'],
+    ['an iOS shell without the FCM flag', 'ios', true, 'ios-no-fcm'],
+    ['an older shell without the config plugin', 'android', 'reject', 'bridge-error'],
+  ] as const)('%s → %s', async (_label, plat, conf, reason) => {
+    platform = plat;
+    configured = conf;
+    const p = new CapacitorPushProvider(deps());
+    await expect(p.checkPermission()).resolves.toBe('unsupported');
+    await expect(p.unsupportedReason()).resolves.toBe(reason);
+  });
+
+  it('a configured Android build has no reason', async () => {
+    const p = new CapacitorPushProvider(deps());
+    await expect(p.checkPermission()).resolves.toBe('default');
+    await expect(p.unsupportedReason()).resolves.toBeNull();
+  });
+
+  it('isConfigured that never answers → unsupported after the timeout, never a hang, and the next call asks again', async () => {
+    vi.useFakeTimers();
+    configured = 'hang';
+    const p = new CapacitorPushProvider(deps());
+    const perm = p.checkPermission();
+    await vi.advanceTimersByTimeAsync(CONFIG_TIMEOUT_MS);
+    await expect(perm).resolves.toBe('unsupported');
+    const reason = p.unsupportedReason(); // asks again (a failure is not memoized) and times out again
+    await vi.advanceTimersByTimeAsync(CONFIG_TIMEOUT_MS);
+    await expect(reason).resolves.toBe('bridge-error');
+    expect(push.createChannel).not.toHaveBeenCalled();
+    // Not memoized: once the bridge answers, the same provider opens up.
+    configured = true;
+    await expect(p.checkPermission()).resolves.toBe('default');
+    expect(push.createChannel).toHaveBeenCalledTimes(1);
   });
 });
 
