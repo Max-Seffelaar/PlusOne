@@ -149,7 +149,7 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   await flow.shot('admin-approve-sheet-as-asked');
   await flow.check(15, 'The approve sheet opens at "as asked": +N spots, the guest\'s +N, Regular picked', async () => {
     await expect(summary).toHaveText(
-      `+${guestReq.requested_extra} of ${guestReq.requested_extra} spots · ${guestLabel} on Regular`,
+      `Spots: +${guestReq.requested_extra} of ${guestReq.requested_extra} · ${guestLabel} on Regular`,
     );
     await expect(page.getByTestId('quota-adjust-plus')).toContainText(String(plus));
   });
@@ -164,7 +164,7 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   await page.getByRole('button', { name: 'One plus-one less' }).click();
   await page.getByTestId('quota-adjust-tiers').getByRole('button').filter({ hasText: /^VIPNo max$/ }).click();
   await expect(summary).toHaveText(
-    `+${guestReq.requested_extra} of ${guestReq.requested_extra} spots · ${adjustedLabel} on VIP`,
+    `Spots: +${guestReq.requested_extra} of ${guestReq.requested_extra} · ${adjustedLabel} on VIP`,
   );
   await flow.shot('admin-approve-sheet-adjusted');
   // The card behind the sheet has the same label: click the sheet's own button.
@@ -208,7 +208,7 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   // Trim the quota-only request: 2 asked, 1 granted.
   await raisedCard.getByRole('button', { name: 'Approve +2' }).click();
   await page.getByRole('button', { name: 'One spot less' }).click();
-  await expect(page.getByTestId('quota-adjust-summary')).toHaveText('+1 of 2 spots');
+  await expect(page.getByTestId('quota-adjust-summary')).toHaveText('Spots: +1 of 2');
   await page.getByTestId('quota-adjust-summary').locator('..').getByRole('button', { name: 'Approve +1', exact: true }).click();
   await expect(raisedCard).toBeHidden();
   await flow.check(18, 'Database: the trimmed request raised the quota by 1, not 2', async () => {

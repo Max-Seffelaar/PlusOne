@@ -158,8 +158,8 @@ export const requests = {
   quotaPlusMore: 'One plus-one more',
   quotaTierQuestion: 'Which tier?',
   quotaTierGone: "The tier they picked is gone. Pick another one.",
-  quotaSummary: '+{extra} of {requested} spots',
-  quotaSummaryGuest: '+{extra} of {requested} spots · {guest} on {tier}',
+  quotaSummary: 'Spots: +{extra} of {requested}',
+  quotaSummaryGuest: 'Spots: +{extra} of {requested} · {guest} on {tier}',
   reasonLabel: 'Reason',
   // z8uq9m2vga: a landing decline's note goes to the guest (mail + status page).
   declineNoteLabel: 'Note to the guest',
