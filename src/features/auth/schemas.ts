@@ -7,6 +7,7 @@ import type { EmailOtpType } from '@supabase/supabase-js';
 import { VENUE_ROLES } from './roles';
 import { t } from '@/lib/i18n';
 import { hasInvisibleChars, isBlankOrReservedName, stripRefusedInvisible } from './profile-name';
+import { normalizeImportPhone } from '@/features/contacts/import/parse';
 
 export { isReservedProfileName } from './profile-name';
 
@@ -125,14 +126,17 @@ export const profileNameSchema = z.object({
 // Profile is global to the user (decision #24): first/last name + phone. full_name
 // is kept as a display mirror, maintained by the action from first + last.
 export const profileSchema = z.object({
-  firstName: z.preprocess(stripInvisible, z.string().trim().min(1, 'Enter your first name').max(80, 'Too long')),
-  lastName: z.preprocess(stripInvisible, z.string().trim().min(1, 'Enter your last name').max(120, 'Too long')),
+  firstName: z.preprocess(stripInvisible, z.string().trim().min(1, t.settings.profile.firstNameRequired).max(80, 'Too long')),
+  lastName: z.preprocess(stripInvisible, z.string().trim().min(1, t.settings.profile.lastNameRequired).max(120, 'Too long')),
+  // Empty = no phone. Otherwise it has to normalise to E.164 through the one
+  // phone normaliser the app has (normalizeImportPhone, z8uq9m5m8g); the form
+  // checks the full numbering plan first (the phone input's isPhoneValid).
   phone: z
     .string()
     .trim()
     .max(40, 'Too long')
     .transform((v) => (v === '' ? null : v))
-    .refine((v) => v === null || /^[+0-9 ()-]{6,40}$/.test(v), 'Invalid phone number'),
+    .refine((v) => v === null || normalizeImportPhone(v) !== undefined, t.guests.contacts.phoneInvalid),
 })
   // The actions store full_name = `${firstName} ${lastName}` — that combination
   // must not be a reserved label either ("PlusOne" + "support"), nor carry an

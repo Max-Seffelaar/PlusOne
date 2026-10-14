@@ -34,7 +34,7 @@ import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, FieldErrorFor, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, copyStateLabel, fieldInputProps, hitArea44, hitRingY4, hitRingY6, press, cardPress, useCopyText, useFieldErrors } from '../../kit';
 import { Sheet } from '../../shell';
 import { CreateLinkFlow } from './create-link-flow';
-import { EventPicker, LINK_FORM_FIELDS, expiryField, linkFormField, soonestUpcoming } from './shared';
+import { EventPicker, LINK_FORM_FIELDS, expiryField, linkFormField, parseMaxHeads, soonestUpcoming } from './shared';
 
 const col = 'flex h-full flex-col';
 
@@ -426,8 +426,13 @@ export function LinkSheet({
       }
     }
 
-    const maxNum = Number.parseInt(maxHeads, 10);
-    const maxVal = Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null;
+    // Max people: empty = no max; 0 or anything outside 1..100 000 is refused.
+    const maxParsed = parseMaxHeads(maxHeads);
+    if (!maxParsed.ok) {
+      fe.fail(t.links.errMaxHeadsRange, 'maxHeads');
+      return;
+    }
+    const maxVal = maxParsed.value;
 
     try {
       // "+ New" creates the influencer first, then attaches the link to it.

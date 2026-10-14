@@ -12,7 +12,7 @@ import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
 import { Avatar, Btn, Empty, Field, FieldErrorFor, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, fieldInputProps, hitRingY13, openExternal, press, useFieldErrors } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
-import { PhoneField, phoneCountryOf, type CountryCode } from '../../phone-lazy';
+import { PhoneField, isPhoneValid, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { useIsDemoAccount } from '../../app-shell-data';
 import { PushSettingsRow } from '../../push-settings-card';
 import { canReceivePush } from '../../push-client';
@@ -224,7 +224,23 @@ export function Profile(): JSX.Element {
   }
 
   const nameChanged = firstName !== p.firstName || lastName !== p.lastName || (phone ?? '') !== p.phone;
-  const profileValid = firstName.trim() !== '' && lastName.trim() !== '';
+  // Save stays on with an emptied name (Max, 2026-10-14): the check says what
+  // is missing under the field instead of a button that silently does nothing.
+  const saveProfile = async (): Promise<void> => {
+    pf.reset();
+    const missing: Record<string, string> = {};
+    if (firstName.trim() === '') missing.firstName = t.settings.profile.firstNameRequired;
+    if (lastName.trim() === '') missing.lastName = t.settings.profile.lastNameRequired;
+    // Only a number the user is changing: a stored one that predates this check
+    // never blocks a name fix (the server still checks its E.164 shape).
+    if (phone && phone !== p.phone && !(await isPhoneValid(phone))) missing.phone = t.guests.contacts.phoneInvalid;
+    const first = (['firstName', 'lastName', 'phone'] as const).find((f) => missing[f]);
+    if (first) return pf.fail(missing[first], first, missing);
+    updateProfile.mutate(
+      { firstName: firstName.trim(), lastName: lastName.trim(), phone: phone ?? '' },
+      { onError: (e) => pf.failWith(e, t.settings.common.formError) },
+    );
+  };
   const emailChanged = email.trim().toLowerCase() !== p.email.toLowerCase();
   const sessions = sessionsQ.data ?? [];
   const current = sessions.find((s) => s.current) ?? null;
@@ -432,15 +448,9 @@ export function Profile(): JSX.Element {
           kind="primary"
           full
           icon="check"
-          disabled={!nameChanged || !profileValid || updateProfile.isPending}
-          className={!nameChanged || !profileValid ? 'opacity-[0.45]' : ''}
-          onClick={() => {
-            pf.reset();
-            updateProfile.mutate(
-              { firstName: firstName.trim(), lastName: lastName.trim(), phone: phone ?? '' },
-              { onError: (e) => pf.failWith(e, t.settings.common.formError) },
-            );
-          }}
+          disabled={!nameChanged || updateProfile.isPending}
+          className={!nameChanged ? 'opacity-[0.45]' : ''}
+          onClick={() => void saveProfile()}
         >
           {updateProfile.isPending ? t.settings.profile.saving : t.settings.profile.save}
         </Btn>

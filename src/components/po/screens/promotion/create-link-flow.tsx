@@ -21,7 +21,7 @@ import { localInputToIso } from '@/features/events/datetime';
 import { Icon } from '../../icon';
 import { Btn, Field, FieldErrorFor, Label, TierPicker, ToggleRow, copyStateLabel, fieldInputProps, press, useCopyText, useFieldErrors } from '../../kit';
 import { Sheet } from '../../shell';
-import { EventPicker, Kicker, LINK_FORM_FIELDS, expiryField, linkFormField } from './shared';
+import { EventPicker, Kicker, LINK_FORM_FIELDS, expiryField, linkFormField, parseMaxHeads } from './shared';
 
 type WhoKind = 'influencer' | 'new' | 'label' | null;
 
@@ -97,8 +97,8 @@ export function CreateLinkFlow({
   const influencers = influencersQ.data ?? [];
   const tier = tiers.find((x) => x.id === tierId) ?? null;
   const busy = createLink.isPending || createInf.isPending;
-  const maxNum = Number.parseInt(maxHeads, 10);
-  const maxVal = Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null;
+  const maxParsed = parseMaxHeads(maxHeads);
+  const maxVal = maxParsed.ok ? maxParsed.value : null;
 
   // Switching events resets everything tier/identity-related below it — a
   // tier id from the old event is meaningless (or worse, silently wrong) on
@@ -162,6 +162,12 @@ export function CreateLinkFlow({
         fe.fail(t.links.errExpiry, expiryField(expiryDate, expiryTime));
         return;
       }
+    }
+
+    // Max people: empty = no max; 0 or anything outside 1..100 000 is refused.
+    if (!maxParsed.ok) {
+      fe.fail(t.links.errMaxHeadsRange, 'maxHeads');
+      return;
     }
 
     try {

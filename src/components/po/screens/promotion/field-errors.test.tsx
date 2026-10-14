@@ -85,6 +85,28 @@ describe('create-link flow', () => {
     expectFieldError(max, t.links.errMaxHeadsRange);
   });
 
+  // Max, testing #506: 0 used to mean "no max" and the link went live uncapped.
+  it('Max people 0: the range error under Max people, no link created', () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: t.links.chipLabelOnly }));
+    fireEvent.change(screen.getByPlaceholderText(t.links.labelPlaceholder), { target: { value: 'Insta' } });
+    const max = screen.getByPlaceholderText(t.links.maxHeadsPlaceholder);
+    fireEvent.change(max, { target: { value: '0' } });
+    create();
+    expectFieldError(max, t.links.errMaxHeadsRange);
+    expect(H.createLink).not.toHaveBeenCalled();
+  });
+
+  it('Max people empty still means no max', async () => {
+    H.createLink.mockResolvedValue({ id: 'l1', slug: 'insta-abc' });
+    open();
+    fireEvent.click(screen.getByRole('button', { name: t.links.chipLabelOnly }));
+    fireEvent.change(screen.getByPlaceholderText(t.links.labelPlaceholder), { target: { value: 'Insta' } });
+    create();
+    await waitFor(() => expect(H.createLink).toHaveBeenCalled());
+    expect(H.createLink.mock.calls[0][0]).toMatchObject({ maxHeadcount: undefined });
+  });
+
   it('server field: the "+ New" promoter refuses its name → the new-name input', async () => {
     H.createInf.mockRejectedValue(new FieldActionError('Enter a name', 'name'));
     open();
@@ -116,6 +138,15 @@ describe('link edit sheet', () => {
     fireEvent.change(label, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: new RegExp(t.links.saveCta) }));
     expectFieldError(label, t.links.errIdentity);
+  });
+
+  it('Max people 0 on an existing link: the range error, nothing saved', () => {
+    render(<LinkSheet eventId="e1" link={link} tiers={[]} tiersLoading={false} influencers={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const max = screen.getByPlaceholderText(t.links.maxHeadsPlaceholder);
+    fireEvent.change(max, { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(t.links.saveCta) }));
+    expectFieldError(max, t.links.errMaxHeadsRange);
+    expect(H.updateLink).not.toHaveBeenCalled();
   });
 
   it('server field: expiresAt → the expiry date input', async () => {

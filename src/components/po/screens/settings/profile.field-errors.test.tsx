@@ -6,12 +6,12 @@
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { t } from '@/lib/i18n';
 import { FieldActionError } from '@/lib/field-error';
 import { expectFieldError, stubScrollIntoView } from '../../../../../tests/unit/helpers/field-error-asserts';
 
-const H = vi.hoisted(() => ({ updateProfile: vi.fn(), updateEmail: vi.fn() }));
+const H = vi.hoisted(() => ({ updateProfile: vi.fn(), updateEmail: vi.fn(), phoneValid: true }));
 const stub = () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null });
 
 vi.mock('../../app-shell-data', () => ({ useIsDemoAccount: () => false }));
@@ -37,17 +37,28 @@ vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({ auth: { mfa: { listFactors: () => Promise.resolve({ data: { all: [] } }) } } }),
 }));
 vi.mock('../../phone-lazy', () => ({
-  PhoneField: (p: { id?: string; invalid?: boolean; describedBy?: string }) => (
+  PhoneField: (p: { id?: string; value?: string; onChange: (v?: string) => void; invalid?: boolean; describedBy?: string }) => (
     <div data-field-shell>
-      <input aria-label="phone" id={p.id} aria-invalid={p.invalid || undefined} aria-describedby={p.describedBy} readOnly />
+      <input
+        aria-label="phone"
+        id={p.id}
+        value={p.value ?? ''}
+        onChange={(e) => p.onChange(e.target.value || undefined)}
+        aria-invalid={p.invalid || undefined}
+        aria-describedby={p.describedBy}
+      />
     </div>
   ),
+  isPhoneValid: async () => H.phoneValid,
   phoneCountryOf: () => Promise.resolve(null),
 }));
 
 const { Profile } = await import('./profile');
 
-beforeEach(stubScrollIntoView);
+beforeEach(() => {
+  stubScrollIntoView();
+  H.phoneValid = true;
+});
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -89,5 +100,48 @@ describe('profile field errors', () => {
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${t.settings.profile.save}`) }));
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't save your profile.");
     expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
+  });
+
+  // Max, testing #506: an emptied name used to disable Save, so nothing ever said why.
+  it('Save stays on with an emptied first name; the check marks First name, focused, nothing sent', async () => {
+    render(<Profile />);
+    const first = screen.getByPlaceholderText(t.settings.profile.firstNamePlaceholder);
+    fireEvent.change(first, { target: { value: '' } });
+    const save = screen.getByRole('button', { name: new RegExp(`^${t.settings.profile.save}`) });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(first).toHaveAttribute('aria-invalid', 'true'));
+    expectFieldError(first, t.settings.profile.firstNameRequired);
+    expect(H.updateProfile).not.toHaveBeenCalled();
+  });
+
+  it('both names emptied: both marked, focus on First name (form order)', async () => {
+    render(<Profile />);
+    const first = screen.getByPlaceholderText(t.settings.profile.firstNamePlaceholder);
+    const last = screen.getByPlaceholderText(t.settings.profile.lastNamePlaceholder);
+    fireEvent.change(first, { target: { value: '  ' } });
+    fireEvent.change(last, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${t.settings.profile.save}`) }));
+    await waitFor(() => expect(document.activeElement).toBe(first));
+    expectFieldError(first, t.settings.profile.firstNameRequired);
+    expectFieldError(last, t.settings.profile.lastNameRequired, { focused: false });
+  });
+
+  it('a phone number that cannot be real: the client check marks the phone row, nothing sent', async () => {
+    H.phoneValid = false;
+    render(<Profile />);
+    const phone = screen.getByRole('textbox', { name: 'phone' });
+    fireEvent.change(phone, { target: { value: '+3112' } });
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${t.settings.profile.save}`) }));
+    await waitFor(() => expect(phone).toHaveAttribute('aria-invalid', 'true'));
+    expectFieldError(phone, t.guests.contacts.phoneInvalid);
+    expect(H.updateProfile).not.toHaveBeenCalled();
+  });
+
+  it('an empty phone is still fine: the save goes out', async () => {
+    render(<Profile />);
+    fireEvent.change(screen.getByPlaceholderText(t.settings.profile.firstNamePlaceholder), { target: { value: 'Ann' } });
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${t.settings.profile.save}`) }));
+    await waitFor(() => expect(H.updateProfile).toHaveBeenCalledWith({ firstName: 'Ann', lastName: 'B', phone: '' }, expect.anything()));
   });
 });

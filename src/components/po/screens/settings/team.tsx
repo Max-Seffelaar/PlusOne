@@ -20,7 +20,7 @@ import type { PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { BillingLockNote, Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press, cardPress } from '../../kit';
+import { BillingLockNote, Avatar, Btn, Empty, Field, FieldErrorFor, IconBtn, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, fieldInputProps, press, cardPress, useFieldErrors } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { useIsDemoVenue } from '../../app-shell-data';
 import { DEMO_USER_ID } from '@/features/auth/demo-account';
@@ -39,6 +39,8 @@ export function Gebruikers(): JSX.Element {
   const crewQ = usePoVenueCrew();
   const eventsQ = usePoEvents();
   const inviteCrew = usePoInviteExternalCrew();
+  // The crew invite here points at its fields too (a domain that takes no mail → Email, z8uq9m5m8g).
+  const crewFe = useFieldErrors(INVITE_FIELDS);
   const revokeInvite = usePoRevokeInvite();
   const resendInvite = usePoResendInvite();
   const resendCrew = usePoResendCrewInvite();
@@ -137,7 +139,8 @@ export function Gebruikers(): JSX.Element {
     // venue membership). Admin-only write (RLS), so no MFA step-up here.
     if (inviteKind === 'crew') {
       const canCrew = /.+@.+\..+/.test(email) && inviteEvents.length > 0 && !inviteCrew.isPending;
-      const submitCrew = (): void =>
+      const submitCrew = (): void => {
+        crewFe.reset();
         inviteCrew.mutate(
           { email: email.trim(), eventIds: inviteEvents, quota: quota === '' ? undefined : Number(quota) },
           {
@@ -145,15 +148,18 @@ export function Gebruikers(): JSX.Element {
               setInvite(false);
               resetInviteForm();
             },
+            onError: (e) => crewFe.failWith(e, t.settings.common.formError),
           },
         );
+      };
       return (
         <div className={col}>
           <Top onBack={() => setInviteKind('choose')} title={t.settings.team.crewTitle} />
           <Scroll bottom={130}>
             <Note icon="spark">{t.settings.team.crewIntro}</Note>
             <Label className="mb-2">{t.settings.team.emailLabel}</Label>
-            <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
+            <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={crewFe.edit('email', setEmail)} inputMode="email" autoFocus className="mb-[18px]" {...fieldInputProps(crewFe.bind('email'))} />
+            <FieldErrorFor error={crewFe.bind('email')} className="-mt-[12px] mb-[18px]" />
 
             <div className="mb-[10px] flex items-center justify-between gap-3">
               <Label>{t.settings.team.crewEventsLabel}</Label>
@@ -201,12 +207,14 @@ export function Gebruikers(): JSX.Element {
               icon="ticket"
               placeholder={t.settings.team.crewQuotaPlaceholder}
               value={quota}
-              onChange={(v) => setQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
+              onChange={crewFe.edit('quota', (v: string) => setQuota(v.replace(/[^0-9]/g, '').slice(0, 4)))}
               inputMode="numeric"
               className="mb-1.5"
+              {...fieldInputProps(crewFe.bind('quota'))}
             />
+            <FieldErrorFor error={crewFe.bind('quota')} className="mb-1.5 mt-0" />
             <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">{t.settings.team.crewQuotaHelp}</div>
-            <FormError error={inviteCrew.isError ? inviteCrew.error : null} />
+            <FormError error={crewFe.banner} />
           </Scroll>
           <BottomBar>
             <Btn kind="primary" full icon="arrowR" disabled={!canCrew} onClick={submitCrew} className={canCrew ? '' : 'opacity-[0.45]'}>
@@ -433,6 +441,11 @@ export function Gebruikers(): JSX.Element {
   );
 }
 
+// The invite forms' fields for useFieldErrors (z8uq9m5m8g). The actions call
+// the quota `defaultQuota` (team) and `quota` (crew); both land on Quota here.
+const INVITE_FIELDS = ['email', 'quota'] as const;
+const inviteFormField = (k: string): string | undefined => (k === 'defaultQuota' ? 'quota' : k);
+
 /**
  * The Team invite form (email + roles + default quota), one full-screen step.
  * Extracted from Gebruikers (z8uq9m2vg7) so Quota per event opens the SAME form
@@ -468,8 +481,11 @@ export function TeamInviteForm({
     onRolesChange(roles.includes(r) ? roles.filter((x) => x !== r) : [...roles, r]);
   const sensitive = requiresMfa(roles);
   const canSubmit = /.+@.+\..+/.test(email) && roles.length > 0 && !inviteUser.isPending;
+  // Field errors point at the field (a domain that takes no mail → Email).
+  const fe = useFieldErrors(INVITE_FIELDS);
 
-  const submit = (): void =>
+  const submit = (): void => {
+    fe.reset();
     inviteUser.mutate(
       {
         email: email.trim(),
@@ -479,15 +495,19 @@ export function TeamInviteForm({
       {
         onSuccess: onSent,
         // AAL1 user → open the MFA step-up sheet and retry the invite after.
-        onError: (e) => mfa.guard(e, submit),
+        onError: (e) => {
+          if (!mfa.guard(e, submit)) fe.failWith(e, t.settings.common.formError, inviteFormField);
+        },
       },
     );
+  };
   return (
     <div className={col}>
       <Top onBack={onBack} title={t.settings.team.inviteTitle} />
       <Scroll bottom={130}>
         <Label className="mb-2">{t.settings.team.emailLabel}</Label>
-        <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={onEmailChange} inputMode="email" autoFocus className="mb-[18px]" />
+        <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={fe.edit('email', onEmailChange)} inputMode="email" autoFocus className="mb-[18px]" {...fieldInputProps(fe.bind('email'))} />
+        <FieldErrorFor error={fe.bind('email')} className="-mt-[12px] mb-[18px]" />
         <Label className="mb-[10px]">{t.settings.team.rolesLabel}</Label>
         <RolePicker selected={roles} toggle={toggleInviteRole} callerIsAdmin={callerIsAdmin} />
         {sensitive && (
@@ -503,14 +523,16 @@ export function TeamInviteForm({
           icon="ticket"
           placeholder={t.settings.team.quotaPlaceholder}
           value={quota}
-          onChange={(v) => onQuotaChange(v.replace(/[^0-9]/g, '').slice(0, 4))}
+          onChange={fe.edit('quota', (v: string) => onQuotaChange(v.replace(/[^0-9]/g, '').slice(0, 4)))}
           inputMode="numeric"
           className="mb-1.5"
+          {...fieldInputProps(fe.bind('quota'))}
         />
+        <FieldErrorFor error={fe.bind('quota')} className="mb-1.5 mt-0" />
         <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
           {t.settings.team.quotaHelp}
         </div>
-        <FormError error={inviteUser.isError && !isAal2Error(inviteUser.error) ? inviteUser.error : null} />
+        <FormError error={fe.banner} />
       </Scroll>
       <BottomBar>
         <Btn kind="primary" full icon="arrowR" disabled={!canSubmit} onClick={submit} className={canSubmit ? '' : 'opacity-[0.45]'}>

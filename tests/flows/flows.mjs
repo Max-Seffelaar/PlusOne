@@ -462,7 +462,7 @@ export const FLOWS = {
     ],
   },
   'form-errors': {
-    title: 'Form errors point at the field, follow-up (z8uq9m5m8g) — profile reserved name, promoter handle, new company KVK + billing email (two fields at once)',
+    title: 'Form errors point at the field, follow-up (z8uq9m5m8g) — profile reserved/empty name, promoter handle, new company KVK + billing email (two fields at once), link Max people 0, team invite to a domain that takes no mail',
     paths: [
       'src/lib/field-error.ts',
       'src/lib/db-errors.ts',
@@ -478,6 +478,9 @@ export const FLOWS = {
       'src/components/po/screens/settings/_shared.tsx',
       'src/components/po/screens/promotion/',
       'src/components/po/screens/onboarding.tsx',
+      'src/components/po/screens/settings/team.tsx',
+      'src/features/auth/invite-actions.ts',
+      'src/features/events/mail-domain.ts',
     ],
   },
   'kit-select': {

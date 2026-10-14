@@ -661,6 +661,10 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
     }
   }
 
+  // An address on a domain that takes no mail never becomes a crew invite
+  // (decision Max 2026-10-14): same check, same fail-open as the event contact.
+  if ((await checkMailDomain(email)) === 'no_mail_domain') return invalidInput(t.events.contactEmail.noDomain, 'email');
+
   // Who is already in: a member of the venue never becomes crew of its own
   // company's event (review should-fix), and someone already on an event's crew
   // gets no new invite (their quota stays as it is). Both read through RLS: the

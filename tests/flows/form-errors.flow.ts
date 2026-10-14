@@ -18,6 +18,15 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  *   marked (each with its own message), focus on KVK (first in form order),
  *   no company created.
  *
+ * Round 2 (Max, testing #506 in train #507):
+ *   Q9  Profile with First name emptied: Save stays on and says "Enter your
+ *       first name." under the field (it used to be a dead, disabled button).
+ *   Q10 New link with Max people 0: the range error under Max people, no link
+ *       (0 used to mean "no max" and the link went live uncapped).
+ *   Q11 Team invite to an address whose domain takes no mail: refused under
+ *       Email, no invite row. A reserved `.invalid` domain keeps the run
+ *       deterministic; the DNS path is covered by mail-domain.test.ts.
+ *
  * Nothing in this flow writes: every save is refused. Numbered checks = the
  * ✅ half of this flow's test handoff.
  */
@@ -146,6 +155,62 @@ test('form errors point at the field: profile, promoter, new company', async ({ 
   });
   await page.getByPlaceholder('billing@company.com', { exact: true }).scrollIntoViewIfNeeded();
   await flow.shot('company-billing-email-error');
+
+  // ── Round 2 · Q9: Save stays on with an emptied name ──
+  await page.goto('/app/profile');
+  const firstAgain = page.getByPlaceholder('First name', { exact: true });
+  await expect(firstAgain).toBeVisible();
+  await firstAgain.fill('');
+  const save = page.getByRole('button', { name: 'Save', exact: true });
+  await flow.check(9, 'Profile, First name emptied: Save stays on; Save puts "Enter your first name." under it, focused; nothing saved', async () => {
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect
+      .poll(async () => focused(page), { timeout: 10_000 })
+      .toMatchObject({ placeholder: 'First name', invalid: 'true', description: 'Enter your first name.', inWindow: true });
+    const now = (await adminClient().from('user_profiles').select('first_name, last_name').eq('id', adminId).single()).data;
+    expect(now).toEqual(before);
+  });
+  await flow.shot('profile-first-name-required');
+
+  // ── Round 2 · Q10: Max people 0 is not "no max" ──
+  const zeroLabel = `FE zero ${flow.variant} ${stamp}`;
+  await page.goto('/app/promotion');
+  await page.getByRole('button', { name: 'New link' }).click();
+  await page.getByRole('button', { name: 'Label only' }).click();
+  await page.getByPlaceholder('Instagram bio', { exact: true }).fill(zeroLabel);
+  await page.getByPlaceholder('∞ no cap', { exact: true }).fill('0');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await flow.check(10, 'New link, Max people 0: "Use a whole number from 1 to 100,000." under Max people, focused; no link created', async () => {
+    await expect
+      .poll(async () => focused(page), { timeout: 10_000 })
+      .toMatchObject({ placeholder: '∞ no cap', invalid: 'true', description: 'Use a whole number from 1 to 100,000.', inWindow: true });
+    const { count } = await adminClient().from('request_links').select('id', { count: 'exact', head: true }).eq('label', zeroLabel);
+    expect(count).toBe(0);
+  });
+  await flow.shot('link-max-people-zero');
+
+  // ── Round 2 · Q11: a team invite to a domain that takes no mail ──
+  const noMail = `fe-${flow.variant}-${stamp}@theoperatoirs.invalid`;
+  await page.goto('/app/team');
+  await page.getByRole('button', { name: 'Invite a member' }).first().click();
+  await page.getByRole('button', { name: /Company user · Team/ }).click();
+  await page.getByPlaceholder('name@company.com', { exact: true }).fill(noMail);
+  await page.getByRole('button', { name: 'Staff', exact: true }).click();
+  await page.getByRole('button', { name: 'Send invite' }).click();
+  await flow.check(11, 'Team invite to a domain that takes no mail: the domain message under Email, focused; no invite row', async () => {
+    await expect
+      .poll(async () => focused(page), { timeout: 15_000 })
+      .toMatchObject({
+        placeholder: 'name@company.com',
+        invalid: 'true',
+        description: "That email domain doesn't take mail. Check the part after the @.",
+        inWindow: true,
+      });
+    const { count } = await adminClient().from('invites').select('id', { count: 'exact', head: true }).eq('email', noMail);
+    expect(count).toBe(0);
+  });
+  await flow.shot('team-invite-no-mail-domain');
 
   await flow.check(8, 'No sideways scroll and no uncaught page errors', async () => {
     await expectNoHorizontalOverflow(flow);
