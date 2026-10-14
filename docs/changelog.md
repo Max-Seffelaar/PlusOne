@@ -23,8 +23,10 @@ changed in place). Spec #67(f).
   `requested_extra = greatest(client value, 1 + plus_ones − remaining)`. In `approve_quota_request`, "as asked"
   (no `p_extra`) grants `greatest(requested_extra, what the guest needs now)` under the quota lock, so it
   always fits; an explicit number is used as given.
-- **Fix (client):** `usePoQuota` is always fresh (staleTime 0, refetch on mount and focus); a realtime
-  guest change invalidates it; a decision arriving on Home invalidates quota and list for that event.
+- **Fix (client):** `usePoQuota` is always fresh (staleTime 0, refetch on mount and focus), and a
+  decision arriving on Home invalidates quota and list for that event. Not added to the event-day realtime
+  refresh: that would refetch every client's quota on each burst during a door rush (the throttle test
+  pins the aggregate set), and the two paths above already cover the stale case.
 - **Raise:** spots 1..100 and plus-ones 0..50, up or down; the CHECK on `approved_extra` is now 1..100.
   The sheet moves the spots along with the +N.
 - **Spots without a guest:** the `GuestListQuotaBar` on the event guest list ("Your quota · n of m left" +

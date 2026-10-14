@@ -1050,9 +1050,6 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     const inFlight = (queryKey: readonly unknown[]): boolean => qc.isFetching({ queryKey }) > 0;
     const refreshAggregates = leadingTrailing(() => {
       void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
-      // A guest added on the caller's name elsewhere (an approved quota request,
-      // z8uq9m5kux) moves their personal quota too.
-      void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
       // A peer's check-in/void also touches the event-detail header (headcount).
       // NOT the venue-wide All-Guests tab (86ey9e8hz): re-downloading that
