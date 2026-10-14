@@ -25,7 +25,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { guestMailActive } from './config';
 import { MAIL_BATCH_MAX, mailProvider, type OutgoingMail, type SendResult } from './provider';
 import { appUrl } from './send';
-import { renderTeamNotify, type TeamDigestCompany, type TeamNotifyType } from './templates/team-notify';
+import { renderTeamNotify, type TeamDecision, type TeamDigestCompany, type TeamNotifyType } from './templates/team-notify';
 
 export interface RpcResult {
   data: unknown;
@@ -70,7 +70,7 @@ export interface ClaimedTeamMail {
   count: number;
   request: { firstName: string | null; plusOnes: number } | null;
   quota: { requester: string; extra: number } | null;
-  decision: { status: 'approved' | 'denied'; extra: number } | null;
+  decision: TeamDecision | null;
   digest: TeamDigestCompany[] | null;
 }
 
@@ -82,6 +82,14 @@ function obj(v: unknown): Record<string, unknown> | null {
 }
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+/** The guest an approval put on the list (z8uq9m5kux): first name, +N, tier,
+ *  and whether the admin changed the request. Null when none or malformed. */
+function decisionGuest(raw: unknown): TeamDecision['guest'] {
+  const g = obj(raw);
+  if (!g || typeof g.plus_ones !== 'number') return null;
+  return { firstName: str(g.first_name), plusOnes: num(g.plus_ones), tier: str(g.tier), changed: g.changed === true };
 }
 
 /** One claim payload entry -> a typed mail, or null when anything is off. */
@@ -143,7 +151,7 @@ export function parseTeamMail(raw: unknown): ClaimedTeamMail | null {
     count,
     request: r ? { firstName: str(r.first_name), plusOnes: num(r.plus_ones) } : null,
     quota: q && str(q.requester) ? { requester: str(q.requester) as string, extra: num(q.extra) } : null,
-    decision: d && (status === 'approved' || status === 'denied') ? { status, extra: num(d.extra) } : null,
+    decision: d && (status === 'approved' || status === 'denied') ? { status, extra: num(d.extra), guest: decisionGuest(d.guest) } : null,
     digest,
   };
 }

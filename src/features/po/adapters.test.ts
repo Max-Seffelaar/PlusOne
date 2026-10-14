@@ -1284,6 +1284,16 @@ describe('toPoQuotaUpdate', () => {
     expect(u.changes).toEqual({ extra: null, plusOnes: { granted: 1, asked: 3 }, tier: { name: 'Backstage' } });
   });
 
+  it('a raised approval (more spots, more plus-ones) is a change too (z8uq9m5kux round 2)', () => {
+    const u = toPoQuotaUpdate(
+      { ...row, guestId: 'g1', guest, approvedExtra: 4, approvedTierId: 't1', approvedPlusOnes: 5 },
+      now
+    );
+    expect(u.extra).toBe(4);
+    expect(u.guestLabel).toBe('Lisa de Vries +5');
+    expect(u.changes).toEqual({ extra: { granted: 4, asked: 2 }, plusOnes: { granted: 5, asked: 3 }, tier: null });
+  });
+
   it('after retention (payload gone) only the trim is still known', () => {
     const u = toPoQuotaUpdate({ ...row, guestId: 'g1', approvedExtra: 1, approvedTierId: 't2', approvedPlusOnes: 0 }, now);
     expect(u.changes).toEqual({ extra: { granted: 1, asked: 2 }, plusOnes: null, tier: null });

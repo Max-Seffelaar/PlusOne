@@ -35,6 +35,13 @@ export const teamNotifyCopy = {
     approvedIntro: 'Your request for {extra} extra guest spots for {event_name} is approved. They are yours to use now.',
     deniedSubject: 'Your quota request for {event_name}',
     deniedIntro: "Your request for {extra} extra guest spots for {event_name} wasn't approved this time.",
+    // z8uq9m5kux: the approval put the named guest on the list.
+    guestSubject: '{guest} is on the list for {event_name}',
+    guestIntro: 'Your quota request for {event_name} is approved: {guest} is on the list, on {tier}.',
+    guestIntroNoTier: 'Your quota request for {event_name} is approved: {guest} is on the list.',
+    guestChanged: 'The admin changed your request before approving it, so check the details in PlusOne.',
+    guestUnnamed: 'Your guest',
+    guestUnnamedPlus: 'Your guest +{n}',
     button: 'Open PlusOne',
   },
   digest: {

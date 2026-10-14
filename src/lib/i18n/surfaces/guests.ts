@@ -164,6 +164,12 @@ export const guests = {
     send: 'Send',
     cancel: 'Cancel',
     requestExtra: 'Request more slots',
+    // z8uq9m5kux — spots without a guest, from the event's guest list.
+    requestSpotsLabel: 'Extra spots',
+    requestSpotsLess: 'One spot less',
+    requestSpotsMore: 'One spot more',
+    quotaBar: 'Your quota · {n} of {m} left',
+    requestMoreSpots: 'Request more spots',
     justAdded: 'Just added · {n}',
     chipUpdated: 'updated',
     chipOnList: 'on the list',

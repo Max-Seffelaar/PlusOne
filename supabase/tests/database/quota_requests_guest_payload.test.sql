@@ -280,8 +280,10 @@ select is(
 -- C. Failures roll everything back
 -- ---------------------------------------------------------------------------
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
+-- z8uq9m5kux: "as asked" now always grants what the named guest needs, so the
+-- roll-back is exercised with an explicit, too-small number of spots.
 select throws_ok(
-  $$ select public.approve_quota_request('9e000000-0000-7000-8000-000000000003') $$,
+  $$ select public.approve_quota_request('9e000000-0000-7000-8000-000000000003', p_extra => 2) $$,
   '45001', null, 'C1 a guest above the new quota is refused (45001)');
 select pg_temp.owner();
 

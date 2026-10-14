@@ -958,9 +958,9 @@ export interface PoQuotaUpdate {
 
 /** "Approved with changes": only the parts that differ from the request. */
 export interface PoQuotaUpdateChanges {
-  /** Spots granted vs asked, when trimmed. */
+  /** Spots granted vs asked, when different (fewer or more, z8uq9m5kux). */
   extra: { granted: number; asked: number } | null;
-  /** The guest's plus-ones given vs asked, when lowered. */
+  /** The guest's plus-ones given vs asked, when different. */
   plusOnes: { granted: number; asked: number } | null;
   /** The tier the guest went on instead of the one asked; its name, or null
    *  when the tier is unreadable/gone (the change still shows, unnamed). */
@@ -973,11 +973,11 @@ export interface PoQuotaUpdateChanges {
 export function quotaUpdateChanges(row: PoMyQuotaUpdateRow): PoQuotaUpdateChanges | null {
   if (row.status !== 'approved') return null;
   const extra =
-    row.approvedExtra != null && row.approvedExtra < row.requestedExtra
+    row.approvedExtra != null && row.approvedExtra !== row.requestedExtra
       ? { granted: row.approvedExtra, asked: row.requestedExtra }
       : null;
   const plusOnes =
-    row.guest && row.approvedPlusOnes != null && row.approvedPlusOnes < row.guest.plusOnes
+    row.guest && row.approvedPlusOnes != null && row.approvedPlusOnes !== row.guest.plusOnes
       ? { granted: row.approvedPlusOnes, asked: row.guest.plusOnes }
       : null;
   const tier =

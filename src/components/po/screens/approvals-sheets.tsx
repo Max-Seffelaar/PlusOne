@@ -16,7 +16,8 @@ import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import { quotaGuestLabel, type PoGuestRequest, type PoQuotaRequest } from '@/features/po/adapters';
-import type { QuotaAdjustInput } from '@/features/quotas/schemas';
+import { QUOTA_EXTRA_MAX, type QuotaAdjustInput } from '@/features/quotas/schemas';
+import { PLUS_ONES_MAX } from '@/features/guests/quick-add-parser';
 import { placedPeople, type SplitDecision } from '@/features/requests/approval';
 import { DECISION_MESSAGE_MAX } from '@/features/requests/schemas';
 import type { PoLinkOption } from '@/features/po/queries';
@@ -372,11 +373,14 @@ function LandingDecision({
 
 
 /**
- * Quota approval (z8uq9m5kux): the admin adjusts before approving — fewer
- * spots, and for a named guest another tier of this event and fewer plus-ones.
- * Only down (Max 2026-10-13); approve_quota_request re-checks every bound, and
- * the quota engine still decides whether the guest fits (45001 → nothing
- * changes). Starts at "as asked", so a plain approval is one more tap.
+ * Quota approval (z8uq9m5kux): the admin adjusts before approving — the spots,
+ * and for a named guest another tier of this event and the plus-ones, up or
+ * down (Max 2026-10-14: "could be both"; bounds 1..100 spots, 0..PLUS_ONES_MAX).
+ * A plus-one is a spot, so moving the +N moves the spots with it: the guest
+ * keeps fitting. approve_quota_request re-checks every bound, and the quota
+ * engine still decides (45001 → nothing changes). Starts at "as asked", so a
+ * plain approval is one more tap; untouched, the server grants at least what
+ * the guest needs at that moment.
  */
 function QuotaDecision({
   req,
@@ -397,7 +401,13 @@ function QuotaDecision({
 }): JSX.Element {
   const guest = req.guest;
   const [extra, setExtra] = useState(req.extra);
-  const [plusOnes, setPlusOnes] = useState(guest?.plusOnes ?? 0);
+  const [plusOnes, setPlusOnesRaw] = useState(guest?.plusOnes ?? 0);
+  // One more plus-one needs one more spot (and one fewer frees one).
+  const setPlusOnes = (next: number): void => {
+    const delta = next - plusOnes;
+    setPlusOnesRaw(next);
+    setExtra((e) => Math.min(QUOTA_EXTRA_MAX, Math.max(1, e + delta)));
+  };
   // The asked tier when it is still on the event; else nothing until picked.
   const [tierId, setTierId] = useState<string | null>(null);
   const askedTierLive = guest ? tiers.some((row) => row.id === guest.tierId) : false;
@@ -444,7 +454,7 @@ function QuotaDecision({
           <CountStepper
             value={extra}
             min={1}
-            max={req.extra}
+            max={QUOTA_EXTRA_MAX}
             onChange={setExtra}
             lessLabel={t.requests.quotaSpotsLess}
             moreLabel={t.requests.quotaSpotsMore}
@@ -463,7 +473,7 @@ function QuotaDecision({
             <div data-testid="quota-adjust-plus">
               <CountStepper
                 value={plusOnes}
-                max={guest.plusOnes}
+                max={PLUS_ONES_MAX}
                 onChange={setPlusOnes}
                 lessLabel={t.requests.quotaPlusLess}
                 moreLabel={t.requests.quotaPlusMore}

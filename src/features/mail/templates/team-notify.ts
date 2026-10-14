@@ -21,6 +21,15 @@ export interface TeamDigestCompany {
   events: Array<{ name: string; startsAt: string; requests: number; quota: number }>;
 }
 
+/** A quota decision. `guest` = the guest the approval put on the list
+ *  (z8uq9m5kux): first name only, the granted +N and tier, and whether the
+ *  admin changed the request first. */
+export interface TeamDecision {
+  status: 'approved' | 'denied';
+  extra: number;
+  guest?: { firstName: string | null; plusOnes: number; tier: string | null; changed: boolean } | null;
+}
+
 export interface TeamNotifyContent {
   type: TeamNotifyType;
   firstName: string | null;
@@ -30,7 +39,7 @@ export interface TeamNotifyContent {
   count: number;
   request?: { firstName: string | null; plusOnes: number } | null;
   quota?: { requester: string; extra: number } | null;
-  decision?: { status: 'approved' | 'denied'; extra: number } | null;
+  decision?: TeamDecision | null;
   digest?: TeamDigestCompany[] | null;
   appUrl: string;
   unsubscribeUrl: string;
@@ -96,8 +105,24 @@ export function renderTeamNotify(content: TeamNotifyContent): RenderedTeamNotify
     const d = content.decision;
     const extra = { extra: Math.max(0, Math.trunc(d?.extra ?? 0)) };
     const approved = d?.status === 'approved';
-    subject = fill(approved ? c.decision.approvedSubject : c.decision.deniedSubject, extra);
-    intro = fill(approved ? c.decision.approvedIntro : c.decision.deniedIntro, extra);
+    const g = approved ? d?.guest : null;
+    if (g) {
+      // The approval put the named guest on the list (z8uq9m5kux): say who,
+      // with what was granted, and that the admin changed it if they did.
+      const n = Math.max(0, Math.trunc(g.plusOnes));
+      const name = clean(g.firstName ?? '');
+      const guestVars = {
+        ...extra,
+        guest: name ? (n > 0 ? `${name} +${n}` : name) : n > 0 ? fmt(c.decision.guestUnnamedPlus, { n }) : c.decision.guestUnnamed,
+        tier: clean(g.tier ?? ''),
+      };
+      subject = fill(c.decision.guestSubject, guestVars);
+      intro = fill(guestVars.tier ? c.decision.guestIntro : c.decision.guestIntroNoTier, guestVars);
+      if (g.changed) intro = `${intro} ${fill(c.decision.guestChanged, guestVars)}`;
+    } else {
+      subject = fill(approved ? c.decision.approvedSubject : c.decision.deniedSubject, extra);
+      intro = fill(approved ? c.decision.approvedIntro : c.decision.deniedIntro, extra);
+    }
     button = c.decision.button;
     buttonUrl = `${base}/app`;
   } else {

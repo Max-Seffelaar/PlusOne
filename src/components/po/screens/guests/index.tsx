@@ -18,6 +18,7 @@ import { press, col } from './_shared';
 import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 import { GuestScopeChips, BulkTierSheet, GuestCardList, GuestTable } from './list-shared';
 import { usePoGuestMailStatus } from '@/features/po/guest-mail-status';
+import { GuestListQuotaBar } from './quota-request-form';
 
 // QuickAdd is intentionally NOT re-exported here (#2b): the app shell code-splits
 // it via `next/dynamic` straight from './quick-add'. Re-exporting it would pull
@@ -269,6 +270,7 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
           </>
         )}
       </div>
+      {scopeEvent && !hasSelection && <GuestListQuotaBar eventId={scopeEvent.id} />}
       {regularMsg && (
         <div className="flex-none px-4 pb-2">
           <div className="flex items-center gap-2 rounded-[11px] border border-acc bg-acc-dim px-[12px] py-[9px] text-[12.5px] text-text">

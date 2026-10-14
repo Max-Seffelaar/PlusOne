@@ -31,7 +31,8 @@ import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll, ToggleRow } from '../../kit';
+import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll } from '../../kit';
+import { QuotaRequestForm } from './quota-request-form';
 import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
@@ -582,60 +583,26 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   </span>
                 </div>
               ) : reqOpen ? (
-                <div className="mt-[10px] flex flex-col gap-[10px] rounded-[16px] border border-line bg-elev p-[14px]">
-                  <Label>
-                    {fmt(t.guests.add.requestExtraLabel, { n: reqShortfall, slots: reqShortfall === 1 ? t.guests.add.slotOne : t.guests.add.slotMany })}
-                  </Label>
-                  <textarea
-                    autoFocus
-                    value={reqMotiv}
-                    onChange={(e) => setReqMotiv(e.target.value)}
-                    maxLength={500}
-                    rows={2}
-                    placeholder={t.guests.add.requestMotivPlaceholder}
-                    className="w-full resize-none rounded-[12px] border border-line bg-bg px-[13px] py-[11px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
-                  />
-                  <div className="rounded-[12px] border border-line bg-bg px-[13px]" data-testid="quota-request-with-guest">
-                    <ToggleRow
-                      title={fmt(t.guests.add.requestWithGuest, { guest: reqGuestLabel })}
-                      on={reqWithGuest}
-                      set={setReqWithGuest}
-                      last
-                    />
-                  </div>
-                  {reqExtra.isError && (
-                    <p className="text-[12.5px] text-acc" role="alert">
-                      {reqExtra.error?.message ?? t.guests.add.requestSendFailed}
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <Btn
-                      kind="primary"
-                      icon="check"
-                      className={cn((reqExtra.isPending || reqMotiv.trim() === '') && 'opacity-[0.45]')}
-                      disabled={reqExtra.isPending || reqMotiv.trim() === ''}
-                      onClick={() =>
-                        reqExtra.mutate({
-                          eventId: evId,
-                          requestedExtra: reqShortfall,
-                          motivation: reqMotiv.trim(),
-                          guest: reqGuest,
-                        })
-                      }
-                    >
-                      {reqExtra.isPending ? t.guests.add.sending : t.guests.add.send}
-                    </Btn>
-                    <Btn
-                      kind="ghost"
-                      onClick={() => {
-                        setReqOpen(false);
-                        setReqMotiv('');
-                      }}
-                    >
-                      {t.guests.add.cancel}
-                    </Btn>
-                  </div>
-                </div>
+                <QuotaRequestForm
+                  spots={reqShortfall}
+                  motivation={reqMotiv}
+                  onMotivation={setReqMotiv}
+                  guest={{ label: reqGuestLabel, on: reqWithGuest, set: setReqWithGuest }}
+                  pending={reqExtra.isPending}
+                  error={reqExtra.isError ? reqExtra.error?.message ?? t.guests.add.requestSendFailed : null}
+                  onSend={() =>
+                    reqExtra.mutate({
+                      eventId: evId,
+                      requestedExtra: reqShortfall,
+                      motivation: reqMotiv.trim(),
+                      guest: reqGuest,
+                    })
+                  }
+                  onCancel={() => {
+                    setReqOpen(false);
+                    setReqMotiv('');
+                  }}
+                />
               ) : (
                 <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => setReqOpen(true)}>
                   {t.guests.add.requestExtra}

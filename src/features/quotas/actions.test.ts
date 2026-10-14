@@ -165,7 +165,7 @@ describe('decideQuotaRequest — adjusted approval', () => {
 
   it('out-of-range adjustments never reach the database', async () => {
     const { rpc } = mockSupabase();
-    for (const adjust of [{ extra: 0 }, { extra: 1.5 }, { plusOnes: -1 }, { plusOnes: 51 }, { tierId: 'not-a-uuid' }]) {
+    for (const adjust of [{ extra: 0 }, { extra: 101 }, { extra: 1.5 }, { plusOnes: -1 }, { plusOnes: 51 }, { tierId: 'not-a-uuid' }]) {
       const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'approved', adjust });
       expect(res).toMatchObject({ ok: false });
     }

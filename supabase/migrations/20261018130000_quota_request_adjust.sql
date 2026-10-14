@@ -3,6 +3,9 @@
 -- only be approved or declined as a whole. The admin now adjusts it first, the
 -- way the Requests E approve sheet already does for landing requests. Max
 -- confirmed three adjustments: another tier, fewer plus-ones, fewer extra spots.
+-- Round 2 (Max's test of train #507, 2026-10-14): spots and plus-ones may go UP
+-- too ("could be both"), a request that names a guest always asks for enough
+-- spots for that guest, and the decision mail names the guest it put on the list.
 -- Slot 20261018130000 (prod is on 20261017120300; …120000 is taken by the
 -- open PostHog branches, analytics_opt_out).
 --
@@ -21,20 +24,36 @@
 --      already holds the live tier reference.
 --   2. approve_quota_request(p_request_id, p_extra, p_tier_id, p_plus_ones):
 --      the three new arguments are optional and default to "as asked".
---        p_extra      1 .. requested_extra   (only down, Max: "inkorten")
+--        p_extra      1 .. 100 (the request form's own cap); up or down
 --        p_tier_id    a tier of the request's own event; only with a guest
---        p_plus_ones  0 .. the payload's plus_ones (only down, Max: "verlagen";
---                     raising it needs a decision first); only with a guest
+--        p_plus_ones  0 .. 50 (PLUS_ONES_MAX); up or down; only with a guest
 --      Anything else is 22023 with a hint, after the admin check (an outsider
---      learns nothing). Everything else is the 20261016190000 body: row lock,
+--      learns nothing). "As asked" always fits the guest: when p_extra is
+--      left out and the request names a guest, the spots granted are
+--      greatest(requested_extra, what the guest needs right now), computed
+--      under the quota lock from the requester's quota and consumption at that
+--      moment (they may have added guests since filing). An explicit p_extra
+--      is taken as given, so a too-small explicit number still fails cleanly
+--      (45001, nothing changes). Everything else is the 20261016190000 body: row lock,
 --      admin, requester still tied, the override under the quota trigger's
 --      advisory lock, the requester's list-lock rule, ONE guest insert through
 --      the ordinary triggers (quota 45001 with the trimmed override, tier max
 --      45002, capacity 45005, audit), one audited request update. Any failure
 --      rolls the whole decision back.
 --   3. team_mails_claim: the decision mail says the spots granted
---      (coalesce(approved_extra, requested_extra)). Body otherwise identical
---      to 20261013180600.
+--      (coalesce(approved_extra, requested_extra)), and when the approval put
+--      the named guest on the list, that guest (first name only, the granted
+--      +N and tier, and whether the admin changed anything). Body otherwise
+--      identical to 20261013180600.
+--   4. fit_quota_request_to_guest (BEFORE INSERT): the bug Max hit on
+--      2026-10-14. The app computed requested_extra on the requester's device
+--      from a cached event_quota_status; an approval made on the admin's
+--      device (which raises the override AND adds a guest on the requester's
+--      name) never refreshed that cache, so a second request for a +4 guest
+--      went out as "+1" while the requester had 0 left. A request that names a
+--      guest now asks for at least what that guest needs at filing time,
+--      from database truth: requested_extra = greatest(client value,
+--      1 + plus_ones - remaining). Quota-exempt requesters are left alone.
 --
 -- EXPAND–CONTRACT: three nullable columns (no rewrite) and CHECKs every
 -- existing row meets (all null). The 1-argument approve_quota_request is
@@ -65,7 +84,7 @@ comment on column public.quota_requests.approved_plus_ones is
 
 alter table public.quota_requests
   add constraint quota_requests_approved_extra_range
-    check (approved_extra is null or approved_extra between 1 and requested_extra),
+    check (approved_extra is null or approved_extra between 1 and 100),
   add constraint quota_requests_approved_plus_ones_range
     check (approved_plus_ones is null or approved_plus_ones between 0 and 50),
   add constraint quota_requests_approved_only_approved
@@ -127,13 +146,13 @@ begin
   end if;
 
   -- z8uq9m5kux: the adjustments, checked only now (an outsider learns nothing).
-  -- Only down: fewer extra spots, fewer plus-ones (Max 2026-10-13).
-  v_extra := coalesce(p_extra, v_req.requested_extra);
-  if v_extra < 1 or v_extra > v_req.requested_extra then
+  -- Up or down within sane bounds (Max 2026-10-14: "could be both").
+  if p_extra is not null and (p_extra < 1 or p_extra > 100) then
     raise exception using errcode = '22023',
-      message = 'Approve between 1 and the number of spots asked for.',
+      message = 'Approve between 1 and 100 spots.',
       hint = 'extra_out_of_range';
   end if;
+  v_extra := coalesce(p_extra, v_req.requested_extra);
 
   if v_req.guest_payload is null and (p_tier_id is not null or p_plus_ones is not null) then
     raise exception using errcode = '22023',
@@ -144,9 +163,9 @@ begin
   if v_req.guest_payload is not null then
     v_tier := coalesce(p_tier_id, (v_req.guest_payload ->> 'tier_id')::uuid);
     v_plus := coalesce(p_plus_ones, (v_req.guest_payload ->> 'plus_ones')::integer);
-    if v_plus < 0 or v_plus > (v_req.guest_payload ->> 'plus_ones')::integer then
+    if v_plus < 0 or v_plus > 50 then
       raise exception using errcode = '22023',
-        message = 'The plus-ones can only go down from what was asked.',
+        message = 'Plus-ones go from 0 to 50.',
         hint = 'plus_ones_out_of_range';
     end if;
     -- A chosen tier must be on this event (so: this company). The payload's
@@ -166,6 +185,20 @@ begin
   -- reads the first one's override instead of overwriting it.
   perform pg_advisory_xact_lock(1, hashtext(v_req.event_id::text || ':' || v_req.user_id::text));
   v_current := public.user_event_quota(v_req.event_id, v_req.user_id);
+  -- "As asked" always fits the named guest (Max 2026-10-14): with no explicit
+  -- p_extra, grant at least what the guest needs now, read under this lock.
+  if p_extra is null
+     and v_req.guest_payload is not null
+     and not public.user_is_quota_exempt(v_req.event_id, v_req.user_id) then
+    v_extra := greatest(
+      v_extra,
+      1 + v_plus - (v_current - public.user_event_consumption(v_req.event_id, v_req.user_id)));
+    if v_extra > 100 then
+      raise exception using errcode = '22023',
+        message = 'Approve between 1 and 100 spots.',
+        hint = 'extra_out_of_range';
+    end if;
+  end if;
   insert into public.event_quotas (event_id, user_id, quota_override)
   values (v_req.event_id, v_req.user_id, v_current + v_extra)
   on conflict (event_id, user_id)
@@ -230,10 +263,11 @@ $$;
 
 comment on function public.approve_quota_request(uuid, integer, uuid, integer) is
   'Approve a pending quota request (admin of the event''s company; requester still tied). Raises '
-  'the requester''s event override by p_extra (default requested_extra, only down) and, when the '
+  'the requester''s event override by p_extra (1..100; default requested_extra, raised to what the named '
+  'guest needs) and, when the '
   'request names a guest (z8uq9m2xyp), adds that guest on the requester''s name in the same '
-  'transaction, optionally on another tier of the event (p_tier_id) and with fewer plus-ones '
-  '(p_plus_ones, only down) (z8uq9m5kux). Bad adjustments 22023; quota 45001, tier 45002, capacity '
+  'transaction, optionally on another tier of the event (p_tier_id) and with other plus-ones '
+  '(p_plus_ones 0..50) (z8uq9m5kux). Bad adjustments 22023; quota 45001, tier 45002, capacity '
   '45005, list lock 45007, tier gone 45008, cannot add guests 45009 all roll everything back.';
 
 revoke execute on function public.approve_quota_request(uuid, integer, uuid, integer) from public, anon;
@@ -306,6 +340,60 @@ begin
   return new;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 4. A request that names a guest asks for enough spots (BEFORE INSERT)
+-- ---------------------------------------------------------------------------
+-- The bug of 2026-10-14: requested_extra came from the requester's cached
+-- event_quota_status. An approval made on another device raised their quota
+-- and put a guest on their name without refreshing that cache, so the next
+-- request asked for "+1" for a +4 guest while 0 spots were left, and the
+-- approval then failed (45001). The count the guest needs is now taken from
+-- database truth whatever the client sends: at least 1 + plus_ones minus what
+-- the requester has left on that event right now. Only up, never down (the
+-- requester may ask for more than strictly needed). SECURITY DEFINER so it
+-- can call the quota helpers whatever their grants are; it reads only the
+-- inserting row's own (event, user) numbers and writes only NEW.requested_extra
+-- (the INSERT policy already pins user_id to the caller).
+
+create or replace function public.fit_quota_request_to_guest()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_remaining integer;
+begin
+  -- A malformed payload falls through to the shape CHECK (23514); only a
+  -- pending request is filed by a client.
+  if new.guest_payload is null
+     or new.status is distinct from 'pending'
+     or not public.quota_guest_payload_is_valid(new.guest_payload)
+     or public.user_is_quota_exempt(new.event_id, new.user_id) then
+    return new;
+  end if;
+  v_remaining := public.user_event_quota(new.event_id, new.user_id)
+               - public.user_event_consumption(new.event_id, new.user_id);
+  new.requested_extra := greatest(
+    new.requested_extra,
+    1 + (new.guest_payload ->> 'plus_ones')::integer - v_remaining);
+  return new;
+end;
+$$;
+
+comment on function public.fit_quota_request_to_guest() is
+  'z8uq9m5kux: BEFORE INSERT on quota_requests. A request that names a guest asks for at least '
+  '1 + plus_ones minus what the requester has left on the event, from database truth (the client '
+  'value came from a cache that an approval on another device made stale).';
+
+revoke execute on function public.fit_quota_request_to_guest() from public, anon, authenticated, service_role;
+
+-- Name sorts before quota_requests_guard_client_write: both are BEFORE INSERT
+-- and the guard only refuses server-owned columns, so the order is immaterial.
+create trigger quota_requests_fit_guest
+  before insert on public.quota_requests
+  for each row execute function public.fit_quota_request_to_guest();
 
 -- ---------------------------------------------------------------------------
 -- 3. team_mails_claim — the decision mail says the spots granted (body of
@@ -543,10 +631,25 @@ begin
     elsif v_pref = 'decisions' then
       -- z8uq9m5kux: the spots actually granted (a trimmed approval), else
       -- what was asked (a decline, or a row approved before this migration).
+      -- When the approval put the named guest on the list, say so (Max
+      -- 2026-10-14): first name only (the rule of these mails), the granted
+      -- +N and tier, and whether the admin changed anything.
       select jsonb_build_object('decision', jsonb_build_object(
-               'status', q.status, 'extra', coalesce(q.approved_extra, q.requested_extra)))
+               'status', q.status, 'extra', coalesce(q.approved_extra, q.requested_extra))
+             || case when q.status = 'approved' and g.id is not null then
+                  jsonb_build_object('guest', jsonb_build_object(
+                    'first_name', nullif(split_part(btrim(coalesce(g.full_name, '')), ' ', 1), ''),
+                    'plus_ones', g.plus_ones,
+                    'tier', t.name,
+                    'changed', (q.approved_extra is not null and q.approved_extra <> q.requested_extra)
+                            or (q.guest_payload is not null and (
+                                  q.approved_plus_ones is distinct from (q.guest_payload ->> 'plus_ones')::integer
+                               or q.approved_tier_id::text is distinct from q.guest_payload ->> 'tier_id'))))
+                else '{}'::jsonb end)
         into v_extra
         from public.quota_requests q
+        left join public.guests g on g.id = q.guest_id and g.anonymized_at is null
+        left join public.guest_tiers t on t.id = g.tier_id
        where q.id = v_rep.source_id;
     end if;
 
