@@ -10,6 +10,10 @@ import type { Locator, Page } from '@playwright/test';
  * sheet with 44px rows. Walked on its busiest users: Platform → Audit (company
  * filter) and Platform → Mail log (the long, grouped test-mail type list).
  *
+ * z8uq9m5m8h: the popover is portalled and placed from the field's rect, so a
+ * clipping ancestor cannot cut it off (check 14); the touch sheet is an
+ * aria-modal dialog that holds focus and makes the page behind inert (13).
+ *
  * Runs on the PLAIN seed. admin@ is no platform admin there (pgTAP relies on
  * that), so — like platform-overview — the flow flips the flag through the
  * bootstrap GUC for its own duration and clears it again afterwards.
@@ -56,7 +60,7 @@ async function viewport(page: Page): Promise<{ width: number; height: number }> 
   return page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
 }
 
-test('kit-select: popover on a fine pointer, bottom sheet on touch, picks and keyboard', async ({ page, flow }) => {
+test('kit-select: popover on a fine pointer, bottom sheet on touch, picks and keyboard, never clipped, modal sheet', async ({ page, flow }) => {
   // The desktop variant is the only fine-pointer one (matrix.ts); the iPad is
   // 1024px wide (sidebar chrome) but touch, so it must get the sheet.
   const popover = flow.variant === 'desktop-browser';
@@ -137,27 +141,81 @@ test('kit-select: popover on a fine pointer, bottom sheet on touch, picks and ke
     await company.focus();
     await company.press('ArrowDown');
     await expect(list).toBeVisible();
+    // Popover: focus stays on the field. Sheet: focus moved into the dialog's
+    // list (the field sits behind it, inert), so keys go to whatever has focus.
     const active = async (): Promise<string> =>
       page.evaluate(() => {
         const id = document.activeElement?.getAttribute('aria-activedescendant');
         return (id && document.getElementById(id)?.textContent) || '';
       });
     expect(await active()).toBe(VESPER);
-    await company.press('Home');
+    await page.keyboard.press('Home');
     expect(await active()).toBe('All companies');
-    await company.press('Enter');
+    await page.keyboard.press('Enter');
     await expect(list).toHaveCount(0);
     await expect(company).toHaveText('All companies');
+    await expect(company).toBeFocused();
   });
 
   await flow.check(9, `Type-ahead: typing "club v" on the closed field jumps to "${VESPER}"`, async () => {
     await company.focus();
     await page.keyboard.type('club v');
     await expect(list).toBeVisible();
-    await expect(company).toHaveAttribute('aria-activedescendant', /.+/);
-    const id = await company.getAttribute('aria-activedescendant');
+    const owner = popover ? company : list;
+    await expect(owner).toHaveAttribute('aria-activedescendant', /.+/);
+    const id = await owner.getAttribute('aria-activedescendant');
     await expect(page.locator(`[id="${id}"]`)).toHaveText(VESPER);
-    await company.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+    await expect(company).toBeFocused();
+  });
+
+  await flow.check(13, 'Touch: the sheet is a modal dialog (aria-modal) holding focus — Tab cycles list ↔ Cancel, the page behind is inert, Escape returns focus to the field. Fine pointer: focus stays on the field, no dialog', async () => {
+    await company.click();
+    await expect(list).toBeVisible();
+    if (popover) {
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(company).toBeFocused();
+    } else {
+      const dialog = page.getByRole('dialog', { name: 'Company' });
+      await expect(dialog).toHaveAttribute('aria-modal', 'true');
+      await expect(list).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(list).toBeFocused();
+      const behindInert = await page.evaluate(() =>
+        Array.from(document.body.children)
+          .filter((el) => !el.hasAttribute('data-select-sheet') && el.tagName !== 'SCRIPT')
+          .every((el) => el.hasAttribute('inert')),
+      );
+      expect(behindInert).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+    await expect(company).toBeFocused();
+    expect(await page.evaluate(() => document.querySelectorAll('[inert]').length)).toBe(0);
+  });
+
+  await flow.check(14, 'A Select inside a clipping, scrolling box (overflow:auto, field height) opens fully visible: every row can be hit at its centre', async () => {
+    // Stand-in for a scrolling Sheet / a table cell: clip the field's own box.
+    await company.evaluate((el) => {
+      const host = el.parentElement!.parentElement as HTMLElement;
+      host.style.overflow = 'auto';
+      host.style.maxHeight = `${el.getBoundingClientRect().height + 4}px`;
+    });
+    await company.click();
+    await expect(list).toBeVisible();
+    await flow.shot(popover ? 'clipped-host-popover' : 'clipped-host-sheet');
+    for (const opt of await list.getByRole('option').all()) {
+      const b = await box(opt);
+      const hit = await page.evaluate(
+        ([x, y]) => document.elementFromPoint(x, y)?.closest('[role="option"]')?.textContent ?? '',
+        [b.x + b.width / 2, b.y + b.height / 2] as const,
+      );
+      expect(hit).toBe(await opt.textContent());
+    }
+    await page.keyboard.press('Escape');
     await expect(list).toHaveCount(0);
   });
 
@@ -181,7 +239,7 @@ test('kit-select: popover on a fine pointer, bottom sheet on touch, picks and ke
 
   const last = mailList.getByRole('option').last();
   const lastLabel = (await last.textContent()) ?? '';
-  await mailType.press('Escape');
+  await page.keyboard.press('Escape');
   await expect(mailList).toHaveCount(0);
   await pickKitOption(mailType, { label: lastLabel });
   await flow.check(11, 'Picking the last row of the long list (scrolled into view) sets the field', async () => {

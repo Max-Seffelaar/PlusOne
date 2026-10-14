@@ -234,9 +234,10 @@ export const FLOWS = {
     ],
   },
   'platform-reinvite': {
-    title: 'Platform invites — "Send invite" on an address with an open invite re-sends it (rate-limited inside 60 s), a double click sends once (z8uq9m5enh)',
+    title: 'Platform invites — "Send invite" on an address with an open invite re-sends it (rate-limited inside 60 s, neutral tone), a double click sends once, row Resend counts the minute down (z8uq9m5enh, z8uq9m5m8h)',
     paths: [
       'src/components/po/screens/platform.tsx',
+      'src/components/po/screens/platform-resend.tsx',
       'src/features/platform/invite-actions.ts',
       'src/features/auth/invite-mail.ts',
       'src/features/po/mutations.ts',
@@ -470,8 +471,9 @@ export const FLOWS = {
     ],
   },
   'kit-select': {
-    title: 'Kit Select (z8uq9m4a2w) — PlusOne dropdown: popover on a fine pointer, bottom sheet on touch; Platform audit + mail log',
+    title: 'Kit Select (z8uq9m4a2w, z8uq9m5m8h) — PlusOne dropdown: portalled popover on a fine pointer (never clipped), modal bottom sheet on touch; Platform audit + mail log',
     paths: [
+      'src/components/po/select-position.ts',
       'src/components/po/native-back-intercept.ts',
       'src/components/po/screens/platform-audit.tsx',
       'src/components/po/screens/platform-access-log.tsx',
