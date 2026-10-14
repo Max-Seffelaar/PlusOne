@@ -20,6 +20,15 @@ Milestone **Now** (privacy + fraud resistance). The user_profiles privacy train 
 
 ---
 
+## 2026-10-14 — Fase 14 door payments: design round 2 — fee sheet, event revenue before/live/after, Analytics (86exxuuu7)
+
+Milestone **≥5**. Docs only; mockups outside the repo. PR #497.
+
+- Max approved the mockups ("designs look good") and asked three things: how the service fee is changed per customer, how turnover is communicated (Analytics and/or event detail/cockpit), and where the before / during / after views are. Five frames added to the mockup page (now 21): **Q** Platform → company → Service fee (platform admin only; floor read-only, uplift with the D19 limits, fee-on-cash toggle, preview on a €20 ticket, audited, new payments only), **R1/R2/R3** event detail "Payments" block that switches phase (before doors: prepaid vs expected; live: collected / cash / due / not confirmed with progress bar and latest payments, same tiles in the cockpit header; after: recap, refunds, unpaid check-ins, line to the weekly statement, write-off), **S** Analytics → Revenue tab across events (per period / event / tier, ticket amounts only).
+- Decisions (Max, round 2 D1–D3, all recommended): R1 + R2 + cockpit tiles in **P2**, R3 (recap, statement line, write-off) in **P4a**; Analytics Revenue in **P4a**; fee sheet as frame Q under T30. Plan §12.15 + tasks T37/T38; §12.12 lists frames Q–S. Venue-side rule unchanged: ticket amounts only.
+
+---
+
 ## 2026-10-13 — Fase 14 door payments: eng re-run on the design delta, R8–R12, HTML mockups (86exxuuu7)
 
 Milestone **≥5**. Docs only (mockups live outside the repo). Branch `claude/86exxuuu7-fase14-eng-review` (worktree), PR #497.
