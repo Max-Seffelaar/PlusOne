@@ -8,6 +8,34 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-14 — Quota approval round 2: the request always asks for enough, up or down, spots without a guest, guest in the mail (z8uq9m5kux)
+
+Max's test of train #507. Same branch and migration (`20261018130000`, not yet on prod, so it was
+changed in place). Spec #67(f).
+
+- **Bug, root cause:** quick-add computed `requested_extra = max(1, cost − remaining)` from the
+  requester's cached `event_quota_status`. An approval made on the admin's device raises the override
+  AND adds a guest on the requester's name; nothing refreshed the requester's cache (no realtime for
+  that query, `refetchOnWindowFocus: false`, IDB-persisted). So after the first approval the cache still said
+  "4 left" against a real 0, and a +4 guest (cost 5) became "+1". The approval then refused
+  (45001), and the next add looked possible but failed.
+- **Fix (server, whatever the client says):** `fit_quota_request_to_guest` BEFORE INSERT:
+  `requested_extra = greatest(client value, 1 + plus_ones − remaining)`. In `approve_quota_request`, "as asked"
+  (no `p_extra`) grants `greatest(requested_extra, what the guest needs now)` under the quota lock, so it
+  always fits; an explicit number is used as given.
+- **Fix (client):** `usePoQuota` is always fresh (staleTime 0, refetch on mount and focus); a realtime
+  guest change invalidates it; a decision arriving on Home invalidates quota and list for that event.
+- **Raise:** spots 1..100 and plus-ones 0..50, up or down; the CHECK on `approved_extra` is now 1..100.
+  The sheet moves the spots along with the +N.
+- **Spots without a guest:** the `GuestListQuotaBar` on the event guest list ("Your quota · n of m left" +
+  "Request more spots"). It and quick-add share one `QuotaRequestForm`.
+- **Mail:** `team_mails_claim` adds `decision.guest` {first_name, plus_ones, tier, changed}. The template
+  says "{guest} +N is on the list for {event}" when the approval added the guest.
+- **Tests:** pgTAP adjust file 69 (R raise, T the bug + as-asked fit + mail shape). In
+  `quota_requests_guest_payload`, C1 now uses an explicit too-small `p_extra` (as asked always fits).
+  Vitest for mail parse/render, adapters (raise) and the action bounds. Flows: `quota-request-guest`
+  checks 15/16/5/7/17 updated and 19–24 new; `team-mail` check 9 new.
+
 ## 2026-10-13 — Quota approval: adjust the guest before approving (z8uq9m5kux)
 
 Follow-up to Max's test of the golf-F train (#502). Branch

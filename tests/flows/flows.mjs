@@ -146,6 +146,8 @@ export const FLOWS = {
       'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
       'supabase/migrations/20261018130000_quota_request_adjust.sql',
       'src/components/po/kit.tsx',
+      'src/components/po/screens/guests/index.tsx',
+      'src/components/po/screens/guests/quota-request-form.tsx',
     ],
   },
   'team-mail': {
