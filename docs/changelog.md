@@ -8,6 +8,33 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-14 — Layout suite: one stored session per seed user, no dev-login per screen
+
+Branch `claude/layout-devlogin-flake`. `layout-suite` on merge train #507 failed twice
+with `dev-login as admin@plusone.test kept landing on …/login?next=…` (a different
+screen and device each time, every other test green).
+
+- **Root cause:** every successful TOTP verify in GoTrue calls
+  `InvalidateSessionsWithAALLessThan(user, aal2)`, which revokes all of that user's
+  OTHER sessions still at AAL1. The probe dev-logged in once per screen × device with
+  3 parallel workers, and admin@ (fixed dev TOTP) ends each dev-login with an MFA
+  verify. So worker B's verify killed worker A's session in the gap between A's
+  `verifyOtp` and A's own MFA step. The dev-login redirect still went out, and the
+  next request bounced to `/login?next=…` (to `/consent` first when the consent read
+  already ran on the dead session). On top of that, a concurrent `generateLink`
+  replaces the user's token (`?error=devlogin`). The 4-attempt retry from #410 hid
+  both until the train added enough admin@ screen loads to lose 4 in a row.
+  Reproduced locally: 3 staggered parallel admin@ dev-logins left 17 of 30 sessions
+  dead, while serial dev-logins left 0 of 3 dead.
+- **Fix (harness only):** `tests/e2e/layout/global-setup.ts` dev-logs each seed user
+  in once, serially, before any worker starts, and saves the storage state to a
+  per-run `mkdtemp` dir (`auth-state.ts`; teardown removes it). `newProjectContext`
+  loads it and `openScreen` navigates straight to the screen. Landing anywhere else
+  now fails at once. There is no retry left. An AAL2 session is never swept, and
+  the run stays inside the 1 h `jwt_expiry`, so the shared session never rotates.
+  The app, dev-login and the local auth config are unchanged.
+
+---
 ## 2026-10-13 — Form errors point at the field, follow-up: 11 forms + #498 nits (z8uq9m5m8g)
 
 Milestone **Now** (onboarding programme October 2026, wave F, follow-up of z8uq9m5eb7 / #498). Branch `claude/z8uq9m5m8g-form-errors-followup`. UI + action return shape, no migration, no RLS.
