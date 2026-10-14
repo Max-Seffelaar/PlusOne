@@ -26,6 +26,7 @@ import {
   usePoQuota,
 } from '@/features/po/hooks';
 import { usePoAddGuest, usePoUpdateGuest, usePoRequestExtraSlots } from '@/features/po/mutations';
+import { quotaShortfall } from '@/features/quotas/shortfall';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
@@ -106,7 +107,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const evId = curEv?.id ?? '';
 
   const { data: tiers = [] } = usePoTiers(evId);
-  const { data: quota } = usePoQuota(evId);
+  // isFetching: a cached (or IDB-restored) quota is never the basis of a
+  // request while the fresh one is on its way (z8uq9m5kux).
+  const { data: quota, isFetching: quotaFetching } = usePoQuota(evId);
   const add = usePoAddGuest(evId);
   const update = usePoUpdateGuest(evId);
   const [sendConfirmation, setSendConfirmation] = useSendConfirmation();
@@ -181,13 +184,14 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
 
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
-  const overQuota = remaining !== null && cost > remaining;
+  const shortfall = quotaShortfall(cost, remaining);
+  const overQuota = shortfall !== null;
   // Hide the quick-add for roles that can't create guests (user_manager/finance):
   // RLS would reject the insert with a confusing 42501, so gate the UI instead.
   // admin/staff/doorhost qualify via venue role; an event organizer (external crew)
   // via canManage (they add up to their quota — quota still gates the insert below).
   const canAdd = canManageGuests(roles) || canManage;
-  const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
+  const reqShortfall = shortfall ?? 1;
   // The guest as typed ("Lisa de Vries +1"), named in the quota request (z8uq9m2xyp).
   const reqGuestLabel = effPlus > 0 ? `${effName} +${effPlus}` : effName;
   const reqGuest =
@@ -604,7 +608,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   }}
                 />
               ) : (
-                <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => setReqOpen(true)}>
+                <Btn kind="ghost" full icon="plus" className="mt-[10px]" disabled={quotaFetching} onClick={() => setReqOpen(true)}>
                   {t.guests.add.requestExtra}
                 </Btn>
               )

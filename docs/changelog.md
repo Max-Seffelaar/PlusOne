@@ -18,7 +18,12 @@ changed in place). Spec #67(f).
   AND adds a guest on the requester's name; nothing refreshed the requester's cache (no realtime for
   that query, `refetchOnWindowFocus: false`, IDB-persisted). So after the first approval the cache still said
   "4 left" against a real 0, and a +4 guest (cost 5) became "+1". The approval then refused
-  (45001), and the next add looked possible but failed.
+  (45001), and the next add looked possible but failed. Max's own database confirms it: approving the
+  seed request (+3) on the admin side took Tom from 12 to 15 (7 left), while his cache kept the seed's
+  "4 left". So a +4 guest that fitted asked "+1" and Henie +6 asked "+3". After Henie (3 left), the "+1" for
+  Max +4 really was short, which produced the 45001. pgTAP section S replays these exact numbers, and
+  `quotaShortfall` has a vitest for "7 left, +4 guest → no request". The 45001 copy no longer claims the
+  guest must fit in the extra spots alone. The quick-add's "Request more slots" waits for the fresh quota.
 - **Fix (server, whatever the client says):** `fit_quota_request_to_guest` BEFORE INSERT:
   `requested_extra = greatest(client value, 1 + plus_ones − remaining)`. In `approve_quota_request`, "as asked"
   (no `p_extra`) grants `greatest(requested_extra, what the guest needs now)` under the quota lock, so it

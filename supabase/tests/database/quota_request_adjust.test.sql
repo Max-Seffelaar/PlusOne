@@ -30,6 +30,10 @@
 --      left is stored as 5); a request without a guest is left alone; "as
 --      asked" at approval fits the guest even after the requester's room
 --      shrank since filing; the decision mail carries the guest.
+--   S. Max's own numbers on the seed event: after the seed request is
+--      approved Tom has 7 left (a +4 guest needs no request); the stale
+--      "+1"/"+3" requests replayed end at quota 18 / consumed 15, and the
+--      short "+1" for a +4 guest then approves as asked (2 spots granted).
 --   I. one approve_quota_request overload; SECURITY DEFINER, search_path '',
 --      ACL (authenticated + service_role, not anon, not PUBLIC); the row is
 --      read FOR UPDATE; the decision mail reads approved_extra.
@@ -137,7 +141,7 @@ insert into public.quota_requests (id, event_id, user_id, requested_extra, motiv
   ('9f000000-0000-7000-8000-000000000009', 'ee000000-0000-7000-8000-0000000b0001',
    '55555555-5555-4555-8555-555555555555', 1, 'Crew', null);
 
-select plan(69);
+select plan(76);
 
 -- ---------------------------------------------------------------------------
 -- A. Tier, plus-ones and extra adjusted at once
@@ -416,6 +420,55 @@ select ok(
   (select p.prosrc ~ $re$'guest', jsonb_build_object\($re$ and p.prosrc ~ 'q\.guest_id'
      from pg_proc p where p.oid = 'public.team_mails_claim(integer)'::regprocedure),
   'T8 team_mails_claim builds that guest object from the guest the approval created');
+
+-- ---------------------------------------------------------------------------
+-- S. Max's own numbers (local test, 2026-10-14), on the seed event
+-- ---------------------------------------------------------------------------
+-- Seed: Tom on PLUSONE Launch Night has override 12, consumption 8 (refused
+-- and removed guests hold no slot), and one open request for 3 spots.
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok(
+  $$ select public.approve_quota_request(q.id) from public.quota_requests q
+      where q.event_id = 'ee000000-0000-7000-8000-000000000001'
+        and q.user_id = '55555555-5555-4555-8555-555555555555' and q.status = 'pending'
+        and q.guest_payload is null and q.requested_extra = 3 $$,
+  'S1 the admin approves the seed request for 3 spots (on the admin''s device)');
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select is(
+  (select row(quota, consumed, remaining)::text from public.event_quota_status('ee000000-0000-7000-8000-000000000001')),
+  row(15, 8, 7)::text,
+  'S2 server truth for Tom: quota 15, consumed 8, remaining 7 — a +4 guest (5 spots) needs no request');
+select lives_ok(
+  $$ insert into public.quota_requests (id, event_id, user_id, requested_extra, motivation, guest_payload)
+     values ('9f000000-0000-7000-8000-000000000020', 'ee000000-0000-7000-8000-000000000001',
+             '55555555-5555-4555-8555-555555555555', 1, 'Max',
+             '{"name": "Max Seffelaar", "plus_ones": 4, "tier_id": "dd000000-0000-7000-8000-000000000001"}'),
+            ('9f000000-0000-7000-8000-000000000021', 'ee000000-0000-7000-8000-000000000001',
+             '55555555-5555-4555-8555-555555555555', 3, 'Henie',
+             '{"name": "Henie", "plus_ones": 6, "tier_id": "dd000000-0000-7000-8000-000000000001"}') $$,
+  'S3 the two requests Tom''s stale cache ("4 left") produced: +1 for Max +4, +3 for Henie +6');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok(
+  $$ select public.approve_quota_request('9f000000-0000-7000-8000-000000000021') $$,
+  'S4 Henie is approved as asked');
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select is(
+  (select row(quota, consumed, remaining)::text from public.event_quota_status('ee000000-0000-7000-8000-000000000001')),
+  row(18, 15, 3)::text,
+  'S5 ...quota 18, consumed 15: exactly Max''s database after his test');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok(
+  $$ select public.approve_quota_request('9f000000-0000-7000-8000-000000000020') $$,
+  'S6 the short "+1" for Max Seffelaar +4 now approves as asked (was 45001 in Max''s test)');
+select pg_temp.owner();
+select is(
+  (select row(q.approved_extra, g.plus_ones,
+              public.user_event_quota('ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
+              public.user_event_consumption('ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'))::text
+     from public.quota_requests q join public.guests g on g.id = q.guest_id
+    where q.id = '9f000000-0000-7000-8000-000000000020'),
+  row(2, 4, 20, 20)::text,
+  'S7 2 spots granted (5 needed − 3 left), guest +4 on the list, quota 20 = consumed 20');
 
 -- ---------------------------------------------------------------------------
 -- G. Role matrix — only the admin decides; nobody else learns anything

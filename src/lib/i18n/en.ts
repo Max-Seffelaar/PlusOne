@@ -99,7 +99,9 @@ export const en = {
     alreadyHandled: 'This request has already been handled.',
     notDecidable: 'This request has already been handled or cannot be decided by you.',
     // z8uq9m2xyp — an approval that names a guest rolls back as a whole.
-    guestNoFit: "The guest needs more spots than this request adds, so nothing changed. Decline it with a reason instead.",
+    // z8uq9m5kux: the guest must fit in the person's quota (what they have left
+    // plus the spots granted), not in the extra spots alone.
+    guestNoFit: "With these spots the guest doesn't fit in this person's quota, so nothing changed. Give more spots, or decline with a reason.",
     guestTierFull: "The guest's tier is full, so nothing changed. Decline it with a reason instead.",
     guestCapacity: 'The event is at capacity, so nothing changed. Decline it with a reason instead.',
     guestListLocked: 'The list is locked for this person, so nothing changed. Unlock the list or decline with a reason.',
