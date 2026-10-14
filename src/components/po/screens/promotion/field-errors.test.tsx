@@ -14,7 +14,7 @@ import { t } from '@/lib/i18n';
 import { FieldActionError } from '@/lib/field-error';
 import { expectFieldError, stubScrollIntoView } from '../../../../../tests/unit/helpers/field-error-asserts';
 
-const H = vi.hoisted(() => ({ createLink: vi.fn(), createInf: vi.fn(), updateLink: vi.fn(), updateInf: vi.fn() }));
+const H = vi.hoisted(() => ({ createLink: vi.fn(), createInf: vi.fn(), updateLink: vi.fn(), updateInf: vi.fn(), links: [] as unknown[] }));
 const stub = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
 
 vi.mock('../../context', () => ({ useNav: () => ({ push: vi.fn(), back: vi.fn() }) }));
@@ -25,7 +25,7 @@ vi.mock('@/features/po/hooks', () => ({
   usePoInfluencers: () => ({ data: [] }),
   usePoEventForEdit: () => ({ data: null }),
   usePoEventOptions: () => ({ data: [] }),
-  usePoRequestLinks: () => ({ data: [], isLoading: false }),
+  usePoRequestLinks: () => ({ data: H.links, isLoading: false }),
 }));
 vi.mock('@/features/po/mutations', () => ({
   usePoCreateLink: () => ({ ...stub(), mutateAsync: H.createLink }),
@@ -37,13 +37,14 @@ vi.mock('@/features/po/mutations', () => ({
 }));
 
 const { CreateLinkFlow } = await import('./create-link-flow');
-const { LinkSheet } = await import('./event-links');
+const { EventLinks, LinkSheet } = await import('./event-links');
 const { InfluencerSheet } = await import('./roster');
 
 beforeEach(stubScrollIntoView);
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  H.links = [];
 });
 
 const dateInput = () => document.querySelector<HTMLInputElement>('input[type="date"]')!;
@@ -210,5 +211,27 @@ describe('promoter sheet', () => {
     fireEvent.click(screen.getByRole('button', { name: new RegExp(t.links.addCta) }));
     await waitFor(() => expect(screen.getByText('Not allowed')).toBeInTheDocument());
     expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
+  });
+});
+
+describe('link card: the max', () => {
+  const base = {
+    eventId: 'e1', slug: 'insta-abc', isDefault: false, active: true, autoApprove: false, influencerId: null,
+    influencerName: null, tierId: null, expiresAt: null, createdAt: '2026-10-01T00:00:00Z',
+    views: 10, requests: 2, requestedHeads: 3, approvedHeads: 2, checkedInHeads: 1,
+  };
+
+  it('no cap (0 or empty in the form, stored null) reads "No max", never "max 0"', () => {
+    H.links = [{ ...base, id: 'l1', label: 'Insta', maxHeadcount: null }];
+    render(<EventLinks eventId="e1" />);
+    expect(screen.getByText(new RegExp(`· ${t.links.tierNoMax}$`))).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\/0\b|max 0/i);
+  });
+
+  it('a cap reads approved/max', () => {
+    H.links = [{ ...base, id: 'l2', label: 'Insta', maxHeadcount: 40 }];
+    render(<EventLinks eventId="e1" />);
+    expect(screen.getByText(/· 2\/40$/)).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(t.links.tierNoMax))).toBeNull();
   });
 });

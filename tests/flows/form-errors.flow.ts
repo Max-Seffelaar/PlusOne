@@ -21,9 +21,9 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  * Round 2 (Max, testing #506 in train #507):
  *   Q9  Profile with First name emptied: Save stays on and says "Enter your
  *       first name." under the field (it used to be a dead, disabled button).
- *   Q10 New link: Max people over 100 000 is refused under the field; then 0
- *       saves the link with NO max (0 and empty both mean no limit, decision
- *       Max 2026-10-14), stored as null, the hint saying so under the field.
+ *   Q10 New link with Max people 0: saved with NO max (0 and empty both mean
+ *       no limit, decision Max 2026-10-14), stored as null; the hint says so.
+ *   Q12 Before that, 100001 in Max people: the field error, no link.
  *   Q11 Team invite to an address whose domain takes no mail: refused under
  *       Email, no invite row. A reserved `.invalid` domain keeps the run
  *       deterministic; the DNS path is covered by mail-domain.test.ts.
@@ -184,21 +184,36 @@ test('form errors point at the field: profile, promoter, new company', async ({ 
   const maxPeople = page.getByPlaceholder('∞ no cap', { exact: true });
   await maxPeople.fill('100001');
   await page.getByRole('button', { name: 'Create link' }).click();
-  await expect
-    .poll(async () => focused(page), { timeout: 10_000 })
-    .toMatchObject({ placeholder: '∞ no cap', invalid: 'true', description: 'Use a whole number up to 100,000.', inWindow: true });
+  await flow.check(12, 'New link, Max people 100001: "Use a whole number up to 100,000." under Max people, focused; no link yet', async () => {
+    await expect
+      .poll(async () => focused(page), { timeout: 10_000 })
+      .toMatchObject({ placeholder: '∞ no cap', invalid: 'true', description: 'Use a whole number up to 100,000.', inWindow: true });
+    const { count } = await adminClient().from('request_links').select('id', { count: 'exact', head: true }).eq('label', zeroLabel);
+    expect(count).toBe(0);
+  });
   await flow.shot('link-max-people-over-cap');
   await maxPeople.fill('0');
+  // Typing in the field clears its error; the hint says what 0 means.
+  await expect(maxPeople).not.toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByText('0 or empty means no limit.')).toBeVisible();
   await page.getByRole('button', { name: 'Create link' }).click();
-  await flow.check(10, 'New link: over 100,000 refused under Max people; 0 then saves the link with no max (stored null), no error', async () => {
-    await expect
-      .poll(async () => (await adminClient().from('request_links').select('max_headcount').eq('label', zeroLabel).maybeSingle()).data, { timeout: 15_000 })
-      .toEqual({ max_headcount: null });
-    await expect(page.getByText(/Capped at/)).toHaveCount(0);
+  await expect
+    .poll(async () => (await adminClient().from('request_links').select('max_headcount, event_id').eq('label', zeroLabel).maybeSingle()).data, { timeout: 15_000 })
+    .not.toBeNull();
+  await flow.shot('link-max-people-zero-saved');
+  const saved = (await adminClient().from('request_links').select('max_headcount, event_id').eq('label', zeroLabel).single()).data as {
+    max_headcount: number | null;
+    event_id: string;
+  };
+  await page.goto(`/app/promotion/events/${saved.event_id}`);
+  const card = page.getByRole('button').filter({ hasText: zeroLabel }).first();
+  await flow.check(10, 'New link, Max people 0: saved with no max (stored null, no error) and its card reads "No max", never "max 0"', async () => {
+    expect(saved.max_headcount).toBeNull();
+    await expect(card).toContainText('No max', { timeout: 15_000 });
+    await expect(card).not.toContainText('/0');
   });
-  await flow.shot('link-max-people-zero-no-max');
-  await page.keyboard.press('Escape').catch(() => {});
+  await card.scrollIntoViewIfNeeded();
+  await flow.shot('link-card-no-max');
 
   // ── Round 2 · Q11: a team invite to a domain that takes no mail ──
   const noMail = `fe-${flow.variant}-${stamp}@theoperatoirs.invalid`;

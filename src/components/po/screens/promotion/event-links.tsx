@@ -92,9 +92,10 @@ function LinkCard({
       approved: link.approvedHeads,
       checkedIn: link.checkedInHeads,
     }) +
+    // No cap (empty or 0 in the form, stored null) reads "No max", never "max 0".
     (link.maxHeadcount != null
       ? fmt(t.links.statsCap, { heads: link.approvedHeads, max: link.maxHeadcount })
-      : '');
+      : ` · ${t.links.tierNoMax}`);
 
   return (
     <div
