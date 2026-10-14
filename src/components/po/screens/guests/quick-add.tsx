@@ -26,12 +26,14 @@ import {
   usePoQuota,
 } from '@/features/po/hooks';
 import { usePoAddGuest, usePoUpdateGuest, usePoRequestExtraSlots } from '@/features/po/mutations';
+import { quotaShortfall } from '@/features/quotas/shortfall';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll, ToggleRow } from '../../kit';
+import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll } from '../../kit';
+import { QuotaRequestForm, useQuotaRequestEntry } from './quota-request-form';
 import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
@@ -105,7 +107,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const evId = curEv?.id ?? '';
 
   const { data: tiers = [] } = usePoTiers(evId);
-  const { data: quota } = usePoQuota(evId);
+  // isFetching: a cached (or IDB-restored) quota is never the basis of a
+  // request while the fresh one is on its way (z8uq9m5kux).
+  const { data: quota, isFetching: quotaFetching } = usePoQuota(evId);
   const add = usePoAddGuest(evId);
   const update = usePoUpdateGuest(evId);
   const [sendConfirmation, setSendConfirmation] = useSendConfirmation();
@@ -113,6 +117,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   // staff only match against their own guests — exactly the rows they may update.
   const { data: liveGuests = [] } = usePoGuests(evId);
   const reqExtra = usePoRequestExtraSlots(evId);
+  // "Request more spots" without a guest, next to the quota counter in the
+  // header (z8uq9m5kux): that counter is where people look for it.
+  const spotsEntry = useQuotaRequestEntry(evId);
   const { roles } = usePoIdentity();
   // An external crew member (event organizer, roles:[]) may add guests to their own
   // event — they're no longer quota-exempt (86ey21vre), so the old exempt-based gate
@@ -180,13 +187,14 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
 
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
-  const overQuota = remaining !== null && cost > remaining;
+  const shortfall = quotaShortfall(cost, remaining);
+  const overQuota = shortfall !== null;
   // Hide the quick-add for roles that can't create guests (user_manager/finance):
   // RLS would reject the insert with a confusing 42501, so gate the UI instead.
   // admin/staff/doorhost qualify via venue role; an event organizer (external crew)
   // via canManage (they add up to their quota — quota still gates the insert below).
   const canAdd = canManageGuests(roles) || canManage;
-  const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
+  const reqShortfall = shortfall ?? 1;
   // The guest as typed ("Lisa de Vries +1"), named in the quota request (z8uq9m2xyp).
   const reqGuestLabel = effPlus > 0 ? `${effName} +${effPlus}` : effName;
   const reqGuest =
@@ -244,6 +252,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     add.reset();
     update.reset();
     reqExtra.reset();
+    // A new name starts a new request: no motivation left over (Max's retest).
+    setReqMotiv('');
   };
 
   /** Run the actual mutation for a decided duplicate mode ('again' when no dupe). */
@@ -377,7 +387,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.guests.add.title} sub={sub} />
+      <Top onBack={nav.back} title={t.guests.add.title} sub={sub} right={spotsEntry.button ?? undefined} />
+      {spotsEntry.panel}
       <Scroll bottom={120}>
         <Label className="mb-2">{t.guests.add.eventLabel}</Label>
         {curEv ? (
@@ -582,62 +593,32 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   </span>
                 </div>
               ) : reqOpen ? (
-                <div className="mt-[10px] flex flex-col gap-[10px] rounded-[16px] border border-line bg-elev p-[14px]">
-                  <Label>
-                    {fmt(t.guests.add.requestExtraLabel, { n: reqShortfall, slots: reqShortfall === 1 ? t.guests.add.slotOne : t.guests.add.slotMany })}
-                  </Label>
-                  <textarea
-                    autoFocus
-                    value={reqMotiv}
-                    onChange={(e) => setReqMotiv(e.target.value)}
-                    maxLength={500}
-                    rows={2}
-                    placeholder={t.guests.add.requestMotivPlaceholder}
-                    className="w-full resize-none rounded-[12px] border border-line bg-bg px-[13px] py-[11px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
-                  />
-                  <div className="rounded-[12px] border border-line bg-bg px-[13px]" data-testid="quota-request-with-guest">
-                    <ToggleRow
-                      title={fmt(t.guests.add.requestWithGuest, { guest: reqGuestLabel })}
-                      on={reqWithGuest}
-                      set={setReqWithGuest}
-                      last
-                    />
-                  </div>
-                  {reqExtra.isError && (
-                    <p className="text-[12.5px] text-acc" role="alert">
-                      {reqExtra.error?.message ?? t.guests.add.requestSendFailed}
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <Btn
-                      kind="primary"
-                      icon="check"
-                      className={cn((reqExtra.isPending || reqMotiv.trim() === '') && 'opacity-[0.45]')}
-                      disabled={reqExtra.isPending || reqMotiv.trim() === ''}
-                      onClick={() =>
-                        reqExtra.mutate({
-                          eventId: evId,
-                          requestedExtra: reqShortfall,
-                          motivation: reqMotiv.trim(),
-                          guest: reqGuest,
-                        })
-                      }
-                    >
-                      {reqExtra.isPending ? t.guests.add.sending : t.guests.add.send}
-                    </Btn>
-                    <Btn
-                      kind="ghost"
-                      onClick={() => {
-                        setReqOpen(false);
-                        setReqMotiv('');
-                      }}
-                    >
-                      {t.guests.add.cancel}
-                    </Btn>
-                  </div>
-                </div>
+                <QuotaRequestForm
+                  spots={reqShortfall}
+                  motivation={reqMotiv}
+                  onMotivation={setReqMotiv}
+                  guest={{ label: reqGuestLabel, on: reqWithGuest, set: setReqWithGuest }}
+                  pending={reqExtra.isPending}
+                  error={reqExtra.isError ? reqExtra.error?.message ?? t.guests.add.requestSendFailed : null}
+                  onSend={() =>
+                    reqExtra.mutate(
+                      {
+                        eventId: evId,
+                        requestedExtra: reqShortfall,
+                        motivation: reqMotiv.trim(),
+                        guest: reqGuest,
+                      },
+                      // Sent: the next request starts with an empty motivation.
+                      { onSuccess: () => setReqMotiv('') },
+                    )
+                  }
+                  onCancel={() => {
+                    setReqOpen(false);
+                    setReqMotiv('');
+                  }}
+                />
               ) : (
-                <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => setReqOpen(true)}>
+                <Btn kind="ghost" full icon="plus" className="mt-[10px]" disabled={quotaFetching} onClick={() => setReqOpen(true)}>
                   {t.guests.add.requestExtra}
                 </Btn>
               )

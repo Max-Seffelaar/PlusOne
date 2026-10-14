@@ -1,12 +1,14 @@
 import type { Browser, BrowserContext, Page, TestInfo } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SEED, USERS, type LayoutScreen, type LayoutUser } from './screens';
+import { authStatePath } from './auth-state';
+import { SEED, type LayoutScreen, type LayoutUser } from './screens';
 import { shellMounted } from './shell-ready';
 
 /**
  * Load-once-measure-once plumbing for the layout suite: one browser context per
- * screen × project, one dev-login navigation straight onto the screen, one
+ * screen × project (signed in from the run's stored session), one navigation
+ * straight onto the screen, one
  * settle, one in-page measurement pass, one screenshot. The individual checks
  * are separate tests over that ONE snapshot, so each can be `fixme`'d on its
  * own without hiding the others.
@@ -97,12 +99,16 @@ export interface LayoutSnapshot {
 }
 
 /** New context with the running project's device options + the active venue
- *  pinned to Club Vesper (admin@ is a member of two venues). */
-export async function newProjectContext(browser: Browser, testInfo: TestInfo): Promise<BrowserContext> {
+ *  pinned to Club Vesper (admin@ is a member of two venues). With `user`, it is
+ *  signed in as that seed user from the session `global-setup.ts` minted
+ *  (`auth-state.ts`); without, it starts signed out (the store suite logs its
+ *  own demo user in). */
+export async function newProjectContext(browser: Browser, testInfo: TestInfo, user?: LayoutUser): Promise<BrowserContext> {
   const use = testInfo.project.use;
   const baseURL = use.baseURL ?? testInfo.config.projects[0]?.use.baseURL;
   const context = await browser.newContext({
     baseURL,
+    storageState: user ? authStatePath(user) : undefined,
     viewport: use.viewport,
     isMobile: use.isMobile,
     hasTouch: use.hasTouch,
@@ -151,22 +157,17 @@ function stripQuery(url: string): string {
   }
 }
 
-/** dev-login straight onto `path`; returns once the shell has rendered and the
- *  screen's data has settled. */
-export async function openScreen(page: Page, user: LayoutUser, path: string): Promise<void> {
-  const login = `/auth/dev-login?email=${encodeURIComponent(USERS[user].email)}&next=${encodeURIComponent(path)}`;
+/** Navigate the (already signed-in) context straight onto `path`; returns once
+ *  the shell has rendered and the screen's data has settled. */
+export async function openScreen(page: Page, path: string): Promise<void> {
   const expected = path.split('?')[0];
-  // Parallel workers log the SAME seed user in at once, and minting a magic
-  // link replaces that user's previous token — so a concurrent dev-login can
-  // lose the race and land on /login?error=devlogin. That is a harness race,
-  // not a screen defect: retry the LOGIN (never a check) with jitter.
-  for (let attempt = 1; ; attempt++) {
-    await page.goto(login, { waitUntil: 'domcontentloaded', timeout: 150_000 });
-    await page.waitForURL((u) => u.pathname === expected || u.pathname === '/login', { timeout: 90_000 });
-    if (new URL(page.url()).pathname === expected) break;
-    if (attempt >= 4) throw new Error(`dev-login as ${USERS[user].email} kept landing on ${page.url()}`);
-    await page.waitForTimeout(500 + Math.floor(Math.random() * 1500));
-  }
+  // No dev-login here: the context carries the session global setup minted
+  // once per user (why: `global-setup.ts`). Landing anywhere but the screen —
+  // /login above all — means that session is gone, which is a real failure.
+  await page.goto(path, { waitUntil: 'domcontentloaded', timeout: 150_000 });
+  await page.waitForURL((u) => u.pathname === expected || u.pathname === '/login', { timeout: 90_000 });
+  const landed = new URL(page.url());
+  if (landed.pathname !== expected) throw new Error(`opening ${expected} landed on ${landed.pathname}${landed.search}`);
   // The shell is client-only (`ssr:false`): wait until it has replaced the boot
   // screen in the light DOM, never on Next's shadow-DOM dev indicator
   // (`shell-ready.ts`). A shell that never mounts fails here, loudly, instead
@@ -440,11 +441,11 @@ export async function loadSnapshot(browser: Browser, testInfo: TestInfo, screen:
   const file = join(SNAPSHOT_DIR, project, `${screen.id}.json`);
   if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8')) as LayoutSnapshot;
 
-  const context = await newProjectContext(browser, testInfo);
+  const context = await newProjectContext(browser, testInfo, screen.user);
   try {
     const page = await context.newPage();
     const failures = recordFailures(page);
-    await openScreen(page, screen.user, screen.path);
+    await openScreen(page, screen.path);
     const measured = await measure(page);
     // Failures are copied AFTER the screenshot, so anything the resize for the
     // full-page capture triggers counts too.

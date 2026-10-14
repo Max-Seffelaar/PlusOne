@@ -31,15 +31,15 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, copyStateLabel, hitArea44, hitRingY4, hitRingY6, press, cardPress, useCopyText } from '../../kit';
+import { Avatar, Btn, Empty, Field, FieldErrorFor, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, copyStateLabel, fieldInputProps, hitArea44, hitRingY4, hitRingY6, press, cardPress, useCopyText, useFieldErrors } from '../../kit';
 import { Sheet } from '../../shell';
 import { CreateLinkFlow } from './create-link-flow';
-import { EventPicker, soonestUpcoming } from './shared';
+import { EventPicker, LINK_FORM_FIELDS, expiryField, linkFormField, parseMaxHeads, soonestUpcoming } from './shared';
 
 const col = 'flex h-full flex-col';
 
 function ErrLine({ msg }: { msg: string }): JSX.Element {
-  return <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
+  return <div role="alert" className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
 }
 
 /** The link's public URL. Guarded: in a rare no-window context the path alone
@@ -92,9 +92,10 @@ function LinkCard({
       approved: link.approvedHeads,
       checkedIn: link.checkedInHeads,
     }) +
+    // No cap (empty or 0 in the form, stored null) reads "No max", never "max 0".
     (link.maxHeadcount != null
       ? fmt(t.links.statsCap, { heads: link.approvedHeads, max: link.maxHeadcount })
-      : '');
+      : ` · ${t.links.tierNoMax}`);
 
   return (
     <div
@@ -334,7 +335,7 @@ function whoChip(key: string, label: string, active: boolean, onClick: () => voi
   );
 }
 
-function LinkSheet({
+export function LinkSheet({
   eventId,
   link,
   tiers,
@@ -368,7 +369,8 @@ function LinkSheet({
   const [expDate, expTimeInit] = (isoToLocalInput(link.expiresAt) || 'T').split('T');
   const [expiryDate, setExpiryDate] = useState(expDate);
   const [expiryTime, setExpiryTime] = useState(expTimeInit);
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(LINK_FORM_FIELDS);
   const [confirmArchive, setConfirmArchive] = useState(false);
 
   const busy = update.isPending || createInf.isPending;
@@ -376,13 +378,13 @@ function LinkSheet({
   // Turning auto-approve on requires a pinned tier: auto-select the first one,
   // or surface the "add a tier first" hint on a tier-less event.
   const setAuto = (v: boolean): void => {
-    setErr(null);
+    fe.reset();
     if (v && !tierId) {
       if (tiers.length > 0) {
         setTierId(tiers[0].id);
         setAutoApprove(true);
       } else {
-        setErr(t.links.noTiersYet);
+        fe.fail(t.links.noTiersYet);
       }
       return;
     }
@@ -390,7 +392,7 @@ function LinkSheet({
   };
 
   const save = async (): Promise<void> => {
-    setErr(null);
+    fe.reset();
 
     // Identity — exactly one of influencer/label (skipped for the default link).
     let influencerId: string | undefined;
@@ -400,17 +402,17 @@ function LinkSheet({
         influencerId = whoId;
       } else if (whoKind === 'new') {
         if (newName.trim().length < 2) {
-          setErr(t.links.errNewInfluencerName);
+          fe.fail(t.links.errNewInfluencerName, 'newName');
           return;
         }
       } else if (whoKind === 'label') {
         if (!label.trim()) {
-          setErr(t.links.errIdentity);
+          fe.fail(t.links.errIdentity, 'label');
           return;
         }
         labelVal = label.trim();
       } else {
-        setErr(t.links.errIdentity);
+        fe.fail(t.links.errIdentity);
         return;
       }
     }
@@ -420,13 +422,18 @@ function LinkSheet({
     if (expiryDate || expiryTime) {
       expiresAt = localInputToIso(`${expiryDate}T${expiryTime}`);
       if (!expiresAt) {
-        setErr(t.links.errExpiry);
+        fe.fail(t.links.errExpiry, expiryField(expiryDate, expiryTime));
         return;
       }
     }
 
-    const maxNum = Number.parseInt(maxHeads, 10);
-    const maxVal = Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null;
+    // Max people: empty or 0 = no max; negative, fractional or over 100 000 is refused.
+    const maxParsed = parseMaxHeads(maxHeads);
+    if (!maxParsed.ok) {
+      fe.fail(t.links.errMaxHeadsRange, 'maxHeads');
+      return;
+    }
+    const maxVal = maxParsed.value;
 
     try {
       // "+ New" creates the influencer first, then attaches the link to it.
@@ -447,17 +454,17 @@ function LinkSheet({
       });
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.links.errSave);
+      fe.failWith(e, t.links.errSave, linkFormField);
     }
   };
 
   const archive = async (): Promise<void> => {
-    setErr(null);
+    fe.reset();
     try {
       await update.mutateAsync({ linkId: link.id, archived: true });
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.links.errArchive);
+      fe.fail(e instanceof Error ? e.message : t.links.errArchive);
     }
   };
 
@@ -476,23 +483,43 @@ function LinkSheet({
                 whoChip(inf.id, inf.name, whoKind === 'influencer' && whoId === inf.id, () => {
                   setWhoKind('influencer');
                   setWhoId(inf.id);
-                  setErr(null);
+                  fe.reset();
                 }),
               )}
               {whoChip('new', t.links.chipNew, whoKind === 'new', () => {
                 setWhoKind('new');
-                setErr(null);
+                fe.reset();
               })}
               {whoChip('label', t.links.chipLabelOnly, whoKind === 'label', () => {
                 setWhoKind('label');
-                setErr(null);
+                fe.reset();
               })}
             </div>
             {whoKind === 'new' && (
-              <Field placeholder={t.links.newInfluencerPlaceholder} value={newName} onChange={setNewName} autoFocus className="mb-3" />
+              <>
+                <Field
+                  placeholder={t.links.newInfluencerPlaceholder}
+                  value={newName}
+                  onChange={fe.edit('newName', setNewName)}
+                  autoFocus
+                  className="mb-3"
+                  {...fieldInputProps(fe.bind('newName'))}
+                />
+                <FieldErrorFor error={fe.bind('newName')} className="-mt-1.5 mb-3" />
+              </>
             )}
             {whoKind === 'label' && (
-              <Field placeholder={t.links.labelPlaceholder} value={label} onChange={setLabel} autoFocus className="mb-3" />
+              <>
+                <Field
+                  placeholder={t.links.labelPlaceholder}
+                  value={label}
+                  onChange={fe.edit('label', setLabel)}
+                  autoFocus
+                  className="mb-3"
+                  {...fieldInputProps(fe.bind('label'))}
+                />
+                <FieldErrorFor error={fe.bind('label')} className="-mt-1.5 mb-3" />
+              </>
             )}
           </>
         )}
@@ -519,17 +546,28 @@ function LinkSheet({
 
         {/* (d) Max heads + expiry. */}
         <Label className="mb-2 mt-3">{t.links.maxHeadsLabel}</Label>
-        <Field icon="users" placeholder={t.links.maxHeadsPlaceholder} value={maxHeads} onChange={(v) => setMaxHeads(v.replace(/[^0-9]/g, ''))} inputMode="numeric" className="mb-3" />
+        <Field
+          icon="users"
+          placeholder={t.links.maxHeadsPlaceholder}
+          value={maxHeads}
+          onChange={fe.edit('maxHeads', (v: string) => setMaxHeads(v.replace(/[^0-9]/g, '')))}
+          inputMode="numeric"
+          className="mb-3"
+          {...fieldInputProps(fe.bind('maxHeads'))}
+        />
+        <FieldErrorFor error={fe.bind('maxHeads')} className="-mt-1.5 mb-1" />
+        <div className={cn('mb-3 pl-0.5 text-[12px] leading-[1.4] text-faint', !fe.bind('maxHeads').invalid && '-mt-1.5')}>{t.links.maxHeadsHint}</div>
         <div className="mb-3 flex gap-[10px]">
           <div className="flex-1">
             <Label className="mb-2">{`${t.links.expiresLabel} · ${t.links.expiresDate}`}</Label>
-            <Field icon="cal" type="date" value={expiryDate} onChange={setExpiryDate} />
+            <Field icon="cal" type="date" value={expiryDate} onChange={fe.edit('expiryDate', setExpiryDate)} {...fieldInputProps(fe.bind('expiryDate'))} />
           </div>
           <div className="flex-1">
             <Label className="mb-2">{t.links.expiresTime}</Label>
-            <Field icon="clock" type="time" value={expiryTime} onChange={setExpiryTime} />
+            <Field icon="clock" type="time" value={expiryTime} onChange={fe.edit('expiryTime', setExpiryTime)} {...fieldInputProps(fe.bind('expiryTime'))} />
           </div>
         </div>
+        <FieldErrorFor error={fe.bind(fe.field === 'expiryTime' ? 'expiryTime' : 'expiryDate')} className="-mt-1.5 mb-3" />
 
         {/* The slug is immutable — show the URL read-only. */}
         <Label className="mb-2">{t.links.urlLabel}</Label>
@@ -538,7 +576,7 @@ function LinkSheet({
         </div>
       </div>
 
-      {err && <div className="mt-2"><ErrLine msg={err} /></div>}
+      {fe.banner && <div className="mt-2"><ErrLine msg={fe.banner} /></div>}
       <Btn kind="primary" full icon="check" disabled={busy} onClick={() => void save()} className={cn('mt-2', busy && 'opacity-50')}>
         {busy ? t.links.saving : t.links.saveCta}
       </Btn>

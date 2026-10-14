@@ -31,7 +31,6 @@ import { useNav, usePo } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
 import { Btn, Field, FieldErrorFor, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, fieldInputProps, hitRingY6, press, useCopyText, useFieldErrors } from '../../kit';
-import { errorField } from '@/lib/field-error';
 import { EVENT_FORM_FIELDS, eventFormField } from './form-fields';
 import { EventGuestMailSection, EventGuestTextFields } from './guest-mail';
 import { EventContactEmailField, contactEmailProblem, contactEmailValue } from './contact-email-field';
@@ -119,7 +118,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [quotaDefault, setQuotaDefault] = useState(0);
   // Field errors point at the field (z8uq9m5eb7); anything else is the banner.
   const fe = useFieldErrors(EVENT_FORM_FIELDS);
-  const fail = (e: unknown, fallback: string): void => fe.fail(e instanceof Error ? e.message : fallback, eventFormField(errorField(e)));
+  const fail = (e: unknown, fallback: string): void => fe.failWith(e, fallback, eventFormField);
   const [copyState, copy] = useCopyText();
   const copied = copyState === 'copied';
   // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls

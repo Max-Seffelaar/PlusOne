@@ -4,6 +4,11 @@
          src/features/notifications/capacitor-provider.ts (guarded by
          tests/unit/capacitor-native-shell.test.ts). -->
     <string name="plusone_push_channel_id" translatable="false">approvals</string>
+    <!-- What Settings → Apps → PlusOne → Notifications lists (z8uq9m5kuy). Keep
+         equal to t.push.channelName / channelDescription in src/lib/i18n/en.ts:
+         the web app re-creates the same channel, and the last write wins. -->
+    <string name="plusone_push_channel_name">Requests</string>
+    <string name="plusone_push_channel_description">Guest list and quota requests, and decisions on yours.</string>
     <!-- design-system.md lavender accent: tints the notification icon. -->
     <color name="plusone_push_accent">#B5A6FF</color>
 </resources>

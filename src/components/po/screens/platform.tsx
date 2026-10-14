@@ -35,7 +35,6 @@ import {
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import {
   usePoInviteBetaCustomer,
-  usePoResendBetaInvite,
   usePoRevokeBetaInvite,
 } from '@/features/po/mutations';
 import {
@@ -48,6 +47,7 @@ import { formatShortDate } from '@/features/po/format';
 import { useNav, usePo } from '../context';
 import { tabPath } from '../routes';
 import { CompanyChip } from './platform-company';
+import { InviteResend, isRecentlySent } from './platform-resend';
 import { Icon } from '../icon';
 import {
   ActionItem,
@@ -332,10 +332,17 @@ export function InviteForm(): JSX.Element {
         {invite.isPending ? t.platform.sending : t.platform.send}
       </Btn>
 
-      {(localError || invite.isError) && (
-        <p className="mt-3 text-[12.5px] leading-[1.45] text-red-300" role="alert">
-          {localError ?? errorText(invite.error)}
+      {/* The per-address minute (z8uq9m5m8h) is a wait, not a failure: neutral, not red. */}
+      {!localError && invite.isError && isRecentlySent(invite.error) ? (
+        <p className="mt-3 text-[12.5px] leading-[1.45] text-dim" role="status" data-tone="neutral">
+          {errorText(invite.error)}
         </p>
+      ) : (
+        (localError || invite.isError) && (
+          <p className="mt-3 text-[12.5px] leading-[1.45] text-red-300" role="alert">
+            {localError ?? errorText(invite.error)}
+          </p>
+        )
       )}
       {invite.isSuccess && !invite.isPending && (
         <p className="mt-3 text-[12.5px] leading-[1.45] text-acc" role="status">
@@ -413,7 +420,6 @@ function InviteCard({
   onOpenEvents: (venueId: string) => void;
   onRevoke: () => void;
 }): JSX.Element {
-  const resend = usePoResendBetaInvite();
   const venuesCopy =
     invite.venueCount === 1
       ? fmt(t.platform.venues, { count: invite.venueCount })
@@ -427,7 +433,7 @@ function InviteCard({
   const frozen = invite.revoked || invite.anonymized;
 
   return (
-    <div className={cn('rounded-[16px] border border-line bg-elev p-[14px]', frozen && 'opacity-70')}>
+    <div data-testid="platform-invite" className={cn('rounded-[16px] border border-line bg-elev p-[14px]', frozen && 'opacity-70')}>
       <div className="flex min-w-0 items-start gap-[10px]">
         <span className="mt-px flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2 text-faint">
           <Icon name="mail" size={16} />
@@ -491,35 +497,16 @@ function InviteCard({
       </div>
 
       {!frozen && (
-        <>
-          <div className="mt-[11px] flex flex-wrap gap-2">
-            <Btn
-              kind="ghost"
-              sm
-              icon="refresh"
-              className="min-h-[44px]"
-              disabled={resend.isPending}
-              onClick={() => resend.mutate(invite.id)}
-            >
-              {resend.isPending ? t.platform.resending : t.platform.resend}
-            </Btn>
-            <Btn kind="ghost" sm icon="close" className="min-h-[44px]" onClick={onRevoke}>
-              {t.platform.revoke}
-            </Btn>
-          </div>
-          <p className="mt-[7px] text-[11.5px] leading-[1.4] text-faint">{t.platform.revokeHelp}</p>
-        </>
-      )}
-
-      {resend.isError && (
-        <p className="mt-2 text-[12.5px] leading-[1.45] text-red-300" role="alert">
-          {errorText(resend.error)}
-        </p>
-      )}
-      {resend.isSuccess && !resend.isPending && (
-        <p className="mt-2 text-[12.5px] leading-[1.45] text-acc" role="status">
-          {resend.data?.message ?? ''}
-        </p>
+        // Resend waits out the 60 s per-address mail window (z8uq9m5m8h).
+        <InviteResend
+          inviteId={invite.id}
+          lastSentAt={invite.lastSentAt}
+          help={<p className="mt-[7px] text-[11.5px] leading-[1.4] text-faint">{t.platform.revokeHelp}</p>}
+        >
+          <Btn kind="ghost" sm icon="close" className="min-h-[44px]" onClick={onRevoke}>
+            {t.platform.revoke}
+          </Btn>
+        </InviteResend>
       )}
     </div>
   );

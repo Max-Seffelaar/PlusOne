@@ -133,7 +133,7 @@ export const FLOWS = {
     ],
   },
   'quota-request-guest': {
-    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ approves → guest on the list → Home Updates card (Got it / Add guests / decline reason)',
+    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ adjusts (tier, +N, trim) and approves → guest on the list → Home Updates card (approved with changes / Got it / Add guests / decline reason)',
     paths: [
       'src/features/quotas/',
       'src/features/po/queries.ts',
@@ -144,6 +144,10 @@ export const FLOWS = {
       'src/components/po/screens/guests/quick-add.tsx',
       'src/components/po/screens/approvals',
       'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
+      'supabase/migrations/20261018130000_quota_request_adjust.sql',
+      'src/components/po/kit.tsx',
+      'src/components/po/screens/guests/index.tsx',
+      'src/components/po/screens/guests/quota-request-form.tsx',
     ],
   },
   'team-mail': {
@@ -159,6 +163,10 @@ export const FLOWS = {
       'src/components/po/screens/settings/notification-prefs.tsx',
       'src/components/po/screens/settings/profile.tsx',
       'supabase/migrations/20261013180600_notification_prefs.sql',
+      // z8uq9m5kux: the flow approves through the quota approve sheet, and the
+      // migration redefines team_mails_claim (the decision mail's count).
+      'src/components/po/screens/approvals',
+      'supabase/migrations/20261018130000_quota_request_adjust.sql',
     ],
   },
   'mail-status': {
@@ -226,9 +234,10 @@ export const FLOWS = {
     ],
   },
   'platform-reinvite': {
-    title: 'Platform invites — "Send invite" on an address with an open invite re-sends it (rate-limited inside 60 s), a double click sends once (z8uq9m5enh)',
+    title: 'Platform invites — "Send invite" on an address with an open invite re-sends it (rate-limited inside 60 s, neutral tone), a double click sends once, row Resend counts the minute down (z8uq9m5enh, z8uq9m5m8h)',
     paths: [
       'src/components/po/screens/platform.tsx',
+      'src/components/po/screens/platform-resend.tsx',
       'src/features/platform/invite-actions.ts',
       'src/features/auth/invite-mail.ts',
       'src/features/po/mutations.ts',
@@ -461,9 +470,32 @@ export const FLOWS = {
       'src/components/po/screens/platform',
     ],
   },
-  'kit-select': {
-    title: 'Kit Select (z8uq9m4a2w) — PlusOne dropdown: popover on a fine pointer, bottom sheet on touch; Platform audit + mail log',
+  'form-errors': {
+    title: 'Form errors point at the field, follow-up (z8uq9m5m8g) — profile reserved/empty name, promoter handle, new company KVK + billing email (two fields at once), link Max people 0, team invite to a domain that takes no mail',
     paths: [
+      'src/lib/field-error.ts',
+      'src/lib/db-errors.ts',
+      'src/components/po/field-error-style.ts',
+      'src/components/po/phone-lazy.tsx',
+      'src/features/po/mutations.ts',
+      'src/features/auth/profile-actions.ts',
+      'src/features/auth/schemas.ts',
+      'src/features/links/',
+      'src/features/venues/actions.ts',
+      'src/features/venues/schemas.ts',
+      'src/components/po/screens/settings/profile.tsx',
+      'src/components/po/screens/settings/_shared.tsx',
+      'src/components/po/screens/promotion/',
+      'src/components/po/screens/onboarding.tsx',
+      'src/components/po/screens/settings/team.tsx',
+      'src/features/auth/invite-actions.ts',
+      'src/features/events/mail-domain.ts',
+    ],
+  },
+  'kit-select': {
+    title: 'Kit Select (z8uq9m4a2w, z8uq9m5m8h) — PlusOne dropdown: portalled popover on a fine pointer (never clipped), modal bottom sheet on touch; Platform audit + mail log',
+    paths: [
+      'src/components/po/select-position.ts',
       'src/components/po/native-back-intercept.ts',
       'src/components/po/screens/platform-audit.tsx',
       'src/components/po/screens/platform-access-log.tsx',

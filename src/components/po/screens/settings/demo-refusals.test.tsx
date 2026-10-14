@@ -94,6 +94,7 @@ vi.mock('@/lib/supabase/client', () => ({
 vi.mock('../../phone-lazy', () => ({
   CountrySelect: () => null,
   PhoneInput: () => null,
+  PhoneField: () => null,
   phoneCountryOf: () => Promise.resolve(null),
 }));
 
@@ -225,6 +226,6 @@ describe('profile e-mail change', () => {
     expect(screen.queryByText(t.auth.demoNoEmailChange)).toBeNull();
     fireEvent.change(input, { target: { value: 'new@example.com' } });
     fireEvent.click(btn(t.settings.profile.changeEmail));
-    expect(H.mutations.usePoUpdateEmail?.mutate).toHaveBeenCalledWith('new@example.com');
+    expect(H.mutations.usePoUpdateEmail?.mutate).toHaveBeenCalledWith('new@example.com', expect.objectContaining({ onError: expect.any(Function) }));
   });
 });

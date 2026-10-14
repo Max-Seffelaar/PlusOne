@@ -75,6 +75,10 @@ export const en = {
     profileSubOff: 'Off for this device.',
     profileBlocked: "Blocked in your phone's settings. Open Settings → Apps → PlusOne → Notifications to allow them.",
     profileError: 'Could not change notifications. Check your connection and try again.',
+    /** The native shell is still asking whether this build can push (z8uq9m5kuy). */
+    profileChecking: 'Checking this device…',
+    /** This build cannot push; `code` names the gate, for a support question. */
+    profileUnavailable: (code: string) => `Not available in this version of the app. Update PlusOne, then try again. (Code: ${code})`,
     /** "On" was saved, but FCM or the server did not answer yet; the app retries on
      *  every start. Toast after the ask card, error line in Profile. */
     onPending: "Turned on, but we couldn't register this device yet. It finishes the next time the app is online.",
@@ -99,13 +103,17 @@ export const en = {
     alreadyHandled: 'This request has already been handled.',
     notDecidable: 'This request has already been handled or cannot be decided by you.',
     // z8uq9m2xyp — an approval that names a guest rolls back as a whole.
-    guestNoFit: "The guest needs more spots than this request adds, so nothing changed. Decline it with a reason instead.",
+    // z8uq9m5kux: the guest must fit in the person's quota (what they have left
+    // plus the spots granted), not in the extra spots alone.
+    guestNoFit: "With these spots the guest doesn't fit in this person's quota, so nothing changed. Give more spots, or decline with a reason.",
     guestTierFull: "The guest's tier is full, so nothing changed. Decline it with a reason instead.",
     guestCapacity: 'The event is at capacity, so nothing changed. Decline it with a reason instead.',
     guestListLocked: 'The list is locked for this person, so nothing changed. Unlock the list or decline with a reason.',
     guestTierGone: "The guest's tier is no longer on this event, so nothing changed. Decline it with a reason instead.",
     guestCannotAdd: "This person can't add guests to this event, so nothing changed. Decline it with a reason instead.",
     guestInvalid: "That guest can't go with this request. Check the name and tier.",
+    // z8uq9m5kux — an adjusted approval the database refuses (stale sheet).
+    adjustInvalid: "That change doesn't fit this request anymore. Close it and try again.",
   },
 } as const;
 

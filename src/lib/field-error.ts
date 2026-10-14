@@ -22,6 +22,24 @@ export function firstIssueField(issues: readonly IssueLike[]): string | undefine
   return typeof head === 'string' ? head : undefined;
 }
 
+/** Every field a set of errors marks: field (schema key) → its message. */
+export type FieldMessages = Readonly<Record<string, string>>;
+
+/**
+ * Every top-level key that has a Zod issue, with that key's first message, in
+ * issue order (z8uq9m5m8g). Only when the issues name MORE than one field:
+ * a single field is already `firstIssueField`, so a one-field result keeps the
+ * exact shape it had before.
+ */
+export function issueFields(issues: readonly IssueLike[]): FieldMessages | undefined {
+  const out: Record<string, string> = {};
+  for (const issue of issues) {
+    const head = issue.path[0];
+    if (typeof head === 'string' && !(head in out)) out[head] = issue.message;
+  }
+  return Object.keys(out).length > 1 ? out : undefined;
+}
+
 /**
  * What React Query mutations throw for a failed server action
  * (`throwOnError` in `src/features/po/mutations.ts`): an ordinary Error, so
@@ -30,14 +48,22 @@ export function firstIssueField(issues: readonly IssueLike[]): string | undefine
  */
 export class FieldActionError extends Error {
   readonly field?: string;
-  constructor(message: string, field?: string) {
+  /** Every field the action marked, when it marked more than one. */
+  readonly fields?: FieldMessages;
+  constructor(message: string, field?: string, fields?: FieldMessages) {
     super(message);
     this.name = 'FieldActionError';
     if (field) this.field = field;
+    if (fields) this.fields = fields;
   }
 }
 
 /** The field a thrown error is about, if any. */
 export function errorField(e: unknown): string | undefined {
   return e instanceof FieldActionError ? e.field : undefined;
+}
+
+/** Every field a thrown error marks (more than one), if any. */
+export function errorFields(e: unknown): FieldMessages | undefined {
+  return e instanceof FieldActionError ? e.fields : undefined;
 }

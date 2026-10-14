@@ -16,6 +16,7 @@ import {
   mapMutationError,
   unauthorized,
   invalidInput,
+  invalidIssues,
   LAST_ADMIN,
   LAST_ADMIN_MESSAGE,
   type MutationError,
@@ -408,7 +409,7 @@ export type CreateVenueResult = { ok: true; venueId: string } | MutationError;
  */
 export async function createVenueAction(input: CreateVenueInput): Promise<CreateVenueResult> {
   const parsed = createVenueSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { name, address, venueType, retentionMonths, kvkNumber, vatNumber, financeEmail, city, complete, termsAccepted } =
     parsed.data;
 

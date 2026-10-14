@@ -21,6 +21,8 @@ const ADMIN = 'admin@plusone.test';
 const STAFF = 'staff@plusone.test';
 const EVENT = 'ee000000-0000-7000-8000-000000000001';
 const STAFF_ID = '55555555-5555-4555-8555-555555555555';
+const VENUE = 'aa000000-0000-7000-8000-000000000001';
+const REGULAR = 'dd000000-0000-7000-8000-000000000001';
 const MAILPIT = process.env.INBUCKET_URL || 'http://127.0.0.1:55324';
 
 /** The newest Mailpit mail to `email` whose subject matches, polled. */
@@ -146,7 +148,13 @@ test('team mail: preferences in Profile, quota request + decision mails, unsubsc
   const approve = page.getByRole('button', { name: `Approve +${extra}` }).first();
   await expect(approve).toBeVisible({ timeout: 20_000 });
   await flow.shot('quota-request');
+  // Approve opens the approve sheet (z8uq9m5kux); confirm it as asked.
   await approve.click();
+  await page
+    .getByTestId('quota-adjust-summary')
+    .locator('..')
+    .getByRole('button', { name: `Approve +${extra}`, exact: true })
+    .click();
   await expect
     .poll(async () => (await adminClient().from('quota_requests').select('status').eq('id', requestId).single()).data?.status)
     .toBe('approved');
@@ -156,6 +164,43 @@ test('team mail: preferences in Profile, quota request + decision mails, unsubsc
     expect(decisionMail).not.toBeNull();
     expect(decisionMail?.text).toContain('/app/profile');
     expect(decisionMail?.text).toMatch(/Stop them: \S+\/n\/[A-Za-z0-9_-]{43}/);
+  });
+
+  // ── z8uq9m5kux: an approval that adds the named guest says so ──────────────
+  // A request naming a guest, filed as a fixture with a stale "+1": the
+  // database fixes the number for the guest, the admin approves as asked.
+  const guestFirst = `Robin${flow.variant.replace(/[^a-z]/gi, '')}${Date.now().toString(36)}`;
+  const { data: gq, error: gqErr } = await adminClient()
+    .from('quota_requests')
+    .insert({
+      event_id: EVENT,
+      venue_id: VENUE,
+      user_id: STAFF_ID,
+      requested_extra: 1,
+      motivation: `Guest mail ${guestFirst}`,
+      guest_payload: { name: `${guestFirst} Test`, plus_ones: 1, tier_id: REGULAR },
+    } as never)
+    .select('id, requested_extra')
+    .single();
+  if (gqErr) throw new Error(`guest request fixture: ${gqErr.message}`);
+  const guestReq = gq as { id: string; requested_extra: number };
+  await page.reload();
+  const guestCard = page.locator('div.rounded-\\[18px\\]').filter({ hasText: `Guest mail ${guestFirst}` }).first();
+  await expect(guestCard).toBeVisible({ timeout: 20_000 });
+  await guestCard.getByRole('button', { name: `Approve +${guestReq.requested_extra}` }).click();
+  await page
+    .getByTestId('quota-adjust-summary')
+    .locator('..')
+    .getByRole('button', { name: `Approve +${guestReq.requested_extra}`, exact: true })
+    .click();
+  await expect
+    .poll(async () => (await adminClient().from('quota_requests').select('status').eq('id', guestReq.id).single()).data?.status)
+    .toBe('approved');
+  const guestMail = await mailTo(STAFF, new RegExp(`${guestFirst} \\+1 is on the list for`));
+  await flow.check(9, 'The decision mail for an approval that added the guest says "{guest} +1 is on the list for {event}", on its tier', async () => {
+    expect(guestMail?.subject).toBe(`${guestFirst} +1 is on the list for PLUSONE Launch Night`);
+    expect(guestMail?.text).toContain(`Your quota request for PLUSONE Launch Night is approved: ${guestFirst} +1 is on the list, on Regular.`);
+    expect(guestMail?.text).not.toContain('They are yours to use now');
   });
 
   // ── The decision mail's unsubscribe link ──────────────────────────────────

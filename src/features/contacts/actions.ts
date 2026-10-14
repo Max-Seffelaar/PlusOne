@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import { mapMutationError, unauthorized, invalidInput, invalidIssues, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { queueGuestMails } from '@/features/mail/guest-queue';
 import {
@@ -62,7 +62,7 @@ function mapContactUniqueError(error: { code?: string; message?: string }): Muta
 /** Create or edit a single address-book contact (manager-only via RLS). */
 export async function upsertContact(input: UpsertContactInput): Promise<ActionResult> {
   const parsed = upsertContactSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { id, venueId, fullName, email, phone, birthdate, preferredRole, note, isPermanent } =
     parsed.data;
 

@@ -87,6 +87,13 @@ export const shared = {
     selectCancel: 'Cancel',
   },
 
+  // ── Root crash screen (src/app/global-error.tsx). Its heading reuses
+  // `settings.common.formError`; never shows the error itself (PII). ──
+  crash: {
+    body: "We've logged the error.",
+    retry: 'Try again',
+  },
+
   // ── Date/time fields (datetime-field.tsx) — desktop calendar + time selects ──
   datetime: {
     datePlaceholder: 'Pick a date',

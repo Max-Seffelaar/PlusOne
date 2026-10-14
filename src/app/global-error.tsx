@@ -6,6 +6,7 @@
 // down. Dark theme per the design tokens (#0B0B0D).
 import { captureException } from '@/lib/observability/sentry-client';
 import { type JSX, useEffect } from 'react';
+import { t } from '@/lib/i18n';
 
 export default function GlobalError({
   error,
@@ -19,7 +20,7 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang="nl">
+    <html lang="en">
       <body
         style={{
           background: '#0B0B0D',
@@ -32,10 +33,8 @@ export default function GlobalError({
         }}
       >
         <div style={{ textAlign: 'center', padding: 24 }}>
-          <h1 style={{ fontSize: 20, marginBottom: 8 }}>Er ging iets mis</h1>
-          <p style={{ opacity: 0.7, marginBottom: 16 }}>
-            De fout is gemeld. Probeer het opnieuw.
-          </p>
+          <h1 style={{ fontSize: 20, marginBottom: 8 }}>{t.settings.common.formError}</h1>
+          <p style={{ opacity: 0.7, marginBottom: 16 }}>{t.shared.crash.body}</p>
           <button
             onClick={reset}
             style={{
@@ -47,7 +46,7 @@ export default function GlobalError({
               cursor: 'pointer',
             }}
           >
-            Opnieuw proberen
+            {t.shared.crash.retry}
           </button>
         </div>
       </body>

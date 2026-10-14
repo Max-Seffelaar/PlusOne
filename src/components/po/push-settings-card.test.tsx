@@ -7,9 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
-const p = vi.hoisted(() => ({ perm: 'granted' as string }));
+const p = vi.hoisted(() => ({ perm: 'granted' as string, native: true, reason: null as string | null, hang: false }));
 vi.mock('@/features/notifications/provider', () => ({
-  getNotificationProvider: () => ({ isSupported: () => true, checkPermission: async () => p.perm }),
+  getNotificationProvider: () => ({
+    isSupported: () => p.native,
+    checkPermission: () => (p.hang ? new Promise(() => undefined) : Promise.resolve(p.native ? p.perm : 'unsupported')),
+    unsupportedReason: async () => p.reason,
+  }),
 }));
 const pc = vi.hoisted(() => ({
   on: false,
@@ -27,6 +31,9 @@ import { t } from '@/lib/i18n';
 
 beforeEach(() => {
   p.perm = 'granted';
+  p.native = true;
+  p.reason = null;
+  p.hang = false;
   pc.on = false;
 });
 afterEach(() => {
@@ -50,6 +57,34 @@ describe('PushSettingsRow', () => {
     await mount(true);
     expect(screen.getByText(t.push.profileTitle)).toBeTruthy();
     expect(screen.getByText(t.push.profileSubOff)).toBeTruthy();
+  });
+
+  it('web: renders nothing', async () => {
+    p.native = false;
+    await mount(true);
+    expect(screen.queryByText(t.push.profileTitle)).toBeNull();
+  });
+
+  it('native build that cannot push: the row stays, no toggle, and names the gate (z8uq9m5kuy)', async () => {
+    p.perm = 'unsupported';
+    p.reason = 'no-firebase';
+    await mount(true);
+    expect(screen.getByText(t.push.profileTitle)).toBeTruthy();
+    expect(screen.getByText(t.push.profileUnavailable('no-firebase'))).toBeTruthy();
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it('native, still checking: says so instead of an empty Profile', async () => {
+    p.hang = true;
+    await mount(true);
+    expect(screen.getByText(t.push.profileChecking)).toBeTruthy();
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it('native but a role push never targets: still nothing', async () => {
+    p.perm = 'unsupported';
+    await mount(false);
+    expect(screen.queryByText(t.push.profileTitle)).toBeNull();
   });
 
   it('turn on that could not register yet shows the pending line', async () => {

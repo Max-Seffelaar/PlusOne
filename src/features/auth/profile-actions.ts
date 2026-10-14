@@ -7,11 +7,23 @@ import { profileSchema, emailChangeSchema } from './schemas';
 import { describeAuthError } from './errors';
 import { isDemoReviewUser } from './review-window';
 import { t } from '@/lib/i18n';
+import { firstIssueField, issueFields, type FieldMessages } from '@/lib/field-error';
 
 export interface ActionState {
   ok: boolean;
   error?: string;
   message?: string;
+  /** The form field a refusal is about (a schema key, never input), z8uq9m5m8g. */
+  field?: string;
+  /** Every field it marks, when more than one. */
+  fields?: FieldMessages;
+}
+
+/** A refused parse: the first message, plus the field(s) it is about. */
+function refused(issues: readonly { path: readonly PropertyKey[]; message: string }[], fallback: string): ActionState {
+  const field = firstIssueField(issues);
+  const fields = issueFields(issues);
+  return { ok: false, error: issues[0]?.message ?? fallback, ...(field ? { field } : {}), ...(fields ? { fields } : {}) };
 }
 
 /**
@@ -31,9 +43,7 @@ export async function updateProfileAction(
     lastName: formData.get('lastName'),
     phone: formData.get('phone'),
   });
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
-  }
+  if (!parsed.success) return refused(parsed.error.issues, 'Check your details.');
   const { firstName, lastName, phone } = parsed.data;
 
   const supabase = await createClient();
@@ -75,11 +85,9 @@ export async function updateEmailAction(
   if (isDemoReviewUser(user)) return { ok: false, error: t.auth.demoNoEmailChange };
 
   const parsed = emailChangeSchema.safeParse({ email: formData.get('email') });
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid email.' };
-  }
+  if (!parsed.success) return refused(parsed.error.issues, 'Invalid email.');
   if (parsed.data.email === user.email) {
-    return { ok: false, error: 'This is already your current email.' };
+    return { ok: false, error: 'This is already your current email.', field: 'email' };
   }
 
   const supabase = await createClient();
