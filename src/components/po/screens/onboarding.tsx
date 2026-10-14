@@ -14,7 +14,7 @@ import { createVenueAction, switchActiveVenueAction } from '@/features/venues/ac
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { useIsDemoAccount } from '../app-shell-data';
 import { useNav } from '../context';
-import { Btn, DpaCheck, Field, Label, Note, Scroll, Top, press } from '../kit';
+import { Btn, DpaCheck, Field, FieldErrorFor, Label, Note, Scroll, Top, fieldInputProps, press, useFieldErrors } from '../kit';
 import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -30,6 +30,10 @@ const TYPE_LABEL: Record<VenueType, string> = {
   organizer: vc.typeOrganizer,
 };
 
+// The form's fields for useFieldErrors, in form order: createVenueAction's
+// schema keys, so a server `field` lands on its input as-is (z8uq9m5m8g).
+const VENUE_CREATE_FIELDS = ['name', 'city', 'kvkNumber', 'financeEmail', 'vatNumber'] as const;
+
 export function VenueCreate(): JSX.Element {
   const nav = useNav();
   const [name, setName] = useState('');
@@ -40,7 +44,8 @@ export function VenueCreate(): JSX.Element {
   const [billingEmail, setBillingEmail] = useState('');
   const [vat, setVat] = useState('');
   const [agreed, setAgreed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Field errors point at the field; the rest is the banner above Submit.
+  const fe = useFieldErrors(VENUE_CREATE_FIELDS);
   const [pending, startTransition] = useTransition();
   const ok = name.trim().length > 1 && agreed;
   // Store-review demo account (86ey6bfug): a deep link to /app/venues/new shows
@@ -50,7 +55,7 @@ export function VenueCreate(): JSX.Element {
 
   function submit(): void {
     if (demo || !ok || pending) return;
-    setError(null);
+    fe.reset();
     startTransition(async () => {
       const res = await createVenueAction({
         name,
@@ -65,7 +70,7 @@ export function VenueCreate(): JSX.Element {
         termsAccepted: agreed,
       });
       if (!res.ok) {
-        setError(res.message);
+        fe.fail(res.message, res.field, res.fields);
         return;
       }
       // Make the new venue active (cookie) then full-reload so /app re-resolves
@@ -81,7 +86,7 @@ export function VenueCreate(): JSX.Element {
       // points at a list that will contain the venue it says they lost.
       const switched = await switchActiveVenueAction(res.venueId);
       if (switched === 'denied') {
-        setError(vc.createdNotOpened);
+        fe.fail(vc.createdNotOpened);
         return;
       }
       window.location.assign('/app');
@@ -110,9 +115,11 @@ export function VenueCreate(): JSX.Element {
         </Note>
 
         <Label className="mb-2">{vc.companyNameLabel}</Label>
-        <Field icon="building" placeholder={vc.companyNamePlaceholder} value={name} onChange={setName} autoFocus className="mb-[14px]" />
+        <Field icon="building" placeholder={vc.companyNamePlaceholder} value={name} onChange={fe.edit('name', setName)} autoFocus className="mb-[14px]" {...fieldInputProps(fe.bind('name'))} />
+        <FieldErrorFor error={fe.bind('name')} className="-mt-[8px] mb-[14px]" />
         <Label className="mb-2">{vc.cityLabel}</Label>
-        <Field icon="pin" placeholder={vc.cityPlaceholder} value={city} onChange={setCity} className="mb-[18px]" />
+        <Field icon="pin" placeholder={vc.cityPlaceholder} value={city} onChange={fe.edit('city', setCity)} className="mb-[18px]" {...fieldInputProps(fe.bind('city'))} />
+        <FieldErrorFor error={fe.bind('city')} className="-mt-[12px] mb-[18px]" />
 
         <Label className="mb-[10px]">{vc.venueTypeLabel}</Label>
         <div className="mb-[18px] grid grid-cols-2 gap-[8px]">
@@ -133,7 +140,8 @@ export function VenueCreate(): JSX.Element {
         </div>
 
         <Label className="mb-2">{vc.kvkLabel}</Label>
-        <Field icon="note" placeholder={vc.kvkPlaceholder} value={kvk} onChange={setKvk} inputMode="numeric" maxLength={8} className="mb-[18px]" />
+        <Field icon="note" placeholder={vc.kvkPlaceholder} value={kvk} onChange={fe.edit('kvkNumber', setKvk)} inputMode="numeric" maxLength={8} className="mb-[18px]" {...fieldInputProps(fe.bind('kvkNumber'))} />
+        <FieldErrorFor error={fe.bind('kvkNumber')} className="-mt-[12px] mb-[18px]" />
 
         <Label className="mb-[10px]">{vc.retentionLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev p-4">
@@ -152,14 +160,20 @@ export function VenueCreate(): JSX.Element {
             native shell alike. Only the invoicing details are asked. */}
         <Label className="mb-[10px]">{vc.billingLabel}</Label>
         <Label className="mb-2">{vc.billingEmailLabel}</Label>
-        <Field icon="mail" placeholder={vc.billingEmailPlaceholder} value={billingEmail} onChange={setBillingEmail} inputMode="email" className="mb-[14px]" />
+        <Field icon="mail" placeholder={vc.billingEmailPlaceholder} value={billingEmail} onChange={fe.edit('financeEmail', setBillingEmail)} inputMode="email" className="mb-[14px]" {...fieldInputProps(fe.bind('financeEmail'))} />
+        <FieldErrorFor error={fe.bind('financeEmail')} className="-mt-[8px] mb-[14px]" />
         <Label className="mb-2">{vc.vatLabel}</Label>
-        <Field icon="card" placeholder={vc.vatPlaceholder} value={vat} onChange={setVat} className="mb-1.5" />
+        <Field icon="card" placeholder={vc.vatPlaceholder} value={vat} onChange={fe.edit('vatNumber', setVat)} className="mb-1.5" {...fieldInputProps(fe.bind('vatNumber'))} />
+        <FieldErrorFor error={fe.bind('vatNumber')} className="mb-0 mt-0" />
 
         <DpaCheck checked={agreed} onChange={setAgreed} companyName={name} className="mt-[18px]" />
       </Scroll>
       <BottomBar>
-        {error && <div className="mb-2.5 text-[13.5px] leading-[1.45] text-[#ff9b9b]">{error}</div>}
+        {fe.banner && (
+          <div role="alert" className="mb-2.5 text-[13.5px] leading-[1.45] text-[#ff9b9b]">
+            {fe.banner}
+          </div>
+        )}
         <Btn kind="primary" full icon="check" onClick={submit} disabled={!ok || pending} className={ok ? '' : 'opacity-[0.45]'}>
           {pending ? vc.submitBusy : vc.submit}
         </Btn>

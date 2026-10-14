@@ -280,8 +280,10 @@ select is(
 -- C. Failures roll everything back
 -- ---------------------------------------------------------------------------
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
+-- z8uq9m5kux: "as asked" now always grants what the named guest needs, so the
+-- roll-back is exercised with an explicit, too-small number of spots.
 select throws_ok(
-  $$ select public.approve_quota_request('9e000000-0000-7000-8000-000000000003') $$,
+  $$ select public.approve_quota_request('9e000000-0000-7000-8000-000000000003', p_extra => 2) $$,
   '45001', null, 'C1 a guest above the new quota is refused (45001)');
 select pg_temp.owner();
 
@@ -614,8 +616,8 @@ select ok(
   not has_function_privilege('authenticated', 'public.run_quota_request_payload_retention()', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.quota_requester_guest_block(uuid, uuid)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.redact_quota_request_payload_audit(uuid[])', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.approve_quota_request(uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.approve_quota_request(uuid)', 'EXECUTE'),
+  and has_function_privilege('authenticated', 'public.approve_quota_request(uuid, integer, uuid, integer)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.approve_quota_request(uuid, integer, uuid, integer)', 'EXECUTE'),
   'G8 helpers are owner-only; approve_quota_request keeps its ACL');
 
 select * from finish();

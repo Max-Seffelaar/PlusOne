@@ -8,6 +8,184 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-14 — Golf F follow-up train #507 merged, `20261018130000` on prod (orchestrator)
+
+- Train [#507](https://github.com/Max-Seffelaar/PlusOne/pull/507) (merge commit `42be45c`). It merged, in order, #504 (quota approval, PLU-65), #503 (Android push, PLU-49), #505 (Select nits + Resend countdown, PLU-55), #506 (form errors, PLU-54) and #509 (layout harness, PLU-116). All nine checks were green on `65a7057`.
+- `20261018130000_quota_request_adjust` is on prod (Max, 2026-10-14). Verified via MCP:
+  - `approve_quota_request(uuid,integer,uuid,integer)`: definer, empty `search_path`, authenticated + service_role only.
+  - `fit_quota_request_to_guest`: owner-only; the BEFORE INSERT trigger is enabled.
+  - `approved_*` columns: no UPDATE grant; an INSERT is refused by the guard with 42501.
+  - All five CHECKs are present.
+- Lessons:
+  - A stale quota count in the persisted React Query cache made the client ask for too few spots. The server now derives the shortfall itself (trigger), so the client value is only a floor.
+  - Parallel TOTP verifies in GoTrue revoke the user's sibling AAL1 sessions. Harnesses log in once per user and reuse the stored state (#509).
+  - A field-focus effect must run in `useLayoutEffect`, or CI catches the race between the mark and the focus.
+- Bookkeeping moved from ClickUp to Linear the same day (PLU-70). Open items for Max: PLU-49 (Android device test), PLU-119 (7c manual checks), PLU-117 (Sentry sampling), PLU-118 (Dependabot decision).
+
+## 2026-10-14 — Layout suite: one stored session per seed user, no dev-login per screen
+
+Branch `claude/layout-devlogin-flake`. `layout-suite` on merge train #507 failed twice
+with `dev-login as admin@plusone.test kept landing on …/login?next=…` (a different
+screen and device each time, every other test green).
+
+- **Root cause:** every successful TOTP verify in GoTrue calls
+  `InvalidateSessionsWithAALLessThan(user, aal2)`, which revokes all of that user's
+  OTHER sessions still at AAL1. The probe dev-logged in once per screen × device with
+  3 parallel workers, and admin@ (fixed dev TOTP) ends each dev-login with an MFA
+  verify. So worker B's verify killed worker A's session in the gap between A's
+  `verifyOtp` and A's own MFA step. The dev-login redirect still went out, and the
+  next request bounced to `/login?next=…` (to `/consent` first when the consent read
+  already ran on the dead session). On top of that, a concurrent `generateLink`
+  replaces the user's token (`?error=devlogin`). The 4-attempt retry from #410 hid
+  both until the train added enough admin@ screen loads to lose 4 in a row.
+  Reproduced locally: 3 staggered parallel admin@ dev-logins left 17 of 30 sessions
+  dead, while serial dev-logins left 0 of 3 dead.
+- **Fix (harness only):** `tests/e2e/layout/global-setup.ts` dev-logs each seed user
+  in once, serially, before any worker starts, and saves the storage state to a
+  per-run `mkdtemp` dir (`auth-state.ts`; teardown removes it). `newProjectContext`
+  loads it and `openScreen` navigates straight to the screen. Landing anywhere else
+  now fails at once. There is no retry left. An AAL2 session is never swept, and
+  the run stays inside the 1 h `jwt_expiry`, so the shared session never rotates.
+  The app, dev-login and the local auth config are unchanged.
+
+---
+## 2026-10-13 — Form errors point at the field, follow-up: 11 forms + #498 nits (z8uq9m5m8g)
+
+Milestone **Now** (onboarding programme October 2026, wave F, follow-up of z8uq9m5eb7 / #498). Branch `claude/z8uq9m5m8g-form-errors-followup`. UI + action return shape, no migration, no RLS.
+
+- **Forms on the #498 pattern** (marked input, message under it via `aria-describedby`, focus + scroll to the first, banner only without a field; client checks and server fields take the same path): crew invite (email, quota), Save as template (name), template tier editor (name, max, price, VAT), inline Add tier in the guest flows (name, price, VAT; "paid without a price" now sits on the price), remove-guest note, Promote guest + Edit contact (name, email, phone), New company (name, city, KVK, billing email, VAT), create-link flow + link edit sheet (new promoter name, label, max people, expiry date/time), promoter sheet (name, handle, notes), Profile (first/last name, phone) + e-mail change. The tier picker sheet on the profile (`ProfileTierSheet`) has no input: its refusals (tier full, list locked) stay a banner. The plus-ones and add-to-event sheets in `profile-sheets.tsx` likewise (stepper + pickers).
+- **Actions:** `inviteExternalCrew`, `createTier`, `createTemplateTier`, `createTemplateFromEvent`, `updateGuest`, `removeGuest` (+ the required note → `note`), `upsertContact`, `createVenueAction`, `createInfluencer`/`updateInfluencer`, `createRequestLink`/`updateRequestLink` now return `invalidIssues`; `updateProfileAction`/`updateEmailAction` (`{ ok, error }` shape) carry `field`/`fields` too, and "already your current email" names `email`. The promoter/link limits got real copy (`links.errTooLong` "Keep it to {n} characters.", `links.errMaxHeadsRange`) instead of Zod's defaults, now that they show under the field.
+- **Nit 3, every field:** `invalidIssues` adds `fields` (key → its first message) when more than one top-level key has an issue; `field` stays the first, so a one-field result keeps its old shape and every `field`-only reader still works. `FieldActionError.fields`, `errorFields(e)`; `useFieldErrors` marks all of them, each with its own message, focuses the first in FORM order, and `failWith(e, fallback, rename?)` reads a thrown error in one call (event + template forms moved to it).
+- **Nit 2, fallback:** the Dutch `'Er ging iets mis.'` in `actionError`, `throwOnActionError` and four inline throws in `mutations.ts` is now `t.settings.common.formError` ("Something went wrong."); the inline throws use `actionError`, so they keep the field. The root crash screen (`global-error.tsx`) was the last Dutch copy: English now (`shared.crash.body`/`retry`, heading reuses `formError`), `lang="en"`.
+- **Kit/phone:** `PhoneField` in `phone-lazy.tsx` (country + number in one field box, takes `id`/`invalid`/`describedBy`) replaces three hand-rolled phone rows. `FormError` (settings) takes a ready message. The promotion `ErrLine` got `role="alert"`, the roster "+" an accessible name ("New promoter").
+- **Round 2 (Max, testing #506 in train #507):** (1) Profile: Save stays on with an emptied name; the check says "Enter your first/last name." under the field (both marked when both are empty, focus on the first). (2) Profile phone: a changed number goes through the phone input's own `isPhoneValid`; the server refuses anything `normalizeImportPhone` cannot make E.164 (empty stays allowed; a stored number that predates the check never blocks a name fix). (3) Link forms, Max people: 0 and empty both mean "no max" (decision Max 2026-10-14, correcting the first round-2 take that refused 0). `parseMaxHeads` (promotion/shared) and the action schemas turn 0 into null (never stored; the column CHECK is > 0), the hint under the field says "0 or empty means no limit.", and only a negative, fractional or over-100 000 number gets "Use a whole number up to 100,000." under the field. The link card now reads "No max" for an uncapped link (it showed nothing), never "max 0". (4) Team and crew invites run the event contact's `checkMailDomain` before the invite row and the mail: a definite no MX/A refuses on `email` ("That email domain doesn't take mail…"), DNS trouble fails open; `invite-mail.ts` untouched. In Team the invite forms point at Email/Quota (`defaultQuota` maps onto Quota). Unit tests mock the DNS check (never live); the flow gained Q9–Q11 (Q10: 0 saves a link with No max on its card; Q12: 100001 gets the field error).
+- **Focus timing (train #507 CI):** `guests/field-errors` failed once in CI: the VAT field was marked while focus still sat on the autofocused name input. Cause: `useFieldErrors` moved focus in a passive `useEffect`, one flush after the commit that set `aria-invalid`; a server refusal arrives outside `act`, so `waitFor` could resolve in that gap under CI load (a MutationObserver probe showed focus on the name field at the instant of the mark). Fix in the kit: a `useLayoutEffect`, so the mark and the focus/scroll land in the same commit. Regression test in `kit.field-errors.test.tsx` records focus at the mutation itself; it fails on the old kit.
+- **Tests:** per form (`crew.field-errors`, `templates.tier-editor.field-errors` incl. Save as template, `guests/field-errors`, `onboarding.field-errors`, `promotion/field-errors`, `settings/profile.field-errors`): marking, `aria-describedby`, focus + scroll, no banner, and a field-less refusal stays the banner; shared asserts in `tests/unit/helpers/field-error-asserts.ts`. `field-error.actions.test.ts` (the actions name their fields, never echo input), `mutations.field-errors.test.tsx` (fields survive React Query, English fallback), kit + lib multi-field cases. New flow `form-errors` (Q1–Q8 × 4 variants: profile reserved name → Last name, promoter handle, new company KVK + billing email at once).
+
+---
+## 2026-10-13 — Kit Select nits (#496 review) + Resend countdown (z8uq9m5m8h)
+
+Golf F follow-up. Branch `claude/z8uq9m5m8h-select-nits-resend`. No migration, no
+server/mail change.
+
+- **Select popover is portalled** (`src/components/po/kit.tsx`, placement in
+  `src/components/po/select-position.ts`): `fixed` on `<body>`, placed from the
+  trigger's rect, flipped above when the list does not fit below and there is
+  more room above, re-placed on any scroll (capture) and resize. A scrolling
+  Sheet or an `overflow` table cell can no longer clip it. Listbox a11y
+  unchanged: focus on the trigger, `aria-activedescendant`, same keys.
+- **Touch sheet is a real modal:** `role="dialog"` + `aria-modal="true"`, named
+  like the field; focus moves into the listbox (which then owns
+  `aria-activedescendant` and the keys), Tab/Shift+Tab cycle list ↔ Cancel, every
+  other `<body>` child is `inert` while it is open and a `focusin` guard pulls
+  stray focus back. `close()` lifts `inert` and the guard BEFORE it focuses the
+  trigger (gotcha: with the guard still armed, the trigger focus was pulled
+  straight back into the unmounting list). Android back still closes it.
+- **Naming is typed:** `SelectProps` = `{ ariaLabel } | { labelledBy }`, never
+  neither or both (`kit.select.types.test.tsx`, `@ts-expect-error` under
+  `tsc`). Every call site already passed `ariaLabel`; none of the forbidden forms
+  was touched.
+- **Platform → Resend countdown** (`src/components/po/screens/platform-resend.tsx`):
+  after a send and after the per-address "recent" refusal
+  (`INVITE_RECENTLY_SENT_MESSAGE`, `mail_recipient_window()`), Resend is disabled
+  with "Resend in N s"; the wait after a refusal is estimated from the row's
+  `last_sent_at` (falls back to a whole minute when that clue is off). The
+  refusal now reads neutral (`text-dim`, `role="status"`) on the row and in the
+  invite form; the hourly budget and real failures stay a red alert. A polite
+  live region speaks once per 10 s and "You can resend now." at 0. Client-only:
+  a reload re-enables the button, the server refuses as before.
+- **Tests:** vitest for placement + flip + follow-on-scroll, aria-modal + focus
+  trap + inert + focus return, typed naming, the countdown (fake timers:
+  disabled, text, re-enabled, neutral class, live cadence). Flows: kit-select
+  checks 13–14 (modal sheet, never clipped in a clipping host), platform-reinvite
+  checks 2 (neutral) and 7–8 (countdown, re-enabled after the minute).
+
+---
+## 2026-10-13 — Android push could not be turned on (z8uq9m5kuy)
+
+Milestone **Now** (Max's Android test 2026-10-13: no permission prompt after a clean install, nothing to turn on in Settings → Apps → PlusOne → Notifications, and no push option in the app). Draft PR, needs a **new Android build** for the native half.
+
+- **Ruled out, with evidence:** `POST_NOTIFICATIONS` is in `AndroidManifest.xml`; `com.google.gms.google-services` is applied when `android/app/google-services.json` exists (it is committed, package `app.plusone.guestlist`, and Codemagic's `REQUIRE_GOOGLE_SERVICES=true` fails a build without it); `PushConfigPlugin` is registered before `super.onCreate`; the `registration`/`registrationError` listeners are there; `requestPermissions()` is called from the ask card and the Profile toggle, and `isNativeShell()`/`getPlatform()` are right on Android (`window.androidBridge`). Prod has one Android FCM row in `push_tokens` (first seen 2026-10-08, aggregate only), so the pipeline works on at least one build. The missing launch prompt itself is by design (consent-first: ask card after 8 s, or the Profile toggle).
+- **The weak spot all three symptoms share:** every push surface hung off one web-side promise, `CapacitorPushProvider.ready()`. Only it created the notification channel, and only after the Firebase check (`PlusOnePushConfig.isConfigured()`) and a lazy plugin chunk. When that path does not complete, Android has no channel (the system screen lists nothing to turn on), `checkPermission()` answers `unsupported` or never answers, the ask card never shows and the Profile row rendered nothing — so a device test could not say which gate closed. Not reproduced on a device here (no Android SDK in the session); the fix removes the single point of failure and makes the next test name the gate.
+- **Native (`PushConfigPlugin.load()`):** creates the `approvals` channel at launch, in Java, independent of Firebase and the webview. Name/description come from `res/values/plusone_push.xml` and are pinned to `t.push.channelName`/`channelDescription` by `tests/unit/capacitor-native-shell.test.ts` (both sides write the same channel; the last write wins).
+- **Web (`capacitor-provider.ts`):** `isConfigured()` is capped at `CONFIG_TIMEOUT_MS` (5 s); a call that never answers is a retryable failure, not a frozen run. New `unsupportedReason()` on the provider seam (`not-native` / `no-firebase` / `ios-no-fcm` / `bridge-error`), diagnostics only.
+- **Profile (`push-settings-card.tsx`):** in the native shell the row no longer disappears: "Checking this device…" while the answer is out, and "Not available in this version of the app… (Code: …)" without a toggle when the build cannot push. The web still renders nothing; the role gate (`canReceivePush`: admin, staff or organizer here) is unchanged — a platform admin in a venue without a membership still sees no row.
+- **Tests:** vitest for the reasons, the never-answering config call (timeout + retry), the row's checking/unavailable states, and the native channel guard.
+
+---
+## 2026-10-14 — Quota approval round 2: the request always asks for enough, up or down, spots without a guest, guest in the mail (z8uq9m5kux)
+
+Max's test of train #507. Same branch and migration (`20261018130000`, not yet on prod, so it was
+changed in place). Spec #67(f).
+
+- **Bug, root cause:** quick-add computed `requested_extra = max(1, cost − remaining)` from the
+  requester's cached `event_quota_status`. An approval made on the admin's device raises the override
+  AND adds a guest on the requester's name; nothing refreshed the requester's cache (no realtime for
+  that query, `refetchOnWindowFocus: false`, IDB-persisted). So after the first approval the cache still said
+  "4 left" against a real 0, and a +4 guest (cost 5) became "+1". The approval then refused
+  (45001), and the next add looked possible but failed. Max's own database confirms it: approving the
+  seed request (+3) on the admin side took Tom from 12 to 15 (7 left), while his cache kept the seed's
+  "4 left". So a +4 guest that fitted asked "+1" and Henie +6 asked "+3". After Henie (3 left), the "+1" for
+  Max +4 really was short, which produced the 45001. pgTAP section S replays these exact numbers, and
+  `quotaShortfall` has a vitest for "7 left, +4 guest → no request". The 45001 copy no longer claims the
+  guest must fit in the extra spots alone. The quick-add's "Request more slots" waits for the fresh quota.
+- **Fix (server, whatever the client says):** `fit_quota_request_to_guest` BEFORE INSERT:
+  `requested_extra = greatest(client value, 1 + plus_ones − remaining)`. In `approve_quota_request`, "as asked"
+  (no `p_extra`) grants `greatest(requested_extra, what the guest needs now)` under the quota lock, so it
+  always fits; an explicit number is used as given.
+- **Fix (client):** `usePoQuota` is always fresh (staleTime 0, refetch on mount and focus), and a
+  decision arriving on Home invalidates quota and list for that event. Not added to the event-day realtime
+  refresh: that would refetch every client's quota on each burst during a door rush (the throttle test
+  pins the aggregate set), and the two paths above already cover the stale case.
+- **Raise:** spots 1..100 and plus-ones 0..50, up or down; the CHECK on `approved_extra` is now 1..100.
+  The sheet moves the spots along with the +N.
+- **Spots without a guest:** the `GuestListQuotaBar` on the event guest list ("Your quota · n of m left" +
+  "Request more spots"). It and quick-add share one `QuotaRequestForm`.
+- **Mail:** `team_mails_claim` adds `decision.guest` {first_name, plus_ones, tier, changed}. The template
+  says "{guest} +N is on the list for {event}" when the approval added the guest.
+- **Delta review (APPROVE) should-fixes:** S1 `requested_extra` CHECK 1..100 (older rows above it capped
+  first); the trigger and every approval path refuse past 100 with a hinted 22023, never a raw 23514. S2 new
+  `approved_with_changes` (RPC-only, same guard/grant rules): true only for the admin's explicit `p_*`
+  differing from the request, tier compared as uuid; the mail's `changed` and the Home card's "Approved with
+  changes" read only that, so a server-side fit shows the granted number without claiming an edit. N1 comment
+  on the exempt check; N2 raising +N in the sheet never leaves fewer spots than "as asked" implies.
+- **Tests:** pgTAP adjust file 69, later 86 (R raise, T the bug + as-asked fit + mail shape, S Max's numbers,
+  U tier-case, V the 100 bound). In
+  `quota_requests_guest_payload`, C1 now uses an explicit too-small `p_extra` (as asked always fits).
+  Vitest for mail parse/render, adapters (raise) and the action bounds. Flows: `quota-request-guest`
+  checks 15/16/5/7/17 updated and 19–24 new; `team-mail` check 9 new.
+
+## 2026-10-13 — Quota approval: adjust the guest before approving (z8uq9m5kux)
+
+Follow-up to Max's test of the golf-F train (#502). Branch
+`claude/z8uq9m5kux-quota-adjust`, migration `20261018130000_quota_request_adjust`.
+Spec #67 (refines #66 and #5).
+
+- **DB:** `approve_quota_request(p_request_id, p_extra, p_tier_id, p_plus_ones)`:
+  the three new arguments default to "as asked" and only go down (extra
+  1..requested, plus-ones 0..asked); the tier must be on the request's own event.
+  Checked after the admin check (22023 + hint). The 1-argument function is dropped
+  and recreated with defaults (precedent 20261017120300): one function, so no
+  PGRST203, and the deployed app's `{p_request_id}` call is unchanged. New
+  `approved_extra` / `approved_tier_id` / `approved_plus_ones` record the grant
+  (no client grant, the INSERT guard refuses them, CHECKs: approved rows only,
+  extra ≤ requested, tier and +N together). `team_mails_claim` re-created with one
+  line changed: the decision mail reports `coalesce(approved_extra,
+  requested_extra)`.
+- **App:** `decideQuotaRequest` takes an optional `adjust` and sends only the
+  arguments that changed (a plain approval is still the 1-argument call). The
+  quota card's Approve opens the Requests E approve sheet (`AssignSheet`, now a
+  frame with a landing and a quota body); kit: `CountStepper` gains `min`,
+  `DecisionSummary` is shared by both bodies. Home: the granted numbers, plus
+  "Approved with changes: …". Audit feed: "approved N more spots for X".
+- **Tests:** pgTAP `quota_request_adjust.test.sql` (55); the old `(uuid)`
+  signature pins in `quota_requests_column_grant` / `quota_requests_guest_payload`
+  moved to the new signature; `push_outbox` D's status bounce clears
+  `approved_extra` (new CHECK). Vitest: action, adapters, audit. Flow
+  `quota-request-guest` extended (checks 5, 7, 8 changed; 15–18 new).
+- **Deploy order:** the app sends extra arguments only when something was
+  adjusted, so a plain approval works on either schema. An adjusted approval
+  needs the migration, so push the schema before anyone uses the sheet.
 ## 2026-10-13 — Onboarding programme, golf F closed; programme retro (orchestrator)
 
 Milestone **Now** (ADE). Wave-level record for golf F, the last wave of the onboarding programme (golven A–F). Per-task detail is in each PR's own entry below. State table: §2b of `onboarding-orchestration-claude-code.md`.
@@ -280,6 +458,48 @@ Milestone **≥5** (perf audit 2026-10-06, finding 11). High-risk (service worke
 - **Guards:** `tests/unit/service-worker-cache-scope.test.ts` and `tests/unit/no-stale-pwa-artifacts.test.ts` green, unmodified. New `tests/unit/service-worker-nav-timeout.test.ts` (13 cases, fake timers; 5 of them fail on the old worker).
 - **Review follow-up (#487, fresh session, should-fix): no stale `/app` after a write (86eykm7rk).** The venue switch and onboarding run a server action (same-origin POST) and then hard-navigate (to `/app` or a deep link) to get a NEW render; on a slow network the timeout would have answered with the pre-switch page. The worker records the last same-origin write and, for every stored SESSION page, when its fetch started. Both are small number entries under `/__po-sw/` in SESSION_CACHE itself, so they survive a worker restart and go with sign-out. On a timeout a SESSION page is served only when every cached entry for that path (any query string, because lookups use `ignoreSearch`) was fetched after the last write. The fallback (`/app` for a deep link) is checked on its own. Otherwise: shell pages as is, or wait for the network as before. The offline path is unchanged. Delta review: a first version kept one global in-memory counter, so a switch landing on `/app/x` made the stale `/app` servable again, and a cold worker forgot the write; both are now tested. `/` on a timeout redirects to Home (`/app`) like the middleware; the Deur tab stays the OFFLINE start (review nit). Accepted residual: right after a deploy a slow-but-online user can boot the previous build's cached shell until the late response refreshes it, the same as offline. Tests: 26 in `service-worker-nav-timeout.test.ts` (freshness forced to "fresh": 7 fail; write marker in memory only: the cold-worker test fails).
 - **Measured (local dev stack, SW opted in via `po:sw-dev-cache`, door@, 390 px, a proxy delays `/app` documents by 15 s, N=5):** boot of `/app` to DOMContentLoaded median 15.7 s → 3.53 s. Normal network: 754 ms → 681 ms (noise, no regression).
+
+---
+
+## 2026-10-14 — Fase 14 door payments: design round 2 — fee sheet, event revenue before/live/after, Analytics (86exxuuu7)
+
+Milestone **≥5**. Docs only; mockups outside the repo. PR #497.
+
+- Max approved the mockups ("designs look good") and asked three things: how the service fee is changed per customer, how turnover is communicated (Analytics and/or event detail/cockpit), and where the before / during / after views are. Five frames added to the mockup page (now 21): **Q** Platform → company → Service fee (platform admin only; floor read-only, uplift with the D19 limits, fee-on-cash toggle, preview on a €20 ticket, audited, new payments only), **R1/R2/R3** event detail "Payments" block that switches phase (before doors: prepaid vs expected; live: collected / cash / due / not confirmed with progress bar and latest payments, same tiles in the cockpit header; after: recap, refunds, unpaid check-ins, line to the weekly statement, write-off), **S** Analytics → Revenue tab across events (per period / event / tier, ticket amounts only).
+- Decisions (Max, round 2 D1–D3, all recommended): R1 + R2 + cockpit tiles in **P2**, R3 (recap, statement line, write-off) in **P4a**; Analytics Revenue in **P4a**; fee sheet as frame Q under T30. Plan §12.15 + tasks T37/T38; §12.12 lists frames Q–S. Venue-side rule unchanged: ticket amounts only.
+
+---
+
+## 2026-10-13 — Fase 14 door payments: eng re-run on the design delta, R8–R12, HTML mockups (86exxuuu7)
+
+Milestone **≥5**. Docs only (mockups live outside the repo). Branch `claude/86exxuuu7-fase14-eng-review` (worktree), PR #497.
+
+- **Whole-spot rule (Max, during the mockup review):** paying online means paying for the whole remaining spot; `/pay` has no head-count control anywhere (door QR carries the doorhost's count, the mail link charges all uncovered heads). Replaces design-review D10.1 in the design doc, spec #62 (m), CLAUDE.md and plan §12.
+- **`/design-html`:** one self-contained HTML page (`~/.gstack/projects/Max-Seffelaar-PlusOne/designs/door-payments-20261013/finalized.html`, vendored Pretext, mock QR) with 16 frames: guest detail, Charge sheet ×4 states, `/pay` ×5 states, cockpit dialog, and on Max's request the admin side (event payments list, Settings → Payments, Platform → company fee settings, payout runs + needs_refund, refund sheet). Verified at 375/1440 via DOM metrics (no overflow, sheets fit, 44 px targets); v1 pending Max's feedback (separate session chip).
+- **`/plan-eng-review` re-run (plan §13):** delta against §11 only; 14-claim premise table (0 unverified), reality rows 7/7; structure D1 = A (original arrangement). Decisions (Max, D2–D6, all recommended): **R8** Pay-tap session RPC reuses an open session with the same count and throttles 5/10 min per token + 30/10 min per ip; **R9** column-level SELECT grants on `company_payout_accounts` so the company can never read `service_fee_*` through the API (`cash_fee_mode` readable), no UPDATE grant, fee values only via definer RPCs; **R10** the raw pay token lives in a new door-only table `guest_pay_tokens` (hash + raw, `door_pay_tokens(event_id)` definer RPC for door roles, walk-in upsert RPC, never published, retention nulls the raw token) — resolves the design-doc contradiction between "hash only" (D7) and "token in the door snapshot" (D14.1); **R11** "due" per row is derived by a `guest_payment_balance` view, the check-in row stays an immutable snapshot; **R12** an unknown token polls "Almost there" only when the URL carries `heads` (door origin), else the neutral not-found. Also: `create_pay_session` marks the row `failed` in `finally` when the provider call fails (no 30-minute ceiling block); kill switch checked at route level; one money function (`payment_amount_for(…, method)` with `cash_fee_mode`), T20 folded into T29. Test diagram: 41 gaps mapped, regression contract for the non-payable door path (T36). Tasks T34–T36 + corrections T2/T8/T20/T29/T30. 0 critical gaps, 0 unresolved; outside voice unavailable (Codex not installed, no TaskOutput).
+- Verdict: CEO + DESIGN CLEARED, ENG ISSUES OPEN (mapped work across both runs). Next: merge #497; Max's mockup feedback; T18 → Lane A; re-run the eng gate on the P1 PR.
+
+---
+
+## 2026-10-13 — Fase 14 door payments: design review, D3–D11 + two product rules (86exxuuu7)
+
+Milestone **≥5**. Docs only. Branch `claude/86exxuuu7-fase14-eng-review` (worktree), PR #497 (the eng-review PR, extended with this review).
+
+- **`/plan-design-review`** on the approved design doc + plan §10.19/§11, written as plan §12: Step 0 5/10; seven passes 4–6/10 → 9/10 each (overall 4 → 9); text wireframes for the Charge sheet, the GuestDetail bottom bar and `/pay` (the gstack designer had no OpenAI key, 0 images); native outside voice (Claude subagent cold read, F1–F12, verified against the code; Codex unavailable). Focus (D1): door + `/pay` heavy, Settings → Payments and Platform tab light.
+- **Two product rules from Max (binding on every surface):** (1) the doorhost sets the head count and the guest only pays — `/pay` via the door QR has no count control (no plus/minus, no removing tickets); the mail link has no choice either (revised by Max the same evening during the mockup review: paying online means paying for the whole spot, otherwise the organiser's counts are off). (2) Venue-side screens show ticket amounts only — PlusOne's service fee, floor and any kickback appear only on the financial documents; the one exception is the Cash button's "to collect" total. Corollary (D11.1): all fee settings (`service_fee_*` uplift and a new per-company `cash_fee_mode` 'fee' | 'none', because "for some companies we charge our fee on cash, for others not") are set by a platform admin through an audited RPC, never by the company; Settings shows only the cash toggle.
+- **Decisions D3–D11 (all recommended options):** Charge sheet amount → QR → heads → actions; no visible 10 s timer (check-in live from t = 0, label flips to paid); Charge becomes the primary bottom-bar button on a payable row and the dashed pay banner becomes a live amount/status line; `/pay` with the amount as H1 and the venue as eyebrow; neutral error page for 404/410/429/removed, distinct 503 (kill switch), bounded not-synced poll, already-paid state; offline line + online pause detection in the sheet; paid counts in status and button labels, expired sessions invisible to the guest; paid state only after server verification (never a query parameter); success copy per origin (door: "Show this to the door host.", mail: existing "No need to screenshot"); Checkout branding + venue in the line item and statement descriptor; AddOnSpot opens Charge on a payable tier; billing.tsx form for Settings/Platform (no StatTile mosaic) with Max's requirement: next payout date, amount and deductions as a consolidation, all financial documents viewable and downloadable in the app; one motion moment (paid flip), no pulsing dot; `PayChip` with three states, `QrTile` kit primitive (white tile, SVG, offline), `formatMoney` → `€45.00`; one `ChargeSheet` with two sizes (cockpit = centered 560 sheet, QR 320); binding a11y/viewport block; Checkout session created on the Pay tap; override hidden for non-admins; cash via ConfirmSheet with a fixed server amount; default heads = uncovered outside with explicit snapshot fields; "one at a time" stays with the unconfirmed outcome; P4a defaults for the mandate step and Platform lists; TODO light public pages.
+- **Docs touched:** plan §12 + refreshed report; design doc binding rules (QR rule, session moment, 10 s grace, cash fee mode, fee configuration, new "what the organisation sees" rule, open question 8 closed); spec #62 (m); CLAUDE.md door-payments bullet; TODOS.md (light public pages). Tasks **T26–T33** added, T20 shrinks (the door no longer needs the TS fee engine). Verdict: CEO + DESIGN CLEARED, ENG ISSUES OPEN (mapped work; re-run on the P1 PR). Next: merge #497; T18 → Lane A; `/plan-design-review` again on Settings → Payments before P4a; `/design-review` on the live screens after P2.
+
+---
+
+## 2026-10-13 — Fase 14 door payments: eng review, R1–R7 (86exxuuu7)
+
+Milestone **≥5**. Docs only. Branch `claude/86exxuuu7-fase14-eng-review` (own worktree: the shared checkout switched branches mid-review twice, so review work now lives in a worktree).
+
+- **`/plan-eng-review`** on the approved design doc + plan §10, written as plan §11: Scope Challenge against the code (17 interface receipts: outbox dispatch and envelope buster, snapshot/IDB persister, realtime channel per event, public throttle + token hashing, capacity/quota/check-in triggers, audit pattern, grant-matrix test, anonymisation cron, guest-mail queue, webhook route), reality rows 12/12, Sections 1–4, test diagram (31 gaps mapped), performance, outside voice unavailable (Codex not installed).
+- **Decisions (Max):** D1 original file arrangement (five tables incl. `payout_run_items`, TS fee-engine for display with a SQL↔TS contract test); D2 Checkout sessions `expires_at = +30 min`, expire-and-recreate when the requested heads differ (an abandoned mail-link session would otherwise block the door for 24 h); D4 receipt via a `guest_mail_queue.entry_payment_id` pointer and a `payment_receipt` mail type; D5 `events.ends_at` becomes required for every event (own PR before P1, backfill `starts_at + 12 h` → NOT NULL; the code did not enforce it: schemas optional, action writes null); D6 payer address in a separate `entry_payment_receipts` table, never published to realtime (postgres_changes sends whole rows to door devices); D7 `hashPublicToken` helper shared by `/r` and `/pay`; D8 Stripe tested with stub + signed fixtures in CI and a manual test-mode checklist in the runbook before the first live euro.
+- **Required without a question:** outbox kinds additive with the envelope buster unchanged and a `default:` branch that keeps unknown kinds pending (rollback safety); numeric SQLSTATEs 45007/45008/45009 in `classifyError`; `unconfirmed_heads` computed server-side, `override_heads` role-gated by trigger; explicit column list in the door snapshot; concurrency proof as a Node two-session script, not pgTAP.
+- **Tasks T16–T25** added to the plan; Test Plan artifact for `/qa` in `~/.gstack/projects/Max-Seffelaar-PlusOne/`. Verdict: CEO CLEARED, ENG ISSUES OPEN (mapped work, 0 critical gaps, 0 unresolved); re-run the eng gate on the P1 PR. Next: `/plan-design-review` before P2, T18 as the first code PR.
 
 ---
 

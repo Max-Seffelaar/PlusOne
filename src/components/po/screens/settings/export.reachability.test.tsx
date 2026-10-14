@@ -57,6 +57,7 @@ vi.mock('../guests', () => ({ armRegularsFilter: vi.fn() }));
 vi.mock('../../phone-lazy', () => ({
   CountrySelect: () => null,
   PhoneInput: () => null,
+  PhoneField: () => null,
   phoneCountryOf: () => Promise.resolve(null),
 }));
 

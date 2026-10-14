@@ -160,6 +160,13 @@ export const home = {
   updateRaisedGuestSub: 'Your quota went up by +{n}.',
   updateDeclined: 'Your request for {event} was declined',
   updateDeclinedReason: 'Reason: {reason}',
+  // z8uq9m5kux — approved, but not exactly as asked. Parts joined with ", ".
+  updateChanged: 'Approved with changes: {changes}.',
+  updateChangeExtraOne: '+1 spot instead of +{asked}',
+  updateChangeExtra: '+{n} spots instead of +{asked}',
+  updateChangePlusOnes: '+{n} instead of +{asked}',
+  updateChangeTier: 'on {tier}',
+  updateChangeTierUnnamed: 'on another tier',
   updateGotIt: 'Got it',
   updateAddGuests: 'Add guests',
   updateViewList: 'View list',

@@ -17,6 +17,9 @@ import { drainTeamMailsSoon } from '@/features/mail/team-queue';
 /** SQLSTATE the quota engine raises for a request that is no longer pending. */
 const REQUEST_DECIDED = '45003';
 
+/** SQLSTATE approve_quota_request raises for an adjustment out of bounds (z8uq9m5kux). */
+const ADJUST_INVALID = '22023';
+
 /** A deny that matched no row: already decided, or not the caller's to decide.
  *  One message for both — it never says which, so it reveals nothing the caller
  *  couldn't already read. */
@@ -113,7 +116,7 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
 export async function decideQuotaRequest(input: DecideQuotaRequestInput): Promise<ActionResult> {
   const parsed = decideQuotaRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { requestId, decision, reason } = parsed.data;
+  const { requestId, decision, reason, adjust } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -122,8 +125,19 @@ export async function decideQuotaRequest(input: DecideQuotaRequestInput): Promis
   if (!user) return unauthorized();
 
   if (decision === 'approved') {
-    const { error } = await supabase.rpc('approve_quota_request', { p_request_id: requestId });
+    // z8uq9m5kux: only the adjustments that were made travel, so a plain
+    // approval is the same 1-argument call as before the migration.
+    const { error } = await supabase.rpc('approve_quota_request', {
+      p_request_id: requestId,
+      ...(adjust?.extra !== undefined ? { p_extra: adjust.extra } : {}),
+      ...(adjust?.tierId !== undefined ? { p_tier_id: adjust.tierId } : {}),
+      ...(adjust?.plusOnes !== undefined ? { p_plus_ones: adjust.plusOnes } : {}),
+    });
     if (error?.code === REQUEST_DECIDED) return ALREADY_HANDLED;
+    // An adjustment the database refuses (out of range, a tier of another
+    // event, a guest change on a request without one): stale sheet or a forged
+    // call. One neutral line; the DB message stays in the logs.
+    if (error?.code === ADJUST_INVALID) return invalidInput(t.quotaRequests.adjustInvalid);
     const guestFailed = error?.code ? APPROVE_GUEST_FAILED[error.code] : undefined;
     if (error && guestFailed) return { ok: false, code: error.code ?? 'unknown', message: guestFailed };
     if (error) return mapMutationError(error);

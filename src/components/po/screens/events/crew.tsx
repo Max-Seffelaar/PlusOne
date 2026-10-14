@@ -10,7 +10,7 @@ import { usePoAssignCrew, usePoInviteExternalCrew, usePoRevokeCrewInvite, usePoS
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, MiniChip, Note, RefusedAction, Scroll, Top, hitRing7, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, FieldErrorFor, Label, MiniChip, Note, RefusedAction, Scroll, Top, fieldInputProps, hitRing7, press, useFieldErrors } from '../../kit';
 import { Sheet } from '../../shell';
 import { useIsDemoVenue } from '../../app-shell-data';
 import { col } from './shared';
@@ -169,6 +169,10 @@ export function CrewPoolRow({ eventId, member, defaultQuota }: { eventId: string
   );
 }
 
+// The invite form's fields for useFieldErrors: the action's schema keys
+// (inviteExternalCrew), so a server `field` lands on its input as-is.
+const CREW_INVITE_FIELDS = ['email', 'quota'] as const;
+
 export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
   const id = eventId ?? '';
@@ -198,7 +202,8 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const [inviteQuota, setInviteQuota] = useState('');
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(CREW_INVITE_FIELDS);
 
   // Prefill the invite quota with the event's default once it loads.
   useEffect(() => {
@@ -214,7 +219,7 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const canInvite = /.+@.+\..+/.test(email) && !invite.isPending;
 
   const doInvite = (): void => {
-    setErr(null);
+    fe.reset();
     setNotice(null);
     invite.mutate(
       { email: email.trim(), eventIds: [id], quota: inviteQuota === '' ? undefined : Number(inviteQuota) },
@@ -224,7 +229,7 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
           setAddOpen(false);
           setNotice(t.events.crew.inviteDone);
         },
-        onError: (e) => setErr(e instanceof Error ? e.message : t.events.crew.inviteError),
+        onError: (e) => fe.failWith(e, t.events.crew.inviteError),
       },
     );
   };
@@ -272,7 +277,7 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
             icon="plus"
             className="mt-[18px]"
             onClick={() => {
-              setErr(null);
+              fe.reset();
               setNotice(null);
               setSearch('');
               setAddOpen(true);
@@ -298,22 +303,33 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
           {/* Way 1: invite a brand-new external person by email, with a quota. */}
           <Label className="mb-2">{t.events.crew.inviteLabel}</Label>
           <p className="mb-2.5 text-[12.5px] leading-[1.45] text-faint">{t.events.crew.inviteHint}</p>
-          <Field icon="mail" placeholder={t.events.crew.invitePlaceholder} value={email} onChange={setEmail} inputMode="email" className="mb-2.5" />
+          <Field
+            icon="mail"
+            placeholder={t.events.crew.invitePlaceholder}
+            value={email}
+            onChange={fe.edit('email', setEmail)}
+            inputMode="email"
+            className="mb-2.5"
+            {...fieldInputProps(fe.bind('email'))}
+          />
+          <FieldErrorFor error={fe.bind('email')} className="-mt-1 mb-2.5" />
           <Field
             icon="ticket"
             placeholder={String(defaultQuota)}
             value={inviteQuota}
-            onChange={(v) => setInviteQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
+            onChange={fe.edit('quota', (v: string) => setInviteQuota(v.replace(/[^0-9]/g, '').slice(0, 4)))}
             inputMode="numeric"
             className="mb-1.5"
+            {...fieldInputProps(fe.bind('quota'))}
           />
+          <FieldErrorFor error={fe.bind('quota')} className="mb-1.5 mt-0" />
           <div className="mb-2.5 pl-0.5 text-[12px] leading-[1.4] text-faint">{t.events.crew.quotaHelp}</div>
           <Btn kind="primary" full icon="plus" disabled={!canInvite} className={canInvite ? '' : 'opacity-[0.45]'} onClick={doInvite}>
             {invite.isPending ? t.events.crew.inviting : t.events.crew.inviteCta}
           </Btn>
-          {err && (
+          {fe.banner && (
             <p className="mt-2 text-[12px] text-red-300" role="alert">
-              {err}
+              {fe.banner}
             </p>
           )}
 

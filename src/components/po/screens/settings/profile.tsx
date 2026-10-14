@@ -10,9 +10,9 @@ import { groupPoSessions } from '@/features/po/adapters';
 import { PoMfaSheet } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, hitRingY13, openExternal, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, FieldErrorFor, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, fieldInputProps, hitRingY13, openExternal, press, useFieldErrors } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
-import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
+import { PhoneField, isPhoneValid, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { useIsDemoAccount } from '../../app-shell-data';
 import { PushSettingsRow } from '../../push-settings-card';
 import { canReceivePush } from '../../push-client';
@@ -151,6 +151,11 @@ function MfaCard({ recommended, demo = false }: { recommended: boolean; demo?: b
 }
 
 // ── PERSOONLIJKE GEGEVENS (pushed) — S7 Profiel & Sessies, live ──────────────
+// The two forms' fields for useFieldErrors: the schema keys of updateProfileAction
+// and updateEmailAction, so a server `field` lands on its input as-is (z8uq9m5m8g).
+const PROFILE_FIELDS = ['firstName', 'lastName', 'phone'] as const;
+const EMAIL_FIELDS = ['email'] as const;
+
 export function Profile(): JSX.Element {
   const nav = useNav();
   const profileQ = usePoProfile();
@@ -177,6 +182,9 @@ export function Profile(): JSX.Element {
    *  asked for so "sign out anyway" resumes the SAME action (86ey9et0h). */
   const [pendingLoss, setPendingLoss] = useState<{ scope: 'local' | 'global'; n: number } | null>(null);
   const [signOutErr, setSignOutErr] = useState(false);
+  // Field errors point at the field; the rest is the line under the form.
+  const pf = useFieldErrors(PROFILE_FIELDS);
+  const ef = useFieldErrors(EMAIL_FIELDS);
 
   // Prefill the editable fields once the profile arrives (and keep them in sync
   // after a save re-fetches the row).
@@ -216,7 +224,23 @@ export function Profile(): JSX.Element {
   }
 
   const nameChanged = firstName !== p.firstName || lastName !== p.lastName || (phone ?? '') !== p.phone;
-  const profileValid = firstName.trim() !== '' && lastName.trim() !== '';
+  // Save stays on with an emptied name (Max, 2026-10-14): the check says what
+  // is missing under the field instead of a button that silently does nothing.
+  const saveProfile = async (): Promise<void> => {
+    pf.reset();
+    const missing: Record<string, string> = {};
+    if (firstName.trim() === '') missing.firstName = t.settings.profile.firstNameRequired;
+    if (lastName.trim() === '') missing.lastName = t.settings.profile.lastNameRequired;
+    // Only a number the user is changing: a stored one that predates this check
+    // never blocks a name fix (the server still checks its E.164 shape).
+    if (phone && phone !== p.phone && !(await isPhoneValid(phone))) missing.phone = t.guests.contacts.phoneInvalid;
+    const first = (['firstName', 'lastName', 'phone'] as const).find((f) => missing[f]);
+    if (first) return pf.fail(missing[first], first, missing);
+    updateProfile.mutate(
+      { firstName: firstName.trim(), lastName: lastName.trim(), phone: phone ?? '' },
+      { onError: (e) => pf.failWith(e, t.settings.common.formError) },
+    );
+  };
   const emailChanged = email.trim().toLowerCase() !== p.email.toLowerCase();
   const sessions = sessionsQ.data ?? [];
   const current = sessions.find((s) => s.current) ?? null;
@@ -238,16 +262,26 @@ export function Profile(): JSX.Element {
         </div>
 
         <Label className="mb-2">{t.settings.profile.firstNameLabel}</Label>
-        <Field icon="user" value={firstName} onChange={setFirstName} placeholder={t.settings.profile.firstNamePlaceholder} className="mb-[14px]" />
+        <Field icon="user" value={firstName} onChange={pf.edit('firstName', setFirstName)} placeholder={t.settings.profile.firstNamePlaceholder} className="mb-[14px]" {...fieldInputProps(pf.bind('firstName'))} />
+        <FieldErrorFor error={pf.bind('firstName')} className="-mt-[8px] mb-[14px]" />
         <Label className="mb-2">{t.settings.profile.lastNameLabel}</Label>
-        <Field icon="user" value={lastName} onChange={setLastName} placeholder={t.settings.profile.lastNamePlaceholder} className="mb-[14px]" />
+        <Field icon="user" value={lastName} onChange={pf.edit('lastName', setLastName)} placeholder={t.settings.profile.lastNamePlaceholder} className="mb-[14px]" {...fieldInputProps(pf.bind('lastName'))} />
+        <FieldErrorFor error={pf.bind('lastName')} className="-mt-[8px] mb-[14px]" />
         <Label className="mb-2">{t.settings.profile.phoneLabel}</Label>
-        <div className="mb-1.5 flex items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[11px] py-[13px] transition-colors focus-within:border-acc">
-          <CountrySelect value={phoneCountry} onChange={(c) => { setPhoneCountry(c); setPhone(undefined); }} />
-          <span className="h-5 w-px shrink-0 bg-line" />
-          <PhoneInput country={phoneCountry} value={phone} onChange={setPhone} placeholder={t.settings.profile.phonePlaceholder} className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint" />
-        </div>
-        <FormError error={updateProfile.isError ? updateProfile.error : null} />
+        <PhoneField
+          country={phoneCountry}
+          onCountry={setPhoneCountry}
+          value={phone}
+          onChange={(v) => {
+            pf.clear('phone');
+            setPhone(v);
+          }}
+          placeholder={t.settings.profile.phonePlaceholder}
+          className="mb-1.5"
+          {...fieldInputProps(pf.bind('phone'))}
+        />
+        <FieldErrorFor error={pf.bind('phone')} className="mb-0 mt-0" />
+        <FormError error={pf.banner} />
         {updateProfile.isSuccess && !nameChanged && (
           <p className="mt-2 text-[12.5px] text-acc-soft">{t.settings.profile.profileSaved}</p>
         )}
@@ -260,18 +294,22 @@ export function Profile(): JSX.Element {
           </>
         ) : (
           <>
-            <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
+            <Field icon="mail" value={email} onChange={ef.edit('email', setEmail)} inputMode="email" className="mb-1.5" {...fieldInputProps(ef.bind('email'))} />
+            <FieldErrorFor error={ef.bind('email')} className="mb-1.5 mt-0" />
             <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
               {t.settings.profile.emailNote}
             </div>
           </>
         )}
         {emailChanged && !demo && (
-          <Btn kind="dark" full icon="mail" className="mt-3" disabled={updateEmail.isPending} onClick={() => updateEmail.mutate(email.trim())}>
+          <Btn kind="dark" full icon="mail" className="mt-3" disabled={updateEmail.isPending} onClick={() => {
+              ef.reset();
+              updateEmail.mutate(email.trim(), { onError: (e) => ef.failWith(e, t.settings.common.formError) });
+            }}>
             {updateEmail.isPending ? t.settings.profile.sending : t.settings.profile.changeEmail}
           </Btn>
         )}
-        <FormError error={updateEmail.isError ? updateEmail.error : null} />
+        <FormError error={ef.banner} />
         {updateEmail.isSuccess && (
           <p className="mt-2 text-[12.5px] text-acc-soft">{t.settings.profile.emailSent}</p>
         )}
@@ -410,9 +448,9 @@ export function Profile(): JSX.Element {
           kind="primary"
           full
           icon="check"
-          disabled={!nameChanged || !profileValid || updateProfile.isPending}
-          className={!nameChanged || !profileValid ? 'opacity-[0.45]' : ''}
-          onClick={() => updateProfile.mutate({ firstName: firstName.trim(), lastName: lastName.trim(), phone: phone ?? '' })}
+          disabled={!nameChanged || updateProfile.isPending}
+          className={!nameChanged ? 'opacity-[0.45]' : ''}
+          onClick={() => void saveProfile()}
         >
           {updateProfile.isPending ? t.settings.profile.saving : t.settings.profile.save}
         </Btn>

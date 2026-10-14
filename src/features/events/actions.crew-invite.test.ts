@@ -29,6 +29,8 @@ const H = vi.hoisted(() => ({
   service: vi.fn(),
 }));
 
+// The mail-domain check (z8uq9m5m8g) is DNS: never live in a unit test.
+vi.mock('@/features/events/mail-domain', () => ({ checkMailDomain: vi.fn(async () => 'ok') }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: H.service }));
 vi.mock('@/features/auth/invite-mail', () => ({ sendInviteEmail: H.sendInviteEmail }));
@@ -360,5 +362,29 @@ describe('revokeCrewInvite (review round 2)', () => {
 
   it('rejects a non-uuid id before touching the database', async () => {
     expect(await revokeCrewInvite({ inviteId: 'nope' })).toMatchObject({ ok: false });
+  });
+});
+
+// A domain that takes no mail (z8uq9m5m8g, decision Max 2026-10-14): refused
+// on the email field before any invite row or mail; the same answer for every
+// address on that domain, so it says nothing about who has an account.
+describe('inviteExternalCrew — mail domain', () => {
+  it('no MX/A: refused on `email`, nothing written, no mail', async () => {
+    const { checkMailDomain } = await import('./mail-domain');
+    vi.mocked(checkMailDomain).mockResolvedValueOnce('no_mail_domain');
+    const before = structuredClone(H.db);
+    const res = await inviteExternalCrew({ email: 'max@theoperatoirs.nl', eventIds: [EV_MARKTZAAL], quota: 3 });
+    expect(res).toMatchObject({ ok: false, code: 'invalid', field: 'email', message: "That email domain doesn't take mail. Check the part after the @." });
+    expect(H.db).toEqual(before);
+    expect(H.sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('a non-admin never reaches the DNS check', async () => {
+    const { checkMailDomain } = await import('./mail-domain');
+    vi.mocked(checkMailDomain).mockClear();
+    H.callerId = DJ;
+    const res = await inviteExternalCrew({ email: 'x@crew.test', eventIds: [EV_MARKTZAAL] });
+    expect(res.ok).toBe(false);
+    expect(checkMailDomain).not.toHaveBeenCalled();
   });
 });

@@ -28,6 +28,8 @@
  * then rejects. Guarded by `tests/unit/phone-metadata-max.test.ts`.
  */
 import { type JSX, useEffect, useState } from 'react';
+import { cn } from '@/lib/utils';
+import { fieldErrorBorder, fieldScrollMargin } from './field-error-style';
 import dynamic from 'next/dynamic';
 import type { Country } from 'react-phone-number-input';
 
@@ -74,12 +76,77 @@ type PhoneInputProps = {
   placeholder?: string;
   className?: string;
   'aria-label'?: string;
+  /** Passed through to the real <input> (field errors, z8uq9m5m8g). */
+  id?: string;
+  'aria-invalid'?: boolean;
+  'aria-describedby'?: string;
 };
 
 export const PhoneInput = dynamic<PhoneInputProps>(
   () => import('react-phone-number-input/input-max'),
   { ssr: false, loading: PhoneInputFallback },
 );
+
+/**
+ * The po phone row: country picker + number in one field box, the same box
+ * `Field` draws. Takes the kit's three error props (`id`, `invalid`,
+ * `describedBy`, as `fieldInputProps(...)` hands them out): `id` and the aria
+ * attributes land on the real input, `invalid` gives the box the red border,
+ * and `data-field-shell` lets `focusAndReveal` centre the box (z8uq9m5m8g).
+ * Changing the country clears the number (the old one was for another plan).
+ */
+export function PhoneField({
+  country,
+  onCountry,
+  value,
+  onChange,
+  placeholder,
+  className,
+  id,
+  invalid,
+  describedBy,
+}: {
+  country: CountryCode;
+  onCountry: (c: CountryCode) => void;
+  value?: string;
+  onChange: (value?: string) => void;
+  placeholder?: string;
+  className?: string;
+  id?: string;
+  invalid?: boolean;
+  describedBy?: string;
+}): JSX.Element {
+  return (
+    <div
+      data-field-shell
+      className={cn(
+        'flex items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[11px] py-[13px] transition-colors focus-within:border-acc',
+        fieldScrollMargin,
+        invalid && fieldErrorBorder,
+        className,
+      )}
+    >
+      <CountrySelect
+        value={country}
+        onChange={(c) => {
+          onCountry(c);
+          onChange(undefined);
+        }}
+      />
+      <span className="h-5 w-px shrink-0 bg-line" />
+      <PhoneInput
+        country={country}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        id={id}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
+      />
+    </div>
+  );
+}
 
 /** Validate an E.164 string against the full numbering plans (`/max`, see the
  *  METADATA note above). Defers the libphonenumber metadata: the phone chunk is

@@ -30,7 +30,6 @@ import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Btn, ColorSwatches, Empty, Field, FieldErrorFor, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress, fieldInputProps, hitRingY2, useFieldErrors } from '../kit';
-import { errorField } from '@/lib/field-error';
 import { BottomBar } from '../shell';
 import { EventGuestTextFields } from './events/guest-mail';
 
@@ -228,7 +227,7 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
         nav.back();
       }
     } catch (e) {
-      fe.fail(e instanceof Error ? e.message : t.templates.errSave, errorField(e));
+      fe.failWith(e, t.templates.errSave);
     }
   };
 
@@ -423,7 +422,10 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
 }
 
 // ── Template tier editor (add + list + remove; delete-and-re-add to change one) ──
-function TemplateTierEditor({ templateId, canManage }: { templateId: string; canManage: boolean }): JSX.Element {
+// The new-tier form's fields for useFieldErrors: createTemplateTier's schema keys.
+const TEMPLATE_TIER_FIELDS = ['name', 'maxGuests', 'doorPriceCents', 'vatPercent'] as const;
+
+export function TemplateTierEditor({ templateId, canManage }: { templateId: string; canManage: boolean }): JSX.Element {
   const tiers = usePoTemplateTiers(templateId);
   const createTier = usePoCreateTemplateTier(templateId);
   const deleteTier = usePoDeleteTemplateTier(templateId);
@@ -435,11 +437,12 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
   const [price, setPrice] = useState('');
   const [vat, setVat] = useState('9');
   const [aliasText, setAliasText] = useState('');
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(TEMPLATE_TIER_FIELDS);
 
   const submit = async (): Promise<void> => {
     if (!nm.trim() || createTier.isPending) return;
-    setErr(null);
+    fe.reset();
     const maxNum = Number.parseInt(max, 10);
     const priceEuros = Number(price.trim().replace(',', '.'));
     const doorPriceCents =
@@ -472,16 +475,16 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
       setAliasText('');
       setAdding(false);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.templates.errCreateTier);
+      fe.failWith(e, t.templates.errCreateTier);
     }
   };
 
   const remove = async (tierId: string): Promise<void> => {
-    setErr(null);
+    fe.reset();
     try {
       await deleteTier.mutateAsync({ tierId });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.templates.errDeleteTier);
+      fe.fail(e instanceof Error ? e.message : t.templates.errDeleteTier);
     }
   };
 
@@ -492,22 +495,30 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
         {canManage && <IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />}
       </div>
       <p className="mb-3 text-[12px] leading-[1.5] text-faint">{t.templates.tiersHint}</p>
-      {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
+      {fe.banner && (
+        <div role="alert" className="mb-3 text-[13px] font-semibold text-[#E89AC0]">
+          {fe.banner}
+        </div>
+      )}
 
       {adding && (
         <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
           <Label className="mb-[10px]">{t.templates.newTier}</Label>
-          <Field placeholder={t.templates.tierNamePlaceholder} value={nm} onChange={setNm} autoFocus className="mb-3" />
+          <Field placeholder={t.templates.tierNamePlaceholder} value={nm} onChange={fe.edit('name', setNm)} autoFocus className="mb-3" {...fieldInputProps(fe.bind('name'))} />
+          <FieldErrorFor error={fe.bind('name')} className="-mt-1.5 mb-3" />
           <Label className="mb-2">{t.templates.color}</Label>
           <ColorSwatches value={color} onPick={setColor} className="mb-[14px]" />
           <Label className="mb-2">{t.templates.maxLabel}</Label>
-          <Field placeholder={t.templates.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
+          <Field placeholder={t.templates.maxPlaceholder} value={max} onChange={fe.edit('maxGuests', setMax)} inputMode="numeric" className="mb-[14px]" {...fieldInputProps(fe.bind('maxGuests'))} />
+          <FieldErrorFor error={fe.bind('maxGuests')} className="-mt-[8px] mb-[14px]" />
           <Label className="mb-2">{t.templates.priceLabel}</Label>
-          <Field icon="money" placeholder={t.templates.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
+          <Field icon="money" placeholder={t.templates.pricePlaceholder} value={price} onChange={fe.edit('doorPriceCents', setPrice)} inputMode="numeric" className="mb-[14px]" {...fieldInputProps(fe.bind('doorPriceCents'))} />
+          <FieldErrorFor error={fe.bind('doorPriceCents')} className="-mt-[8px] mb-[14px]" />
           {price.trim() !== '' && (
             <>
               <Label className="mb-2">{t.events.vatLabel}</Label>
-              <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
+              <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={fe.edit('vatPercent', setVat)} inputMode="numeric" className="mb-[14px]" {...fieldInputProps(fe.bind('vatPercent'))} />
+              <FieldErrorFor error={fe.bind('vatPercent')} className="-mt-[8px] mb-[14px]" />
             </>
           )}
           {TIER_ALIASES_UI && (

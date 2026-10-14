@@ -21,10 +21,10 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { venueCapabilities } from '@/features/venues/access';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, Note, Stepper } from '../../kit';
+import { Avatar, Btn, Empty, Field, FieldErrorFor, Label, Note, Stepper, fieldInputProps, useFieldErrors } from '../../kit';
 import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { ConfirmSheet, Sheet } from '../../shell';
-import { CountrySelect, PhoneInput, isPhoneValid, useStoredPhoneCountry } from '../../phone-lazy';
+import { PhoneField, isPhoneValid, useStoredPhoneCountry } from '../../phone-lazy';
 import { NoTiersBlock, press } from './_shared';
 
 // ── Shared sub-sheets + helpers for the guests profile screens ──────────────
@@ -39,6 +39,10 @@ const CONTACT_ROLE_OPTIONS: { value: ContactRole; label: string }[] = [
   { value: 'crew', label: t.guests.contacts.roleCrew },
   { value: 'guest', label: t.guests.contacts.roleGuest },
 ];
+
+/** The contact fields for useFieldErrors: the schema keys of updateGuest and
+ *  upsertContact, so a server `field` lands on its input as-is (z8uq9m5m8g). */
+const CONTACT_FIELDS = ['fullName', 'email', 'phone'] as const;
 
 /** Promote a name-only guest into a contact: add an e-mail/phone (the dedup key)
  *  and the widened auto-link trigger (20260624170000) creates + links the contact
@@ -66,24 +70,25 @@ export function PromoteSheet({
   const [email, setEmail] = useState(defaultEmail ?? '');
   const [phone, setPhone] = useState<string | undefined>(defaultPhone ?? undefined);
   const [phoneCountry, setPhoneCountry] = useStoredPhoneCountry(defaultPhone);
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(CONTACT_FIELDS);
 
   const canSave = name.trim() !== '';
   const busy = update.isPending || promote.isPending;
   const save = async (): Promise<void> => {
-    setErr(null);
-    if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
+    fe.reset();
+    if (name.trim() === '') return fe.fail(t.guests.contacts.nameRequired, 'fullName');
     const hasContact = email.trim() !== '' || !!phone;
     if (hasContact) {
       // Has a dedup key — updateGuest triggers the auto-link (20260624170000).
       let phoneVal: string | undefined;
       if (phone) {
-        if (!(await isPhoneValid(phone))) return setErr(t.guests.contacts.phoneInvalid);
+        if (!(await isPhoneValid(phone))) return fe.fail(t.guests.contacts.phoneInvalid, 'phone');
         phoneVal = phone; // PhoneInput gives E.164 directly
       }
       update.mutate(
         { guestId, fullName: name.trim(), email: email.trim() || undefined, phone: phoneVal },
-        { onSuccess: onSaved, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+        { onSuccess: onSaved, onError: (e) => fe.failWith(e, t.guests.contacts.saveFailed) },
       );
     } else {
       // Name-only: use the SECURITY DEFINER RPC that creates a name-only contact.
@@ -96,8 +101,8 @@ export function PromoteSheet({
         {
           onSuccess: onSaved,
           onError: (e) => {
-            const message = e instanceof Error ? e.message : t.guests.contacts.saveFailed;
-            setErr(message === INSUFFICIENT_PRIVILEGE_MESSAGE ? t.guests.contactProfile.promoteNoRightsHint : message);
+            if (e instanceof Error && e.message === INSUFFICIENT_PRIVILEGE_MESSAGE) fe.fail(t.guests.contactProfile.promoteNoRightsHint);
+            else fe.failWith(e, t.guests.contacts.saveFailed);
           },
         },
       );
@@ -109,19 +114,29 @@ export function PromoteSheet({
       <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.contactProfile.promoteTitle}</div>
       <div className="mb-4 text-[13px] text-faint">{t.guests.contactProfile.promoteSub}</div>
       <Label className="mb-2">{t.guests.contacts.nameLabel}</Label>
-      <Field icon="user" value={name} onChange={setName} placeholder={t.guests.contacts.namePlaceholder} className="mb-[14px]" />
+      <Field icon="user" value={name} onChange={fe.edit('fullName', setName)} placeholder={t.guests.contacts.namePlaceholder} className="mb-[14px]" {...fieldInputProps(fe.bind('fullName'))} />
+      <FieldErrorFor error={fe.bind('fullName')} className="-mt-[8px] mb-[14px]" />
       <Label className="mb-2">{t.guests.contacts.emailLabel}</Label>
-      <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" />
+      <Field icon="mail" value={email} onChange={fe.edit('email', setEmail)} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" {...fieldInputProps(fe.bind('email'))} />
+      <FieldErrorFor error={fe.bind('email')} className="-mt-[8px] mb-[14px]" />
       <Label className="mb-2">{t.guests.contacts.phoneLabel}</Label>
-      <div className="mb-[14px] flex items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[11px] py-[13px] transition-colors focus-within:border-acc">
-        <CountrySelect value={phoneCountry} onChange={(c) => { setPhoneCountry(c); setPhone(undefined); }} />
-        <span className="h-5 w-px shrink-0 bg-line" />
-        <PhoneInput country={phoneCountry} value={phone} onChange={setPhone} placeholder={t.guests.contacts.phonePlaceholder} className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint" />
-      </div>
+      <PhoneField
+        country={phoneCountry}
+        onCountry={setPhoneCountry}
+        value={phone}
+        onChange={(v) => {
+          fe.clear('phone');
+          setPhone(v);
+        }}
+        placeholder={t.guests.contacts.phonePlaceholder}
+        className="mb-[14px]"
+        {...fieldInputProps(fe.bind('phone'))}
+      />
+      <FieldErrorFor error={fe.bind('phone')} className="-mt-[8px] mb-[14px]" />
       <Note icon="contact">{t.guests.contactProfile.promoteHint}</Note>
-      {err && (
+      {fe.banner && (
         <p className="mt-1 text-[12.5px] text-red-300" role="alert">
-          {err}
+          {fe.banner}
         </p>
       )}
       <Btn kind="primary" full icon="check" className="mt-2" disabled={busy || !canSave} onClick={save}>
@@ -168,15 +183,16 @@ export function ContactEditSheet({
   const [phone, setPhone] = useState<string | undefined>(contact.phone ?? undefined);
   const [phoneCountry, setPhoneCountry] = useStoredPhoneCountry(contact.phone);
   const [role, setRole] = useState<ContactRole | ''>(contact.preferredRole ?? '');
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(CONTACT_FIELDS);
 
   const save = async (): Promise<void> => {
-    setErr(null);
-    if (!venueId) return setErr(t.guests.contacts.noVenue);
-    if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
+    fe.reset();
+    if (!venueId) return fe.fail(t.guests.contacts.noVenue);
+    if (name.trim() === '') return fe.fail(t.guests.contacts.nameRequired, 'fullName');
     let phoneVal: string | undefined;
     if (phone) {
-      if (!(await isPhoneValid(phone))) return setErr(t.guests.contacts.phoneInvalid);
+      if (!(await isPhoneValid(phone))) return fe.fail(t.guests.contacts.phoneInvalid, 'phone');
       phoneVal = phone; // PhoneInput gives E.164 directly
     }
     upsert.mutate(
@@ -190,7 +206,7 @@ export function ContactEditSheet({
         note: contact.note ?? undefined,
         preferredRole: role || undefined,
       },
-      { onSuccess: onSaved, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+      { onSuccess: onSaved, onError: (e) => fe.failWith(e, t.guests.contacts.saveFailed) },
     );
   };
 
@@ -204,15 +220,25 @@ export function ContactEditSheet({
         </div>
       </div>
       <Label className="mb-2">{t.guests.contacts.nameLabel}</Label>
-      <Field icon="user" value={name} onChange={setName} placeholder={t.guests.contacts.namePlaceholder} className="mb-[14px]" />
+      <Field icon="user" value={name} onChange={fe.edit('fullName', setName)} placeholder={t.guests.contacts.namePlaceholder} className="mb-[14px]" {...fieldInputProps(fe.bind('fullName'))} />
+      <FieldErrorFor error={fe.bind('fullName')} className="-mt-[8px] mb-[14px]" />
       <Label className="mb-2">{t.guests.contacts.emailLabel}</Label>
-      <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" />
+      <Field icon="mail" value={email} onChange={fe.edit('email', setEmail)} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" {...fieldInputProps(fe.bind('email'))} />
+      <FieldErrorFor error={fe.bind('email')} className="-mt-[8px] mb-[14px]" />
       <Label className="mb-2">{t.guests.contacts.phoneLabel}</Label>
-      <div className="mb-[14px] flex items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[11px] py-[13px] transition-colors focus-within:border-acc">
-        <CountrySelect value={phoneCountry} onChange={(c) => { setPhoneCountry(c); setPhone(undefined); }} />
-        <span className="h-5 w-px shrink-0 bg-line" />
-        <PhoneInput country={phoneCountry} value={phone} onChange={setPhone} placeholder={t.guests.contacts.phonePlaceholder} className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint" />
-      </div>
+      <PhoneField
+        country={phoneCountry}
+        onCountry={setPhoneCountry}
+        value={phone}
+        onChange={(v) => {
+          fe.clear('phone');
+          setPhone(v);
+        }}
+        placeholder={t.guests.contacts.phonePlaceholder}
+        className="mb-[14px]"
+        {...fieldInputProps(fe.bind('phone'))}
+      />
+      <FieldErrorFor error={fe.bind('phone')} className="-mt-[8px] mb-[14px]" />
       <Label className="mb-2">{t.guests.contacts.tierLabel}</Label>
       <div className="flex flex-wrap gap-2">
         <RolePill label={t.guests.contacts.tierNone} on={role === ''} onClick={() => setRole('')} />
@@ -220,9 +246,9 @@ export function ContactEditSheet({
           <RolePill key={o.value} label={o.label} on={role === o.value} onClick={() => setRole(o.value)} />
         ))}
       </div>
-      {err && (
+      {fe.banner && (
         <p className="mt-3 text-[12.5px] text-red-300" role="alert">
-          {err}
+          {fe.banner}
         </p>
       )}
       <Btn kind="primary" full icon="check" className="mt-4" disabled={upsert.isPending || name.trim() === ''} onClick={save}>

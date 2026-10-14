@@ -190,6 +190,19 @@ describe('push (Fase 17 N5)', () => {
     expect(existsSync(resolve(root, 'android/app/src/main/res/drawable/ic_stat_plusone.xml'))).toBe(true);
   });
 
+  it('the shell creates the channel itself at launch, with the web app\'s name (z8uq9m5kuy)', async () => {
+    const { en } = await import('../../src/lib/i18n/en');
+    const plugin = read('android/app/src/main/java/app/plusone/guestlist/PushConfigPlugin.java');
+    // In load(): native, before any web code, independent of the Firebase gate.
+    expect(plugin).toMatch(/public void load\(\)\s*\{\s*createPushChannel\(getContext\(\)\);/);
+    expect(plugin).toContain('R.string.plusone_push_channel_id');
+    expect(plugin).toContain('NotificationManager.IMPORTANCE_HIGH'); // = importance 4 in capacitor-provider.ts
+    const values = read('android/app/src/main/res/values/plusone_push.xml');
+    // Both sides write the same channel; the last write wins, so they must agree.
+    expect(values).toContain(`<string name="plusone_push_channel_name">${en.push.channelName}</string>`);
+    expect(values).toContain(`<string name="plusone_push_channel_description">${en.push.channelDescription}</string>`);
+  });
+
   it('registers the Firebase-config guard plugin before the bridge starts', () => {
     const main = read('android/app/src/main/java/app/plusone/guestlist/MainActivity.java');
     const reg = main.indexOf('registerPlugin(PushConfigPlugin.class)');

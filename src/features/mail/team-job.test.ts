@@ -86,6 +86,25 @@ describe('parseTeamMail: a bundle over more than one event (review #458 S3)', ()
   });
 });
 
+describe('parseTeamMail: the guest a quota approval added (z8uq9m5kux)', () => {
+  it('reads first name, +N, tier and changed; null without a guest', () => {
+    const withGuest = parseTeamMail(
+      claimed({
+        type: 'team_decision',
+        count: 1,
+        decision: { status: 'approved', extra: 5, guest: { first_name: 'Max', plus_ones: 4, tier: 'VIP', changed: true } },
+      }),
+    );
+    expect(withGuest?.decision).toEqual({
+      status: 'approved',
+      extra: 5,
+      guest: { firstName: 'Max', plusOnes: 4, tier: 'VIP', changed: true },
+    });
+    const plain = parseTeamMail(claimed({ type: 'team_decision', count: 1, decision: { status: 'approved', extra: 2 } }));
+    expect(plain?.decision).toEqual({ status: 'approved', extra: 2, guest: null });
+  });
+});
+
 describe('buildTeamMail', () => {
   it('one-click unsubscribe headers, the /n link, the mail_log idempotency key', () => {
     const m = parseTeamMail(claimed());

@@ -812,6 +812,14 @@ export interface PoMyQuotaUpdateRow {
   guestId: string | null;
   /** The guest the request named — null after retention or when none. */
   guest: Omit<PoQuotaRequestGuest, 'tierName'> | null;
+  /** What the approval granted (z8uq9m5kux); null = as asked / before it. */
+  approvedExtra: number | null;
+  approvedTierId: string | null;
+  approvedPlusOnes: number | null;
+  /** Name of approvedTierId when it differs from the asked tier, else null. */
+  approvedTierName: string | null;
+  /** The admin explicitly changed the request (S2); a server-side fit is not. */
+  approvedWithChanges: boolean;
 }
 
 /** How many undismissed decisions the Updates card shows at most. */
@@ -831,7 +839,7 @@ export async function fetchMyQuotaUpdates(
 ): Promise<PoMyQuotaUpdateRow[]> {
   const { data, error } = await client
     .from('quota_requests')
-    .select('id, event_id, requested_extra, status, decision_reason, decided_at, guest_id, guest_payload, events(name)')
+    .select('id, event_id, requested_extra, status, decision_reason, decided_at, guest_id, guest_payload, approved_extra, approved_tier_id, approved_plus_ones, approved_with_changes, events(name)')
     .eq('venue_id', venueId)
     .eq('user_id', userId)
     .neq('status', 'pending')
@@ -840,7 +848,15 @@ export async function fetchMyQuotaUpdates(
     .limit(MY_QUOTA_UPDATES_LIMIT);
   if (error) throw error;
 
-  return (data ?? []).flatMap((r) => {
+  const rows = data ?? [];
+  // z8uq9m5kux: a guest moved to another tier — name it (at most 5 rows).
+  const movedTierIds = rows.flatMap((r) => {
+    const g = parseQuotaGuestPayload(r.guest_payload);
+    return r.approved_tier_id && g && r.approved_tier_id !== g.tierId ? [r.approved_tier_id] : [];
+  });
+  const tierNames = movedTierIds.length > 0 ? await fetchTierNames(client, [...new Set(movedTierIds)]) : new Map<string, string>();
+
+  return rows.flatMap((r) => {
     if ((r.status !== 'approved' && r.status !== 'denied') || !r.decided_at) return [];
     const ev = [r.events].flat()[0] as { name: string } | undefined;
     return [
@@ -854,6 +870,11 @@ export async function fetchMyQuotaUpdates(
         decidedAt: r.decided_at,
         guestId: r.guest_id,
         guest: parseQuotaGuestPayload(r.guest_payload),
+        approvedExtra: r.approved_extra,
+        approvedTierId: r.approved_tier_id,
+        approvedPlusOnes: r.approved_plus_ones,
+        approvedTierName: r.approved_tier_id ? tierNames.get(r.approved_tier_id) ?? null : null,
+        approvedWithChanges: r.approved_with_changes === true,
       },
     ];
   });
