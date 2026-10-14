@@ -58,7 +58,9 @@ build
 *.tsbuildinfo
 supabase/.temp
 
-# Per-session ClickUp sync marker (written by the clickup-task skill, checked by the Stop hook)
+# Per-session Linear sync marker (written by the linear-task skill, checked by the Stop hook);
+# the pre-2026-10-14 ClickUp marker stays ignored so a stale one never gets committed
+.claude/linear-session.json
 .claude/clickup-session.json
 
 # scripts/dev/screenshot.mjs output
