@@ -307,6 +307,8 @@ Follow-ups uit Max' train-test (na de exit van golf F, zelfde orchestrator):
 | Form errors vervolg: 11 formulieren + nits #498 ([z8uq9m5m8g](https://app.clickup.com/t/z8uq9m5m8g)) | `session_014XYq7mQV4Px7exEncC3ewH` | `claude/z8uq9m5m8g-form-errors-followup` | in bouw (Max 2026-10-13: "Please fix") | — |
 | Kit Select nits (7c) + resend-aftelling ([z8uq9m5m8h](https://app.clickup.com/t/z8uq9m5m8h)) | `session_01SHmxxY28xpiTzrGdukS914` | `claude/z8uq9m5m8h-select-nits-resend` | in bouw (Max 2026-10-13: "Please fix") | — |
 
+**Follow-up-train (2026-10-14):** [#507](https://github.com/Max-Seffelaar/PlusOne/pull/507), branch `claude/golf-f-followup-train`, head `eb16e88`: #504 → #503 → #505 (z8uq9m5m8h) → #506 (z8uq9m5m8g). Alle vier PR's CI-groen; #504 gereviewd (geen security-defect, blocker gefixt). De train zelf voegt alleen de changelog samen en lost een import-conflict in `kit.tsx` op. Lokaal: tsc schoon, lint alleen de 2 bekende warnings, `CI=1 pnpm test` 357 files / 4274 tests groen. Na de merge: `Push-PlusOneProd '20261018130000'` en een Android-build (Codemagic) voor #503.
+
 ClickUp-ids nagelopen (2026-10-13): 0a, 0f en 0g bestonden niet en zijn achteraf aangemaakt als complete (z8uq9m5m8a, z8uq9m5m8c, z8uq9m5m8d); 3b = z8uq9m444c, 5b = z8uq9m43m8 (staat nog op in progress).
 
 | Taak | Worker-sessie | PR | Status | Reviewer | Prod |
