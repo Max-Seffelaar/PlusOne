@@ -10,7 +10,7 @@
 import '@testing-library/jest-dom';
 import { useState, type JSX } from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 import {
   Field,
   FieldErrorFor,
@@ -247,5 +247,41 @@ describe('useFieldErrors — more than one field', () => {
     expect(fe().banner).toBe('Network down');
     act(() => fe().failWith('weird', 'fallback'));
     expect(fe().banner).toBe('fallback');
+  });
+});
+
+// ── Focus lands in the same commit as the mark (z8uq9m5m8g, train #507 CI) ──
+// The failure arrives outside act (a rejected server action). With a passive
+// effect the field was marked one flush before it got focus: an autofocused
+// input still held focus at the moment aria-invalid appeared, and CI under load
+// caught that window. Recorded at the mutation itself, not after a waitFor.
+function Raced(): JSX.Element {
+  const fe = useFieldErrors(['name', 'vat'] as const);
+  const [n, setN] = useState('');
+  return (
+    <div>
+      <Field ariaLabel="first" value={n} onChange={setN} autoFocus {...fieldInputProps(fe.bind('name'))} />
+      <Field ariaLabel="vat" value="" onChange={() => {}} {...fieldInputProps(fe.bind('vat'))} />
+      <button type="button" onClick={() => void Promise.reject(new Error('x')).catch(() => fe.fail('VAT is too high', 'vat'))}>
+        save
+      </button>
+    </div>
+  );
+}
+
+describe('useFieldErrors — focus timing', () => {
+  it('the marked field already has focus when aria-invalid appears (no autofocus left holding it)', async () => {
+    render(<Raced />);
+    const vat = screen.getByRole('textbox', { name: 'vat' });
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'first' }));
+    let focusAtMark: Element | null | 'unset' = 'unset';
+    const mo = new MutationObserver(() => {
+      if (focusAtMark === 'unset' && vat.getAttribute('aria-invalid') === 'true') focusAtMark = document.activeElement;
+    });
+    mo.observe(vat, { attributes: true });
+    fireEvent.click(screen.getByRole('button', { name: 'save' }));
+    await waitFor(() => expect(vat).toHaveAttribute('aria-invalid', 'true'));
+    mo.disconnect();
+    expect(focusAtMark).toBe(vat);
   });
 });

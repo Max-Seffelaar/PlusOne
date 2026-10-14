@@ -6,7 +6,7 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -317,10 +317,14 @@ export function useFieldErrors<F extends string>(fields: readonly F[]): {
   const inputId = (f: F): string => `${base}field-${f}`;
   const first = state ? (fields.find((f) => state.marked[f] !== undefined) ?? null) : null;
 
-  // After the commit that marked the field: every failure (n) moves there
-  // again, also a second Save on the same field.
+  // In the SAME commit that marks the field: every failure (n) moves there
+  // again, also a second Save on the same field. A layout effect, not a
+  // passive one: with useEffect the field was marked a frame before it got
+  // focus, so anything that read the DOM in between (a screen reader, an
+  // autofocused input still holding focus, a test) saw a marked field without
+  // focus (z8uq9m5m8g, train #507 CI). Webview-safe: client-only, guarded.
   const target = first ? inputId(first) : null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!target || typeof document === 'undefined') return;
     const el = document.getElementById(target);
     if (el) focusAndReveal(el);
