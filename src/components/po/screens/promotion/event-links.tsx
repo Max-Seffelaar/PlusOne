@@ -426,7 +426,7 @@ export function LinkSheet({
       }
     }
 
-    // Max people: empty = no max; 0 or anything outside 1..100 000 is refused.
+    // Max people: empty or 0 = no max; negative, fractional or over 100 000 is refused.
     const maxParsed = parseMaxHeads(maxHeads);
     if (!maxParsed.ok) {
       fe.fail(t.links.errMaxHeadsRange, 'maxHeads');
@@ -554,7 +554,8 @@ export function LinkSheet({
           className="mb-3"
           {...fieldInputProps(fe.bind('maxHeads'))}
         />
-        <FieldErrorFor error={fe.bind('maxHeads')} className="-mt-1.5 mb-3" />
+        <FieldErrorFor error={fe.bind('maxHeads')} className="-mt-1.5 mb-1" />
+        <div className={cn('mb-3 pl-0.5 text-[12px] leading-[1.4] text-faint', !fe.bind('maxHeads').invalid && '-mt-1.5')}>{t.links.maxHeadsHint}</div>
         <div className="mb-3 flex gap-[10px]">
           <div className="flex-1">
             <Label className="mb-2">{`${t.links.expiresLabel} · ${t.links.expiresDate}`}</Label>

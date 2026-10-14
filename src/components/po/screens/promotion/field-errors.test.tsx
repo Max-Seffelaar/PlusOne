@@ -85,19 +85,21 @@ describe('create-link flow', () => {
     expectFieldError(max, t.links.errMaxHeadsRange);
   });
 
-  // Max, testing #506: 0 used to mean "no max" and the link went live uncapped.
-  it('Max people 0: the range error under Max people, no link created', () => {
+  // Decision Max 2026-10-14: 0 and empty both mean "no max".
+  it('Max people 0: no error, the link is created with no max', async () => {
+    H.createLink.mockResolvedValue({ id: 'l1', slug: 'insta-abc' });
     open();
     fireEvent.click(screen.getByRole('button', { name: t.links.chipLabelOnly }));
     fireEvent.change(screen.getByPlaceholderText(t.links.labelPlaceholder), { target: { value: 'Insta' } });
-    const max = screen.getByPlaceholderText(t.links.maxHeadsPlaceholder);
-    fireEvent.change(max, { target: { value: '0' } });
+    fireEvent.change(screen.getByPlaceholderText(t.links.maxHeadsPlaceholder), { target: { value: '0' } });
+    expect(screen.getByText(t.links.maxHeadsHint)).toBeInTheDocument();
     create();
-    expectFieldError(max, t.links.errMaxHeadsRange);
-    expect(H.createLink).not.toHaveBeenCalled();
+    await waitFor(() => expect(H.createLink).toHaveBeenCalled());
+    expect(H.createLink.mock.calls[0][0]).toMatchObject({ maxHeadcount: undefined });
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
   });
 
-  it('Max people empty still means no max', async () => {
+  it('Max people empty: the link is created with no max', async () => {
     H.createLink.mockResolvedValue({ id: 'l1', slug: 'insta-abc' });
     open();
     fireEvent.click(screen.getByRole('button', { name: t.links.chipLabelOnly }));
@@ -105,6 +107,17 @@ describe('create-link flow', () => {
     create();
     await waitFor(() => expect(H.createLink).toHaveBeenCalled());
     expect(H.createLink.mock.calls[0][0]).toMatchObject({ maxHeadcount: undefined });
+  });
+
+  it('Max people over 100 000: the range error under Max people, no link', () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: t.links.chipLabelOnly }));
+    fireEvent.change(screen.getByPlaceholderText(t.links.labelPlaceholder), { target: { value: 'Insta' } });
+    const max = screen.getByPlaceholderText(t.links.maxHeadsPlaceholder);
+    fireEvent.change(max, { target: { value: '100001' } });
+    create();
+    expectFieldError(max, t.links.errMaxHeadsRange);
+    expect(H.createLink).not.toHaveBeenCalled();
   });
 
   it('server field: the "+ New" promoter refuses its name → the new-name input', async () => {
@@ -140,10 +153,20 @@ describe('link edit sheet', () => {
     expectFieldError(label, t.links.errIdentity);
   });
 
-  it('Max people 0 on an existing link: the range error, nothing saved', () => {
+  it('Max people 0 on an existing link: saved as no max (null), no error', async () => {
+    H.updateLink.mockResolvedValue({ ok: true });
+    const capped = { ...(link as object), maxHeadcount: 40 } as never;
+    render(<LinkSheet eventId="e1" link={capped} tiers={[]} tiersLoading={false} influencers={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(t.links.maxHeadsPlaceholder), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(t.links.saveCta) }));
+    await waitFor(() => expect(H.updateLink).toHaveBeenCalled());
+    expect(H.updateLink.mock.calls[0][0]).toMatchObject({ maxHeadcount: null });
+  });
+
+  it('Max people over 100 000 on an existing link: the range error, nothing saved', () => {
     render(<LinkSheet eventId="e1" link={link} tiers={[]} tiersLoading={false} influencers={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
     const max = screen.getByPlaceholderText(t.links.maxHeadsPlaceholder);
-    fireEvent.change(max, { target: { value: '0' } });
+    fireEvent.change(max, { target: { value: '100001' } });
     fireEvent.click(screen.getByRole('button', { name: new RegExp(t.links.saveCta) }));
     expectFieldError(max, t.links.errMaxHeadsRange);
     expect(H.updateLink).not.toHaveBeenCalled();

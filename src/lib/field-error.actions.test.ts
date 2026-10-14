@@ -84,10 +84,10 @@ describe('field-scoped refusals (z8uq9m5m8g)', () => {
   it('createInfluencer / createRequestLink: name and maxHeadcount', async () => {
     const { createInfluencer, createRequestLink } = await import('@/features/links/actions');
     expect(await createInfluencer({ venueId: UUID, name: 'A' })).toMatchObject({ ok: false, field: 'name' });
-    expect(await createRequestLink({ eventId: UUID, label: 'Insta', slugBase: 'insta', maxHeadcount: 0 })).toMatchObject({
+    expect(await createRequestLink({ eventId: UUID, label: 'Insta', slugBase: 'insta', maxHeadcount: 100_001 })).toMatchObject({
       ok: false,
       field: 'maxHeadcount',
-      message: 'Use a whole number from 1 to 100,000.',
+      message: 'Use a whole number up to 100,000.',
     });
     // The limits read as copy, never Zod's default "String must contain…".
     expect(await createInfluencer({ venueId: UUID, name: 'Alex', handle: 'h'.repeat(81) })).toMatchObject({

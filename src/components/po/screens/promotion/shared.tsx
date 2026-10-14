@@ -112,15 +112,14 @@ export function expiryField(date: string, time: string): 'expiryDate' | 'expiryT
 }
 
 /**
- * "Max people" as typed: empty = no max (null); a whole number 1..100 000 is
- * the cap; anything else (0 included) is refused. 0 used to fall through
- * `maxNum > 0 ? maxNum : null` as "no max" and the link went live uncapped
- * (Max, testing #506) — so the form checks it here, before the server's own
- * min(1) refusal could ever see it.
+ * "Max people" as typed: empty and 0 both mean no max (null, decision Max
+ * 2026-10-14); a whole number 1..100 000 is the cap; a negative number, a
+ * fraction or anything over 100 000 is refused under the field.
  */
 export function parseMaxHeads(raw: string): { ok: true; value: number | null } | { ok: false } {
   const v = raw.trim();
   if (v === '') return { ok: true, value: null };
   const n = Number(v);
-  return Number.isInteger(n) && n >= 1 && n <= 100_000 ? { ok: true, value: n } : { ok: false };
+  if (!Number.isInteger(n) || n < 0 || n > 100_000) return { ok: false };
+  return { ok: true, value: n === 0 ? null : n };
 }

@@ -7,12 +7,18 @@ const uuid = z.string().uuid();
  *  (the forms show it right under that input, z8uq9m5m8g). */
 const tooLong = (max: number): string => fmt(t.links.errTooLong, { n: max.toLocaleString('en-US') });
 
-/** 1..100 000 people, with the message the form shows under "Max people". */
+/**
+ * Max people: a whole number up to 100 000, with the message the form shows
+ * under the field. 0 means "no max", exactly like empty (decision Max
+ * 2026-10-14), so it becomes null here and is never stored (the column's
+ * CHECK is > 0).
+ */
 const headcount = z.coerce
   .number()
   .int(t.links.errMaxHeadsRange)
-  .min(1, t.links.errMaxHeadsRange)
-  .max(100000, t.links.errMaxHeadsRange);
+  .min(0, t.links.errMaxHeadsRange)
+  .max(100000, t.links.errMaxHeadsRange)
+  .transform((v) => (v === 0 ? null : v));
 
 /** Trimmed free text that treats an empty string as "not provided". */
 const optionalText = (max: number) =>

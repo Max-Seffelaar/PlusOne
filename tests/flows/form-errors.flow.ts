@@ -21,13 +21,15 @@ import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/sup
  * Round 2 (Max, testing #506 in train #507):
  *   Q9  Profile with First name emptied: Save stays on and says "Enter your
  *       first name." under the field (it used to be a dead, disabled button).
- *   Q10 New link with Max people 0: the range error under Max people, no link
- *       (0 used to mean "no max" and the link went live uncapped).
+ *   Q10 New link: Max people over 100 000 is refused under the field; then 0
+ *       saves the link with NO max (0 and empty both mean no limit, decision
+ *       Max 2026-10-14), stored as null, the hint saying so under the field.
  *   Q11 Team invite to an address whose domain takes no mail: refused under
  *       Email, no invite row. A reserved `.invalid` domain keeps the run
  *       deterministic; the DNS path is covered by mail-domain.test.ts.
  *
- * Nothing in this flow writes: every save is refused. Numbered checks = the
+ * Only Q10 writes: one stamped label-only link per variant (no max). Every
+ * other save is refused. Numbered checks = the
  * ✅ half of this flow's test handoff.
  */
 
@@ -173,22 +175,30 @@ test('form errors point at the field: profile, promoter, new company', async ({ 
   });
   await flow.shot('profile-first-name-required');
 
-  // ── Round 2 · Q10: Max people 0 is not "no max" ──
+  // ── Round 2 · Q10: 0 means no max; over 100 000 is refused ──
   const zeroLabel = `FE zero ${flow.variant} ${stamp}`;
   await page.goto('/app/promotion');
   await page.getByRole('button', { name: 'New link' }).click();
   await page.getByRole('button', { name: 'Label only' }).click();
   await page.getByPlaceholder('Instagram bio', { exact: true }).fill(zeroLabel);
-  await page.getByPlaceholder('∞ no cap', { exact: true }).fill('0');
+  const maxPeople = page.getByPlaceholder('∞ no cap', { exact: true });
+  await maxPeople.fill('100001');
   await page.getByRole('button', { name: 'Create link' }).click();
-  await flow.check(10, 'New link, Max people 0: "Use a whole number from 1 to 100,000." under Max people, focused; no link created', async () => {
+  await expect
+    .poll(async () => focused(page), { timeout: 10_000 })
+    .toMatchObject({ placeholder: '∞ no cap', invalid: 'true', description: 'Use a whole number up to 100,000.', inWindow: true });
+  await flow.shot('link-max-people-over-cap');
+  await maxPeople.fill('0');
+  await expect(page.getByText('0 or empty means no limit.')).toBeVisible();
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await flow.check(10, 'New link: over 100,000 refused under Max people; 0 then saves the link with no max (stored null), no error', async () => {
     await expect
-      .poll(async () => focused(page), { timeout: 10_000 })
-      .toMatchObject({ placeholder: '∞ no cap', invalid: 'true', description: 'Use a whole number from 1 to 100,000.', inWindow: true });
-    const { count } = await adminClient().from('request_links').select('id', { count: 'exact', head: true }).eq('label', zeroLabel);
-    expect(count).toBe(0);
+      .poll(async () => (await adminClient().from('request_links').select('max_headcount').eq('label', zeroLabel).maybeSingle()).data, { timeout: 15_000 })
+      .toEqual({ max_headcount: null });
+    await expect(page.getByText(/Capped at/)).toHaveCount(0);
   });
-  await flow.shot('link-max-people-zero');
+  await flow.shot('link-max-people-zero-no-max');
+  await page.keyboard.press('Escape').catch(() => {});
 
   // ── Round 2 · Q11: a team invite to a domain that takes no mail ──
   const noMail = `fe-${flow.variant}-${stamp}@theoperatoirs.invalid`;
