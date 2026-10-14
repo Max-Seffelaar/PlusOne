@@ -66,14 +66,20 @@ mutation caches in `PoLiveProvider`); everything else goes through it.
 | Known user-facing MutationError (`42501`, `23505`/`exists`, `invalid_input`, `already_handled`, quota `4500x`, `billing_*`, URL validation copy) | Breadcrumb (`expected-error`) on the next real event | The UI already told the user; it is a rule, not a bug. |
 | Unknown MutationError code (`unknown`, `invite`, …) | Issue | May be a bug. Add the code to `EXPECTED_CODES` in `src/lib/db-errors.ts` only once you have confirmed it is user-facing. |
 | Supabase `PostgrestError` (object) | Issue titled with the DB message, tag `db_code`, hint in extra (never `details`: can echo row values) | Previously "Object captured as exception with keys…", all grouped as one. A raw `42501` here is an RLS denial the UI should not have attempted — keep it visible. |
-| `Load failed` / `Failed to fetch` / `AuthRetryableFetchError` while `navigator.onLine === false` | Nothing | Door/outbox handle offline by design. |
-| Same errors while online | Issue with tag `network:true` | A real connectivity or CORS/CSP problem; filter on the tag when triaging. |
+| `Load failed` / `Failed to fetch` / `NetworkError when attempting to fetch resource` / `AuthRetryableFetchError` while `navigator.onLine === false` — as an Error **or** as the plain object postgrest-js returns for a failed fetch (message `TypeError: Load failed`, empty `code`), with or without Safari's host suffix (`Load failed (tolxwgqhppdcvnogdpel.supabase.co)`) | Nothing | Door/outbox handle offline by design. |
+| Same errors while online | Issue with tag `network:true` (the Postgrest form is titled `PostgrestError: TypeError: Load failed (…)`, no `db_code` because it is empty) | A real connectivity or CORS/CSP problem; filter on the tag when triaging. Never add an inbound filter or `ignoreErrors` on "Load failed": that also hides a real outage (CSP, Supabase down). |
 | `AbortError` | Nothing | Cancelled request. |
 
 Triage a new issue: (1) title says `PostgrestError`? read `db_code` + `hint`, then the query key in extra;
 (2) `network:true` cluster on one release/browser? check CSP and the Supabase status; (3) a user-facing message
 showing up as an issue means it is missing from `EXPECTED_MESSAGES`/`EXPECTED_CODES` — add it with a test in
 `capture.test.ts`. Never filter on a hunch: read one stack first.
+
+**Alert rule (Sentry → Alerts):** "Send a notification for high priority issues" carries the condition
+`tag network is not equal to true`, so online network noise stays visible in the issue list without paging.
+The matcher is anchored (`NETWORK_MESSAGES` in `capture.ts`): only the exact browser texts plus an optional
+`TypeError: `/`FetchError: ` prefix and ` (<host>)` suffix count; a real TypeError (`Cannot read properties…`)
+stays an untagged issue.
 
 ## Rollback = the default first move
 

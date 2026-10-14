@@ -10,6 +10,10 @@
 // now invalidates poKeys.home for every one of its callers, and the two
 // create-event mutations (which don't go through useInvalidateEvent) do the
 // same directly. Asserts a representative sample of each family.
+//
+// Snelheid P2: Home now reads the event window through `select`, and
+// `poKeys.home` is an alias of `poKeys.events` — so "home is invalidated" holds
+// through the events invalidation, with no second call for the same key.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

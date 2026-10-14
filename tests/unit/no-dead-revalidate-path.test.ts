@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
  * and are out of this guard's scope on purpose.
  */
 const ROOT = join(__dirname, '..', '..');
-const NONE_ALLOWED = ['guests', 'events', 'contacts', 'quotas', 'requests'];
+const NONE_ALLOWED = ['guests', 'contacts', 'quotas', 'requests'];
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -35,6 +35,20 @@ describe('no dead revalidatePath in po-facing server actions (Snelheid P1)', () 
       .filter((f) => /\brevalidatePath\s*\(/.test(readFileSync(f, 'utf8')))
       .map((f) => relative(ROOT, f));
     expect(offenders, 'po invalidates its own React Query keys; see the comment above').toEqual([]);
+  });
+
+  // One exception (Snelheid P2, P1-review follow-up "own organizer scope"): the
+  // layout derives the caller's crew access set, so a change to the caller's
+  // OWN organizer rows re-renders it — exactly one call, in one helper, and it
+  // targets the /app layout only.
+  it('src/features/events holds exactly one revalidatePath: the own-crew-scope layout refresh', () => {
+    const files = sourceFiles(join(ROOT, 'src', 'features', 'events'));
+    const calls = files.flatMap((f) =>
+      [...readFileSync(f, 'utf8').matchAll(/\brevalidatePath\s*\(([^)]*)\)/g)].map((m) => `${relative(ROOT, f)}: ${m[1].trim()}`),
+    );
+    expect(calls).toEqual(["src/features/events/actions.ts: '/app', 'layout'"]);
+    const src = readFileSync(join(ROOT, 'src', 'features', 'events', 'actions.ts'), 'utf8');
+    expect(src).toMatch(/function revalidateOwnCrewScope\(targetUserId: string, callerId: string\): void \{\n  if \(targetUserId === callerId\) revalidatePath\('\/app', 'layout'\);/);
   });
 
   it('venue actions only revalidate the layout', () => {

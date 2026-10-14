@@ -6,7 +6,10 @@ export const poKeys = {
   all: ['po'] as const,
   events: (venueId: string) => [...poKeys.all, 'events', venueId] as const,
   /** Mobile Dashboard-home (S11): the venue's candidate events + headcounts. */
-  home: (venueId: string) => [...poKeys.all, 'home', venueId] as const,
+  // Home reads the venue's event window through `select` (Snelheid P2,
+  // finding 12): the same cache entry as the Events tab, so every
+  // invalidation of `home` refreshes that one shared query.
+  home: (venueId: string) => poKeys.events(venueId),
   /** Home KPI bundle for the selected event (open requests + personal quota). */
   homeStats: (eventId: string) => [...poKeys.all, 'home-stats', eventId] as const,
   /** All non-closed events the door/cockpit may work, for the Deur-tab switcher (S1.3). */
@@ -42,10 +45,18 @@ export const poKeys = {
   // matches the venue key regardless of which event a decided request belonged to.
   requests: (venueId: string) => [...poKeys.all, 'requests', venueId] as const,
   quotaRequests: (venueId: string) => [...poKeys.all, 'quota-requests', venueId] as const,
+  /** Home Updates card (z8uq9m2xyp): the user's own decided, unseen quota
+   *  requests. Under the 'quota-requests' prefix, so every quota-request
+   *  mutation (file / decide / seen) invalidates it too. */
+  myQuotaUpdates: (venueId: string, userId: string) =>
+    [...poKeys.all, 'quota-requests', 'mine', venueId, userId] as const,
   // Address book (S3) — contacts scope to a venue; the optional search term keys
   // distinct cached lists, so invalidating the ['po','contacts',venueId] prefix
   // refreshes every variant after a star/import/add write.
   contacts: (venueId: string, search = '') => [...poKeys.all, 'contacts', venueId, search] as const,
+  /** Starred contacts only (the Guests tab's Regulars filter) — under the same
+   *  ['po','contacts',venueId] prefix, so every contacts write refreshes it too. */
+  permanentContacts: (venueId: string) => [...poKeys.all, 'contacts', venueId, { permanentOnly: true }] as const,
   contactKeys: (venueId: string) => [...poKeys.all, 'contact-keys', venueId] as const,
   /** Contact ids opted in to venue updates (legal v0.3 decision 2). */
   contactOptIns: (venueId: string) => [...poKeys.all, 'contact-opt-ins', venueId] as const,

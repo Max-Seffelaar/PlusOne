@@ -7,6 +7,7 @@
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { isNativeShell } from '@/lib/platform';
@@ -17,6 +18,8 @@ import type { Tier } from '@/lib/po/types';
 import type { ActorKind } from '@/lib/po/actor-kind';
 import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
+import { fieldErrorBorder, fieldErrorText, fieldScrollMargin } from './field-error-style';
+import { useNativeBackIntercept } from './native-back-intercept';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
 // of one of these (some already drifted to 0.94/0.985/1.09); exported so a
@@ -192,20 +195,150 @@ export function PayChip({ pay }: { pay: string }): JSX.Element | null {
 }
 
 // ── Field error ─────────────────────────────────────────────────────────────
-// Canonical validation-error color (86eyd3men): red, never the lavender accent
-// — the accent already means "focused"/"selected" elsewhere in the UI, so an
-// invalid field styled in accent reads as active, not wrong. A dozen screens
-// hand-rolled `text-red-300 role="alert"` locally before this existed; new
-// inline-error UI should use these instead of re-picking a color.
-export const fieldErrorText = 'text-red-300';
-export const fieldErrorBorder = 'border-red-400';
+// Canonical validation-error color (86eyd3men): red, never the lavender accent.
+// The tokens live in field-error-style.ts (no import cycle via places-field).
+export { fieldErrorText, fieldErrorBorder, fieldScrollMargin };
 
-export function FieldErrorText({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+export function FieldErrorText({ children, className, id }: { children: ReactNode; className?: string; id?: string }): JSX.Element {
   return (
-    <p className={cn('text-[12.5px] leading-[1.4]', fieldErrorText, className)} role="alert">
+    <p id={id} className={cn('text-[12.5px] leading-[1.4]', fieldErrorText, className)} role="alert">
       {children}
     </p>
   );
+}
+
+// ── Field errors point at the field (z8uq9m5eb7) ─────────────────────────────
+// A failed save that is about one field scrolls to it, focuses it, gives it a
+// red border and says what is wrong right under it; editing that field clears
+// it. Only errors that name no field (network, rights, generic) stay a banner.
+// Every kit input takes the same three props — `id` and `describedBy` land on
+// the real input element, `invalid` sets aria-invalid plus the red border on
+// the box — and `useFieldErrors` hands them out per field.
+
+/** The three props every kit input takes for its error state. */
+export interface FieldErrorProps {
+  id?: string;
+  invalid?: boolean;
+  describedBy?: string;
+}
+
+/** `useFieldErrors().bind(field)`: the input props plus what to render under it. */
+export interface FieldErrorBinding {
+  id: string;
+  invalid: boolean;
+  describedBy?: string;
+  /** The id the FieldErrorText under the input carries (= describedBy while invalid). */
+  errorId: string;
+  /** The message to show under the input, while this field holds the error. */
+  message?: string;
+}
+
+/** Just the input props of a binding, to spread onto a kit input (`{...fieldInputProps(b)}`). */
+export function fieldInputProps(b?: FieldErrorBinding): FieldErrorProps {
+  return b ? { id: b.id, invalid: b.invalid, describedBy: b.describedBy } : {};
+}
+
+/** The message under an input, wired to its `describedBy`; nothing while the field is fine. */
+export function FieldErrorFor({ error, className }: { error?: FieldErrorBinding; className?: string }): JSX.Element | null {
+  if (!error?.message) return null;
+  return (
+    <FieldErrorText id={error.errorId} className={cn('mb-2 mt-1', className)}>
+      {error.message}
+    </FieldErrorText>
+  );
+}
+
+/** True when the user asked for less motion. Guarded: no window, no matchMedia → false. */
+export function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Scroll `el` into view and focus it. Centred, so neither the sticky top bar
+ * nor the fixed bottom bar (plus their safe-area insets) covers it; the input
+ * box (`data-field-shell`) is what gets centred, and its scroll-margin keeps
+ * the same clearance where a browser aligns to an edge instead. Smooth unless
+ * the user asked for reduced motion. Webview-safe: every API is feature-tested.
+ */
+export function focusAndReveal(el: HTMLElement): void {
+  const box = (typeof el.closest === 'function' ? el.closest<HTMLElement>('[data-field-shell]') : null) ?? el;
+  try {
+    el.focus({ preventScroll: true });
+  } catch {
+    el.focus();
+  }
+  if (typeof box.scrollIntoView !== 'function') return;
+  try {
+    box.scrollIntoView({ block: 'center', inline: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  } catch {
+    box.scrollIntoView();
+  }
+}
+
+/** Focus the first input marked aria-invalid under `root`; false when there is none. */
+export function focusFirstInvalid(root?: ParentNode | null): boolean {
+  const scope = root ?? (typeof document === 'undefined' ? null : document);
+  const el = scope?.querySelector<HTMLElement>('[aria-invalid="true"]');
+  if (!el) return false;
+  focusAndReveal(el);
+  return true;
+}
+
+/**
+ * A form's error state. `fail(message, field?)` puts a field error on a field
+ * the form registered in `fields` (then scrolls to it and focuses it) and any
+ * other message — no field, or a field this form doesn't render — in `banner`.
+ * Feed it a server action's `{ message, field }` (via `errorField(e)` from
+ * `@/lib/field-error`) or a client Zod issue: both land the same way.
+ */
+export function useFieldErrors<F extends string>(fields: readonly F[]): {
+  banner: string | null;
+  field: F | null;
+  fail: (message: string, field?: string | null) => void;
+  reset: () => void;
+  clear: (field: F) => void;
+  bind: (field: F) => FieldErrorBinding;
+  edit: <V>(field: F, set?: (v: V) => void) => ((v: V) => void) | undefined;
+} {
+  const base = useId();
+  const [state, setState] = useState<{ message: string; field: F | null; n: number } | null>(null);
+  const known = (f: string | null | undefined): f is F => !!f && (fields as readonly string[]).includes(f);
+  const inputId = (f: F): string => `${base}field-${f}`;
+
+  // After the commit that marked the field: every failure (n) moves there
+  // again, also a second Save on the same field.
+  const target = state?.field ? inputId(state.field) : null;
+  useEffect(() => {
+    if (!target || typeof document === 'undefined') return;
+    const el = document.getElementById(target);
+    if (el) focusAndReveal(el);
+  }, [target, state?.n]);
+
+  const clear = (f: F): void => setState((prev) => (prev?.field === f ? null : prev));
+  return {
+    banner: state && !state.field ? state.message : null,
+    field: state?.field ?? null,
+    fail: (message, field) => setState((prev) => ({ message, field: known(field) ? field : null, n: (prev?.n ?? 0) + 1 })),
+    reset: () => setState(null),
+    clear,
+    bind: (f) => {
+      const on = state?.field === f;
+      const errorId = `${inputId(f)}-error`;
+      return { id: inputId(f), invalid: on, describedBy: on ? errorId : undefined, errorId, message: on ? state.message : undefined };
+    },
+    edit: (f, set) =>
+      set
+        ? (v) => {
+            clear(f);
+            set(v);
+          }
+        : undefined,
+  };
 }
 
 // ── Btn ─────────────────────────────────────────────────────────────────────
@@ -380,16 +513,36 @@ export function TierPicker({
   );
 }
 
-// ── Field (input or static display) ──────────────────────────────────────────
 // ── Select ───────────────────────────────────────────────────────────────────
 /**
- * A native `<select>` in the Field's own skin — the `po` kit had no dropdown
- * primitive before P-05's audit-viewer venue filter needed one. Native
- * (not a custom listbox) on purpose: with up to hundreds of venues, a native
- * `<select>` gets free virtualisation, keyboard nav, and screen-reader
- * support the button-list `Sheet` pattern (see `audit.tsx`'s FilterSheet)
- * doesn't scale to. `ariaLabel` mirrors `Field`'s own prop for a filter bar
- * where the visible `Label` sits above rather than wrapping the control.
+ * The kit dropdown (z8uq9m4a2w): a Field-look trigger that opens a PlusOne
+ * listbox instead of the OS-drawn `<select>` list (Windows drew it white, #463).
+ *
+ * Density follows the pointer, read once when the list opens with the same
+ * query as `datetime-field` (`(min-width: 1024px) and (pointer: fine)`, guarded
+ * for webviews without matchMedia, #37): a popover under the trigger for a fine
+ * pointer, a bottom sheet (max 560px, 44px rows, dimmed backdrop, Cancel)
+ * everywhere else, including an iPad in landscape. The sheet is portalled to
+ * `document.body`: in-tree, a `fixed` panel is caught by the screen column
+ * (`.po-screen-anim` keeps an identity transform after its entrance), so it
+ * would stop at the phone tab bar instead of covering it like a modal. The
+ * Android back button closes it (`useNativeBackIntercept`).
+ *
+ * Why a sheet on touch and not the native picker: the native list is the OS's
+ * (iPhone wheel, iPad popover, Android dialog, a narrow desktop window's white
+ * list), so the look changes per device and the selected row never gets the
+ * accent. The longest lists here (venues on the platform screens) read better as
+ * a scrolling list of 44px rows than on a wheel.
+ *
+ * a11y: the WAI-ARIA select-only combobox. DOM focus stays on the trigger
+ * (`role="combobox"`, `aria-expanded`, `aria-activedescendant`), so focus never
+ * has to be returned: picking, Escape, an outside tap and Cancel all leave it on
+ * the trigger. Keys: ↑↓ Home End PageUp PageDown, Enter/Space picks, Esc and Tab
+ * close, typing jumps to the first label that starts with the typed text.
+ * `placeholder` is the "" option on top (an "All venues" filter value).
+ * `invalid`/`describedBy`/`id` follow the kit-input error API shared with
+ * Field/TextArea: on the trigger (the focusable element), plus the field error
+ * border while the list is closed.
  */
 export function Select({
   value,
@@ -399,6 +552,9 @@ export function Select({
   ariaLabel,
   icon,
   className,
+  invalid,
+  describedBy,
+  id,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -408,37 +564,221 @@ export function Select({
   ariaLabel?: string;
   icon?: IconName;
   className?: string;
+  /** Marks the field as failing validation: `aria-invalid` + the error border. */
+  invalid?: boolean;
+  /** Id of the error/help text, as `aria-describedby` on the trigger. */
+  describedBy?: string;
+  /** Id of the trigger, so a scroll-and-focus helper can find it. */
+  id?: string;
 }): JSX.Element {
+  const items = placeholder != null ? [{ value: '', label: placeholder }, ...options] : options;
+  const selectedIndex = items.findIndex((o) => o.value === value);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [sheet, setSheet] = useState(true);
+  const listId = useId();
+  const optId = (i: number): string => `${listId}-o${i}`;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const typed = useRef({ text: '', at: 0 });
+
+  const close = (): void => {
+    setOpen(false);
+    // iOS Safari never focuses a tapped button; put focus where a keyboard user left it.
+    triggerRef.current?.focus({ preventScroll: true });
+  };
+  const show = (at: number): void => {
+    setActive(Math.max(0, Math.min(items.length - 1, at)));
+    if (!open) {
+      const mm = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia : null;
+      setSheet(!mm?.('(min-width: 1024px) and (pointer: fine)').matches);
+    }
+    setOpen(true);
+  };
+  const pick = (i: number): void => {
+    const o = items[i];
+    if (o && o.value !== value) onChange(o.value);
+    close();
+  };
+
+  useNativeBackIntercept(open ? close : null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    document.getElementById(`${listId}-o${active}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, active, listId]);
+
+  /** Type-ahead: the first label starting with the typed text; one repeated letter cycles. */
+  const match = (key: string, from: number): number => {
+    const now = Date.now();
+    const text = now - typed.current.at > 600 ? key : typed.current.text + key;
+    typed.current = { text, at: now };
+    const needle = text.toLowerCase();
+    const cycling = [...needle].every((c) => c === needle[0]);
+    const q = cycling ? needle[0] : needle;
+    const start = cycling ? from + 1 : from;
+    for (let k = 0; k < items.length; k++) {
+      const i = (start + k) % items.length;
+      if (items[i]!.label.toLowerCase().startsWith(q)) return i;
+    }
+    return -1;
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    const cur = open ? active : Math.max(0, selectedIndex);
+    const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (printable && !(e.key === ' ' && Date.now() - typed.current.at > 600)) {
+      e.preventDefault();
+      const i = match(e.key, cur);
+      if (i >= 0) show(i);
+      else if (!open) show(cur);
+      return;
+    }
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) {
+        e.preventDefault();
+        show(cur);
+      }
+      return;
+    }
+    const step: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10 };
+    if (e.key in step) {
+      e.preventDefault();
+      show(e.key === 'ArrowUp' && e.altKey ? cur : cur + step[e.key]!);
+      if (e.key === 'ArrowUp' && e.altKey) pick(cur);
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      show(e.key === 'Home' ? 0 : items.length - 1);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      pick(cur);
+    } else if (e.key === 'Escape') {
+      // Only this dropdown closes, not the sheet or screen it sits in.
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    } else if (e.key === 'Tab') {
+      setOpen(false);
+    }
+  };
+
+  const fine = 'lg:[@media(pointer:fine)]:';
+  const list = (
+    <ul id={listId} role="listbox" aria-label={ariaLabel} className="po-scroll min-h-0 flex-1 overflow-y-auto">
+      {items.map((o, i) => {
+        const on = i === selectedIndex;
+        return (
+          <li
+            key={o.value}
+            id={optId(i)}
+            role="option"
+            aria-selected={on}
+            data-value={o.value}
+            // Keep focus on the trigger (it owns aria-activedescendant).
+            onMouseDown={(e) => e.preventDefault()}
+            onMouseMove={() => i !== active && setActive(i)}
+            onClick={() => pick(i)}
+            className={cn(
+              'flex min-h-[44px] cursor-pointer items-center gap-[11px] rounded-[12px] px-[12px] py-[10px] text-[15px] text-text',
+              `${fine}min-h-[36px] ${fine}rounded-[10px] ${fine}py-[7px] ${fine}text-[14px]`,
+              i === active && 'bg-elev2',
+              on && 'bg-acc-dim text-acc',
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate">{o.label}</span>
+            {on && <Icon name="check" size={15} sw={2.4} className="shrink-0 text-acc" />}
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   return (
-    // The <select> itself is the tap target, so it fills the box (44px + 2px
-    // padding + border = the same 50px Field height) instead of sitting as a
-    // 23px line inside 13px of padding (layout suite, 44px on touch).
-    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[2px]', className)}>
-      {icon && (
-        <span className="text-faint">
-          <Icon name={icon} size={19} />
-        </span>
-      )}
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+    <div ref={wrapRef} className={cn('relative', className)}>
+      <button
+        ref={triggerRef}
+        id={id}
+        type="button"
+        role="combobox"
         aria-label={ariaLabel}
-        // The options get the theme's own colours: Windows Chrome draws the
-        // native list on a white background, and inheriting text-text left
-        // every option but the highlighted one unreadable (Max, #463).
-        className="h-[44px] min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none [&>option]:bg-elev [&>option]:text-text"
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={open ? optId(active) : undefined}
+        onClick={() => (open ? close() : show(Math.max(0, selectedIndex)))}
+        onKeyDown={onKeyDown}
+        // 48px + border = the 50px Field height; the whole box is the tap target.
+        className={cn(
+          'flex min-h-[50px] w-full cursor-pointer items-center gap-[11px] rounded-field border bg-elev px-[15px] text-left outline-none focus-visible:border-acc',
+          open ? 'border-acc' : invalid ? fieldErrorBorder : 'border-line',
+        )}
       >
-        {placeholder != null && <option value="">{placeholder}</option>}
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+        {icon && (
+          <span className="text-faint">
+            <Icon name={icon} size={19} />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate font-body text-[16px] text-text">{items[selectedIndex]?.label ?? ''}</span>
+        <Icon name="chevD" size={18} className={cn('shrink-0 text-faint transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && !sheet && (
+        <div
+          ref={panelRef}
+          data-testid="select-panel"
+          className="absolute inset-x-0 top-[calc(100%+6px)] z-50 flex max-h-[320px] min-w-[220px] flex-col rounded-[16px] border border-line bg-elev p-[6px] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]"
+        >
+          {list}
+        </div>
+      )}
+      {open &&
+        sheet &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div className="po-anim-fade absolute inset-0 bg-[rgba(6,6,8,0.66)] backdrop-blur-[3px]" onClick={close} />
+            <div
+              ref={panelRef}
+              data-testid="select-panel"
+              className="po-anim-sheet relative flex max-h-[70vh] w-full max-w-[560px] flex-col rounded-t-[22px] border border-line bg-elev p-[10px] pb-[calc(10px+env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.55)]"
+            >
+              {ariaLabel && (
+                <div className="px-[12px] pb-[8px] pt-[6px] font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{ariaLabel}</div>
+              )}
+              {list}
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={close}
+                className={cn(
+                  'mt-[8px] flex min-h-[44px] w-full shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim',
+                  press,
+                )}
+              >
+                {t.shared.kit.selectCancel}
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
 
+// ── Field (input or static display) ──────────────────────────────────────────
 export function Field({
   icon,
   placeholder,
@@ -452,6 +792,9 @@ export function Field({
   ariaLabel,
   onKeyDown,
   onBlur,
+  id,
+  invalid,
+  describedBy,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -466,9 +809,17 @@ export function Field({
   ariaLabel?: string;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
   onBlur?: () => void;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   return (
-    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
+    <div
+      data-field-shell
+      className={cn(
+        'flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]',
+        fieldScrollMargin,
+        invalid && fieldErrorBorder,
+        className,
+      )}
+    >
       {icon && (
         <span className="text-faint">
           <Icon name={icon} size={19} />
@@ -484,6 +835,9 @@ export function Field({
           inputMode={inputMode}
           maxLength={maxLength}
           aria-label={ariaLabel}
+          id={id}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           onKeyDown={onKeyDown}
           onBlur={onBlur}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
@@ -506,6 +860,9 @@ export function TextArea({
   autoFocus,
   ariaLabel,
   className,
+  id,
+  invalid,
+  describedBy,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -515,7 +872,7 @@ export function TextArea({
   autoFocus?: boolean;
   ariaLabel?: string;
   className?: string;
-}): JSX.Element {
+} & FieldErrorProps): JSX.Element {
   return (
     <textarea
       autoFocus={autoFocus}
@@ -525,8 +882,14 @@ export function TextArea({
       maxLength={maxLength}
       rows={rows}
       aria-label={ariaLabel}
+      id={id}
+      aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
       className={cn(
         'w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[16px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc',
+        fieldScrollMargin,
+        // Red wins over the focus accent: the field the save sent you to stays marked.
+        invalid && cn(fieldErrorBorder, 'focus:border-red-400'),
         className,
       )}
     />

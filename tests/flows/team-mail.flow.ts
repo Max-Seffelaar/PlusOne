@@ -96,7 +96,13 @@ test('team mail: preferences in Profile, quota request + decision mails, unsubsc
   // files is the only open one.
   await adminClient()
     .from('quota_requests')
-    .update({ status: 'denied', decided_by: '11111111-1111-4111-8111-111111111111', decided_at: new Date().toISOString() } as never)
+    // A decline needs a reason in the database since z8uq9m2xyp.
+    .update({
+      status: 'denied',
+      decided_by: '11111111-1111-4111-8111-111111111111',
+      decided_at: new Date().toISOString(),
+      decision_reason: 'Flow reset',
+    } as never)
     .eq('user_id', STAFF_ID)
     .eq('status', 'pending');
   const motivation = `Flow ${flow.variant} ${Date.now().toString(36)}`;
@@ -111,6 +117,9 @@ test('team mail: preferences in Profile, quota request + decision mails, unsubsc
   if (await tierPick.isVisible().catch(() => false)) await tierPick.click();
   await page.getByRole('button', { name: 'Request more slots' }).click();
   await page.getByPlaceholder('Why do you need these slots?').fill(motivation);
+  // Quota only: this flow is about the mails, not the named guest (that is
+  // quota-request-guest.flow.ts), so the guest toggle goes off.
+  await page.getByTestId('quota-request-with-guest').getByRole('switch').click();
   await flow.shot('staff-request-more');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Request sent. An admin will decide on it.')).toBeVisible();

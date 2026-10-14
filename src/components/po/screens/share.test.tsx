@@ -46,6 +46,18 @@ vi.mock('@/components/po/context', () => ({ useNav: () => nav }));
 
 import { ShareScreen } from './share';
 
+// The kit Select is a listbox (z8uq9m4a2w): read and pick by the option's data-value.
+function selectedValue(combo: HTMLElement): string | null {
+  fireEvent.click(combo);
+  const v = document.querySelector('[role="option"][aria-selected="true"]')?.getAttribute('data-value') ?? null;
+  fireEvent.keyDown(combo, { key: 'Escape' });
+  return v;
+}
+function pick(combo: HTMLElement, value: string): void {
+  fireEvent.click(combo);
+  fireEvent.click(document.querySelector(`[role="option"][data-value="${value}"]`)!);
+}
+
 /** The Paste a list box (its placeholder spans lines, so query the element). */
 function textarea(): HTMLTextAreaElement {
   const el = document.querySelector('textarea');
@@ -104,8 +116,8 @@ describe('ShareScreen', () => {
     putSharedText(SHARED);
     render(<ShareScreen />);
     const [eventSelect, tierSelect] = await screen.findAllByRole('combobox');
-    expect(eventSelect).toHaveValue('e-next');
-    expect(tierSelect).toHaveValue('t-reg');
+    expect(selectedValue(eventSelect)).toBe('e-next');
+    expect(selectedValue(tierSelect)).toBe('t-reg');
     // 3 entries: Milan (+2) + Fleur + Sem (+1) = 6 guests, 1 with e-mail.
     expect(screen.getByTestId('paste-summary')).toHaveTextContent('3 entries · 6 guests total · 1 with e-mail');
   });
@@ -114,7 +126,7 @@ describe('ShareScreen', () => {
     putSharedText('Milan Hendriks +2\nFleur Janssen fleur@example.com');
     render(<ShareScreen />);
     const [, tierSelect] = await screen.findAllByRole('combobox');
-    fireEvent.change(tierSelect, { target: { value: 't-vip' } });
+    pick(tierSelect, 't-vip');
     fireEvent.click(screen.getByRole('button', { name: /Add 2 guests/ }));
     await waitFor(() => expect(addBulk.mutateAsync).toHaveBeenCalledTimes(1));
     const arg = (addBulk.mutateAsync.mock.calls[0] as unknown as [{ eventId: string; guests: Array<Record<string, unknown>> }])[0];
@@ -131,9 +143,9 @@ describe('ShareScreen', () => {
     putSharedText('Milan');
     render(<ShareScreen />);
     const [eventSelect] = await screen.findAllByRole('combobox');
-    fireEvent.change(eventSelect, { target: { value: 'e-late' } });
+    pick(eventSelect, 'e-late');
     const [, tierSelect] = screen.getAllByRole('combobox');
-    expect(tierSelect).toHaveValue('t-late');
+    expect(selectedValue(tierSelect)).toBe('t-late');
     expect(textarea()).toHaveValue('Milan');
   });
 });

@@ -148,10 +148,11 @@ export function EventDayCockpitGate({
   );
 }
 
-// Optimistic patch + the throttled realtime channel (usePoEventRealtime) carry
-// the cockpit moment-to-moment; this 60s poll is only the safety net for a
-// silently-dropped realtime channel (CLAUDE.md scale rule — no invalidate on
-// every mutation, invalidate() itself is throttled, 86ey9e8fe). Module-level so
+// Optimistic patch + the realtime channel (usePoEventRealtime: guests/arrivals
+// patched from the payload, tiers/stats refreshed at most every 5 s — Snelheid
+// P2) carry the cockpit moment-to-moment; this 60s poll is only the safety net
+// for a silently-dropped realtime channel (CLAUDE.md scale rule — no invalidate
+// on every mutation, 86ey9e8fe). Module-level so
 // the 4 hooks below get a stable reference instead of a new object per render.
 const COCKPIT_SAFETY_POLL = { refetchInterval: 60_000 } as const;
 
