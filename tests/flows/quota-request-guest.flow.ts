@@ -2,12 +2,18 @@ import { test, expect, expectNoHorizontalOverflow } from './harness';
 import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
 
 /**
- * Flow: Quota-aanvraag Q (z8uq9m2xyp), in all four variants.
+ * Flow: Quota-aanvraag Q (z8uq9m2xyp) + adjust before approving (z8uq9m5kux),
+ * in all four variants. Round 2 (Max 2026-10-14, checks 19–24): spots without a
+ * guest from the guest list, a second request right after the first approval
+ * asks for what its guest needs, "as asked" approves cleanly, raising works.
  *
  *   staff@ → Add guest over quota → "Request more slots" with the typed guest
  *   on (the default) → admin@ → Requests → Quota: the card says who the slots
- *   are for → Approve → the guest is on the list on staff@'s name → staff@ →
- *   Home: the Updates card (fulfilled, raised, declined with its reason) →
+ *   are for → Approve opens the approve sheet → one plus-one less, VIP instead
+ *   of Regular → the guest is on the list on staff@'s name, as adjusted; the
+ *   quota-only request is trimmed 2 → 1 in the same sheet → staff@ →
+ *   Home: the Updates card (fulfilled, raised, declined with its reason; the
+ *   two approvals say "Approved with changes") →
  *   "Got it" and "Add guests" each dismiss their row, and it stays gone after
  *   a reload.
  *
@@ -27,6 +33,7 @@ const VENUE = 'aa000000-0000-7000-8000-000000000001';
 const EVENT = 'ee000000-0000-7000-8000-000000000001';
 const EVENT_NAME = 'PLUSONE Launch Night';
 const REGULAR = 'dd000000-0000-7000-8000-000000000001';
+const VIP = 'dd000000-0000-7000-8000-000000000002';
 
 test.beforeAll(async () => {
   for (const email of [ADMIN, STAFF]) {
@@ -137,12 +144,40 @@ test('quota request: name the guest, approve adds them, Home tells the requester
     await expect(guestCard.getByTestId('quota-request-guest')).toHaveText(`For: ${guestLabel} · Regular`);
   });
 
+  // z8uq9m5kux: Approve opens the approve sheet, at "as asked".
   await guestCard.getByRole('button', { name: `Approve +${guestReq.requested_extra}` }).click();
+  const summary = page.getByTestId('quota-adjust-summary');
+  await expect(summary).toBeVisible();
+  await flow.shot('admin-approve-sheet-as-asked');
+  await flow.check(15, 'The approve sheet opens at "as asked": +N spots, the guest\'s +N, Regular picked', async () => {
+    await expect(summary).toHaveText(
+      `Spots: +${guestReq.requested_extra} of ${guestReq.requested_extra} · ${guestLabel} on Regular`,
+    );
+    await expect(page.getByTestId('quota-adjust-plus')).toContainText(String(plus));
+  });
+  await flow.check(16, 'Spots and plus-ones can go up as well as down (Max 2026-10-14): both + buttons are enabled at "as asked"', async () => {
+    await expect(page.getByRole('button', { name: 'One spot more' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'One plus-one more' })).toBeEnabled();
+  });
+
+  // One plus-one less (a plus-one is a spot, so the spots follow, never below
+  // 1), and VIP instead of Regular.
+  const adjustedPlus = plus - 1;
+  const adjustedExtra = Math.max(1, guestReq.requested_extra - 1);
+  const adjustedLabel = adjustedPlus > 0 ? `${guestName} +${adjustedPlus}` : guestName;
+  await page.getByRole('button', { name: 'One plus-one less' }).click();
+  await page.getByTestId('quota-adjust-tiers').getByRole('button').filter({ hasText: /^VIPNo max$/ }).click();
+  await expect(summary).toHaveText(
+    `Spots: +${adjustedExtra} of ${guestReq.requested_extra} · ${adjustedLabel} on VIP`,
+  );
+  await flow.shot('admin-approve-sheet-adjusted');
+  // The card behind the sheet has the same label: click the sheet's own button.
+  await summary.locator('..').getByRole('button', { name: `Approve +${adjustedExtra}`, exact: true }).click();
   await expect
     .poll(async () => (await adminClient().from('quota_requests').select('status').eq('id', guestReq.id).single()).data?.status)
     .toBe('approved');
 
-  await flow.check(5, 'Database: approved with guest_id; the guest is on the list with the right tier and +N, added by staff@', async () => {
+  await flow.check(5, 'Database: approved with guest_id; the guest is on the list on VIP with one plus-one less, added by staff@', async () => {
     const { data: req } = await adminClient().from('quota_requests').select('guest_id').eq('id', guestReq.id).single();
     const guestId = (req as { guest_id: string | null }).guest_id;
     expect(guestId).not.toBeNull();
@@ -151,7 +186,21 @@ test('quota request: name the guest, approve adds them, Home tells the requester
       .select('full_name, plus_ones, tier_id, added_by, status')
       .eq('id', guestId ?? '')
       .single();
-    expect(g).toEqual({ full_name: guestName, plus_ones: plus, tier_id: REGULAR, added_by: STAFF_ID, status: 'approved' });
+    expect(g).toEqual({ full_name: guestName, plus_ones: adjustedPlus, tier_id: VIP, added_by: STAFF_ID, status: 'approved' });
+  });
+
+  await flow.check(17, 'Database: approved_* record the adjustment; the payload keeps what was asked', async () => {
+    const { data } = await adminClient()
+      .from('quota_requests')
+      .select('approved_extra, approved_tier_id, approved_plus_ones, guest_payload')
+      .eq('id', guestReq.id)
+      .single();
+    expect(data).toMatchObject({
+      approved_extra: adjustedExtra,
+      approved_tier_id: VIP,
+      approved_plus_ones: adjustedPlus,
+      guest_payload: { plus_ones: plus, tier_id: REGULAR },
+    });
   });
 
   // The quota-only request, approved in the UI too.
@@ -160,8 +209,21 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   await flow.check(6, 'A request without a guest shows no "For:" line', async () => {
     await expect(raisedCard.getByTestId('quota-request-guest')).toHaveCount(0);
   });
+  // Trim the quota-only request: 2 asked, 1 granted.
   await raisedCard.getByRole('button', { name: 'Approve +2' }).click();
+  await page.getByRole('button', { name: 'One spot less' }).click();
+  await expect(page.getByTestId('quota-adjust-summary')).toHaveText('Spots: +1 of 2');
+  await page.getByTestId('quota-adjust-summary').locator('..').getByRole('button', { name: 'Approve +1', exact: true }).click();
   await expect(raisedCard).toBeHidden();
+  await flow.check(18, 'Database: the trimmed request raised the quota by 1, not 2', async () => {
+    const { data } = await adminClient()
+      .from('quota_requests')
+      .select('status, requested_extra, approved_extra')
+      .eq('user_id', STAFF_ID)
+      .eq('motivation', raisedMotivation)
+      .single();
+    expect(data).toEqual({ status: 'approved', requested_extra: 2, approved_extra: 1 });
+  });
 
   // The decline (with its reason) as a fixture: the Home card is under test here.
   const declined = await adminClient()
@@ -182,12 +244,20 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   const raisedRow = card.locator('[data-testid="quota-update"][data-kind="raised"]');
   const declinedRow = card.locator('[data-testid="quota-update"][data-kind="declined"]');
 
-  await flow.check(7, 'Home shows "{guest} is on the list for {event}" with "Your quota went up by +N."', async () => {
-    await expect(fulfilledRow).toContainText(`${guestLabel} is on the list for ${EVENT_NAME}`);
-    await expect(fulfilledRow).toContainText(`Your quota went up by +${guestReq.requested_extra}.`);
+  await flow.check(7, 'Home shows "{guest} is on the list for {event}" (the granted +N) and "Approved with changes: … on VIP."', async () => {
+    await expect(fulfilledRow).toContainText(`${adjustedLabel} is on the list for ${EVENT_NAME}`);
+    await expect(fulfilledRow).toContainText(`Your quota went up by +${adjustedExtra}.`);
+    const spotsPart =
+      adjustedExtra === guestReq.requested_extra
+        ? []
+        : [adjustedExtra === 1 ? `+1 spot instead of +${guestReq.requested_extra}` : `+${adjustedExtra} spots instead of +${guestReq.requested_extra}`];
+    await expect(fulfilledRow.getByTestId('quota-update-changes')).toHaveText(
+      `Approved with changes: ${[...spotsPart, `+${adjustedPlus} instead of +${plus}`, 'on VIP'].join(', ')}.`,
+    );
   });
-  await flow.check(8, 'Home shows "Your quota for {event} went up by +2" with "Add guests"', async () => {
-    await expect(raisedRow).toContainText(`Your quota for ${EVENT_NAME} went up by +2`);
+  await flow.check(8, 'Home shows "Your quota for {event} went up by +1" with "Approved with changes: +1 spot instead of +2." and "Add guests"', async () => {
+    await expect(raisedRow).toContainText(`Your quota for ${EVENT_NAME} went up by +1`);
+    await expect(raisedRow.getByTestId('quota-update-changes')).toHaveText('Approved with changes: +1 spot instead of +2.');
     await expect(raisedRow.getByRole('button', { name: 'Add guests' })).toBeVisible();
   });
   await flow.check(9, 'Home shows the decline with its reason, and no add button', async () => {
@@ -223,6 +293,137 @@ test('quota request: name the guest, approve adds them, Home tells the requester
   await flow.check(13, 'With nothing left the whole card disappears', async () => {
     await expect(page.getByTestId('quota-updates')).toHaveCount(0);
   });
+
+  // ── z8uq9m5kux round 2 (Max 2026-10-14) ──────────────────────────────────
+  // (a) Spots without a guest, from the event's guest list.
+  await page.goto(`/app/events/${EVENT}/guests`);
+  const quotaRow = page.getByTestId('guest-list-quota');
+  await expect(quotaRow).toBeVisible({ timeout: 20_000 });
+  await flow.check(19, 'The guest list shows "Your quota · n of m left" with "Request more spots"', async () => {
+    await expect(quotaRow).toContainText(/Your quota · \d+ of \d+ left/);
+    await expect(quotaRow.getByRole('button', { name: 'Request more spots' })).toBeVisible();
+  });
+  await quotaRow.getByRole('button', { name: 'Request more spots' }).click();
+  await quotaRow.getByRole('button', { name: 'One spot more' }).click();
+  const spotsMotivation = `Spots ${tag}`;
+  await quotaRow.getByPlaceholder('Why do you need these slots?').fill(spotsMotivation);
+  await flow.shot('guest-list-request-spots');
+  await quotaRow.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(quotaRow.getByTestId('quota-request-sent')).toBeVisible();
+  const { data: spotsReq } = await adminClient()
+    .from('quota_requests')
+    .select('id, requested_extra, guest_payload, status')
+    .eq('user_id', STAFF_ID)
+    .eq('motivation', spotsMotivation)
+    .single();
+  await flow.check(20, 'Database: a pending request for 2 spots, without a guest', async () => {
+    expect(spotsReq).toMatchObject({ requested_extra: 2, guest_payload: null, status: 'pending' });
+  });
+
+  // (b) The bug: a second request with a guest right after the first approval
+  // asks for what that guest needs, not a stale "+1".
+  await page.goto(`/app/events/${EVENT}/add`);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  const line2 = await page.getByText(/Your quota · \d+ of \d+ left/).first().textContent();
+  const left2 = Number(/· (\d+) of/.exec(line2 ?? '')?.[1] ?? '0');
+  const plus2 = Math.max(4, left2);
+  const need2 = 1 + plus2 - left2;
+  const second = `Max ${tag}`;
+  await page.getByPlaceholder('e.g. "John Doe +2 vip"').fill(`${second} +${plus2}`);
+  const tierPick2 = page.getByRole('button', { name: /^Regular/ }).first();
+  if (await tierPick2.isVisible().catch(() => false)) await tierPick2.click();
+  await page.getByRole('button', { name: 'Request more slots' }).click();
+  await flow.check(21, 'The second request asks for what the +N guest needs (1 + N − what is left), after the first approval', async () => {
+    await expect(page.getByTestId('quota-request-form')).toContainText(`Request ${need2} more ${need2 === 1 ? 'slot' : 'slots'}`);
+  });
+  await page.getByPlaceholder('Why do you need these slots?').fill(`Second ${tag}`);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByTestId('quota-request-sent')).toBeVisible();
+  const { data: secondReq } = await adminClient()
+    .from('quota_requests')
+    .select('id, requested_extra')
+    .eq('user_id', STAFF_ID)
+    .eq('motivation', `Second ${tag}`)
+    .single();
+  const second2 = secondReq as { id: string; requested_extra: number };
+  expect(second2.requested_extra).toBe(need2);
+
+  // (c) admin@ approves the guest request as asked, and raises the spots one.
+  await page.context().clearCookies();
+  await page.goto(`/auth/dev-login?email=${encodeURIComponent(ADMIN)}&next=${encodeURIComponent(`/app/requests/quota?event=${EVENT}`)}`);
+  await page.waitForURL(/\/app\/requests\/quota/);
+  const secondCard = page.locator('div.rounded-\\[18px\\]').filter({ hasText: `Second ${tag}` }).first();
+  await expect(secondCard).toBeVisible({ timeout: 20_000 });
+  await secondCard.getByRole('button', { name: `Approve +${need2}` }).click();
+  const summary2 = page.getByTestId('quota-adjust-summary');
+  await expect(summary2).toHaveText(`Spots: +${need2} of ${need2} · ${second} +${plus2} on Regular`);
+  await summary2.locator('..').getByRole('button', { name: `Approve +${need2}`, exact: true }).click();
+  await expect
+    .poll(async () => (await adminClient().from('quota_requests').select('status').eq('id', second2.id).single()).data?.status)
+    .toBe('approved');
+  await flow.check(22, '"As asked" approves cleanly: the +N guest is on the list, nothing refused', async () => {
+    const { data } = await adminClient().from('quota_requests').select('guest_id, approved_extra').eq('id', second2.id).single();
+    const row = data as { guest_id: string | null; approved_extra: number };
+    expect(row.approved_extra).toBe(need2);
+    const { data: g } = await adminClient().from('guests').select('plus_ones, status').eq('id', row.guest_id ?? '').single();
+    expect(g).toEqual({ plus_ones: plus2, status: 'approved' });
+  });
+
+  const spotsCard = page.locator('div.rounded-\\[18px\\]').filter({ hasText: spotsMotivation }).first();
+  await spotsCard.getByRole('button', { name: 'Approve +2' }).click();
+  await page.getByRole('button', { name: 'One spot more' }).click();
+  await expect(page.getByTestId('quota-adjust-summary')).toHaveText('Spots: +3 of 2');
+  await flow.shot('admin-approve-sheet-raised');
+  await page.getByTestId('quota-adjust-summary').locator('..').getByRole('button', { name: 'Approve +3', exact: true }).click();
+  await expect(spotsCard).toBeHidden();
+  await flow.check(23, 'Raising works: 3 spots granted for a request of 2', async () => {
+    const { data } = await adminClient().from('quota_requests').select('status, approved_extra').eq('motivation', spotsMotivation).single();
+    expect(data).toEqual({ status: 'approved', approved_extra: 3 });
+  });
+
+  // (d) staff@ Home says it.
+  await page.context().clearCookies();
+  await page.goto(`/auth/dev-login?email=${encodeURIComponent(STAFF)}&next=/app`);
+  await page.waitForURL(/\/app$/);
+  await expect(page.getByTestId('quota-updates')).toBeVisible({ timeout: 20_000 });
+  await flow.shot('home-updates-round-2');
+  await flow.check(24, 'Home: "{guest} +N is on the list", and "+3 spots instead of +2" for the raised one', async () => {
+    await expect(page.locator('[data-testid="quota-update"][data-kind="fulfilled"]')).toContainText(`${second} +${plus2} is on the list for ${EVENT_NAME}`);
+    const raised = page.locator('[data-testid="quota-update"][data-kind="raised"]');
+    await expect(raised).toContainText(`Your quota for ${EVENT_NAME} went up by +3`);
+    await expect(raised.getByTestId('quota-update-changes')).toHaveText('Approved with changes: +3 spots instead of +2.');
+  });
+
+  // (e) Max's retest: "Request more spots" sits next to the quota counter in
+  // the Add guest header, and a new request starts with an empty motivation.
+  await page.goto(`/app/events/${EVENT}/add`);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  const headerBtn = page.getByTestId('quota-request-more-header');
+  await flow.check(25, 'Add guest: "Request more spots" is right next to "Your quota · n of m left" in the header', async () => {
+    await expect(headerBtn).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Your quota · \d+ of \d+ left/).first()).toBeVisible();
+  });
+  await headerBtn.getByRole('button', { name: 'Request more spots' }).click();
+  const headerPanel = page.getByTestId('quota-request-header-panel');
+  const headerMotivation = `Header ${tag}`;
+  await headerPanel.getByPlaceholder('Why do you need these slots?').fill(headerMotivation);
+  await flow.shot('add-guest-header-request');
+  await headerPanel.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(headerPanel.getByTestId('quota-request-sent')).toBeVisible();
+  await flow.check(26, 'Database: the header request is a pending request for 1 spot, without a guest', async () => {
+    const { data } = await adminClient()
+      .from('quota_requests')
+      .select('requested_extra, guest_payload, status')
+      .eq('user_id', STAFF_ID)
+      .eq('motivation', headerMotivation)
+      .single();
+    expect(data).toEqual({ requested_extra: 1, guest_payload: null, status: 'pending' });
+  });
+  await headerBtn.getByRole('button', { name: 'Request more spots' }).click();
+  await flow.check(27, 'Opened again, the motivation is empty (no text left from the last request)', async () => {
+    await expect(page.getByTestId('quota-request-header-panel').getByPlaceholder('Why do you need these slots?')).toHaveValue('');
+  });
+  await page.getByTestId('quota-request-header-panel').getByRole('button', { name: 'Cancel' }).click();
 
   await flow.check(14, 'No step scrolls sideways', async () => {
     expectNoHorizontalOverflow(flow);

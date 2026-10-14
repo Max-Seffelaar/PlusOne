@@ -133,7 +133,7 @@ export const FLOWS = {
     ],
   },
   'quota-request-guest': {
-    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ approves → guest on the list → Home Updates card (Got it / Add guests / decline reason)',
+    title: 'Quota-aanvraag Q — staff@ names the guest in a quota request → admin@ adjusts (tier, +N, trim) and approves → guest on the list → Home Updates card (approved with changes / Got it / Add guests / decline reason)',
     paths: [
       'src/features/quotas/',
       'src/features/po/queries.ts',
@@ -144,6 +144,10 @@ export const FLOWS = {
       'src/components/po/screens/guests/quick-add.tsx',
       'src/components/po/screens/approvals',
       'supabase/migrations/20261016190000_quota_request_guest_payload.sql',
+      'supabase/migrations/20261018130000_quota_request_adjust.sql',
+      'src/components/po/kit.tsx',
+      'src/components/po/screens/guests/index.tsx',
+      'src/components/po/screens/guests/quota-request-form.tsx',
     ],
   },
   'team-mail': {
@@ -159,6 +163,10 @@ export const FLOWS = {
       'src/components/po/screens/settings/notification-prefs.tsx',
       'src/components/po/screens/settings/profile.tsx',
       'supabase/migrations/20261013180600_notification_prefs.sql',
+      // z8uq9m5kux: the flow approves through the quota approve sheet, and the
+      // migration redefines team_mails_claim (the decision mail's count).
+      'src/components/po/screens/approvals',
+      'supabase/migrations/20261018130000_quota_request_adjust.sql',
     ],
   },
   'mail-status': {

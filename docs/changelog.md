@@ -8,6 +8,80 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-14 — Quota approval round 2: the request always asks for enough, up or down, spots without a guest, guest in the mail (z8uq9m5kux)
+
+Max's test of train #507. Same branch and migration (`20261018130000`, not yet on prod, so it was
+changed in place). Spec #67(f).
+
+- **Bug, root cause:** quick-add computed `requested_extra = max(1, cost − remaining)` from the
+  requester's cached `event_quota_status`. An approval made on the admin's device raises the override
+  AND adds a guest on the requester's name; nothing refreshed the requester's cache (no realtime for
+  that query, `refetchOnWindowFocus: false`, IDB-persisted). So after the first approval the cache still said
+  "4 left" against a real 0, and a +4 guest (cost 5) became "+1". The approval then refused
+  (45001), and the next add looked possible but failed. Max's own database confirms it: approving the
+  seed request (+3) on the admin side took Tom from 12 to 15 (7 left), while his cache kept the seed's
+  "4 left". So a +4 guest that fitted asked "+1" and Henie +6 asked "+3". After Henie (3 left), the "+1" for
+  Max +4 really was short, which produced the 45001. pgTAP section S replays these exact numbers, and
+  `quotaShortfall` has a vitest for "7 left, +4 guest → no request". The 45001 copy no longer claims the
+  guest must fit in the extra spots alone. The quick-add's "Request more slots" waits for the fresh quota.
+- **Fix (server, whatever the client says):** `fit_quota_request_to_guest` BEFORE INSERT:
+  `requested_extra = greatest(client value, 1 + plus_ones − remaining)`. In `approve_quota_request`, "as asked"
+  (no `p_extra`) grants `greatest(requested_extra, what the guest needs now)` under the quota lock, so it
+  always fits; an explicit number is used as given.
+- **Fix (client):** `usePoQuota` is always fresh (staleTime 0, refetch on mount and focus), and a
+  decision arriving on Home invalidates quota and list for that event. Not added to the event-day realtime
+  refresh: that would refetch every client's quota on each burst during a door rush (the throttle test
+  pins the aggregate set), and the two paths above already cover the stale case.
+- **Raise:** spots 1..100 and plus-ones 0..50, up or down; the CHECK on `approved_extra` is now 1..100.
+  The sheet moves the spots along with the +N.
+- **Spots without a guest:** the `GuestListQuotaBar` on the event guest list ("Your quota · n of m left" +
+  "Request more spots"). It and quick-add share one `QuotaRequestForm`.
+- **Mail:** `team_mails_claim` adds `decision.guest` {first_name, plus_ones, tier, changed}. The template
+  says "{guest} +N is on the list for {event}" when the approval added the guest.
+- **Delta review (APPROVE) should-fixes:** S1 `requested_extra` CHECK 1..100 (older rows above it capped
+  first); the trigger and every approval path refuse past 100 with a hinted 22023, never a raw 23514. S2 new
+  `approved_with_changes` (RPC-only, same guard/grant rules): true only for the admin's explicit `p_*`
+  differing from the request, tier compared as uuid; the mail's `changed` and the Home card's "Approved with
+  changes" read only that, so a server-side fit shows the granted number without claiming an edit. N1 comment
+  on the exempt check; N2 raising +N in the sheet never leaves fewer spots than "as asked" implies.
+- **Tests:** pgTAP adjust file 69, later 86 (R raise, T the bug + as-asked fit + mail shape, S Max's numbers,
+  U tier-case, V the 100 bound). In
+  `quota_requests_guest_payload`, C1 now uses an explicit too-small `p_extra` (as asked always fits).
+  Vitest for mail parse/render, adapters (raise) and the action bounds. Flows: `quota-request-guest`
+  checks 15/16/5/7/17 updated and 19–24 new; `team-mail` check 9 new.
+
+## 2026-10-13 — Quota approval: adjust the guest before approving (z8uq9m5kux)
+
+Follow-up to Max's test of the golf-F train (#502). Branch
+`claude/z8uq9m5kux-quota-adjust`, migration `20261018130000_quota_request_adjust`.
+Spec #67 (refines #66 and #5).
+
+- **DB:** `approve_quota_request(p_request_id, p_extra, p_tier_id, p_plus_ones)`:
+  the three new arguments default to "as asked" and only go down (extra
+  1..requested, plus-ones 0..asked); the tier must be on the request's own event.
+  Checked after the admin check (22023 + hint). The 1-argument function is dropped
+  and recreated with defaults (precedent 20261017120300): one function, so no
+  PGRST203, and the deployed app's `{p_request_id}` call is unchanged. New
+  `approved_extra` / `approved_tier_id` / `approved_plus_ones` record the grant
+  (no client grant, the INSERT guard refuses them, CHECKs: approved rows only,
+  extra ≤ requested, tier and +N together). `team_mails_claim` re-created with one
+  line changed: the decision mail reports `coalesce(approved_extra,
+  requested_extra)`.
+- **App:** `decideQuotaRequest` takes an optional `adjust` and sends only the
+  arguments that changed (a plain approval is still the 1-argument call). The
+  quota card's Approve opens the Requests E approve sheet (`AssignSheet`, now a
+  frame with a landing and a quota body); kit: `CountStepper` gains `min`,
+  `DecisionSummary` is shared by both bodies. Home: the granted numbers, plus
+  "Approved with changes: …". Audit feed: "approved N more spots for X".
+- **Tests:** pgTAP `quota_request_adjust.test.sql` (55); the old `(uuid)`
+  signature pins in `quota_requests_column_grant` / `quota_requests_guest_payload`
+  moved to the new signature; `push_outbox` D's status bounce clears
+  `approved_extra` (new CHECK). Vitest: action, adapters, audit. Flow
+  `quota-request-guest` extended (checks 5, 7, 8 changed; 15–18 new).
+- **Deploy order:** the app sends extra arguments only when something was
+  adjusted, so a plain approval works on either schema. An adjusted approval
+  needs the migration, so push the schema before anyone uses the sheet.
+
 ## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
 
 Golf F, task 8. Branch `claude/z8uq9m2xyp-quota-flow`, migration

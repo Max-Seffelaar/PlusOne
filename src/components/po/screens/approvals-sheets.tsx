@@ -6,22 +6,29 @@
  * approvals.tsx (z8uq9m0hw4) to keep the screen file under the ~800 LOC rule.
  * The approve sheet is the whole decision (Requests E, z8uq9m2vga): people per
  * tier (a split, a trim, or nobody), whoever is left over is declined, and a
- * note to the guest that is mandatory as soon as anyone is declined.
+ * note to the guest that is mandatory as soon as anyone is declined. The same
+ * sheet approves a quota request (z8uq9m5kux): fewer spots, and for a named
+ * guest another tier and fewer plus-ones.
  * approvals.tsx turns it into the action input via `buildDecideInput`
  * (src/features/requests/approval.ts).
  */
 import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
-import type { PoGuestRequest } from '@/features/po/adapters';
+import { quotaGuestLabel, type PoGuestRequest, type PoQuotaRequest } from '@/features/po/adapters';
+import { QUOTA_EXTRA_MAX, type QuotaAdjustInput } from '@/features/quotas/schemas';
+import { PLUS_ONES_MAX } from '@/features/guests/quick-add-parser';
 import { placedPeople, type SplitDecision } from '@/features/requests/approval';
 import { DECISION_MESSAGE_MAX } from '@/features/requests/schemas';
 import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { Icon } from '../icon';
-import { ActorPhrase, Avatar, Btn, CountStepper, Label, Note, TextArea, press } from '../kit';
+import { ActorAvatar, ActorName, ActorPhrase, Avatar, Btn, CountStepper, DecisionSummary, Label, Note, TextArea, TierPicker, press } from '../kit';
 import type { ActorKind } from '@/lib/po/actor-kind';
 import { Sheet } from '../shell';
+
+/** The adjustments of a quota approval; a field left out = as asked. */
+type QuotaAdjust = QuotaAdjustInput;
 
 /** `plus` (landing only): the request's plus-ones, so a whole decline names everyone. */
 export type DenyTarget = {
@@ -130,14 +137,74 @@ export function LinkPickerSheet({
   );
 }
 
+/** What the approve sheet decides: a landing request (people per tier, Requests
+ *  E) or a quota request (spots, and the named guest's tier and +N, z8uq9m5kux). */
+export type ApproveTarget =
+  | { kind: 'landing'; req: PoGuestRequest; onConfirm: (decision: SplitDecision) => void }
+  | { kind: 'quota'; req: PoQuotaRequest; onConfirm: (adjust: QuotaAdjust) => void };
+
+/**
+ * The one approve sheet. Both kinds share the frame (sheet, error line, cancel)
+ * and the kit pieces (TierPicker / CountStepper / DecisionSummary); the body is
+ * per kind, each with its own state.
+ */
 export function AssignSheet({
-  req,
+  target,
   eventName,
   tiers,
   tiersLoading,
   pending,
   error,
   onClose,
+  onCreateTier,
+}: {
+  target: ApproveTarget;
+  eventName: string;
+  tiers: Tier[];
+  tiersLoading: boolean;
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+  onCreateTier: () => void;
+}): JSX.Element {
+  return (
+    <Sheet onClose={onClose} center={false}>
+      {target.kind === 'landing' ? (
+        <LandingDecision
+          req={target.req}
+          eventName={eventName}
+          tiers={tiers}
+          tiersLoading={tiersLoading}
+          pending={pending}
+          error={error}
+          onConfirm={target.onConfirm}
+          onCreateTier={onCreateTier}
+        />
+      ) : (
+        <QuotaDecision
+          req={target.req}
+          eventName={eventName}
+          tiers={tiers}
+          tiersLoading={tiersLoading}
+          pending={pending}
+          error={error}
+          onConfirm={target.onConfirm}
+        />
+      )}
+      <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
+        {t.requests.cancel}
+      </button>
+    </Sheet>
+  );
+}
+
+function LandingDecision({
+  req,
+  eventName,
+  tiers,
+  tiersLoading,
+  pending,
+  error,
   onConfirm,
   onCreateTier,
 }: {
@@ -147,7 +214,6 @@ export function AssignSheet({
   tiersLoading: boolean;
   pending: boolean;
   error: string | null;
-  onClose: () => void;
   onConfirm: (decision: SplitDecision) => void;
   onCreateTier: () => void;
 }): JSX.Element {
@@ -177,7 +243,7 @@ export function AssignSheet({
         ? fmt(t.requests.decideConfirmPartly, { approved: placed, declined })
         : t.requests.assignConfirm;
   return (
-    <Sheet onClose={onClose} center={false}>
+    <>
       <div className="mb-4 flex items-center gap-[12px]">
         <Avatar name={req.name} size={44} />
         <div className="min-w-0 flex-1">
@@ -279,16 +345,13 @@ export function AssignSheet({
         </div>
       )}
       {!noTiers && !tiersLoading && (
-        <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]" data-testid="decide-summary">
-          <Icon name={placed > 0 ? 'check2' : 'close'} size={18} stroke="#B5A6FF" sw={2.4} />
-          <span className="text-[13.5px] leading-[1.4] text-text">
-            {placed === 0
-              ? t.requests.decideSummaryNone
-              : declined > 0
-                ? fmt(t.requests.decideSummaryDeclined, { approved: placed, requested: requestedHeads, declined })
-                : fmt(t.requests.decideSummary, { approved: placed, requested: requestedHeads })}
-          </span>
-        </div>
+        <DecisionSummary approve={placed > 0} testId="decide-summary">
+          {placed === 0
+            ? t.requests.decideSummaryNone
+            : declined > 0
+              ? fmt(t.requests.decideSummaryDeclined, { approved: placed, requested: requestedHeads, declined })
+              : fmt(t.requests.decideSummary, { approved: placed, requested: requestedHeads })}
+        </DecisionSummary>
       )}
       {noteMissing && !tiersLoading && !noTiers && <div className="mb-3 text-[12.5px] text-faint">{t.requests.decideNoteMissing}</div>}
       {error && <ErrLine msg={error} />}
@@ -304,10 +367,151 @@ export function AssignSheet({
           {pending ? t.requests.assignBusy : confirmLabel}
         </Btn>
       )}
-      <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        {t.requests.cancel}
-      </button>
-    </Sheet>
+    </>
+  );
+}
+
+
+/**
+ * Quota approval (z8uq9m5kux): the admin adjusts before approving — the spots,
+ * and for a named guest another tier of this event and the plus-ones, up or
+ * down (Max 2026-10-14: "could be both"; bounds 1..100 spots, 0..PLUS_ONES_MAX).
+ * A plus-one is a spot, so moving the +N moves the spots with it: the guest
+ * keeps fitting. approve_quota_request re-checks every bound, and the quota
+ * engine still decides (45001 → nothing changes). Starts at "as asked", so a
+ * plain approval is one more tap; untouched, the server grants at least what
+ * the guest needs at that moment.
+ */
+function QuotaDecision({
+  req,
+  eventName,
+  tiers,
+  tiersLoading,
+  pending,
+  error,
+  onConfirm,
+}: {
+  req: PoQuotaRequest;
+  eventName: string;
+  tiers: Tier[];
+  tiersLoading: boolean;
+  pending: boolean;
+  error: string | null;
+  onConfirm: (adjust: QuotaAdjust) => void;
+}): JSX.Element {
+  const guest = req.guest;
+  const [extra, setExtra] = useState(req.extra);
+  const [plusOnes, setPlusOnesRaw] = useState(guest?.plusOnes ?? 0);
+  // One more plus-one needs one more spot (and one fewer frees one). Raising
+  // never leaves fewer spots than "as asked" implies for the new +N, even after
+  // the admin lowered the spots first (delta review N2).
+  const setPlusOnes = (next: number): void => {
+    const delta = next - plusOnes;
+    setPlusOnesRaw(next);
+    setExtra((e) => {
+      const moved = e + delta;
+      const floor = delta > 0 && guest ? req.extra + (next - guest.plusOnes) : 1;
+      return Math.min(QUOTA_EXTRA_MAX, Math.max(1, moved, floor));
+    });
+  };
+  // The asked tier when it is still on the event; else nothing until picked.
+  const [tierId, setTierId] = useState<string | null>(null);
+  const askedTierLive = guest ? tiers.some((row) => row.id === guest.tierId) : false;
+  const chosenTier = tierId ?? (askedTierLive && guest ? guest.tierId : '');
+  const tier = tiers.find((row) => row.id === chosenTier) ?? null;
+  const tierMissing = guest !== null && !tiersLoading && tier === null;
+  const blocked = pending || (guest !== null && (tiersLoading || tier === null));
+
+  const adjust: QuotaAdjust = {
+    ...(extra !== req.extra ? { extra } : {}),
+    ...(guest && tier && tier.id !== guest.tierId ? { tierId: tier.id } : {}),
+    ...(guest && plusOnes !== guest.plusOnes ? { plusOnes } : {}),
+  };
+  const summary = guest
+    ? fmt(t.requests.quotaSummaryGuest, {
+        extra,
+        requested: req.extra,
+        guest: quotaGuestLabel({ name: guest.name, plusOnes }),
+        tier: tier?.name ?? '…',
+      })
+    : fmt(t.requests.quotaSummary, { extra, requested: req.extra });
+
+  return (
+    <>
+      <div className="mb-4 flex items-center gap-[12px]">
+        <ActorAvatar name={req.who} kind={req.whoKind} size={44} />
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+            <ActorName name={req.who} kind={req.whoKind} />
+          </div>
+          <div className="truncate text-[12.5px] text-faint">
+            {eventName ? fmt(t.requests.quotaApproveSub, { event: eventName, n: req.extra }) : fmt(t.requests.quotaApproveSubNoEvent, { n: req.extra })}
+          </div>
+        </div>
+      </div>
+      {req.reason && <div className="mb-[14px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{req.reason}”</div>}
+
+      <div className="mb-[14px] flex items-center gap-[11px] rounded-[12px] border border-line bg-elev px-[13px] py-[10px]">
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[14.5px] font-bold text-text">{t.requests.quotaSpotsQuestion}</div>
+          <div className="text-[11.5px] text-faint">{fmt(t.requests.quotaSpotsHint, { n: req.extra })}</div>
+        </div>
+        <div data-testid="quota-adjust-extra">
+          <CountStepper
+            value={extra}
+            min={1}
+            max={QUOTA_EXTRA_MAX}
+            onChange={setExtra}
+            lessLabel={t.requests.quotaSpotsLess}
+            moreLabel={t.requests.quotaSpotsMore}
+          />
+        </div>
+      </div>
+
+      {guest && (
+        <>
+          <Label className="mb-[8px]">{fmt(t.requests.quotaGuestHeading, { guest: guest.name })}</Label>
+          <div className="mb-[10px] flex items-center gap-[11px] rounded-[12px] border border-line bg-elev px-[13px] py-[10px]">
+            <div className="min-w-0 flex-1">
+              <div className="font-display text-[14.5px] font-bold text-text">{t.requests.quotaPlusOnesLabel}</div>
+              <div className="text-[11.5px] text-faint">{fmt(t.requests.quotaPlusOnesHint, { n: guest.plusOnes })}</div>
+            </div>
+            <div data-testid="quota-adjust-plus">
+              <CountStepper
+                value={plusOnes}
+                max={PLUS_ONES_MAX}
+                onChange={setPlusOnes}
+                lessLabel={t.requests.quotaPlusLess}
+                moreLabel={t.requests.quotaPlusMore}
+              />
+            </div>
+          </div>
+          <Label className="mb-[8px]">{t.requests.quotaTierQuestion}</Label>
+          {tiersLoading ? (
+            <div className="mb-[14px] py-[18px] text-center text-[13px] text-faint">{t.requests.assignLoadingTiers}</div>
+          ) : (
+            <>
+              {tierMissing && <div className="mb-[8px] px-0.5 text-[12.5px] text-faint">{t.requests.quotaTierGone}</div>}
+              <div data-testid="quota-adjust-tiers">
+                <TierPicker
+                  tiers={tiers}
+                  value={chosenTier}
+                  onChange={setTierId}
+                  hint={(row) => (row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax)}
+                  className="mb-[14px]"
+                />
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      <DecisionSummary testId="quota-adjust-summary">{summary}</DecisionSummary>
+      {error && <ErrLine msg={error} />}
+      <Btn kind="primary" full icon="check" disabled={blocked} onClick={() => onConfirm(adjust)} className={blocked ? 'opacity-50' : ''}>
+        {pending ? t.requests.assignBusy : fmt(t.requests.approveExtra, { n: extra })}
+      </Btn>
+    </>
   );
 }
 

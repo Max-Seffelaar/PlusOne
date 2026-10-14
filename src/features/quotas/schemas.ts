@@ -3,6 +3,10 @@ import { PLUS_ONES_MAX } from '@/features/guests/quick-add-parser';
 
 const uuid = z.string().uuid();
 
+/** Most spots one request asks for or an approval grants (the form's cap; the
+ *  database enforces it on approval, z8uq9m5kux). */
+export const QUOTA_EXTRA_MAX = 100;
+
 /** Empty string from a form field -> null (optional, dataminimalisatie #9). */
 const optionalText = (max: number) =>
   z
@@ -31,7 +35,7 @@ export type QuotaGuestInput = z.input<typeof quotaGuestSchema>;
 /** Staff asks for X extra slots with a motivation (#5), optionally naming the guest. */
 export const quotaRequestSchema = z.object({
   eventId: uuid,
-  requestedExtra: z.coerce.number().int().min(1, 'Ask for at least 1 spot').max(100),
+  requestedExtra: z.coerce.number().int().min(1, 'Ask for at least 1 spot').max(QUOTA_EXTRA_MAX),
   motivation: z.string().trim().min(1, 'Add a short reason').max(500),
   guest: quotaGuestSchema.optional(),
 });
@@ -58,15 +62,34 @@ export const defaultQuotaSchema = z.object({
 });
 export type DefaultQuotaInput = z.input<typeof defaultQuotaSchema>;
 
-/** Admin decision on a request: approve (writes the override) or deny (#4/#5). */
+/**
+ * What the admin changed before approving (z8uq9m5kux). Each field is optional
+ * and means "as asked" when left out; approve_quota_request re-checks every
+ * bound (extra 1..requested, plus-ones 0..asked, a tier of the same event).
+ */
+export const quotaAdjustSchema = z.object({
+  // Up or down (Max 2026-10-14); approve_quota_request enforces the same 1..100.
+  extra: z.number().int().min(1).max(QUOTA_EXTRA_MAX).optional(),
+  tierId: uuid.optional(),
+  plusOnes: z.number().int().min(0).max(PLUS_ONES_MAX).optional(),
+});
+export type QuotaAdjustInput = z.input<typeof quotaAdjustSchema>;
+
+/** Admin decision on a request: approve (writes the override, optionally
+ *  adjusted) or deny (#4/#5). */
 export const decideQuotaRequestSchema = z
   .object({
     requestId: uuid,
     decision: z.enum(['approved', 'denied']),
     reason: z.string().trim().max(500).optional(),
+    adjust: quotaAdjustSchema.optional(),
   })
   .refine((v) => v.decision !== 'denied' || (v.reason && v.reason.length > 0), {
     message: 'Give a reason for declining',
     path: ['reason'],
+  })
+  .refine((v) => v.decision === 'approved' || v.adjust === undefined, {
+    message: 'Only an approval can be adjusted',
+    path: ['adjust'],
   });
 export type DecideQuotaRequestInput = z.input<typeof decideQuotaRequestSchema>;
