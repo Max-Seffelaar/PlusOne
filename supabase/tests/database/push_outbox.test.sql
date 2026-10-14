@@ -211,7 +211,7 @@ select is(
 update public.quota_requests set decision_reason = 'ok'
 where id = '9a000000-0000-7000-8000-000000000001';
 -- approved_extra (20261018130000) belongs to an approved row only (CHECK).
-update public.quota_requests set status = 'pending', decided_by = null, decided_at = null, approved_extra = null
+update public.quota_requests set status = 'pending', decided_by = null, decided_at = null, approved_extra = null, approved_with_changes = null
 where id = '9a000000-0000-7000-8000-000000000001';
 update public.quota_requests
    set status = 'approved', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now()

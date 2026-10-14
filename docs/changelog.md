@@ -38,7 +38,14 @@ changed in place). Spec #67(f).
   "Request more spots"). It and quick-add share one `QuotaRequestForm`.
 - **Mail:** `team_mails_claim` adds `decision.guest` {first_name, plus_ones, tier, changed}. The template
   says "{guest} +N is on the list for {event}" when the approval added the guest.
-- **Tests:** pgTAP adjust file 69 (R raise, T the bug + as-asked fit + mail shape). In
+- **Delta review (APPROVE) should-fixes:** S1 `requested_extra` CHECK 1..100 (older rows above it capped
+  first); the trigger and every approval path refuse past 100 with a hinted 22023, never a raw 23514. S2 new
+  `approved_with_changes` (RPC-only, same guard/grant rules): true only for the admin's explicit `p_*`
+  differing from the request, tier compared as uuid; the mail's `changed` and the Home card's "Approved with
+  changes" read only that, so a server-side fit shows the granted number without claiming an edit. N1 comment
+  on the exempt check; N2 raising +N in the sheet never leaves fewer spots than "as asked" implies.
+- **Tests:** pgTAP adjust file 69, later 86 (R raise, T the bug + as-asked fit + mail shape, S Max's numbers,
+  U tier-case, V the 100 bound). In
   `quota_requests_guest_payload`, C1 now uses an explicit too-small `p_extra` (as asked always fits).
   Vitest for mail parse/render, adapters (raise) and the action bounds. Flows: `quota-request-guest`
   checks 15/16/5/7/17 updated and 19–24 new; `team-mail` check 9 new.

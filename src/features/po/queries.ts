@@ -818,6 +818,8 @@ export interface PoMyQuotaUpdateRow {
   approvedPlusOnes: number | null;
   /** Name of approvedTierId when it differs from the asked tier, else null. */
   approvedTierName: string | null;
+  /** The admin explicitly changed the request (S2); a server-side fit is not. */
+  approvedWithChanges: boolean;
 }
 
 /** How many undismissed decisions the Updates card shows at most. */
@@ -837,7 +839,7 @@ export async function fetchMyQuotaUpdates(
 ): Promise<PoMyQuotaUpdateRow[]> {
   const { data, error } = await client
     .from('quota_requests')
-    .select('id, event_id, requested_extra, status, decision_reason, decided_at, guest_id, guest_payload, approved_extra, approved_tier_id, approved_plus_ones, events(name)')
+    .select('id, event_id, requested_extra, status, decision_reason, decided_at, guest_id, guest_payload, approved_extra, approved_tier_id, approved_plus_ones, approved_with_changes, events(name)')
     .eq('venue_id', venueId)
     .eq('user_id', userId)
     .neq('status', 'pending')
@@ -872,6 +874,7 @@ export async function fetchMyQuotaUpdates(
         approvedTierId: r.approved_tier_id,
         approvedPlusOnes: r.approved_plus_ones,
         approvedTierName: r.approved_tier_id ? tierNames.get(r.approved_tier_id) ?? null : null,
+        approvedWithChanges: r.approved_with_changes === true,
       },
     ];
   });

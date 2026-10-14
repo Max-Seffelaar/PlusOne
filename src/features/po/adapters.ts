@@ -967,11 +967,13 @@ export interface PoQuotaUpdateChanges {
   tier: { name: string | null } | null;
 }
 
-/** The changes an approval made, or null when it granted what was asked (or
- *  predates z8uq9m5kux: approved_* null). The payload may be gone (retention);
- *  then only the trim is known. */
+/** The changes the admin made before approving, or null when they approved as
+ *  asked (or before z8uq9m5kux). Only an explicit change counts: the server
+ *  granting more because the requester's room shrank is not one (delta review
+ *  S2), so `approvedWithChanges` gates it. The payload may be gone (retention);
+ *  then only the spots are known. */
 export function quotaUpdateChanges(row: PoMyQuotaUpdateRow): PoQuotaUpdateChanges | null {
-  if (row.status !== 'approved') return null;
+  if (row.status !== 'approved' || !row.approvedWithChanges) return null;
   const extra =
     row.approvedExtra != null && row.approvedExtra !== row.requestedExtra
       ? { granted: row.approvedExtra, asked: row.requestedExtra }

@@ -34,6 +34,9 @@
 --      approved Tom has 7 left (a +4 guest needs no request); the stale
 --      "+1"/"+3" requests replayed end at quota 18 / consumed 15, and the
 --      short "+1" for a +4 guest then approves as asked (2 spots granted).
+--   U/V. delta review: a tier uuid differing only in case is no change;
+--      approved_with_changes is false for a server-side fit; requested_extra
+--      is 1..100 in the database and every path past 100 is a hinted 22023.
 --   I. one approve_quota_request overload; SECURITY DEFINER, search_path '',
 --      ACL (authenticated + service_role, not anon, not PUBLIC); the row is
 --      read FOR UPDATE; the decision mail reads approved_extra.
@@ -141,7 +144,7 @@ insert into public.quota_requests (id, event_id, user_id, requested_extra, motiv
   ('9f000000-0000-7000-8000-000000000009', 'ee000000-0000-7000-8000-0000000b0001',
    '55555555-5555-4555-8555-555555555555', 1, 'Crew', null);
 
-select plan(76);
+select plan(86);
 
 -- ---------------------------------------------------------------------------
 -- A. Tier, plus-ones and extra adjusted at once
@@ -189,6 +192,9 @@ select is(
       and a.entity_id = (select id from public.guests where full_name = 'Ada'
                            and event_id = 'ee000000-0000-7000-8000-0000000b0001')),
   1, 'A8 the guest insert is audited');
+select is(
+  (select approved_with_changes from public.quota_requests where id = '9f000000-0000-7000-8000-000000000001'),
+  true, 'A9 approved_with_changes: the admin changed it (S2)');
 
 -- ---------------------------------------------------------------------------
 -- B. A tier from elsewhere
@@ -332,6 +338,9 @@ select is(
      from public.quota_requests where id = '9f000000-0000-7000-8000-000000000007'),
   row(2, 'dd000000-0000-7000-8000-0000000b1002'::uuid, 1)::text,
   'F4 ...approved_* say "as asked"');
+select is(
+  (select approved_with_changes from public.quota_requests where id = '9f000000-0000-7000-8000-000000000007'),
+  false, 'F5 ...and approved_with_changes is false');
 
 -- ---------------------------------------------------------------------------
 -- R. Raising (Max 2026-10-14: "could be both")
@@ -402,6 +411,9 @@ select is(
 select is(
   public.user_event_consumption('ee000000-0000-7000-8000-0000000b0003', '55555555-5555-4555-8555-555555555555'),
   6, 'T6 ...and the requester is exactly at their quota, not over it');
+select is(
+  (select approved_with_changes from public.quota_requests where id = '9f000000-0000-7000-8000-000000000010'),
+  false, 'T9 the server granting more than asked (6 for 5) is NOT a change by the admin (S2)');
 
 -- The decision mail for that approval names the guest (first name, +N, tier).
 select is(
@@ -469,6 +481,70 @@ select is(
     where q.id = '9f000000-0000-7000-8000-000000000020'),
   row(2, 4, 20, 20)::text,
   'S7 2 spots granted (5 needed − 3 left), guest +4 on the list, quota 20 = consumed 20');
+
+-- ---------------------------------------------------------------------------
+-- U. A tier uuid that differs only in case is not a change (S2)
+-- ---------------------------------------------------------------------------
+insert into public.quota_requests (id, event_id, user_id, requested_extra, motivation, guest_payload) values
+  ('9f000000-0000-7000-8000-000000000030', 'ee000000-0000-7000-8000-0000000b0001',
+   '55555555-5555-4555-8555-555555555555', 1, 'Case',
+   '{"name": "Uma", "plus_ones": 0, "tier_id": "DD000000-0000-7000-8000-0000000B1001"}');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok(
+  $$ select public.approve_quota_request('9f000000-0000-7000-8000-000000000030',
+       p_tier_id => 'dd000000-0000-7000-8000-0000000b1001') $$,
+  'U1 the admin "picks" the same tier, written in lower case');
+select pg_temp.owner();
+select is(
+  (select approved_with_changes from public.quota_requests where id = '9f000000-0000-7000-8000-000000000030'),
+  false, 'U2 ...not a change: the tier is compared as a uuid');
+
+-- ---------------------------------------------------------------------------
+-- V. The 1..100 bound holds on every path, with a hint (S1)
+-- ---------------------------------------------------------------------------
+insert into public.events (id, venue_id, name, starts_at, ends_at, status, list_locked, locked_by, locked_at) values
+  ('ee000000-0000-7000-8000-0000000b0006', 'aa000000-0000-7000-8000-000000000001', 'Huge Night',
+   now() + interval '8 days', now() + interval '8 days 6 hours', 'open', false, null, null);
+insert into public.guest_tiers (id, event_id, name, color) values
+  ('dd000000-0000-7000-8000-0000000b1007', 'ee000000-0000-7000-8000-0000000b0006', 'Regular', '#8A8A93');
+insert into public.event_quotas (event_id, user_id, quota_override)
+values ('ee000000-0000-7000-8000-0000000b0006', '55555555-5555-4555-8555-555555555555', 60);
+insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source, status)
+values ('ee000000-0000-7000-8000-0000000b0006', 'dd000000-0000-7000-8000-0000000b1007', 'Big Crew', 50,
+        '55555555-5555-4555-8555-555555555555', 'app', 'approved'),
+       ('ee000000-0000-7000-8000-0000000b0006', 'dd000000-0000-7000-8000-0000000b1007', 'Small Crew', 8,
+        '55555555-5555-4555-8555-555555555555', 'app', 'approved');
+-- Tom is at 60 of 60. A +50 guest needs 51: filed now, it stays within 100.
+insert into public.quota_requests (id, event_id, user_id, requested_extra, motivation, guest_payload) values
+  ('9f000000-0000-7000-8000-000000000031', 'ee000000-0000-7000-8000-0000000b0006',
+   '55555555-5555-4555-8555-555555555555', 1, 'Big',
+   '{"name": "Vic", "plus_ones": 50, "tier_id": "dd000000-0000-7000-8000-0000000b1007"}');
+-- Then his room shrinks far below zero: 60 used of 0.
+update public.event_quotas set quota_override = 0
+ where event_id = 'ee000000-0000-7000-8000-0000000b0006' and user_id = '55555555-5555-4555-8555-555555555555';
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select throws_ok(
+  $$ insert into public.quota_requests (event_id, user_id, requested_extra, motivation)
+     values ('ee000000-0000-7000-8000-0000000b0006', '55555555-5555-4555-8555-555555555555', 101, 'Raw') $$,
+  '23514', null, 'V1 a raw insert above 100 spots is refused by the CHECK');
+select throws_ok(
+  $$ insert into public.quota_requests (event_id, user_id, requested_extra, motivation, guest_payload)
+     values ('ee000000-0000-7000-8000-0000000b0006', '55555555-5555-4555-8555-555555555555', 1, 'Too big',
+             '{"name": "Wes", "plus_ones": 50, "tier_id": "dd000000-0000-7000-8000-0000000b1007"}') $$,
+  '22023', 'A request asks for at most 100 spots.', 'V2 a guest that would need 111 spots: a hinted 22023, not a raw CHECK');
+select pg_temp.owner();
+select is(
+  (select requested_extra from public.quota_requests where id = '9f000000-0000-7000-8000-000000000031'),
+  51, 'V3 the earlier request was filed at 51 (1 + 50 − 0 left)');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok(
+  $$ select public.approve_quota_request('9f000000-0000-7000-8000-000000000031') $$,
+  '22023', 'Approve between 1 and 100 spots.', 'V4 "as asked" would now need 111: a hinted 22023, not a raw 23514');
+select pg_temp.owner();
+select is(
+  (select row(status::text, approved_extra)::text from public.quota_requests where id = '9f000000-0000-7000-8000-000000000031'),
+  row('pending', null::int)::text, 'V5 ...nothing changed');
 
 -- ---------------------------------------------------------------------------
 -- G. Role matrix — only the admin decides; nobody else learns anything

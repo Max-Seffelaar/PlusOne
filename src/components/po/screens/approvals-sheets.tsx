@@ -402,11 +402,17 @@ function QuotaDecision({
   const guest = req.guest;
   const [extra, setExtra] = useState(req.extra);
   const [plusOnes, setPlusOnesRaw] = useState(guest?.plusOnes ?? 0);
-  // One more plus-one needs one more spot (and one fewer frees one).
+  // One more plus-one needs one more spot (and one fewer frees one). Raising
+  // never leaves fewer spots than "as asked" implies for the new +N, even after
+  // the admin lowered the spots first (delta review N2).
   const setPlusOnes = (next: number): void => {
     const delta = next - plusOnes;
     setPlusOnesRaw(next);
-    setExtra((e) => Math.min(QUOTA_EXTRA_MAX, Math.max(1, e + delta)));
+    setExtra((e) => {
+      const moved = e + delta;
+      const floor = delta > 0 && guest ? req.extra + (next - guest.plusOnes) : 1;
+      return Math.min(QUOTA_EXTRA_MAX, Math.max(1, moved, floor));
+    });
   };
   // The asked tier when it is still on the event; else nothing until picked.
   const [tierId, setTierId] = useState<string | null>(null);

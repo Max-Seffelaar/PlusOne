@@ -54,8 +54,19 @@
 --      guest now asks for at least what that guest needs at filing time,
 --      from database truth: requested_extra = greatest(client value,
 --      1 + plus_ones - remaining). Quota-exempt requesters are left alone.
+--   5. Delta review of round 2 (2026-10-14):
+--        S1 requested_extra gets a database bound, 1..100 (the form's cap):
+--           any older row above it is capped first, then the CHECK is
+--           validated. The trigger refuses to derive more than 100, and
+--           approve_quota_request refuses v_extra > 100 on every path, both
+--           with a hinted 22023, so a raw 23514 never reaches the admin.
+--        S2 approved_with_changes: true only when the admin's explicit
+--           arguments differ from the request (tier compared as uuid). A
+--           server-side fit (the trigger or the default approval granting
+--           more because the requester's room shrank) is not a change. The
+--           decision mail and the Home card read this flag, nothing else.
 --
--- EXPAND–CONTRACT: three nullable columns (no rewrite) and CHECKs every
+-- EXPAND–CONTRACT: four nullable columns (no rewrite) and CHECKs every
 -- existing row meets (all null). The 1-argument approve_quota_request is
 -- dropped and recreated with the new arguments defaulted (precedent
 -- 20261017120300): two overloads would make PostgREST answer PGRST203, and the
@@ -70,16 +81,20 @@
 alter table public.quota_requests
   add column approved_extra integer,
   add column approved_tier_id uuid,
-  add column approved_plus_ones integer;
+  add column approved_plus_ones integer,
+  add column approved_with_changes boolean;
 
 comment on column public.quota_requests.approved_extra is
-  'z8uq9m5kux: the extra spots the approval granted (<= requested_extra). Set by '
+  'z8uq9m5kux: the extra spots the approval granted (1..100; more or fewer than asked). Set by '
   'approve_quota_request only; null on rows approved before 20261018130000 (= requested_extra).';
 comment on column public.quota_requests.approved_tier_id is
   'z8uq9m5kux: the tier the approval put the named guest on (may differ from the payload). '
   'Set by approve_quota_request only.';
+comment on column public.quota_requests.approved_with_changes is
+  'z8uq9m5kux: true when the admin explicitly changed the spots, tier or plus-ones before approving; '
+  'false when approved as asked (a server-side fit is not a change). Set by approve_quota_request only.';
 comment on column public.quota_requests.approved_plus_ones is
-  'z8uq9m5kux: the plus-ones the approval gave the named guest (<= the payload''s). '
+  'z8uq9m5kux: the plus-ones the approval gave the named guest (0..50; may differ from the payload). '
   'Set by approve_quota_request only.';
 
 alter table public.quota_requests
@@ -88,13 +103,22 @@ alter table public.quota_requests
   add constraint quota_requests_approved_plus_ones_range
     check (approved_plus_ones is null or approved_plus_ones between 0 and 50),
   add constraint quota_requests_approved_only_approved
-    check ((approved_extra is null and approved_tier_id is null and approved_plus_ones is null)
+    check ((approved_extra is null and approved_tier_id is null and approved_plus_ones is null
+            and approved_with_changes is null)
            or status = 'approved'),
   add constraint quota_requests_approved_guest_pair
     check ((approved_tier_id is null) = (approved_plus_ones is null));
 
 -- The client INSERT guard (20261016190000) refuses the new columns too. The
 -- column UPDATE grant already leaves them out, so a client update is 42501.
+
+-- S1: a database bound on what a request asks for. The app's form caps at 100
+-- (QUOTA_EXTRA_MAX); only a raw API insert could exceed it. Defensive for any
+-- such row already stored (prod has none): cap it first, so the CHECK can be
+-- validated and a later decision on that row never trips it.
+update public.quota_requests set requested_extra = 100 where requested_extra > 100;
+alter table public.quota_requests
+  add constraint quota_requests_requested_extra_range check (requested_extra between 1 and 100);
 
 -- ---------------------------------------------------------------------------
 -- 2. approve_quota_request — with optional adjustments
@@ -153,6 +177,11 @@ begin
       hint = 'extra_out_of_range';
   end if;
   v_extra := coalesce(p_extra, v_req.requested_extra);
+  if v_extra > 100 then
+    raise exception using errcode = '22023',
+      message = 'Approve between 1 and 100 spots.',
+      hint = 'extra_out_of_range';
+  end if;
 
   if v_req.guest_payload is null and (p_tier_id is not null or p_plus_ones is not null) then
     raise exception using errcode = '22023',
@@ -248,7 +277,15 @@ begin
       guest_id = v_guest,
       approved_extra = v_extra,
       approved_tier_id = case when v_guest is not null then v_tier end,
-      approved_plus_ones = case when v_guest is not null then v_plus end
+      approved_plus_ones = case when v_guest is not null then v_plus end,
+      -- S2: only what the admin explicitly changed counts as a change; a
+      -- server-side fit of the spots (above) does not. Tier as uuid.
+      approved_with_changes =
+           (p_extra is not null and p_extra <> v_req.requested_extra)
+        or (v_req.guest_payload is not null and p_tier_id is not null
+            and p_tier_id <> (v_req.guest_payload ->> 'tier_id')::uuid)
+        or (v_req.guest_payload is not null and p_plus_ones is not null
+            and p_plus_ones <> (v_req.guest_payload ->> 'plus_ones')::integer)
   where id = p_request_id
     and status = 'pending';
   get diagnostics v_rows = row_count;
@@ -296,7 +333,8 @@ begin
        -- z8uq9m5kux: what the decision approved is the decision's to write.
        or new.approved_extra is not null
        or new.approved_tier_id is not null
-       or new.approved_plus_ones is not null then
+       or new.approved_plus_ones is not null
+       or new.approved_with_changes is not null then
       raise exception using errcode = '42501',
         message = 'These fields are set by the decision, not by the request.';
     end if;
@@ -367,6 +405,11 @@ declare
 begin
   -- A malformed payload falls through to the shape CHECK (23514); only a
   -- pending request is filed by a client.
+  -- N1: user_is_quota_exempt's platform-admin branch keys on auth.uid() =
+  -- the user, so a non-member platform admin filing their own request is
+  -- exempt here (they file it themselves) but not at approval, where
+  -- auth.uid() is the approving admin. Same behaviour as enforce_guest_quota;
+  -- the admin-membership branch agrees at both points.
   if new.guest_payload is null
      or new.status is distinct from 'pending'
      or not public.quota_guest_payload_is_valid(new.guest_payload)
@@ -378,6 +421,13 @@ begin
   new.requested_extra := greatest(
     new.requested_extra,
     1 + (new.guest_payload ->> 'plus_ones')::integer - v_remaining);
+  -- S1: never derive past the 1..100 bound (only reachable when the
+  -- requester is far over their quota already); say so instead of a raw CHECK.
+  if new.requested_extra > 100 then
+    raise exception using errcode = '22023',
+      message = 'A request asks for at most 100 spots.',
+      hint = 'extra_out_of_range';
+  end if;
   return new;
 end;
 $$;
@@ -641,10 +691,8 @@ begin
                     'first_name', nullif(split_part(btrim(coalesce(g.full_name, '')), ' ', 1), ''),
                     'plus_ones', g.plus_ones,
                     'tier', t.name,
-                    'changed', (q.approved_extra is not null and q.approved_extra <> q.requested_extra)
-                            or (q.guest_payload is not null and (
-                                  q.approved_plus_ones is distinct from (q.guest_payload ->> 'plus_ones')::integer
-                               or q.approved_tier_id::text is distinct from q.guest_payload ->> 'tier_id'))))
+                    -- S2: the admin's explicit change only, never a server-side fit.
+                    'changed', coalesce(q.approved_with_changes, false)))
                 else '{}'::jsonb end)
         into v_extra
         from public.quota_requests q

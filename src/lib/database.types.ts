@@ -1852,6 +1852,7 @@ export type Database = {
           approved_extra: number | null
           approved_plus_ones: number | null
           approved_tier_id: string | null
+          approved_with_changes: boolean | null
           created_at: string
           decided_at: string | null
           decided_by: string | null
@@ -1871,6 +1872,7 @@ export type Database = {
           approved_extra?: number | null
           approved_plus_ones?: number | null
           approved_tier_id?: string | null
+          approved_with_changes?: boolean | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -1890,6 +1892,7 @@ export type Database = {
           approved_extra?: number | null
           approved_plus_ones?: number | null
           approved_tier_id?: string | null
+          approved_with_changes?: boolean | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
