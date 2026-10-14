@@ -10,7 +10,7 @@
 import '@testing-library/jest-dom';
 import { useState, type JSX } from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 import {
   Field,
   FieldErrorFor,
@@ -171,5 +171,117 @@ describe('focusFirstInvalid', () => {
   it('is false when nothing is invalid', () => {
     render(<Field ariaLabel="A" value="" onChange={() => {}} />);
     expect(focusFirstInvalid()).toBe(false);
+  });
+});
+
+// ── Every field with an issue (z8uq9m5m8g) ──────────────────────────────────
+function Three({ onFe }: { onFe: (fe: ReturnType<typeof useFieldErrors<'name' | 'email' | 'notes'>>) => void }): JSX.Element {
+  const fe = useFieldErrors(['name', 'email', 'notes'] as const);
+  onFe(fe);
+  return (
+    <div>
+      {fe.banner && <div role="alert">{fe.banner}</div>}
+      {(['name', 'email', 'notes'] as const).map((f) => (
+        <div key={f}>
+          <Field ariaLabel={f} value="" onChange={fe.edit(f, () => {})} {...fieldInputProps(fe.bind(f))} />
+          <FieldErrorFor error={fe.bind(f)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+describe('useFieldErrors — more than one field', () => {
+  function setup3(): () => ReturnType<typeof useFieldErrors<'name' | 'email' | 'notes'>> {
+    let current: ReturnType<typeof useFieldErrors<'name' | 'email' | 'notes'>> | null = null;
+    render(<Three onFe={(f) => (current = f)} />);
+    return () => current!;
+  }
+
+  it('marks every named field with its own message and focuses the first in FORM order', () => {
+    const fe = setup3();
+    // The server listed notes first; the form's order puts email before it.
+    act(() => fe().fail('Notes too long', 'notes', { notes: 'Notes too long', email: 'Invalid email' }));
+    const email = screen.getByRole('textbox', { name: 'email' });
+    const notes = screen.getByRole('textbox', { name: 'notes' });
+    expect(email).toHaveAttribute('aria-invalid', 'true');
+    expect(notes).toHaveAttribute('aria-invalid', 'true');
+    expect(document.getElementById(email.getAttribute('aria-describedby')!)).toHaveTextContent('Invalid email');
+    expect(document.getElementById(notes.getAttribute('aria-describedby')!)).toHaveTextContent('Notes too long');
+    expect(screen.getByRole('textbox', { name: 'name' })).not.toHaveAttribute('aria-invalid');
+    expect(document.activeElement).toBe(email);
+    expect(fe().field).toBe('email');
+    expect(fe().banner).toBeNull();
+  });
+
+  it('editing one marked field clears only that one; focus target moves to what is left', () => {
+    const fe = setup3();
+    act(() => fe().fail('x', 'name', { name: 'Enter a name', notes: 'Too long' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'name' }), { target: { value: 'A' } });
+    expect(screen.getByRole('textbox', { name: 'name' })).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByRole('textbox', { name: 'notes' })).toHaveAttribute('aria-invalid', 'true');
+    expect(fe().field).toBe('notes');
+    expect(fe().banner).toBeNull();
+  });
+
+  it('fields the form does not render are dropped; none left = the banner', () => {
+    const fe = setup3();
+    act(() => fe().fail('Pick an event', 'eventIds', { eventIds: 'Pick an event', venueId: 'Bad' }));
+    expect(fe().banner).toBe('Pick an event');
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
+  });
+
+  it('failWith reads field + fields off a FieldActionError and renames server keys', async () => {
+    const { FieldActionError } = await import('@/lib/field-error');
+    const fe = setup3();
+    const err = new FieldActionError('Enter a name', 'fullName', { fullName: 'Enter a name', mail: 'Invalid email' });
+    act(() => fe().failWith(err, 'fallback', (k) => ({ fullName: 'name', mail: 'email' })[k]));
+    expect(screen.getByRole('textbox', { name: 'name' })).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('textbox', { name: 'email' })).toHaveAttribute('aria-invalid', 'true');
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'name' }));
+  });
+
+  it('failWith on a plain error (or a non-error) is the banner with its message or the fallback', () => {
+    const fe = setup3();
+    act(() => fe().failWith(new Error('Network down'), 'fallback'));
+    expect(fe().banner).toBe('Network down');
+    act(() => fe().failWith('weird', 'fallback'));
+    expect(fe().banner).toBe('fallback');
+  });
+});
+
+// ── Focus lands in the same commit as the mark (z8uq9m5m8g, train #507 CI) ──
+// The failure arrives outside act (a rejected server action). With a passive
+// effect the field was marked one flush before it got focus: an autofocused
+// input still held focus at the moment aria-invalid appeared, and CI under load
+// caught that window. Recorded at the mutation itself, not after a waitFor.
+function Raced(): JSX.Element {
+  const fe = useFieldErrors(['name', 'vat'] as const);
+  const [n, setN] = useState('');
+  return (
+    <div>
+      <Field ariaLabel="first" value={n} onChange={setN} autoFocus {...fieldInputProps(fe.bind('name'))} />
+      <Field ariaLabel="vat" value="" onChange={() => {}} {...fieldInputProps(fe.bind('vat'))} />
+      <button type="button" onClick={() => void Promise.reject(new Error('x')).catch(() => fe.fail('VAT is too high', 'vat'))}>
+        save
+      </button>
+    </div>
+  );
+}
+
+describe('useFieldErrors — focus timing', () => {
+  it('the marked field already has focus when aria-invalid appears (no autofocus left holding it)', async () => {
+    render(<Raced />);
+    const vat = screen.getByRole('textbox', { name: 'vat' });
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'first' }));
+    let focusAtMark: Element | null | 'unset' = 'unset';
+    const mo = new MutationObserver(() => {
+      if (focusAtMark === 'unset' && vat.getAttribute('aria-invalid') === 'true') focusAtMark = document.activeElement;
+    });
+    mo.observe(vat, { attributes: true });
+    fireEvent.click(screen.getByRole('button', { name: 'save' }));
+    await waitFor(() => expect(vat).toHaveAttribute('aria-invalid', 'true'));
+    mo.disconnect();
+    expect(focusAtMark).toBe(vat);
   });
 });

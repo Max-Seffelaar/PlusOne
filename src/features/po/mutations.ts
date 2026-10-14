@@ -149,13 +149,16 @@ import { getDeviceId, getDoorClient } from '@/features/door/offline/device';
 import { classifyError } from '@/features/door/outbox/replay';
 import { v7 as uuidv7 } from 'uuid';
 import { amsterdamHM, flipGuestStatus } from './eventday/cockpit';
-import { FieldActionError } from '@/lib/field-error';
+import { FieldActionError, type FieldMessages } from '@/lib/field-error';
+import { t } from '@/lib/i18n';
 
 interface ActionLike {
   ok: boolean;
   message?: string;
   /** The form field a MutationError is about (z8uq9m5eb7). */
   field?: string;
+  /** Every field it marks, when more than one (z8uq9m5m8g). */
+  fields?: FieldMessages;
 }
 
 /** Surface a server action's MutationError as a thrown error for React Query;
@@ -166,7 +169,7 @@ function throwOnError<T extends ActionLike>(res: T): T {
 }
 
 function actionError(res: ActionLike): FieldActionError {
-  return new FieldActionError(res.message ?? 'Er ging iets mis.', res.field);
+  return new FieldActionError(res.message || t.settings.common.formError, res.field, res.fields);
 }
 
 /**
@@ -255,10 +258,13 @@ interface ActionStateLike {
   ok: boolean;
   error?: string;
   message?: string;
+  /** The form field a refusal is about, as in ActionLike (z8uq9m5m8g). */
+  field?: string;
+  fields?: FieldMessages;
 }
 
 function throwOnActionError<T extends ActionStateLike>(res: T): T {
-  if (!res.ok) throw new Error(res.error ?? res.message ?? 'Er ging iets mis.');
+  if (!res.ok) throw new FieldActionError(res.error || res.message || t.settings.common.formError, res.field, res.fields);
   return res;
 }
 
@@ -1328,7 +1334,7 @@ export function usePoCreateTemplateFromEvent() {
   return useMutation({
     mutationFn: async (input: CreateTemplateFromEventInput): Promise<string> => {
       const res = await createTemplateFromEvent(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return res.templateId;
     },
     onSuccess: () => {
@@ -1453,7 +1459,7 @@ export function usePoCreateLink(eventId: string) {
   return useMutation({
     mutationFn: async (input: CreateRequestLinkInput): Promise<CreatedLink> => {
       const res = await createRequestLink(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return { id: res.id, slug: res.slug };
     },
     onSuccess: () => invalidateLinks(qc, eventId),
@@ -1503,7 +1509,7 @@ export function usePoCreateInfluencer() {
   return useMutation({
     mutationFn: async (input: CreateInfluencerInput): Promise<string | undefined> => {
       const res = await createInfluencer(input);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return res.id;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.influencers(venueId ?? '') }),
@@ -1537,7 +1543,7 @@ export function usePoRotateStatsToken() {
   return useMutation({
     mutationFn: async (influencerId: string): Promise<string> => {
       const res = await rotateInfluencerStatsToken(influencerId);
-      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      if (!res.ok) throw actionError(res);
       return res.token;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX }),

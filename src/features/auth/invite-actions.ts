@@ -14,6 +14,8 @@ import { canGrantRoles, type VenueRole } from './roles';
 import { isDemoReviewUser } from './review-window';
 import { t } from '@/lib/i18n';
 import { OPEN_INVITE_EXISTS_MESSAGE } from '@/lib/db-errors';
+import { checkMailDomain } from '@/features/events/mail-domain';
+import { firstIssueField, type FieldMessages } from '@/lib/field-error';
 
 export interface ActionState {
   ok: boolean;
@@ -22,6 +24,9 @@ export interface ActionState {
   /** `not_open`: the invite is gone (expired, declined, accepted, revoked or not
    *  theirs). The UI drops the card instead of leaving a dead button. */
   code?: 'not_open';
+  /** The form field a refusal is about (a schema key, never input), z8uq9m5m8g. */
+  field?: string;
+  fields?: FieldMessages;
 }
 
 const INVITE_TTL_DAYS = 7;
@@ -99,7 +104,8 @@ export async function inviteUserAction(
     eventIds: formData.getAll('eventIds'),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
+    const field = firstIssueField(parsed.error.issues);
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.', ...(field ? { field } : {}) };
   }
   const { venueId, email, roles, defaultQuota, eventIds } = parsed.data;
   const typedRoles = roles as VenueRole[];
@@ -123,6 +129,13 @@ export async function inviteUserAction(
   // RLS (invites_insert) re-enforces this, but check up front for a clear message.
   if (eventIds.length > 0 && !callerRoles.includes('admin')) {
     return { ok: false, error: 'Only an admin can link someone to events.' };
+  }
+
+  // An address on a domain that takes no mail (a typo like @theoperatoirs.nl)
+  // never becomes an invite: no row, no mail (decision Max 2026-10-14, the
+  // event contact's check). DNS trouble fails open; only a definite "no MX/A".
+  if ((await checkMailDomain(email)) === 'no_mail_domain') {
+    return { ok: false, error: t.events.contactEmail.noDomain, field: 'email' };
   }
 
   // 1) Record the invite through the user-scoped client FIRST → RLS enforces

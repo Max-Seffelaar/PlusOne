@@ -12,6 +12,8 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
 }));
 
+// The mail-domain check (z8uq9m5m8g) is DNS: never live in a unit test.
+vi.mock('@/features/events/mail-domain', () => ({ checkMailDomain: vi.fn(async () => 'ok') }));
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
@@ -360,5 +362,48 @@ describe('invitation-mail cap reached', () => {
       .map((r) => r.value)
       .find((v) => v && 'update' in v);
     expect(invites?.update).not.toHaveBeenCalled();
+  });
+});
+
+// A domain that takes no mail (z8uq9m5m8g, decision Max 2026-10-14: the typo
+// max@theoperatoirs.nl went through). The event contact's check, before the
+// invite row and the mail; DNS trouble ('ok' from the fail-open check) passes.
+describe('inviteUserAction — mail domain', () => {
+  it('a domain that takes no mail: refused on the email field, no invite row, no mail', async () => {
+    const { checkMailDomain } = await import('@/features/events/mail-domain');
+    (checkMailDomain as Mock).mockResolvedValue('no_mail_domain');
+    const { client, callLog } = makeClient({ insertError: null });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result).toMatchObject({ ok: false, field: 'email', error: "That email domain doesn't take mail. Check the part after the @." });
+    expect(checkMailDomain).toHaveBeenCalledWith('newcrew@venue.com');
+    expect(callLog).toEqual([]);
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('a domain that takes mail (or a DNS failure, which the check reports as ok): the invite goes out', async () => {
+    const { checkMailDomain } = await import('@/features/events/mail-domain');
+    (checkMailDomain as Mock).mockResolvedValue('ok');
+    const { client, callLog } = makeClient({ insertError: null });
+    (createClient as Mock).mockResolvedValue(client);
+    (sendInviteEmail as Mock).mockImplementation(async () => {
+      callLog.push('mail');
+      return { ok: true };
+    });
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result.ok).toBe(true);
+    expect(callLog).toEqual(['insert', 'mail']);
+  });
+
+  it('a malformed address names the email field', async () => {
+    const { client } = makeClient({ insertError: null });
+    (createClient as Mock).mockResolvedValue(client);
+    const fd = inviteFormData();
+    fd.set('email', 'not-an-address');
+    expect(await inviteUserAction({ ok: false }, fd)).toMatchObject({ ok: false, field: 'email' });
   });
 });

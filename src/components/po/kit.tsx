@@ -6,7 +6,7 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,7 @@ import { Icon, type IconName } from './icon';
 import { fieldErrorBorder, fieldErrorText, fieldScrollMargin } from './field-error-style';
 import { useNativeBackIntercept } from './native-back-intercept';
 import { popoverPlacement, type PopoverPlacement } from './select-position';
+import { errorField, errorFields, type FieldMessages } from '@/lib/field-error';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
 // of one of these (some already drifted to 0.94/0.985/1.09); exported so a
@@ -291,46 +292,75 @@ export function focusFirstInvalid(root?: ParentNode | null): boolean {
 }
 
 /**
- * A form's error state. `fail(message, field?)` puts a field error on a field
- * the form registered in `fields` (then scrolls to it and focuses it) and any
- * other message — no field, or a field this form doesn't render — in `banner`.
- * Feed it a server action's `{ message, field }` (via `errorField(e)` from
- * `@/lib/field-error`) or a client Zod issue: both land the same way.
+ * A form's error state. `fail(message, field?, fields?)` marks every field the
+ * form registered in `fields` that the error names (each with its own message
+ * under it), scrolls to the first of them in FORM order (the order of
+ * `fields`, not the order the server listed them) and focuses it. Anything
+ * that names no field this form renders lands in `banner`. Feed it a server
+ * action's `{ message, field, fields }` — `failWith(e, fallback)` reads them off
+ * a thrown `FieldActionError` — or a client check: both land the same way.
+ * `rename` maps a server key onto this form's field name where they differ.
  */
 export function useFieldErrors<F extends string>(fields: readonly F[]): {
   banner: string | null;
+  /** The first marked field in form order (the one that gets focus). */
   field: F | null;
-  fail: (message: string, field?: string | null) => void;
+  fail: (message: string, field?: string | null, more?: FieldMessages | null) => void;
+  failWith: (e: unknown, fallback: string, rename?: (serverField: string) => string | undefined) => void;
   reset: () => void;
   clear: (field: F) => void;
   bind: (field: F) => FieldErrorBinding;
   edit: <V>(field: F, set?: (v: V) => void) => ((v: V) => void) | undefined;
 } {
   const base = useId();
-  const [state, setState] = useState<{ message: string; field: F | null; n: number } | null>(null);
+  const [state, setState] = useState<{ message: string; marked: Partial<Record<F, string>>; n: number } | null>(null);
   const known = (f: string | null | undefined): f is F => !!f && (fields as readonly string[]).includes(f);
   const inputId = (f: F): string => `${base}field-${f}`;
+  const first = state ? (fields.find((f) => state.marked[f] !== undefined) ?? null) : null;
 
-  // After the commit that marked the field: every failure (n) moves there
-  // again, also a second Save on the same field.
-  const target = state?.field ? inputId(state.field) : null;
-  useEffect(() => {
+  // In the SAME commit that marks the field: every failure (n) moves there
+  // again, also a second Save on the same field. A layout effect, not a
+  // passive one: with useEffect the field was marked a frame before it got
+  // focus, so anything that read the DOM in between (a screen reader, an
+  // autofocused input still holding focus, a test) saw a marked field without
+  // focus (z8uq9m5m8g, train #507 CI). Webview-safe: client-only, guarded.
+  const target = first ? inputId(first) : null;
+  useLayoutEffect(() => {
     if (!target || typeof document === 'undefined') return;
     const el = document.getElementById(target);
     if (el) focusAndReveal(el);
   }, [target, state?.n]);
 
-  const clear = (f: F): void => setState((prev) => (prev?.field === f ? null : prev));
+  const fail = (message: string, field?: string | null, more?: FieldMessages | null): void => {
+    const marked: Partial<Record<F, string>> = {};
+    for (const [k, msg] of Object.entries(more ?? {})) if (known(k)) marked[k] = msg;
+    if (known(field) && marked[field] === undefined) marked[field] = message;
+    setState((prev) => ({ message, marked, n: (prev?.n ?? 0) + 1 }));
+  };
+  const clear = (f: F): void =>
+    setState((prev) => {
+      if (!prev || prev.marked[f] === undefined) return prev;
+      const marked = { ...prev.marked };
+      delete marked[f];
+      return Object.keys(marked).length > 0 ? { ...prev, marked } : null;
+    });
   return {
-    banner: state && !state.field ? state.message : null,
-    field: state?.field ?? null,
-    fail: (message, field) => setState((prev) => ({ message, field: known(field) ? field : null, n: (prev?.n ?? 0) + 1 })),
+    banner: state && !first ? state.message : null,
+    field: first,
+    fail,
+    failWith: (e, fallback, rename) => {
+      const map = (k: string | undefined): string | undefined => (k && rename ? (rename(k) ?? k) : k);
+      const more = errorFields(e);
+      const renamed = more ? Object.fromEntries(Object.entries(more).map(([k, v]) => [map(k) ?? k, v])) : null;
+      fail(e instanceof Error && e.message ? e.message : fallback, map(errorField(e)), renamed);
+    },
     reset: () => setState(null),
     clear,
     bind: (f) => {
-      const on = state?.field === f;
+      const msg = state?.marked[f];
+      const on = msg !== undefined;
       const errorId = `${inputId(f)}-error`;
-      return { id: inputId(f), invalid: on, describedBy: on ? errorId : undefined, errorId, message: on ? state.message : undefined };
+      return { id: inputId(f), invalid: on, describedBy: on ? errorId : undefined, errorId, message: msg };
     },
     edit: (f, set) =>
       set

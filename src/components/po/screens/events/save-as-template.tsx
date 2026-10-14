@@ -18,7 +18,10 @@ import { type JSX, useEffect, useState } from 'react';
 import { t, fmt } from '@/lib/i18n';
 import { usePoCreateTemplateFromEvent } from '@/features/po/mutations';
 import { Icon } from '../../icon';
-import { Btn, Field, Label } from '../../kit';
+import { Btn, Field, FieldErrorFor, Label, fieldInputProps, useFieldErrors } from '../../kit';
+
+// The one field for useFieldErrors: createTemplateFromEvent's schema key.
+const SAVE_TEMPLATE_FIELDS = ['name'] as const;
 
 export function SaveAsTemplate({
   eventId,
@@ -31,7 +34,8 @@ export function SaveAsTemplate({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [savedName, setSavedName] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(SAVE_TEMPLATE_FIELDS);
 
   const draft = open && !!name.trim();
   useEffect(() => {
@@ -41,7 +45,7 @@ export function SaveAsTemplate({
 
   const submit = async (): Promise<void> => {
     if (!name.trim() || createTpl.isPending) return;
-    setErr(null);
+    fe.reset();
     setSavedName(null);
     try {
       const tplName = name.trim();
@@ -50,7 +54,7 @@ export function SaveAsTemplate({
       setName('');
       setOpen(false);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.events.saveTemplateError);
+      fe.failWith(e, t.events.saveTemplateError);
     }
   };
 
@@ -63,10 +67,12 @@ export function SaveAsTemplate({
           <Field
             placeholder={t.events.saveTemplatePlaceholder}
             value={name}
-            onChange={setName}
+            onChange={fe.edit('name', setName)}
             autoFocus
             className="mb-3"
+            {...fieldInputProps(fe.bind('name'))}
           />
+          <FieldErrorFor error={fe.bind('name')} className="-mt-1.5 mb-3" />
           <div className="flex gap-2">
             <Btn
               kind="primary"
@@ -84,13 +90,17 @@ export function SaveAsTemplate({
               onClick={() => {
                 setOpen(false);
                 setName('');
-                setErr(null);
+                fe.reset();
               }}
             >
               {t.events.saveTemplateCancel}
             </Btn>
           </div>
-          {err && <p className="mt-2 text-[12.5px] text-[#E89AC0]">{err}</p>}
+          {fe.banner && (
+            <p className="mt-2 text-[12.5px] text-[#E89AC0]" role="alert">
+              {fe.banner}
+            </p>
+          )}
         </div>
       ) : (
         <>

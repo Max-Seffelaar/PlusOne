@@ -10,7 +10,7 @@ import { profileRowActions } from '@/features/guests/permissions';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { ActionItem, Btn, Label, Note, TextArea } from '../../kit';
+import { ActionItem, Btn, FieldErrorFor, Label, Note, TextArea, fieldInputProps, useFieldErrors } from '../../kit';
 import { ConfirmSheet, Sheet } from '../../shell';
 import { press } from './_shared';
 import { PlusOnesSheet } from './profile-sheets';
@@ -213,6 +213,9 @@ export function ProfileTierSheet({
  * the room keep counting them. The database allows removing a checked-in guest,
  * so the UI does too; it only says so.
  */
+/** The remove sheet's one field for useFieldErrors: removeGuest's schema key. */
+const REMOVE_GUEST_FIELDS = ['note'] as const;
+
 export function RemoveGuestSheet({
   event,
   guestName,
@@ -225,7 +228,8 @@ export function RemoveGuestSheet({
   onRemoved: () => void;
 }): JSX.Element {
   const remove = usePoRemoveGuest(event.eventId);
-  const [err, setErr] = useState<string | null>(null);
+  // The required-note refusal points at the note (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(REMOVE_GUEST_FIELDS);
   // The note for the guest (guest mail F): they get it by email. The server
   // requires it when the guest has an address and asks for it with the same
   // message, so a guest without one can still be removed without a note.
@@ -235,10 +239,10 @@ export function RemoveGuestSheet({
   const inside = event.presentHeads !== null;
 
   const run = (): void => {
-    setErr(null);
+    fe.reset();
     remove.mutate({ guestId: event.guestId, note: note.trim() || undefined }, {
       onSuccess: onRemoved,
-      onError: (e) => setErr(e instanceof Error ? e.message : cp.removeFailed),
+      onError: (e) => fe.failWith(e, cp.removeFailed),
     });
   };
 
@@ -264,16 +268,21 @@ export function RemoveGuestSheet({
       <Label className="mb-2 mt-4">{t.guests.mail.removeNoteLabel}</Label>
       <TextArea
         value={note}
-        onChange={setNote}
+        onChange={(v) => {
+          fe.clear('note');
+          setNote(v);
+        }}
         placeholder={t.guests.mail.removeNotePlaceholder}
         ariaLabel={t.guests.mail.removeNoteLabel}
         maxLength={500}
         rows={2}
+        {...fieldInputProps(fe.bind('note'))}
       />
+      <FieldErrorFor error={fe.bind('note')} className="mb-0" />
       <p className="mt-1 text-[12px] leading-[1.4] text-faint">{t.guests.mail.removeNoteHint}</p>
-      {err && (
+      {fe.banner && (
         <p className="mt-3 text-[12.5px] text-red-300" role="alert">
-          {err}
+          {fe.banner}
         </p>
       )}
     </ConfirmSheet>
