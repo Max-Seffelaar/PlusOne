@@ -8,7 +8,7 @@ import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { t } from '@/lib/i18n';
 import { DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
 import { Icon } from '../../icon';
-import { Btn, ColorSwatches, Field, Label, hitRingY4, press, cardPress } from '../../kit';
+import { Btn, ColorSwatches, Field, FieldErrorFor, Label, fieldInputProps, hitRingY4, press, cardPress, useFieldErrors } from '../../kit';
 
 // FE-4: press/cardPress now live in kit.tsx — re-exported here so the many
 // guests/* screens importing them from './_shared' don't need to change.
@@ -69,6 +69,9 @@ export function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: 
 /** The inline create-a-tier form (name/color/price), shared by NoTiersBlock (first
  *  tier) and AddTierInline (any next tier). The alias field renders only when
  *  `TIER_ALIASES_UI` is on — off since the ADE UX round (17/9/2026). */
+/** The inline tier form's fields for useFieldErrors: createTier's schema keys. */
+const TIER_CREATE_FIELDS = ['name', 'doorPriceCents', 'vatPercent'] as const;
+
 function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDone?: () => void; onCancel: () => void }): JSX.Element {
   const createTier = usePoCreateTier(eventId);
   const { data: tierList } = usePoTiers(eventId);
@@ -81,17 +84,18 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
   const [kind, setKind] = useState<'free' | 'paid'>('free');
   const [price, setPrice] = useState('');
   const [vat, setVat] = useState('9');
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(TIER_CREATE_FIELDS);
 
   const submit = async (): Promise<void> => {
     const nm = name.trim();
     if (!nm || createTier.isPending) return;
-    setErr(null);
+    fe.reset();
     const priceNum = Number.parseFloat(price.replace(',', '.'));
     const doorPriceCents =
       kind === 'paid' && price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
     if (kind === 'paid' && doorPriceCents == null) {
-      setErr(t.events.errPaidNeedsPrice);
+      fe.fail(t.events.errPaidNeedsPrice, 'doorPriceCents');
       return;
     }
     const vatNum = Number.parseFloat(vat.replace(',', '.'));
@@ -108,7 +112,7 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
       });
       onDone?.();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.guests.tierCreate.error);
+      fe.failWith(e, t.guests.tierCreate.error);
     }
   };
 
@@ -116,7 +120,8 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
     <div className="mt-3 flex flex-col gap-[12px]">
       <div>
         <Label className="mb-2">{t.guests.tierCreate.nameLabel}</Label>
-        <Field autoFocus placeholder={t.guests.tierCreate.namePlaceholder} value={name} onChange={setName} maxLength={80} />
+        <Field autoFocus placeholder={t.guests.tierCreate.namePlaceholder} value={name} onChange={fe.edit('name', setName)} maxLength={80} {...fieldInputProps(fe.bind('name'))} />
+        <FieldErrorFor error={fe.bind('name')} className="mb-0" />
       </div>
       <div>
         <Label className="mb-2">{t.events.tierKindLabel}</Label>
@@ -145,11 +150,13 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
         <>
           <div>
             <Label className="mb-2">{t.guests.tierCreate.priceLabel}</Label>
-            <Field placeholder={t.guests.tierCreate.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" />
+            <Field placeholder={t.guests.tierCreate.pricePlaceholder} value={price} onChange={fe.edit('doorPriceCents', setPrice)} inputMode="numeric" {...fieldInputProps(fe.bind('doorPriceCents'))} />
+            <FieldErrorFor error={fe.bind('doorPriceCents')} className="mb-0" />
           </div>
           <div>
             <Label className="mb-2">{t.events.vatLabel}</Label>
-            <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" />
+            <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={fe.edit('vatPercent', setVat)} inputMode="numeric" {...fieldInputProps(fe.bind('vatPercent'))} />
+            <FieldErrorFor error={fe.bind('vatPercent')} className="mb-0" />
           </div>
         </>
       )}
@@ -159,9 +166,9 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
           <Field icon="spark" placeholder={t.guests.tierCreate.aliasPlaceholder} value={alias} onChange={setAlias} />
         </div>
       )}
-      {err && (
+      {fe.banner && (
         <p className="text-[12.5px] text-red-300" role="alert">
-          {err}
+          {fe.banner}
         </p>
       )}
       <div className="flex gap-2">

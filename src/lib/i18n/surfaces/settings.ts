@@ -319,6 +319,9 @@ export const settings = {
     lastNamePlaceholder: 'Last name',
     phoneLabel: 'Phone',
     phonePlaceholder: '06 …',
+    /** Under an emptied name field on Save (z8uq9m5m8g). */
+    firstNameRequired: 'Enter your first name.',
+    lastNameRequired: 'Enter your last name.',
     profileSaved: 'Profile saved.',
     emailLabel: 'Email',
     emailNote: 'Only you can change your email, never a company admin. We send a confirmation to both your old and new address.',

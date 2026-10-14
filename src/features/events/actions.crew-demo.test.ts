@@ -19,6 +19,8 @@ const H = vi.hoisted(() => ({
   sendInviteEmail: vi.fn(),
 }));
 
+// The mail-domain check (z8uq9m5m8g) is DNS: never live in a unit test.
+vi.mock('@/features/events/mail-domain', () => ({ checkMailDomain: vi.fn(async () => 'ok') }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ from: H.from }) }));
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: H.service }));

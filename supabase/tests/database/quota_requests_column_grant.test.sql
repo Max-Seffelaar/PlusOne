@@ -329,15 +329,15 @@ select is(
 
 select ok(
   (select p.prosecdef and p.proconfig = array['search_path=""']
-     from pg_proc p where p.oid = 'public.approve_quota_request(uuid)'::regprocedure),
+     from pg_proc p where p.oid = 'public.approve_quota_request(uuid, integer, uuid, integer)'::regprocedure),
   'F3 approve_quota_request is still SECURITY DEFINER with search_path pinned to empty');
 select ok(
-  has_function_privilege('authenticated', 'public.approve_quota_request(uuid)', 'EXECUTE')
-  and has_function_privilege('service_role', 'public.approve_quota_request(uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.approve_quota_request(uuid)', 'EXECUTE')
+  has_function_privilege('authenticated', 'public.approve_quota_request(uuid, integer, uuid, integer)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.approve_quota_request(uuid, integer, uuid, integer)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.approve_quota_request(uuid, integer, uuid, integer)', 'EXECUTE')
   and not exists (
     select 1 from pg_proc p, aclexplode(p.proacl) a
-     where p.oid = 'public.approve_quota_request(uuid)'::regprocedure
+     where p.oid = 'public.approve_quota_request(uuid, integer, uuid, integer)'::regprocedure
        and a.grantee = 0 and a.privilege_type = 'EXECUTE'),
   'F4 same ACL: EXECUTE for authenticated + service_role, not anon, not PUBLIC');
 -- The race itself needs two sessions (not possible inside one pgTAP
@@ -345,7 +345,7 @@ select ok(
 select ok(
   (select p.prosrc ~* 'where\s+id\s*=\s*p_request_id\s+for\s+update'
       and p.prosrc ~* 'and\s+status\s*=\s*''pending'''
-     from pg_proc p where p.oid = 'public.approve_quota_request(uuid)'::regprocedure),
+     from pg_proc p where p.oid = 'public.approve_quota_request(uuid, integer, uuid, integer)'::regprocedure),
   'F5 the request row is read FOR UPDATE and only a still-pending row is flipped');
 
 -- ---------------------------------------------------------------------------

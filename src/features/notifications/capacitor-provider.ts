@@ -45,6 +45,10 @@ export const LISTEN_RETRY_MS = 2_000;
 export const LISTEN_RETRIES = 3;
 /** iOS FCM token delete is a network call; "off" and sign-out never wait longer. */
 export const INVALIDATE_TIMEOUT_MS = 3_000;
+/** `isConfigured` is one local bridge round trip. A call that never answers
+ *  (z8uq9m5kuy) must not freeze every push path — Profile row, ask, channel —
+ *  for the whole run: past this it counts as a failure, which is retried. */
+export const CONFIG_TIMEOUT_MS = 5_000;
 
 interface PushConfigPlugin {
   /** `tokenTransport` (iOS only, 86exxuvye): 'fcm' when this shell emits FCM
@@ -57,6 +61,10 @@ interface PushConfigPlugin {
    *  Android push plugin's own unregister() already does. */
   invalidateToken?(): Promise<void>;
 }
+
+/** Why this native build reports `unsupported` (z8uq9m5kuy): shown as a code in
+ *  Profile so a device test says which gate closed, instead of an empty screen. */
+export type PushUnsupportedReason = 'not-native' | 'no-firebase' | 'ios-no-fcm' | 'bridge-error';
 
 /** A raw APNs device token as the push plugin would emit it on iOS: 32 bytes hex. */
 const APNS_TOKEN_RE = /^[0-9a-f]{64}$/i;
@@ -106,6 +114,15 @@ function toMessage(raw: unknown): PushMessage {
   return msg;
 }
 
+/** `p`, or a rejection once `ms` passes without an answer. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('push-config-timeout')), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** What `ready()` hands out — wrapped plugins only (thenable trap). */
 interface Ready {
   push: PushNotificationsPlugin;
@@ -137,6 +154,8 @@ export class CapacitorPushProvider implements NotificationProvider {
 
   /** Set when the last `ready()` failed on an error (not on a clean "no"). */
   private readyFailed = false;
+  /** The gate that closed on the last `ready()`; null when it opened. */
+  private closedBy: PushUnsupportedReason | null = null;
 
   /** The push plugin (wrapped — thenable trap), or null when this build must not touch Firebase. A clean
    *  answer (supported or not, configured or not) is memoized for the run; a
@@ -144,15 +163,17 @@ export class CapacitorPushProvider implements NotificationProvider {
    *  again — the shell must never depend on the service worker having cached it. */
   private ready(): Promise<Ready | null> {
     this.readyP ??= (async (): Promise<Ready | null> => {
-      if (!this.isSupported()) return null;
+      if (!this.isSupported()) return this.close('not-native');
       const { plugin: config } = await this.deps.loadConfig();
-      const { configured, tokenTransport } = await config.isConfigured();
-      if (!configured) return null;
-      if (this.deps.platform() === 'ios' && tokenTransport !== 'fcm') return null;
+      const { configured, tokenTransport } = await withTimeout(config.isConfigured(), CONFIG_TIMEOUT_MS);
+      if (!configured) return this.close('no-firebase');
+      if (this.deps.platform() === 'ios' && tokenTransport !== 'fcm') return this.close('ios-no-fcm');
       const { plugin: push } = await this.deps.loadPush();
-      // The channel the manifest names as FCM's default. Creating an existing
-      // channel is a no-op on Android, so this is safe on every start. iOS has
-      // no channels (the plugin rejects; swallowed).
+      // The channel the manifest names as FCM's default. The shell already
+      // creates it natively at launch (PushConfigPlugin.load, z8uq9m5kuy), so
+      // Settings lists it even when this path never runs; this call covers
+      // shells built before that. Creating an existing channel is a no-op on
+      // Android. iOS has no channels (the plugin rejects; swallowed).
       if (this.deps.platform() === 'android') await push
         .createChannel({
           id: PUSH_CHANNEL_ID,
@@ -161,6 +182,7 @@ export class CapacitorPushProvider implements NotificationProvider {
           importance: 4,
         })
         .catch(() => undefined);
+      this.closedBy = null;
       return { push, config };
     })().then(
       (loaded) => {
@@ -169,11 +191,22 @@ export class CapacitorPushProvider implements NotificationProvider {
       },
       () => {
         this.readyFailed = true;
+        this.closedBy = 'bridge-error';
         this.readyP = null;
         return null;
       },
     );
     return this.readyP;
+  }
+
+  private close(reason: PushUnsupportedReason): null {
+    this.closedBy = reason;
+    return null;
+  }
+
+  async unsupportedReason(): Promise<PushUnsupportedReason | null> {
+    await this.ready();
+    return this.closedBy;
   }
 
   async checkPermission(): Promise<PushPermission> {

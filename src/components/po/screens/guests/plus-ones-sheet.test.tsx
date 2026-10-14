@@ -56,6 +56,7 @@ vi.mock('@/features/po/PoLiveProvider', () => ({
 vi.mock('../../phone-lazy', () => ({
   CountrySelect: () => null,
   PhoneInput: () => null,
+  PhoneField: () => null,
   isPhoneValid: async () => true,
   useStoredPhoneCountry: () => ['NL', vi.fn()],
 }));

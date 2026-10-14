@@ -86,3 +86,40 @@ export function EventPicker({
     </div>
   );
 }
+
+// ── Link form field errors (z8uq9m5m8g) ──────────────────────────────────────
+// The create-link flow and the link edit sheet share one field set for
+// `useFieldErrors`, in form order. A save runs up to two actions — the "+ New"
+// influencer (`createInfluencer`, key `name`) and the link itself
+// (`createRequestLink`/`updateRequestLink`) — whose schema keys map onto the
+// inputs here; any other key falls through to the banner.
+export const LINK_FORM_FIELDS = ['newName', 'label', 'maxHeads', 'expiryDate', 'expiryTime'] as const;
+
+const LINK_SERVER_TO_FORM: Record<string, (typeof LINK_FORM_FIELDS)[number]> = {
+  name: 'newName',
+  maxHeadcount: 'maxHeads',
+  expiresAt: 'expiryDate',
+};
+
+/** The link-form input a server-side `field` points at; unknown keys pass through. */
+export function linkFormField(field: string): string | undefined {
+  return LINK_SERVER_TO_FORM[field] ?? field;
+}
+
+/** Which expiry input a half-filled or unreadable expiry points at. */
+export function expiryField(date: string, time: string): 'expiryDate' | 'expiryTime' {
+  return date && !time ? 'expiryTime' : 'expiryDate';
+}
+
+/**
+ * "Max people" as typed: empty and 0 both mean no max (null, decision Max
+ * 2026-10-14); a whole number 1..100 000 is the cap; a negative number, a
+ * fraction or anything over 100 000 is refused under the field.
+ */
+export function parseMaxHeads(raw: string): { ok: true; value: number | null } | { ok: false } {
+  const v = raw.trim();
+  if (v === '') return { ok: true, value: null };
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > 100_000) return { ok: false };
+  return { ok: true, value: n === 0 ? null : n };
+}

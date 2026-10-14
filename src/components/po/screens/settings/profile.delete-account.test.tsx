@@ -50,6 +50,7 @@ vi.mock('@/lib/supabase/client', () => ({
 vi.mock('../../phone-lazy', () => ({
   CountrySelect: () => null,
   PhoneInput: () => null,
+  PhoneField: () => null,
   phoneCountryOf: () => Promise.resolve(null),
 }));
 

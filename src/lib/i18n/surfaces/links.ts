@@ -52,6 +52,8 @@ export const links = {
   autoApproveSub: 'Requests through this link go straight on the list. Mind the capacity',
   maxHeadsLabel: 'Max heads (optional)',
   maxHeadsPlaceholder: '∞ no cap',
+  /** Hint under "Max people": 0 and empty both mean no cap (decision Max 2026-10-14). */
+  maxHeadsHint: '0 or empty means no limit.',
   expiresLabel: 'Expires (optional)',
   expiresDate: 'Date',
   expiresTime: 'Time',
@@ -70,6 +72,10 @@ export const links = {
   errCreate: "Couldn't create the link.",
   errSave: "Couldn't save the link.",
   errArchive: "Couldn't archive the link.",
+  /** Under a promoter/link text field that is over its limit (z8uq9m5m8g). {n} = the limit. */
+  errTooLong: 'Keep it to {n} characters.',
+  /** Under "Max people" when the number is negative, not whole, or over the cap (z8uq9m5m8g). */
+  errMaxHeadsRange: 'Use a whole number up to 100,000.',
 
   // ── QR sheet ────────────────────────────────────────────────────────────────
   qrTitle: 'QR code',

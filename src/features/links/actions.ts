@@ -3,7 +3,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
-import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
+import { mapMutationError, unauthorized, invalidInput, invalidIssues, notFound, type MutationError } from '@/lib/db-errors';
 import { slugify, randomSlugSuffix } from '@/features/events/slug';
 import {
   createInfluencerSchema,
@@ -30,7 +30,7 @@ export type LinkActionResult = { ok: true; id?: string; slug?: string } | Mutati
 
 export async function createInfluencer(input: CreateInfluencerInput): Promise<LinkActionResult> {
   const parsed = createInfluencerSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { venueId, name, handle, notes } = parsed.data;
 
   const supabase = await createClient();
@@ -56,7 +56,7 @@ export async function createInfluencer(input: CreateInfluencerInput): Promise<Li
 
 export async function updateInfluencer(input: UpdateInfluencerInput): Promise<LinkActionResult> {
   const parsed = updateInfluencerSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { influencerId, name, handle, notes, archived } = parsed.data;
 
   const supabase = await createClient();
@@ -79,7 +79,7 @@ export async function updateInfluencer(input: UpdateInfluencerInput): Promise<Li
 
 export async function createRequestLink(input: CreateRequestLinkInput): Promise<LinkActionResult> {
   const parsed = createRequestLinkSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { eventId, influencerId, label, slugBase, tierId, maxHeadcount, autoApprove, expiresAt } =
     parsed.data;
 
@@ -125,7 +125,7 @@ export async function createRequestLink(input: CreateRequestLinkInput): Promise<
 
 export async function updateRequestLink(input: UpdateRequestLinkInput): Promise<LinkActionResult> {
   const parsed = updateRequestLinkSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { linkId, influencerId, label, tierId, maxHeadcount, autoApprove, active, expiresAt, archived } =
     parsed.data;
 

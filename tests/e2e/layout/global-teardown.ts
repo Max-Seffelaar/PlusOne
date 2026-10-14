@@ -1,6 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CHROME_BREAKPOINT, deviceFor } from './matrix';
+import { AUTH_DIR_ENV } from './auth-state';
 import { SCREENSHOT_DIR, SNAPSHOT_DIR, type LayoutSnapshot } from './probe';
 
 /**
@@ -11,6 +12,9 @@ import { SCREENSHOT_DIR, SNAPSHOT_DIR, type LayoutSnapshot } from './probe';
  * artifact), appended to the CI job summary, and printed to the log.
  */
 export default async function globalTeardown(): Promise<void> {
+  // The seed users' stored sessions (global-setup.ts) die with the run.
+  const authDir = process.env[AUTH_DIR_ENV];
+  if (authDir) rmSync(authDir, { recursive: true, force: true });
   if (!existsSync(SNAPSHOT_DIR)) return;
   const snaps: LayoutSnapshot[] = [];
   for (const project of readdirSync(SNAPSHOT_DIR)) {

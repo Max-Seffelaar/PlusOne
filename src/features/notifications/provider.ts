@@ -13,8 +13,10 @@
 // does with a token (store it in `push_tokens`) and with a tap (navigate) lives in
 // `push-client.ts` and the po chrome, never in here.
 import { isNativeShell } from '@/lib/platform';
-import { CapacitorPushProvider } from './capacitor-provider';
+import { CapacitorPushProvider, type PushUnsupportedReason } from './capacitor-provider';
 import type { PushDevicePlatform, PushTransport } from './transport';
+
+export type { PushUnsupportedReason };
 
 /** `default` = never asked (or asked-and-dismissed on Android <13's model): we may prompt. */
 export type PushPermission = 'granted' | 'denied' | 'default' | 'unsupported';
@@ -59,6 +61,9 @@ export interface NotificationProvider {
    *  it paints a screen. Null when there is none, when it was already taken this
    *  run, or when this build cannot say. Never throws, never hangs. */
   takeLaunchTap(): Promise<PushMessage | null>;
+  /** Which gate made `checkPermission` answer `unsupported`, or null when it did
+   *  not. Diagnostics only (Profile shows it as a code): never a privilege gate. */
+  unsupportedReason(): Promise<PushUnsupportedReason | null>;
 }
 
 const noop: Unsubscribe = () => {};
@@ -89,6 +94,9 @@ export class NoopNotificationProvider implements NotificationProvider {
   }
   async takeLaunchTap() {
     return null;
+  }
+  async unsupportedReason(): Promise<PushUnsupportedReason | null> {
+    return 'not-native';
   }
 }
 

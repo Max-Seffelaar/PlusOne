@@ -66,6 +66,11 @@ export const platform = {
   // ── Row actions ───────────────────────────────────────────────────────────
   resend: 'Resend',
   resending: 'Resending…',
+  /** The disabled Resend button while the 60 s per-address mail window runs (z8uq9m5m8h). */
+  resendIn: 'Resend in {seconds} s',
+  /** Polite live region, updated at most every 10 s while the button waits. */
+  resendWaitLive: 'You can resend in {seconds} seconds.',
+  resendReadyLive: 'You can resend now.',
   /** REVOKE COPY (orchestrator decision, Max decides the final behaviour).
    *  Revoking marks the row only: the invitee keeps a valid link and can still
    *  sign in and create a company. The label and helper must say so — one copy

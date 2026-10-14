@@ -20,11 +20,11 @@ import {
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, copyStateLabel, hitRingY6, press, cardPress, useCopyText } from '../../kit';
+import { Avatar, Btn, Empty, Field, FieldErrorFor, IconBtn, Label, Loading, Note, copyStateLabel, fieldInputProps, hitRingY6, press, cardPress, useCopyText, useFieldErrors } from '../../kit';
 import { Sheet } from '../../shell';
 
 function ErrLine({ msg }: { msg: string }): JSX.Element {
-  return <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
+  return <div role="alert" className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
 }
 
 /** Tab body — rendered inside the Promotion hub (the hub owns the Top header). */
@@ -42,7 +42,7 @@ export function PromotionRoster(): JSX.Element {
         <Note icon="star">{t.links.influencersExplainer}</Note>
         {isAdmin && (
           <span className="shrink-0">
-            <IconBtn name="plus" onClick={() => setSheet({ mode: 'create' })} />
+            <IconBtn name="plus" ariaLabel={t.links.addInfluencerTitle} onClick={() => setSheet({ mode: 'create' })} />
           </span>
         )}
       </div>
@@ -204,7 +204,11 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
   );
 }
 
-function InfluencerSheet({
+// The influencer sheet's fields for useFieldErrors: the schema keys of
+// createInfluencer/updateInfluencer, so a server `field` lands as-is (z8uq9m5m8g).
+const INFLUENCER_FIELDS = ['name', 'handle', 'notes'] as const;
+
+export function InfluencerSheet({
   influencer,
   onClose,
 }: {
@@ -219,15 +223,16 @@ function InfluencerSheet({
   const [name, setName] = useState(influencer?.name ?? '');
   const [handle, setHandle] = useState(influencer?.handle ?? '');
   const [notes, setNotes] = useState(influencer?.notes ?? '');
-  const [err, setErr] = useState<string | null>(null);
+  // Field errors point at the field (z8uq9m5m8g); the rest is the banner.
+  const fe = useFieldErrors(INFLUENCER_FIELDS);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const busy = create.isPending || update.isPending;
 
   const save = async (): Promise<void> => {
-    setErr(null);
+    fe.reset();
     const nm = name.trim();
     if (nm.length < 2) {
-      setErr(t.links.errInfluencerName);
+      fe.fail(t.links.errInfluencerName, 'name');
       return;
     }
     try {
@@ -250,18 +255,18 @@ function InfluencerSheet({
       }
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.links.errInfluencerSave);
+      fe.failWith(e, t.links.errInfluencerSave);
     }
   };
 
   const archive = async (): Promise<void> => {
     if (!influencer) return;
-    setErr(null);
+    fe.reset();
     try {
       await update.mutateAsync({ influencerId: influencer.id, archived: true });
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.links.errInfluencerSave);
+      fe.fail(e instanceof Error ? e.message : t.links.errInfluencerSave);
     }
   };
 
@@ -271,13 +276,16 @@ function InfluencerSheet({
         {influencer ? t.links.editInfluencerTitle : t.links.addInfluencerTitle}
       </div>
       <Label className="mb-2">{t.links.nameLabel}</Label>
-      <Field placeholder={t.links.namePlaceholder} value={name} onChange={setName} autoFocus={!influencer} className="mb-3" />
+      <Field placeholder={t.links.namePlaceholder} value={name} onChange={fe.edit('name', setName)} autoFocus={!influencer} className="mb-3" {...fieldInputProps(fe.bind('name'))} />
+      <FieldErrorFor error={fe.bind('name')} className="-mt-1.5 mb-3" />
       <Label className="mb-2">{t.links.handleLabel}</Label>
-      <Field icon="spark" placeholder={t.links.handlePlaceholder} value={handle} onChange={setHandle} className="mb-3" />
+      <Field icon="spark" placeholder={t.links.handlePlaceholder} value={handle} onChange={fe.edit('handle', setHandle)} className="mb-3" {...fieldInputProps(fe.bind('handle'))} />
+      <FieldErrorFor error={fe.bind('handle')} className="-mt-1.5 mb-3" />
       <Label className="mb-2">{t.links.notesLabel}</Label>
-      <Field icon="note" placeholder={t.links.notesPlaceholder} value={notes} onChange={setNotes} className="mb-4" />
+      <Field icon="note" placeholder={t.links.notesPlaceholder} value={notes} onChange={fe.edit('notes', setNotes)} className="mb-4" {...fieldInputProps(fe.bind('notes'))} />
+      <FieldErrorFor error={fe.bind('notes')} className="-mt-2 mb-4" />
       {influencer && <StatsLinkBlock influencer={influencer} />}
-      {err && <ErrLine msg={err} />}
+      {fe.banner && <ErrLine msg={fe.banner} />}
       <Btn kind="primary" full icon="check" disabled={busy} onClick={() => void save()} className={busy ? 'opacity-50' : ''}>
         {busy ? t.links.saving : influencer ? t.links.saveCta : t.links.addCta}
       </Btn>

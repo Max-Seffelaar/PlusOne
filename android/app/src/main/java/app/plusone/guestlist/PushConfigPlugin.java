@@ -1,7 +1,11 @@
 package app.plusone.guestlist;
 
 import android.app.Activity;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -31,6 +35,14 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  * (the web side validates them again) plus the message id for dedupe. Each message
  * is handed out once per process, so a web reload (venue switch) or an activity
  * re-creation does not open it again.
+ *
+ * `load()` (z8uq9m5kuy) creates the one notification channel at launch. Until it
+ * did, only the web app created it, and only after the Firebase gate and a lazy
+ * plugin chunk — so when that path did not run, Android had no channel at all:
+ * Settings → Apps → PlusOne → Notifications listed nothing to turn on, and an
+ * FCM message in the background fell back to the "Miscellaneous" channel. Native
+ * code, no Firebase involved, so it runs in every build. Re-creating an existing
+ * channel only updates its name/description; the user's own settings stay.
  */
 @CapacitorPlugin(name = "PlusOnePushConfig")
 public class PushConfigPlugin extends Plugin {
@@ -40,6 +52,24 @@ public class PushConfigPlugin extends Plugin {
 
     /** Static: survives an activity re-creation within the same process. */
     private static String lastTakenMessageId = null;
+
+    @Override
+    public void load() {
+        createPushChannel(getContext());
+    }
+
+    static void createPushChannel(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        NotificationChannel channel = new NotificationChannel(
+            context.getString(R.string.plusone_push_channel_id),
+            context.getString(R.string.plusone_push_channel_name),
+            NotificationManager.IMPORTANCE_HIGH
+        );
+        channel.setDescription(context.getString(R.string.plusone_push_channel_description));
+        manager.createNotificationChannel(channel);
+    }
 
     @PluginMethod
     public void isConfigured(PluginCall call) {

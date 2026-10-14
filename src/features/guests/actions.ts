@@ -6,6 +6,7 @@ import {
   mapMutationError,
   unauthorized,
   invalidInput,
+  invalidIssues,
   notFound,
   type MutationError,
 } from '@/lib/db-errors';
@@ -204,7 +205,7 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
 /** Edit an existing guest (classic form). Staff may only touch their own (RLS). */
 export async function updateGuest(input: UpdateGuestInput): Promise<ActionResult> {
   const parsed = updateGuestSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { guestId, fullName, plusOnes, email, phone, note, notePriority } = parsed.data;
 
   const supabase = await createClient();
@@ -300,7 +301,7 @@ export async function changeGuestsTierBulk(input: ChangeTierBulkInput): Promise<
  */
 export async function removeGuest(input: RemoveGuestInput | string): Promise<ActionResult> {
   const parsed = removeGuestSchema.safeParse(typeof input === 'string' ? { guestId: input } : input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  if (!parsed.success) return invalidIssues(parsed.error);
   const { guestId, note } = parsed.data;
 
   const supabase = await createClient();
@@ -313,7 +314,7 @@ export async function removeGuest(input: RemoveGuestInput | string): Promise<Act
   if (guestMailActive()) {
     const { data: guest } = await supabase.from('guests').select('email, status').eq('id', guestId).maybeSingle();
     mailable = Boolean(guest?.email) && (guest?.status === 'approved' || guest?.status === 'checked_in');
-    if (mailable && !note) return invalidInput(t.guests.mail.removeNoteRequired);
+    if (mailable && !note) return invalidInput(t.guests.mail.removeNoteRequired, 'note');
   }
 
   const { error, count } = await supabase

@@ -1,7 +1,7 @@
 import pg from 'pg';
 import { test, expect } from './harness';
 import { acceptConsent, adminClient, getUserIdByEmail } from '../e2e/helpers/supabase-admin';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 /**
  * Flow (z8uq9m5enh): "Send invite" on an address that already has an open
@@ -10,7 +10,8 @@ import type { Page } from '@playwright/test';
  * second send gets the rate-limit copy and sends nothing; after it, a green
  * "Already invited. Sent the invite again.", a second mail in Mailpit and a
  * bumped last_sent_at on the ONE open row. A double click on "Send invite"
- * sends one invite.
+ * sends one invite. z8uq9m5m8h: the "recent" refusal reads neutral, and the
+ * row's Resend counts the rest of the minute down (checks 7–8).
  *
  * Plain seed: admin@ is flipped to platform admin for this flow only (like
  * onboarding-ade-trial). Every variant uses fresh addresses, so variants never
@@ -79,6 +80,11 @@ async function sendInvite(page: Page, email: string): Promise<void> {
 const sendStatus = (page: Page) => page.getByRole('status').filter({ hasText: /Invite sent|Already invited/ });
 // A <p role="alert">: Next's route announcer is an (empty) role=alert too.
 const sendAlert = (page: Page) => page.locator('p[role="alert"]');
+const RECENT = 'Too many invite emails to this address just now. Try again in a minute.';
+// The per-address minute is a wait, not an error (z8uq9m5m8h): a neutral status line.
+const neutral = (scope: Page | Locator) => scope.locator('p[data-tone="neutral"][role="status"]');
+const RED = 'rgb(252, 165, 165)'; // text-red-300
+const card = (page: Page, email: string) => page.getByTestId('platform-invite').filter({ hasText: email });
 
 test.describe('platform re-invite', () => {
   let adminId = '';
@@ -124,8 +130,10 @@ test.describe('platform re-invite', () => {
     await flow.shot('invite-sent');
 
     await sendInvite(page, invitee);
-    await flow.check(2, 'Same address again within 60 s: the rate-limit message, no second mail, last_sent_at unchanged', async () => {
-      await expect(sendAlert(page)).toHaveText('Too many invite emails to this address just now. Try again in a minute.');
+    await flow.check(2, 'Same address again within 60 s: the rate-limit message in a neutral tone (a status, not a red alert), no second mail, last_sent_at unchanged', async () => {
+      await expect(neutral(page)).toHaveText(RECENT);
+      await expect(neutral(page)).not.toHaveCSS('color', RED);
+      await expect(sendAlert(page)).toHaveCount(0);
       expect(await mailCount(invitee, 2)).toBe(1);
       const rows = await openRows(invitee);
       expect(rows).toHaveLength(1);
@@ -133,9 +141,33 @@ test.describe('platform re-invite', () => {
     });
     await flow.shot('reinvite-rate-limited');
 
+    const row = card(page, invitee);
+    const resendBtn = row.getByRole('button', { name: /^Resend/ });
+    await expect(resendBtn).toHaveText('Resend');
+    await resendBtn.click();
+    await flow.check(7, 'Resend on the row inside the window: refused in a neutral tone, then the button is disabled and counts down ("Resend in N s") for the rest of the minute', async () => {
+      await expect(neutral(row)).toHaveText(RECENT);
+      await expect(neutral(row)).not.toHaveCSS('color', RED);
+      await expect(resendBtn).toBeDisabled();
+      await expect(resendBtn).toHaveText(/^Resend in \d{1,2} s$/);
+      const n = Number((await resendBtn.textContent())!.match(/\d+/)![0]);
+      const expected = Math.ceil((sentAt + 60_000 - Date.now()) / 1000);
+      expect(n).toBeGreaterThan(0);
+      expect(Math.abs(n - expected)).toBeLessThanOrEqual(3);
+      await expect(resendBtn).not.toHaveText(`Resend in ${n} s`, { timeout: 3000 });
+      await expect(row.locator('[aria-live="polite"]')).toHaveText(/^You can resend in \d+0 seconds\.$/);
+      expect(await mailCount(invitee, 2)).toBe(1);
+    });
+    await flow.shot('resend-countdown');
+
     // Wait out the per-address window (mail_recipient_window(), 60 s).
     const wait = sentAt + 62_000 - Date.now();
     if (wait > 0) await page.waitForTimeout(wait);
+
+    await flow.check(8, 'When the minute is over the row button is "Resend" again and enabled (client timing only; the server stays the judge)', async () => {
+      await expect(resendBtn).toBeEnabled({ timeout: 5000 });
+      await expect(resendBtn).toHaveText('Resend');
+    });
 
     await sendInvite(page, invitee);
     await flow.check(3, 'Same address after the window: green "Already invited. Sent the invite again.", a second mail, last_sent_at bumped on the one open row, form cleared', async () => {

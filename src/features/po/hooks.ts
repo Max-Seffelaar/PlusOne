@@ -1128,12 +1128,22 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
   return { realtimeConnected };
 }
 
-/** The caller's personal quota for an event (#22/#31) — drives the quick-add hint. */
+/**
+ * The caller's personal quota for an event (#22/#31) — drives the quick-add hint
+ * and the number a quota request asks for. Always fresh (z8uq9m5kux): an admin's
+ * approval on another device raises this quota AND adds a guest on the caller's
+ * name, and a cached "4 left" made the next request ask for "+1" for a +4 guest
+ * with 0 left. One cheap RPC, so it refetches on every mount and focus; the
+ * database re-derives the requested number anyway (fit_quota_request_to_guest).
+ */
 export function usePoQuota(eventId: string) {
   return useQuery<PoQuotaStatus | null>({
     queryKey: poKeys.quota(eventId),
     enabled: !!eventId,
     queryFn: () => fetchEventQuota(createClient(), eventId),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -1231,7 +1241,8 @@ export function usePoQuotaRequests() {
  */
 export function usePoMyQuotaUpdates() {
   const { venueId, userId } = usePoIdentity();
-  return useQuery<PoQuotaUpdate[]>({
+  const qc = useQueryClient();
+  const query = useQuery<PoQuotaUpdate[]>({
     queryKey: poKeys.myQuotaUpdates(venueId ?? '', userId),
     enabled: !!venueId && !!userId,
     queryFn: async () => {
@@ -1239,6 +1250,19 @@ export function usePoMyQuotaUpdates() {
       return rows.map((r) => toPoQuotaUpdate(r));
     },
   });
+  // A decision the caller learns about here was made on someone else's device:
+  // their quota (and, when it added a guest, their list) for that event moved
+  // without any mutation on this one (z8uq9m5kux). Refresh both once per
+  // newly seen decision.
+  const decided = (query.data ?? []).map((u) => `${u.id}:${u.eventId}`).join(',');
+  useEffect(() => {
+    if (!decided) return;
+    for (const eventId of new Set(decided.split(',').map((p) => p.split(':')[1]))) {
+      void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+    }
+  }, [decided, qc]);
+  return query;
 }
 
 // ── Request links + influencers (Requests-epic F1, 86ey21vjt) ──

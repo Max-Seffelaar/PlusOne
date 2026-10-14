@@ -61,6 +61,37 @@ describe('renderTeamNotify', () => {
     expect(no.text).toContain("wasn't approved this time");
   });
 
+  // z8uq9m5kux — the approval put the named guest on the list.
+  it('an approval that added the guest names them with the granted +N and tier', () => {
+    const r = renderTeamNotify({
+      ...base,
+      type: 'team_decision',
+      request: null,
+      decision: { status: 'approved', extra: 5, guest: { firstName: 'Max', plusOnes: 4, tier: 'VIP', changed: false } },
+    });
+    expect(r.subject).toBe('Max +4 is on the list for Neon Friday');
+    expect(r.text).toContain('Your quota request for Neon Friday is approved: Max +4 is on the list, on VIP.');
+    expect(r.text).not.toContain('They are yours to use now');
+    expect(r.text).not.toContain('changed your request');
+  });
+
+  it('says so when the admin changed the request first', () => {
+    const r = renderTeamNotify({
+      ...base,
+      type: 'team_decision',
+      request: null,
+      decision: { status: 'approved', extra: 2, guest: { firstName: 'Lisa', plusOnes: 0, tier: 'Regular', changed: true } },
+    });
+    expect(r.subject).toBe('Lisa is on the list for Neon Friday');
+    expect(r.text).toContain('The admin changed your request before approving it');
+  });
+
+  it('a spots-only approval keeps the spots text with the granted count', () => {
+    const r = renderTeamNotify({ ...base, type: 'team_decision', request: null, decision: { status: 'approved', extra: 1, guest: null } });
+    expect(r.subject).toBe('You got 1 more guests for Neon Friday');
+    expect(r.text).toContain('They are yours to use now');
+  });
+
   it('the daily summary: counts per event per company, the total in the subject', () => {
     const r = renderTeamNotify({
       ...base,

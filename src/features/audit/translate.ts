@@ -368,8 +368,15 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
       switch (action) {
         case 'create':
           return { text: `requested ${extra ?? '?'} more spots`, entity: subject };
-        case 'approve':
+        case 'approve': {
+          // z8uq9m5kux: the diff carries what was granted (it may be fewer
+          // than asked). Older approvals have no approved_extra.
+          const granted = num(after?.approved_extra);
+          if (granted != null) {
+            return { text: `approved ${granted} more ${granted === 1 ? 'spot' : 'spots'} for ${subject}`, entity: subject };
+          }
           return { text: `approved the quota request from ${subject}`, entity: subject };
+        }
         case 'deny': {
           const reason = str(after?.decision_reason);
           return {

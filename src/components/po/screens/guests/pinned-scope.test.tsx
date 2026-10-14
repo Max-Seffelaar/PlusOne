@@ -39,14 +39,17 @@ vi.mock('@/features/po/hooks', () => ({
   useVenueGuests: () => idle,
   usePoTiers: () => ({ data: [] }),
   usePoQuota: () => ({ data: null }),
+  // The quota row (z8uq9m5kux) renders nothing without a quota.
+  usePoEventForEdit: () => ({ canManage: false }),
   usePoPermanentContacts: () => ({ data: [] }),
   usePoCanManageTemplates: () => false,
   usePoContactNameMatches: () => ({ data: undefined }),
 }));
 vi.mock('@/features/po/mutations', () => {
   const m = () => ({ mutate: vi.fn(), isPending: false });
-  return { usePoAddGuestsBulk: m, usePoUpdateGuest: m, usePoChangeGuestsTierBulk: m, usePoMarkGuestsRegular: m };
+  return { usePoAddGuestsBulk: m, usePoUpdateGuest: m, usePoChangeGuestsTierBulk: m, usePoMarkGuestsRegular: m, usePoRequestExtraSlots: m };
 });
+vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: [], venueId: 'v1', userId: 'u1' }) }));
 
 const { GuestsTab } = await import('./index');
 
