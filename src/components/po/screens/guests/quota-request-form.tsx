@@ -96,31 +96,90 @@ export function QuotaRequestForm({
   );
 }
 
-/**
- * The event guest list's quota row (z8uq9m5kux): "Your quota · n of m left" and
- * "Request more spots", which opens the form above without a guest. Only for
- * someone who adds guests under a personal quota (staff, doorhost, crew), not
- * for a quota-exempt role or one that can't add guests. Online-only write via
- * the shared server action (not door-adjacent).
- */
-export function GuestListQuotaBar({ eventId }: { eventId: string }): JSX.Element | null {
+/** Visibility rule for the no-guest request entry points (z8uq9m5kux):
+ *  someone who adds guests under a personal quota, never a quota-exempt role
+ *  or one that cannot add guests. */
+function useCanRequestSpots(eventId: string): { quota: { remaining: number; quota: number } | null } {
   const { data: quota } = usePoQuota(eventId);
   const { roles } = usePoIdentity();
   const { canManage } = usePoEventForEdit(eventId);
+  if (!quota || quota.exempt || quota.remaining === null) return { quota: null };
+  if (!(canManageGuests(roles) || canManage)) return { quota: null };
+  return { quota: { remaining: quota.remaining, quota: quota.quota } };
+}
+
+/**
+ * A request for spots without a guest (z8uq9m5kux). Owns its own state, so a
+ * fresh mount is an empty form: the parent unmounts it after a send or a
+ * cancel, and the next "Request more spots" starts clean (Max's retest: the
+ * previous motivation stayed in the field).
+ */
+export function QuotaRequestPanel({
+  eventId,
+  onSent,
+  onCancel,
+}: {
+  eventId: string;
+  onSent: () => void;
+  onCancel: () => void;
+}): JSX.Element {
   const request = usePoRequestExtraSlots(eventId);
-  const [open, setOpen] = useState(false);
   const [spots, setSpots] = useState(1);
   const [motivation, setMotivation] = useState('');
+  return (
+    <QuotaRequestForm
+      spots={spots}
+      onSpots={setSpots}
+      motivation={motivation}
+      onMotivation={setMotivation}
+      pending={request.isPending}
+      error={request.isError ? request.error?.message ?? t.guests.add.requestSendFailed : null}
+      onSend={() => request.mutate({ eventId, requestedExtra: spots, motivation: motivation.trim() }, { onSuccess: onSent })}
+      onCancel={onCancel}
+    />
+  );
+}
 
-  if (!quota || quota.exempt || quota.remaining === null) return null;
-  if (!(canManageGuests(roles) || canManage)) return null;
+/** "Request sent" line shown after a no-guest request, until the next one. */
+function SentLine(): JSX.Element {
+  return (
+    <div className="mt-[10px] flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
+      <Icon name="check" size={16} stroke="#B5A6FF" />
+      <span className="flex-1" data-testid="quota-request-sent">
+        {t.guests.add.requestSent}
+      </span>
+    </div>
+  );
+}
 
-  const close = (): void => {
-    setOpen(false);
-    setMotivation('');
-    setSpots(1);
+/** Open / sent state shared by both entry points. */
+function useRequestToggle(): { open: boolean; sent: boolean; start: () => void; sentNow: () => void; close: () => void } {
+  const [open, setOpen] = useState(false);
+  const [sent, setSent] = useState(false);
+  return {
+    open,
+    sent,
+    start: () => {
+      setSent(false);
+      setOpen(true);
+    },
+    sentNow: () => {
+      setOpen(false);
+      setSent(true);
+    },
+    close: () => setOpen(false),
   };
+}
 
+/**
+ * The event guest list's quota row (z8uq9m5kux): "Your quota · n of m left" and
+ * "Request more spots", which opens the panel above without a guest. Online-
+ * only write via the shared server action (not door-adjacent).
+ */
+export function GuestListQuotaBar({ eventId }: { eventId: string }): JSX.Element | null {
+  const { quota } = useCanRequestSpots(eventId);
+  const toggle = useRequestToggle();
+  if (!quota) return null;
   return (
     <div className="flex-none px-4 pb-3" data-testid="guest-list-quota">
       <div className="flex items-center gap-[10px] rounded-[13px] border border-line bg-elev px-[14px] py-[9px]">
@@ -128,31 +187,46 @@ export function GuestListQuotaBar({ eventId }: { eventId: string }): JSX.Element
         <span className="min-w-0 flex-1 text-[13px] text-text">
           {fmt(t.guests.add.quotaBar, { n: quota.remaining, m: quota.quota })}
         </span>
-        {!open && !request.isSuccess && (
-          <Btn sm kind="ghost" icon="plus" className="min-h-[44px]" onClick={() => setOpen(true)}>
+        {!toggle.open && (
+          <Btn sm kind="ghost" icon="plus" className="min-h-[44px]" onClick={toggle.start}>
             {t.guests.add.requestMoreSpots}
           </Btn>
         )}
       </div>
-      {request.isSuccess ? (
-        <div className="mt-[10px] flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
-          <Icon name="check" size={16} stroke="#B5A6FF" />
-          <span className="flex-1" data-testid="quota-request-sent">
-            {t.guests.add.requestSent}
-          </span>
-        </div>
-      ) : open ? (
-        <QuotaRequestForm
-          spots={spots}
-          onSpots={setSpots}
-          motivation={motivation}
-          onMotivation={setMotivation}
-          pending={request.isPending}
-          error={request.isError ? request.error?.message ?? t.guests.add.requestSendFailed : null}
-          onSend={() => request.mutate({ eventId, requestedExtra: spots, motivation: motivation.trim() }, { onSuccess: close })}
-          onCancel={close}
-        />
+      {toggle.open ? (
+        <QuotaRequestPanel eventId={eventId} onSent={toggle.sentNow} onCancel={toggle.close} />
+      ) : toggle.sent ? (
+        <SentLine />
       ) : null}
     </div>
   );
+}
+
+/**
+ * The same entry point next to the quota counter in the Add guest header
+ * (z8uq9m5kux, Max's retest: that counter is where people look). `button` goes
+ * in the header's right slot, `panel` right under the header.
+ */
+export function useQuotaRequestEntry(eventId: string): { button: JSX.Element | null; panel: JSX.Element | null } {
+  const { quota } = useCanRequestSpots(eventId);
+  const toggle = useRequestToggle();
+  if (!quota) return { button: null, panel: null };
+  return {
+    button: toggle.open ? null : (
+      <span data-testid="quota-request-more-header">
+        <Btn sm kind="ghost" icon="plus" className="min-h-[44px]" onClick={toggle.start}>
+          {t.guests.add.requestMoreSpots}
+        </Btn>
+      </span>
+    ),
+    panel: toggle.open ? (
+      <div className="flex-none px-4 pb-3" data-testid="quota-request-header-panel">
+        <QuotaRequestPanel eventId={eventId} onSent={toggle.sentNow} onCancel={toggle.close} />
+      </div>
+    ) : toggle.sent ? (
+      <div className="flex-none px-4 pb-3" data-testid="quota-request-header-panel">
+        <SentLine />
+      </div>
+    ) : null,
+  };
 }

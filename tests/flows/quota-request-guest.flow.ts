@@ -394,6 +394,37 @@ test('quota request: name the guest, approve adds them, Home tells the requester
     await expect(raised.getByTestId('quota-update-changes')).toHaveText('Approved with changes: +3 spots instead of +2.');
   });
 
+  // (e) Max's retest: "Request more spots" sits next to the quota counter in
+  // the Add guest header, and a new request starts with an empty motivation.
+  await page.goto(`/app/events/${EVENT}/add`);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  const headerBtn = page.getByTestId('quota-request-more-header');
+  await flow.check(25, 'Add guest: "Request more spots" is right next to "Your quota · n of m left" in the header', async () => {
+    await expect(headerBtn).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Your quota · \d+ of \d+ left/).first()).toBeVisible();
+  });
+  await headerBtn.getByRole('button', { name: 'Request more spots' }).click();
+  const headerPanel = page.getByTestId('quota-request-header-panel');
+  const headerMotivation = `Header ${tag}`;
+  await headerPanel.getByPlaceholder('Why do you need these slots?').fill(headerMotivation);
+  await flow.shot('add-guest-header-request');
+  await headerPanel.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(headerPanel.getByTestId('quota-request-sent')).toBeVisible();
+  await flow.check(26, 'Database: the header request is a pending request for 1 spot, without a guest', async () => {
+    const { data } = await adminClient()
+      .from('quota_requests')
+      .select('requested_extra, guest_payload, status')
+      .eq('user_id', STAFF_ID)
+      .eq('motivation', headerMotivation)
+      .single();
+    expect(data).toEqual({ requested_extra: 1, guest_payload: null, status: 'pending' });
+  });
+  await headerBtn.getByRole('button', { name: 'Request more spots' }).click();
+  await flow.check(27, 'Opened again, the motivation is empty (no text left from the last request)', async () => {
+    await expect(page.getByTestId('quota-request-header-panel').getByPlaceholder('Why do you need these slots?')).toHaveValue('');
+  });
+  await page.getByTestId('quota-request-header-panel').getByRole('button', { name: 'Cancel' }).click();
+
   await flow.check(14, 'No step scrolls sideways', async () => {
     expectNoHorizontalOverflow(flow);
   });

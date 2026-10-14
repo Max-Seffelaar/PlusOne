@@ -33,7 +33,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll } from '../../kit';
-import { QuotaRequestForm } from './quota-request-form';
+import { QuotaRequestForm, useQuotaRequestEntry } from './quota-request-form';
 import { SendConfirmationRow, useSendConfirmation } from './send-confirmation';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
@@ -117,6 +117,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   // staff only match against their own guests — exactly the rows they may update.
   const { data: liveGuests = [] } = usePoGuests(evId);
   const reqExtra = usePoRequestExtraSlots(evId);
+  // "Request more spots" without a guest, next to the quota counter in the
+  // header (z8uq9m5kux): that counter is where people look for it.
+  const spotsEntry = useQuotaRequestEntry(evId);
   const { roles } = usePoIdentity();
   // An external crew member (event organizer, roles:[]) may add guests to their own
   // event — they're no longer quota-exempt (86ey21vre), so the old exempt-based gate
@@ -249,6 +252,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     add.reset();
     update.reset();
     reqExtra.reset();
+    // A new name starts a new request: no motivation left over (Max's retest).
+    setReqMotiv('');
   };
 
   /** Run the actual mutation for a decided duplicate mode ('again' when no dupe). */
@@ -382,7 +387,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.guests.add.title} sub={sub} />
+      <Top onBack={nav.back} title={t.guests.add.title} sub={sub} right={spotsEntry.button ?? undefined} />
+      {spotsEntry.panel}
       <Scroll bottom={120}>
         <Label className="mb-2">{t.guests.add.eventLabel}</Label>
         {curEv ? (
@@ -595,12 +601,16 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   pending={reqExtra.isPending}
                   error={reqExtra.isError ? reqExtra.error?.message ?? t.guests.add.requestSendFailed : null}
                   onSend={() =>
-                    reqExtra.mutate({
-                      eventId: evId,
-                      requestedExtra: reqShortfall,
-                      motivation: reqMotiv.trim(),
-                      guest: reqGuest,
-                    })
+                    reqExtra.mutate(
+                      {
+                        eventId: evId,
+                        requestedExtra: reqShortfall,
+                        motivation: reqMotiv.trim(),
+                        guest: reqGuest,
+                      },
+                      // Sent: the next request starts with an empty motivation.
+                      { onSuccess: () => setReqMotiv('') },
+                    )
                   }
                   onCancel={() => {
                     setReqOpen(false);
