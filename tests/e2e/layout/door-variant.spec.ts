@@ -48,7 +48,7 @@ async function expectCockpit(page: Page): Promise<void> {
 }
 
 async function openDoor(page: Page): Promise<void> {
-  await openScreen(page, 'door', DOOR_URL);
+  await openScreen(page, DOOR_URL);
 }
 
 test.describe('Deur variant (plan decision 14)', () => {
@@ -56,7 +56,7 @@ test.describe('Deur variant (plan decision 14)', () => {
     const testInfo = test.info();
     const device = deviceFor(testInfo.project.name);
     test.skip(device.width >= CHROME_BREAKPOINT, 'covered by the ≥1024px cases');
-    const context = await newProjectContext(browser, testInfo);
+    const context = await newProjectContext(browser, testInfo, 'door');
     try {
       const page = await context.newPage();
       await openDoor(page);
@@ -70,7 +70,7 @@ test.describe('Deur variant (plan decision 14)', () => {
     const testInfo = test.info();
     const device = deviceFor(testInfo.project.name);
     test.skip(!device.touch || device.width < CHROME_BREAKPOINT, 'only touch devices at ≥1024px');
-    const context = await newProjectContext(browser, testInfo);
+    const context = await newProjectContext(browser, testInfo, 'door');
     try {
       const page = await context.newPage();
       await openDoor(page);
@@ -85,7 +85,7 @@ test.describe('Deur variant (plan decision 14)', () => {
     const testInfo = test.info();
     const device = deviceFor(testInfo.project.name);
     test.skip(device.touch || device.width < CHROME_BREAKPOINT, 'only a fine pointer at ≥1024px');
-    const context = await newProjectContext(browser, testInfo);
+    const context = await newProjectContext(browser, testInfo, 'door');
     try {
       const page = await context.newPage();
       await openDoor(page);
