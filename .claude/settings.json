@@ -30,9 +30,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node scripts/hooks/clickup-sync-check.mjs",
+            "command": "node scripts/hooks/linear-sync-check.mjs",
             "timeout": 10,
-            "statusMessage": "Checking ClickUp task sync…"
+            "statusMessage": "Checking Linear issue sync…"
           }
         ]
       }

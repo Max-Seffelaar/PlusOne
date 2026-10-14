@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-14 — Repo bookkeeping moves from ClickUp to Linear (PLU-70)
+
+Milestone **Now** (workflow tooling). Max moved the task board to Linear on 2026-10-14 (workspace `plus-one`, team `PLU`, one project per theme; every ClickUp task was mirrored with a back-link). This PR moves the repo's plumbing with it, so a session no longer has to keep two systems in sync. ClickUp ids in older docs, comments, commits and migration headers stay as history.
+
+- **`.claude/skills/linear-task/SKILL.md`** replaces `clickup-task`: where issues live (team, projects, the `Model` / `Milestone` / `high-risk` / `Design` labels that replace the old `Model:` line), the six states (`Backlog` / `Todo` / `In Progress` / `In Review` / `Merged - Testen` / `Done`), the transitions (In Review when the PR opens, Merged - Testen at merge, Done only merged AND tested, back to Todo on a zero-work session), the pickup step with concurrency check and session marker, the comment cadence (Dutch), and the drift check. Two Linear-specific rules: the issue key goes in the branch and the PR title so the GitHub integration attaches the PR and moves the state; **never `Fixes`/`Closes`/`Resolves PLU-…`** in a PR title or body, because that closes the issue to Done at merge and skips the test gate.
+- **Stop hook `scripts/hooks/linear-sync-check.mjs`** replaces `clickup-sync-check.mjs` (registered in `.claude/settings.json`). Marker `.claude/linear-session.json` (`{"issues":[{"id":"PLU-70","synced":false}]}`, gitignored); the old `.claude/clickup-session.json` is still honoured so a stale one keeps blocking instead of silently dropping its bookkeeping. `tests/unit/linear-sync-check.test.ts` runs the real script as a child process for the seven behaviours (no marker, unsynced, synced, corrupt, `stop_hook_active`, legacy marker, unreadable stdin).
+- **`scripts/linear-task.mjs`** — the API-key fallback for sessions without the Linear MCP connector (cloud container, CI, connector down): `get`, `state`, `comment` (text or `--file`) and `drift` over the GraphQL API with `LINEAR_API_KEY` (documented, commented out, in `.env.example`; script-only, never printed). `drift` replaces the daily ClickUp↔GitHub reconcile run, which no longer existed anywhere in this environment: it lists the team's started issues, compares each with the PRs that carry its key, flags open PRs whose key points at a non-started issue, and exits 1 on drift so a scheduled routine can alert on it. Verified: syntax, prettier, the no-key / usage / bad-key paths; **not yet exercised against the live API** (no personal key in this session) — the first run with a real key is the acceptance test.
+- **CLAUDE.md** (9 lines): decision-8 reference, the Stripe go-live pointer (PLU-41 / PLU-53), the open-work paragraph, the path-claim rule, "one migration per Linear issue", the model-routing rule (labels), the lifecycle bullet, DoD 7, the gstack precedence line. `.github/dependabot.yml` comment. `tests/unit/claude-md-references.test.ts` green on the new paths.
+
+Open for Max: confirm in Linear → Settings → Integrations → GitHub that the "on merge" automation targets `Merged - Testen` (the skill sets it by hand when a merged PR leaves an issue in `In Review`); create a personal API key only when a session without the connector needs it; optionally wrap `drift` in a scheduled routine.
+
+---
 ## 2026-10-14 — Layout suite: one stored session per seed user, no dev-login per screen
 
 Branch `claude/layout-devlogin-flake`. `layout-suite` on merge train #507 failed twice

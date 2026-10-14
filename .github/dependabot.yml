@@ -14,7 +14,7 @@ updates:
       production-dependencies:
         dependency-type: "production"
     # The stack is pinned by CLAUDE.md (Next 15 / React 19). A framework major is
-    # a migration with its own ClickUp task, never a dependency bump that rides
+    # a migration with its own Linear issue, never a dependency bump that rides
     # along in a grouped PR — one such major silently poisons the whole group and
     # blocks every safe bump in it. Minor/patch keeps flowing.
     ignore:
