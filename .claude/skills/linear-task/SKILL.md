@@ -86,6 +86,21 @@ right (the issue turns out obsolete), say so in a comment and let Max flip it.
    `drift` mechanical. **Never write `Fixes`/`Closes`/`Resolves PLU-70` in a PR title or
    body:** those magic words make the integration close the issue to `Done` at merge,
    skipping the test gate. Write `Linear: PLU-70` instead.
+   **Every PR body also carries one `Test:` line** — it decides what happens at merge
+   (`.github/workflows/linear-auto-done.yml`, rule in `scripts/lib/linear-auto-done.mjs`):
+   - `Test: auto` — CI plus the applicable review gates are the whole test (no 🖐 or 👁
+     handoff questions). At merge the issue goes to `Done` by itself; if the PR adds a
+     migration it stays `Merged - Testen` until the prod push.
+   - `Test: Max` — the handoff has questions only Max can answer. At merge the issue stays
+     `Merged - Testen` and is assigned to Max; his "My issues" view is the test queue.
+   - No `Test:` line counts as `Test: Max`. When unsure, write `Test: Max`.
+   **The session that merges a PR applies this rule itself through the Linear MCP**, right
+   after the merge and without waiting for the workflow: `Test: auto` without a migration →
+   `Done`; with a migration → `Merged - Testen` + comment "wacht op prod-push"; `Test: Max`
+   or no line → `Merged - Testen`, assigned to Max. Same comment text as the workflow
+   (`scripts/lib/linear-auto-done.mjs`). The workflow is the safety net for merges no
+   session sees (Max in the GitHub UI, GitHub auto-merge); if it already moved the issue,
+   leave it.
 7. **Session name:** the model cannot rename a session itself (`/rename` is user-only).
    At pickup, print one copy-paste-ready line so Max can make the session name match the
    issue exactly: `/rename PLU-70 <exact issue title>`.
@@ -107,6 +122,12 @@ right (the issue turns out obsolete), say so in a comment and let Max flip it.
   tested. A merged PR is *not* Done. If the session ends with an open or just-merged PR:
   leave it at `In Review` / `Merged - Testen`, post the end-of-session comment, and let the
   test confirmation — this session or a later one — flip it to `Done`.
+  **Max never sets `Done` himself.** `Test: auto` PRs are flipped by the merge workflow.
+  For everything else, any session in which Max says an issue is tested ("PLU-65 getest ✅",
+  "1 ✅ 2 ✅ …", "prod gepusht" for a waiting migration) sets `Done` right then with a one-line
+  comment quoting his confirmation, also when that session was started for other work.
+  A ❌ answer: keep the issue at `Merged - Testen`, open a `Bug`-labelled issue (same
+  project, `relatedTo` the original) with the failing question, and say so in both.
 - Session ends with **zero work done** (interrupted before the first edit, no PR):
   revert to `Todo` — `In Progress` would be false and would trip the next session's
   concurrency check. Say so in the end-of-session comment.
@@ -145,7 +166,9 @@ issue description.
 it with GitHub: an `In Progress` issue whose PR is open or merged, an `In Review` issue
 without an open PR, a `Merged - Testen` issue without a merged PR, and open PRs whose key
 points at an issue that is not started. Exit code 1 on drift, so a scheduled routine can
-alert on it; run it by hand after a merge train or when the board looks off. It only
+alert on it; `.github/workflows/linear-drift.yml` runs it daily at 06:00 UTC and goes red
+(GitHub notifies Max) on drift. Run it by hand after a merge train or when the board looks
+off. It only
 reads — fixing the statuses stays a deliberate, commented action.
 
 ## What this skill never does
