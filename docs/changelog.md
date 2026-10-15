@@ -8,6 +8,19 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-15 — Linear issues move on at merge by the PR's `Test:` line (PLU-125)
+
+Milestone **Now** (workflow tooling). Max decided (option A): the merged-AND-tested gate stays, but he never sets Done by hand.
+
+- **`Test:` line in every PR body** (`.claude/skills/linear-task/SKILL.md` step 6, CLAUDE.md lifecycle bullet): `Test: auto` = CI plus the review gates are the whole test; `Test: Max` = the handoff has questions only Max can answer; no line counts as `Test: Max`.
+- **`.github/workflows/linear-auto-done.yml`** on every merge into `main` runs `scripts/linear-auto-done.mjs` from main (never the PR head; title and body via env). The rule is in `scripts/lib/linear-auto-done.mjs`, no I/O, pinned by `tests/unit/linear-auto-done.test.ts` (13 cases): `Test: auto` without a migration → Done; with a file under `supabase/migrations/` → stays `Merged - Testen` with a "wacht op prod-push" comment; `Test: Max` / missing → `Merged - Testen` and assigned to Max, so his "My issues" is the test queue. Keys only from the PR title and `Linear: PLU-…` lines. It first waits (≤60 s) for Linear's own on-merge automation so that one cannot land after it and pull a Done issue back; it never touches Done/Canceled/Duplicate issues and never fails the merge (warnings only).
+- **`.github/workflows/linear-drift.yml`** runs `node scripts/linear-task.mjs drift` daily at 06:00 UTC and goes red on drift (GitHub notifies Max).
+- Any session where Max confirms a test ("PLU-65 getest ✅", "prod gepusht") sets Done; a ❌ becomes a `Bug` issue related to the original.
+
+Open for Max: add the repo secret `LINEAR_API_KEY` (Linear → Settings → Security & access → Personal API key; GitHub → Settings → Secrets and variables → Actions). Without it both workflows skip with a notice. The first merge after the secret exists is the live acceptance test.
+
+---
+
 ## 2026-10-14 — Repo bookkeeping moves from ClickUp to Linear (PLU-70)
 
 Milestone **Now** (workflow tooling). Max moved the task board to Linear on 2026-10-14 (workspace `plus-one`, team `PLU`, one project per theme; every ClickUp task was mirrored with a back-link). This PR moves the repo's plumbing with it, so a session no longer has to keep two systems in sync. ClickUp ids in older docs, comments, commits and migration headers stay as history.
