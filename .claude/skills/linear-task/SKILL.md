@@ -94,6 +94,13 @@ right (the issue turns out obsolete), say so in a comment and let Max flip it.
    - `Test: Max` — the handoff has questions only Max can answer. At merge the issue stays
      `Merged - Testen` and is assigned to Max; his "My issues" view is the test queue.
    - No `Test:` line counts as `Test: Max`. When unsure, write `Test: Max`.
+   **The session that merges a PR applies this rule itself through the Linear MCP**, right
+   after the merge and without waiting for the workflow: `Test: auto` without a migration →
+   `Done`; with a migration → `Merged - Testen` + comment "wacht op prod-push"; `Test: Max`
+   or no line → `Merged - Testen`, assigned to Max. Same comment text as the workflow
+   (`scripts/lib/linear-auto-done.mjs`). The workflow is the safety net for merges no
+   session sees (Max in the GitHub UI, GitHub auto-merge); if it already moved the issue,
+   leave it.
 7. **Session name:** the model cannot rename a session itself (`/rename` is user-only).
    At pickup, print one copy-paste-ready line so Max can make the session name match the
    issue exactly: `/rename PLU-70 <exact issue title>`.
