@@ -8,6 +8,78 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-15 — Safe area on every screen, iOS and Android, guarded (Android edge-to-edge)
+
+Milestone **Now** (store submission; Max's Android test of the onboarding Team step, then "it's on every page"). The app draws edge-to-edge (`viewportFit: 'cover'`, Capacitor 8 `SystemBars` insetsHandling 'css'), so the status bar, notch and Android navigation bar / iOS home indicator sit over the page. Only screens that pad the insets stay clear.
+
+- **One source:** `--safe-top|right|bottom|left` in `src/app/globals.css` read Capacitor's injected `--safe-area-inset-*` first (the value the Android shell reports) and `env()` as the fallback (iOS, browsers; 0 on desktop). Every former `env(safe-area-inset-*)` in components now uses the tokens; `tests/unit/safe-area-tokens.test.ts` fails on a new raw `env()`. The store-review login page (self-contained HTML) reads the Android property first too.
+- **`/app` shell — one owner for the bottom inset:** the mobile `TabBar` when it shows, otherwise the shell root (`ROOT_SAFE_AREA_FULL`: phone sub-screens, the iPad sidebar chrome). `BottomBar` and the sidebar footer no longer add it themselves (no double padding). Found by the new check: on an iPad Pro in portrait (sidebar chrome) the event screen's last button sat under the home indicator.
+- **Outside the shell:** `safeAreaPadding()` (`src/lib/po/safe-area.ts`) on the onboarding wizard (shell, Welcome, invites), consent, `/login`, the MFA layout, the `/door` picker and not-found; `/door/[id]` (`DoorRoute`) now owns its bottom inset too. Full-screen overlays pad themselves: the door's stale-resume overlay, the influencer stats modal, the cockpit modals.
+- **Guard (layout suite):** every touch project runs under simulated system bars (48px status bar, 48px Android 3-button navigation bar), set through the same `--safe-area-inset-*` the Android shell injects (`tests/e2e/layout/safe-area.ts`). New check per `/app` screen: no visible text or control under a bar, unless a scroller can still move it out. `standalone-safe-area.spec.ts` covers `/login`, `/door`, `/door/[id]` and not-found; the `onboarding` flow's native variants run under the same bars (Q15: consent, Welcome, Company, Team). Ran locally on all four touch devices: 1140 passed; Q15 and the login check both proven to fail with the padding removed (Q15 then reports exactly the screenshot: step header under the status bar, the hint line under the navigation bar).
+- **Design rule:** `design-system.md` "Safe area" (seven rules, including: mobile designs draw the system bars and keep text and tap targets out of them) and the CLAUDE.md Capacitor checklist line.
+- **Not covered by simulation:** real WebKit (iPad/iPhone) and a real Android WebView. Web-only change, live in installed shells after the Vercel deploy; no new native build.
+
+---
+
+## 2026-10-15 — Dependabot: one weekly minor/patch PR, every npm major ignored (PLU-118)
+
+Config + docs only, no code, no migration. Decision Max 2026-10-15 ("van essentieel belang").
+
+- **What was wrong.** `.github/dependabot.yml` grouped by *dependency-type* (dev/prod), so
+  majors and safe minor/patch bumps shared one PR. One CI-breaking major poisoned the whole
+  group: #512 (production, 20 updates) failed on `@sentry/nextjs` 10→11
+  (`withSentryConfig is not a function` in `next.config.js`), #513 (development, 20
+  updates) on `eslint` 8→10 (`next lint` passes removed options). Eleven majors held 29
+  safe bumps hostage, `next` 15.5.19→15.5.27 and `@supabase/supabase-js` 2.112→2.117 among
+  them. The issue's original targets #352/#428 were already closed by Dependabot itself on
+  2026-10-14 ("updatable in another way") and superseded by #512/#513 — nothing to close
+  by hand.
+- **New shape.** npm: one group `minor-and-patch` (`update-types: [minor, patch]`) and
+  one wildcard ignore for every major (`dependency-name: "*"`,
+  `version-update:semver-major`), replacing the per-package list (next, react,
+  react-dom, @types/react(-dom), zod, stripe, typescript — all subsumed). github-actions:
+  one group `actions`, majors included (version-pin bumps, 6 merged so far incl. #511).
+- **Expected effect after merge.** Dependabot re-runs on a config change to `main`,
+  closes #512/#513 as superseded (as it did with #352/#428) and opens one PR with the 29
+  safe bumps; CI stays the gate. Majors surface only as Dependabot *alerts* (Security
+  tab — not suppressed by ignore rules) and become deliberate migration issues; PLU-15
+  (Next 16 / React) already exists, the 11 pending majors are the shopping list:
+  @sentry/nextjs 11, tailwind-merge 3, uuid 14, @testing-library/jest-dom 7, @types/node
+  26, @vitest/ui 5, eslint 10, eslint-config-next 16, jsdom 30, tailwindcss 4, vitest 5.
+- **Accepted trade-off.** A security fix that only ships in a major gets no automatic PR
+  any more; the alert still shows. The measured limit of the ignore rule (z8uq9m0h2h:
+  companion bumps bypass it) is kept in the file's comment — blocking CI remains the
+  backstop.
+- CLAUDE.md: the Conventions bullet on `JSX.Element` now states the wildcard rule.
+
+---
+
+## 2026-10-15 — Linear issues move on at merge by the PR's `Test:` line (PLU-125)
+
+Milestone **Now** (workflow tooling). Max decided (option A): the merged-AND-tested gate stays, but he never sets Done by hand.
+
+- **`Test:` line in every PR body** (`.claude/skills/linear-task/SKILL.md` step 6, CLAUDE.md lifecycle bullet): `Test: auto` = CI plus the review gates are the whole test; `Test: Max` = the handoff has questions only Max can answer; no line counts as `Test: Max`.
+- **`.github/workflows/linear-auto-done.yml`** on every merge into `main` runs `scripts/linear-auto-done.mjs` from main (never the PR head; title and body via env). The rule is in `scripts/lib/linear-auto-done.mjs`, no I/O, pinned by `tests/unit/linear-auto-done.test.ts` (13 cases): `Test: auto` without a migration → Done; with a file under `supabase/migrations/` → stays `Merged - Testen` with a "wacht op prod-push" comment; `Test: Max` / missing → `Merged - Testen` and assigned to Max, so his "My issues" is the test queue. Keys only from the PR title and `Linear: PLU-…` lines. It first waits (≤60 s) for Linear's own on-merge automation so that one cannot land after it and pull a Done issue back; it never touches Done/Canceled/Duplicate issues and never fails the merge (warnings only).
+- **`.github/workflows/linear-drift.yml`** runs `node scripts/linear-task.mjs drift` daily at 06:00 UTC and goes red on drift (GitHub notifies Max).
+- Any session where Max confirms a test ("PLU-65 getest ✅", "prod gepusht") sets Done; a ❌ becomes a `Bug` issue related to the original.
+
+Open for Max: add the repo secret `LINEAR_API_KEY` (Linear → Settings → Security & access → Personal API key; GitHub → Settings → Secrets and variables → Actions). Without it both workflows skip with a notice. The first merge after the secret exists is the live acceptance test.
+
+---
+
+## 2026-10-14 — Repo bookkeeping moves from ClickUp to Linear (PLU-70)
+
+Milestone **Now** (workflow tooling). Max moved the task board to Linear on 2026-10-14 (workspace `plus-one`, team `PLU`, one project per theme; every ClickUp task was mirrored with a back-link). This PR moves the repo's plumbing with it, so a session no longer has to keep two systems in sync. ClickUp ids in older docs, comments, commits and migration headers stay as history.
+
+- **`.claude/skills/linear-task/SKILL.md`** replaces `clickup-task`: where issues live (team, projects, the `Model` / `Milestone` / `high-risk` / `Design` labels that replace the old `Model:` line), the six states (`Backlog` / `Todo` / `In Progress` / `In Review` / `Merged - Testen` / `Done`), the transitions (In Review when the PR opens, Merged - Testen at merge, Done only merged AND tested, back to Todo on a zero-work session), the pickup step with concurrency check and session marker, the comment cadence (Dutch), and the drift check. Two Linear-specific rules: the issue key goes in the branch and the PR title so the GitHub integration attaches the PR and moves the state; **never `Fixes`/`Closes`/`Resolves PLU-…`** in a PR title or body, because that closes the issue to Done at merge and skips the test gate.
+- **Stop hook `scripts/hooks/linear-sync-check.mjs`** replaces `clickup-sync-check.mjs` (registered in `.claude/settings.json`). Marker `.claude/linear-session.json` (`{"issues":[{"id":"PLU-70","synced":false}]}`, gitignored); the old `.claude/clickup-session.json` is still honoured so a stale one keeps blocking instead of silently dropping its bookkeeping. `tests/unit/linear-sync-check.test.ts` runs the real script as a child process for the seven behaviours (no marker, unsynced, synced, corrupt, `stop_hook_active`, legacy marker, unreadable stdin).
+- **`scripts/linear-task.mjs`** — the API-key fallback for sessions without the Linear MCP connector (cloud container, CI, connector down): `get`, `state`, `comment` (text or `--file`) and `drift` over the GraphQL API with `LINEAR_API_KEY` (documented, commented out, in `.env.example`; script-only, never printed). `drift` replaces the daily ClickUp↔GitHub reconcile run, which no longer existed anywhere in this environment: it lists the team's started issues, compares each with the PRs that carry its key, flags open PRs whose key points at a non-started issue, and exits 1 on drift so a scheduled routine can alert on it. Verified: syntax, prettier, the no-key / usage / bad-key paths; **not yet exercised against the live API** (no personal key in this session) — the first run with a real key is the acceptance test.
+- **CLAUDE.md** (9 lines): decision-8 reference, the Stripe go-live pointer (PLU-41 / PLU-53), the open-work paragraph, the path-claim rule, "one migration per Linear issue", the model-routing rule (labels), the lifecycle bullet, DoD 7, the gstack precedence line. `.github/dependabot.yml` comment. `tests/unit/claude-md-references.test.ts` green on the new paths.
+
+Open for Max: confirm in Linear → Settings → Integrations → GitHub that the "on merge" automation targets `Merged - Testen` (the skill sets it by hand when a merged PR leaves an issue in `In Review`); create a personal API key only when a session without the connector needs it; optionally wrap `drift` in a scheduled routine.
+
+---
+
 ## 2026-10-14 — Golf F follow-up train #507 merged, `20261018130000` on prod (orchestrator)
 
 - Train [#507](https://github.com/Max-Seffelaar/PlusOne/pull/507) (merge commit `42be45c`). It merged, in order, #504 (quota approval, PLU-65), #503 (Android push, PLU-49), #505 (Select nits + Resend countdown, PLU-55), #506 (form errors, PLU-54) and #509 (layout harness, PLU-116). All nine checks were green on `65a7057`.
@@ -21,6 +93,8 @@ records (repo root), and `engineering-review-2026-07.md`.
   - Parallel TOTP verifies in GoTrue revoke the user's sibling AAL1 sessions. Harnesses log in once per user and reuse the stored state (#509).
   - A field-focus effect must run in `useLayoutEffect`, or CI catches the race between the mark and the focus.
 - Bookkeeping moved from ClickUp to Linear the same day (PLU-70). Open items for Max: PLU-49 (Android device test), PLU-119 (7c manual checks), PLU-117 (Sentry sampling), PLU-118 (Dependabot decision).
+
+---
 
 ## 2026-10-14 — Layout suite: one stored session per seed user, no dev-login per screen
 

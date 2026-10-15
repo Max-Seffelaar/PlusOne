@@ -1,6 +1,7 @@
 import type { Browser, BrowserContext, Page, TestInfo } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { simulateSystemBars, underSystemBars } from './safe-area';
 import { authStatePath } from './auth-state';
 import { SEED, type LayoutScreen, type LayoutUser } from './screens';
 import { shellMounted } from './shell-ready';
@@ -93,6 +94,9 @@ export interface LayoutSnapshot {
    *  intersecting, a missing part hook, or an info column squeezed under
    *  EV_INFO_MIN (86ey6bfyj). */
   evCardIssues: string[];
+  /** Touch projects: visible text/controls under the simulated status bar or
+   *  navigation bar (`safe-area.ts`). Always empty on the mouse project. */
+  underSystemBars: string[];
   consoleErrors: string[];
   failedRequests: string[];
   screenshot: string | null;
@@ -115,6 +119,9 @@ export async function newProjectContext(browser: Browser, testInfo: TestInfo, us
     deviceScaleFactor: use.deviceScaleFactor,
     reducedMotion: 'reduce',
   });
+  // A touch project is a phone/tablet: draw it with simulated system bars, the
+  // way the native shell does (the screenshots show the same frame).
+  if (use.hasTouch) await simulateSystemBars(context);
   const { hostname } = new URL(baseURL ?? 'http://localhost:3000');
   await context.addCookies([{ name: 'po_active_venue', value: SEED.venueId, domain: hostname, path: '/' }]);
   return context;
@@ -194,7 +201,7 @@ async function settle(page: Page): Promise<void> {
  * The in-page measurement pass. Runs in the browser, so it must be
  * self-contained (no closures over Node values beyond its argument).
  */
-type Measured = Omit<LayoutSnapshot, 'screenId' | 'project' | 'consoleErrors' | 'failedRequests' | 'screenshot'>;
+type Measured = Omit<LayoutSnapshot, 'screenId' | 'project' | 'underSystemBars' | 'consoleErrors' | 'failedRequests' | 'screenshot'>;
 
 export async function measure(page: Page): Promise<Measured> {
   return page.evaluate(({ minHit, evInfoMin }) => {
@@ -447,6 +454,7 @@ export async function loadSnapshot(browser: Browser, testInfo: TestInfo, screen:
     const failures = recordFailures(page);
     await openScreen(page, screen.path);
     const measured = await measure(page);
+    const systemBars = testInfo.project.use.hasTouch ? await underSystemBars(page) : [];
     // Failures are copied AFTER the screenshot, so anything the resize for the
     // full-page capture triggers counts too.
     const screenshot = await fullScreenshot(page, project, screen.id);
@@ -454,6 +462,7 @@ export async function loadSnapshot(browser: Browser, testInfo: TestInfo, screen:
       screenId: screen.id,
       project,
       ...measured,
+      underSystemBars: systemBars,
       consoleErrors: [...failures.consoleErrors],
       failedRequests: [...failures.failedRequests],
       screenshot,

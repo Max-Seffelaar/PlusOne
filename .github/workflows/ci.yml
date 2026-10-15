@@ -363,7 +363,7 @@ jobs:
 
       - name: Download every variant's screenshots
         if: needs.flow-shots-select.outputs.flows != ''
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: flow-shots-part-*
           path: flow-screenshots

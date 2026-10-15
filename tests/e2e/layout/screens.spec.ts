@@ -14,6 +14,8 @@ import { loadSnapshot, MIN_HIT, type LayoutSnapshot } from './probe';
  *   field-targets    touch projects: every visible input/select hits ≥44×44
  *   chrome           bottom tabs <1024px, sidebar ≥1024px (use-viewport.ts)
  *   console-network  no console errors, no failed requests (allowlists in probe.ts)
+ *   safe-area        touch projects: no text or control under the simulated
+ *                    status bar / navigation bar (safe-area.ts)
  *   event-card       Home's event cards: name, status pill, meta, stats and
  *                    actions never intersect; the name column never squeezed
  *                    (86ey6bfyj)
@@ -98,6 +100,14 @@ for (const screen of LAYOUT_SCREENS) {
       fixmeIfKnown(screen.id, 'event-card', testInfo.project.name);
       expect(snap.evCards, 'Home rendered no .evcard').toBeGreaterThan(0);
       expect(snap.evCardIssues, `event card layout:${list(snap.evCardIssues)}`).toEqual([]);
+    });
+
+    test('nothing readable or tappable under the system bars on touch', async () => {
+      const testInfo = test.info();
+      const device = deviceFor(testInfo.project.name);
+      test.skip(!device.touch, 'a desktop browser has no system bars over the page');
+      fixmeIfKnown(screen.id, 'safe-area', testInfo.project.name);
+      expect(snap.underSystemBars, `covered by a system bar (safe-area insets not padded):${list(snap.underSystemBars)}`).toEqual([]);
     });
 
     test('no console errors or failed requests', async () => {

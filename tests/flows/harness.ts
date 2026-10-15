@@ -2,6 +2,7 @@ import { rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { test as base, expect, type Locator, type Page, type Project } from '@playwright/test';
 import { LAYOUT_DEVICES, type LayoutDevice } from '../e2e/layout/matrix';
+import { simulateSystemBars } from '../e2e/layout/safe-area';
 
 /**
  * QA-0 flow harness (onboarding-orchestration-claude-code.md §1 "Visueel bewijs
@@ -111,6 +112,10 @@ export const test = base.extend<FlowOptions & { flow: Flow }>({
         w.androidBridge = { postMessage: () => {} };
         w.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android' };
       });
+      // ...and the system-bar insets the Android shell injects (SystemBars,
+      // insetsHandling 'css'), so a native variant is laid out under real
+      // status/navigation bars and `underSystemBars()` can check it.
+      await simulateSystemBars(context);
     }
     await provide(context);
   },

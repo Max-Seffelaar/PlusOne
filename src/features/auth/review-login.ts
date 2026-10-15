@@ -162,7 +162,7 @@ export function renderReviewForm(error: ReviewFormError): string {
   :root { color-scheme: dark; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0B0B0D; color: #F4F4F6;
     font: 16px/1.5 "Hanken Grotesk", system-ui, -apple-system, sans-serif;
-    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom); }
+    padding: var(--safe-area-inset-top, env(safe-area-inset-top)) 16px var(--safe-area-inset-bottom, env(safe-area-inset-bottom)); }
   main { width: 100%; max-width: 360px; }
   h1 { font-family: "Bricolage Grotesque", system-ui, sans-serif; font-size: 28px; margin: 0 0 8px; }
   p { color: #A1A1AA; margin: 0 0 24px; }

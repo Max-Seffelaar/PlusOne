@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 import { Btn } from '@/components/po/kit';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 // Two steps in the browser and the native shell alike (Billing G): no plan
 // step, the Pro trial starts when the company is created.
@@ -25,8 +26,8 @@ export function WelkomStep({
   const steps = STEPS;
   return (
     <div
-      className="flex h-[100dvh] flex-col items-center justify-center overflow-y-auto px-6 py-10"
-      style={{ background: AUTH_GRADIENT }}
+      className="flex h-[100dvh] flex-col items-center justify-center overflow-y-auto"
+      style={{ background: AUTH_GRADIENT, ...safeAreaPadding(40, 24) }}
     >
       <div className="w-full max-w-[460px]">
         <span className="mb-6 inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-[6px] font-body text-[12.5px] font-bold text-acc">

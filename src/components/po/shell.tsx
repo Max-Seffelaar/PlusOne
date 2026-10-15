@@ -38,7 +38,7 @@ export function TabBar({
   return (
     <div
       className="flex flex-none border-t border-line2 bg-[rgba(11,11,13,0.9)] px-[14px] pt-2 backdrop-blur-[12px]"
-      style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: 'calc(14px + var(--safe-bottom))' }}
     >
       <div className="mx-auto flex w-full max-w-[640px]">
         {tabs.map(([k, l, ic]) => {
@@ -131,7 +131,11 @@ export function Sheet({ onClose, children, center = true }: { onClose: () => voi
           // max-w: on a tablet or a wide desktop column a full-width bottom
           // sheet would stretch 800–1000px; cap it to a dialog width (T1). A
           // phone never reaches the cap.
-          'po-anim-sheet flex max-h-full w-full max-w-[560px] flex-col overflow-y-auto rounded-sheet border border-line bg-elev p-[22px] shadow-[0_-20px_60px_rgba(0,0,0,0.5)]',
+          // [&>*]:shrink-0: when the sheet hits max-h, the SHEET scrolls. A
+          // flex-column child that scrolls itself (e.g. the crew pool list)
+          // would otherwise shrink to a sliver instead — on a phone with its
+          // system bars that hid the pool's Add buttons (2026-10-15).
+          'po-anim-sheet flex max-h-full w-full max-w-[560px] flex-col overflow-y-auto rounded-sheet border border-line bg-elev p-[22px] shadow-[0_-20px_60px_rgba(0,0,0,0.5)] [&>*]:shrink-0',
           center ? 'items-center text-center' : 'items-stretch text-left',
         )}
         onClick={(e) => e.stopPropagation()}
@@ -206,10 +210,12 @@ export function ConfirmSheet({
   );
 }
 
-/** Sticky action bar pinned to the bottom of a screen (above the tab bar / safe area). */
+/** Sticky action bar pinned to the bottom of a screen. It never adds the
+ *  bottom safe-area inset itself: the shell root (or the TabBar below it)
+ *  already ends the screen above the system bar (`ROOT_SAFE_AREA`). */
 export function BottomBar({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <div className="flex-none border-t border-line2 bg-bg px-4 pt-3" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}>
+    <div className="flex-none border-t border-line2 bg-bg px-4 pb-3 pt-3">
       {children}
     </div>
   );

@@ -83,6 +83,10 @@ export const FLOWS = {
       'src/components/po/places-field',
       'src/lib/places/',
       'src/lib/legal.ts',
+      // Q15 (2026-10-15): native variants run under simulated system bars.
+      'src/lib/po/safe-area.ts',
+      'src/app/globals.css',
+      'tests/e2e/layout/safe-area.ts',
     ],
   },
   'requests-split': {

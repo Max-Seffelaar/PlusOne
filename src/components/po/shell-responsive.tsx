@@ -21,17 +21,27 @@ import { TabBar, type TabKey } from './shell';
 import { useViewport } from './use-viewport';
 
 /** Safe-area insets for the shell ROOT, applied once for both chromes. N1
- *  (#331) sets `viewportFit: 'cover'` and the installed iOS PWA already runs
- *  `black-translucent`, so the page draws under the status bar/notch/Dynamic
- *  Island and these `env()` values are real (0 in a plain desktop browser).
- *  Top + sides only: the BOTTOM inset is already owned by whatever sits at the
- *  bottom edge — `TabBar`, `BottomBar`, `Sheet` (shell.tsx) and the desktop
- *  sidebar footer below — and padding the root too would count it twice.
- *  Exported for the test only (jsdom's style parser drops a bare `env()`). */
+ *  (#331) sets `viewportFit: 'cover'` and the native shell draws edge-to-edge,
+ *  so the page sits under the status bar/notch/Dynamic Island and the Android
+ *  navigation bar / iOS home indicator. Values come from the `--safe-*`
+ *  tokens (globals.css; 0 in a desktop browser).
+ *
+ *  The BOTTOM inset has exactly one owner: the mobile `TabBar` when it is
+ *  showing (it pads itself, so its background runs under the bar), otherwise
+ *  the root (`ROOT_SAFE_AREA_FULL`) — every sub-screen on a phone and the
+ *  sidebar chrome on an iPad. Everything inside the root (`BottomBar`, `Sheet`,
+ *  `Toast`, a screen's own scroller) therefore ends above the inset and never
+ *  adds it again. Exported for the shell test and the standalone door route. */
 export const ROOT_SAFE_AREA = {
-  paddingTop: 'env(safe-area-inset-top)',
-  paddingLeft: 'env(safe-area-inset-left)',
-  paddingRight: 'env(safe-area-inset-right)',
+  paddingTop: 'var(--safe-top)',
+  paddingLeft: 'var(--safe-left)',
+  paddingRight: 'var(--safe-right)',
+} as const;
+
+/** `ROOT_SAFE_AREA` plus the bottom inset: for a root with no `TabBar`. */
+export const ROOT_SAFE_AREA_FULL = {
+  ...ROOT_SAFE_AREA,
+  paddingBottom: 'var(--safe-bottom)',
 } as const;
 
 export interface ShellNavItem {
@@ -105,20 +115,17 @@ export function ResponsiveShell({
   // Mobile + tablet: bottom tab bar. Full-bleed on a phone; from 641px the
   // content column is centered at the screen's own width class (T1).
   // Desktop (and iPad landscape): 252px sidebar + content column.
-  // The root pads for the top/side safe area (status bar, notch, landscape phone).
+  // The root pads the safe area (status bar, notch, landscape phone), and the
+  // bottom too unless the mobile TabBar is there to own it (ROOT_SAFE_AREA).
+  const tabBarShown = isMobile && isTabRoot;
   return (
     <div
       className={cn('flex h-[100dvh] overflow-hidden bg-bg', isMobile && 'flex-col')}
-      style={ROOT_SAFE_AREA}
+      style={tabBarShown ? ROOT_SAFE_AREA : ROOT_SAFE_AREA_FULL}
     >
-      {/* The sidebar is its own bottom edge (the profile card sits on it), so
-          it — not the root — clears the iPad home indicator. The content
-          column's own `BottomBar` handles its side. */}
+      {/* The root already stops above the iPad home indicator here. */}
       {!isMobile && (
-        <aside
-          className="flex w-[252px] flex-none flex-col border-r border-line2 bg-bg px-4 pt-[22px]"
-          style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}
-        >
+        <aside className="flex w-[252px] flex-none flex-col border-r border-line2 bg-bg px-4 pb-4 pt-[22px]">
           <div className="flex items-center gap-[11px] px-2 pb-[22px]">
             <div className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-acc font-display text-[17px] font-extrabold tracking-[-0.03em] text-on-acc">
               +1
@@ -214,7 +221,7 @@ export function ResponsiveShell({
           {children}
         </div>
       </main>
-      {isMobile && isTabRoot && (
+      {tabBarShown && (
         <TabBar tab={mobileTab} setTab={setMobileTab} badges={mobileBadges} show={mobileTabs} />
       )}
     </div>

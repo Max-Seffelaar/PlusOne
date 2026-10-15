@@ -33,6 +33,7 @@ import { Icon } from '@/components/po/icon';
 import { Btn, Spinner } from '@/components/po/kit';
 import { t } from '@/lib/i18n';
 import type { StaleResumeOverlayPhase } from '../sync/useStaleResumeGuard';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 export interface StaleResumeOverlayProps {
   phase: StaleResumeOverlayPhase;
@@ -66,7 +67,8 @@ export function StaleResumeOverlay({
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="stale-resume-title"
-      className="po-anim-fade fixed inset-0 z-[70] flex flex-col items-center justify-center gap-5 bg-[rgba(6,6,8,0.88)] p-6 text-center backdrop-blur-[3px]"
+      className="po-anim-fade fixed inset-0 z-[70] flex flex-col items-center justify-center gap-5 bg-[rgba(6,6,8,0.88)] text-center backdrop-blur-[3px]"
+      style={safeAreaPadding(24)}
     >
       {phase === 'syncing' ? (
         <>

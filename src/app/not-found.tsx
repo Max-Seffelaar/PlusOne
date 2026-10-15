@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getSessionUser } from '@/lib/auth/context';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 export const metadata: Metadata = {
   title: 'Page not found: PLUSONE',
@@ -27,7 +28,7 @@ export default async function NotFound(): Promise<JSX.Element> {
   const cta = user ? 'Back to your dashboard' : 'Go to login';
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+    <main className="flex min-h-screen flex-col items-center justify-center text-center" style={safeAreaPadding(0, 24)}>
       <div className="po-screen-anim flex w-full max-w-[400px] flex-col items-center">
         <span className="font-display text-[13px] font-bold uppercase tracking-[0.22em] text-acc">
           PLUSONE

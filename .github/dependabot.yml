@@ -8,69 +8,42 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # ONE PR per week carrying every safe (minor/patch) bump (PLU-118,
+    # 2026-10-15). The previous shape grouped by dependency-type (dev/prod),
+    # which put majors and minor/patch bumps in the same PR: one major that
+    # breaks CI poisons the whole group — #512 (@sentry/nextjs 11 broke
+    # next.config.js) and #513 (eslint 10 broke `next lint`) held 29 safe
+    # updates hostage, next and supabase-js patches among them.
     groups:
-      development-dependencies:
-        dependency-type: "development"
-      production-dependencies:
-        dependency-type: "production"
-    # The stack is pinned by CLAUDE.md (Next 15 / React 19). A framework major is
-    # a migration with its own ClickUp task, never a dependency bump that rides
-    # along in a grouped PR — one such major silently poisons the whole group and
-    # blocks every safe bump in it. Minor/patch keeps flowing.
+      minor-and-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    # No automatic major PRs at all. A major is a migration with its own Linear
+    # issue (PLU-15 for Next 16 / React), never a bump that rides along.
+    # Confirmed breakers that led here: zod 4 + stripe 22 (#264), typescript 7
+    # (#241), @sentry/nextjs 11 (#512), eslint 10 + eslint-config-next 16
+    # (#513). Dependabot *alerts* (the Security tab) are not suppressed by an
+    # ignore rule, so a vulnerability fixed only in a major stays visible — it
+    # becomes a deliberate task instead of a surprise PR.
+    #
+    # MEASURED LIMIT of this rule — do not read it as airtight (z8uq9m0h2h,
+    # 2026-09-18, docs/changelog.md). PR #291 bumped @types/react 18 -> 19 with
+    # a per-package major ignore in place: the types rode along as a companion
+    # of the react/react-dom update, on a path where ignore conditions are
+    # never consulted. GitHub documents no such path and exposes no knob for
+    # it. The control that actually stopped that PR was blocking CI, and that
+    # stays the backstop here, not this rule.
     ignore:
-      - dependency-name: "next"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-dom"
-        update-types: ["version-update:semver-major"]
-      # MEASURED LIMIT of the two rules below — do not read them as airtight
-      # (z8uq9m0h2h, 2026-09-18). PR #291 (production-dependencies) bumped
-      # @types/react 18.3.3 -> 19.3.0 in devDependencies with these rules in
-      # place. What was verified:
-      #   * Dependabot's own PR body lists 12 updates, ALL production deps.
-      #     Neither @types/react nor @types/react-dom is among them — so no
-      #     "@types/react update" existed for an ignore condition to filter.
-      #   * The manifest edit is not forced by resolution: with those 12 bumps
-      #     applied and the types left at 18, `pnpm install --lockfile-only`
-      #     resolves cleanly to @types/react 18.3.31 against react 19.3.0, with
-      #     no peer complaint.
-      #   * PR #292 (development-dependencies), the group @types/react actually
-      #     belongs to, left it at ^18.3.3 while bumping @types/node 20->26,
-      #     eslint 8->10, vitest 1->5 and tailwindcss 3->4 around it.
-      # So the rules DO work where Dependabot evaluates them; the bump rode in
-      # as a companion of the react/react-dom update, on a path where ignore
-      # conditions are never consulted. GitHub does not document that path and
-      # exposes no knob for it, so there is nothing here to tighten.
-      #
-      # ACCEPTED, because aligning the types is itself the structural fix: the
-      # companion bump only had a major to do while the runtime (19) and the
-      # types (18) had drifted apart. Both are on 19 now, and a react MAJOR is
-      # ignored below, so this path cannot produce a types major again without
-      # a react major landing first — which is its own migration task.
-      # The control that actually stopped the bad PR was blocking CI: #291's
-      # build failed and branch protection kept it out. That is the backstop
-      # here, not these two lines.
-      - dependency-name: "@types/react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/react-dom"
-        update-types: ["version-update:semver-major"]
-      # Confirmed breakers (PR #264, 2026-08-12): zod v4 dropped
-      # invalid_type_error (src/features/auth/schemas.ts); stripe v22 changed
-      # the pinned apiVersion literal type (stripe-adapter.ts,
-      # stripe-webhook.ts). Both need a dedicated migration task, not a
-      # grouped bump.
-      - dependency-name: "zod"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "stripe"
-        update-types: ["version-update:semver-major"]
-      # Confirmed breaker (PR #241, 2026-08-12): TypeScript 7 is explicitly
-      # rejected by Next 15.5's own typescript-setup guard, which fails
-      # `next lint` outright regardless of what else is in the group.
-      - dependency-name: "typescript"
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
+  # One PR per week here too. Action majors are version-pin bumps with no code
+  # impact so far (5 merged 2026-08-12, #511 2026-10-15) and stay included.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]

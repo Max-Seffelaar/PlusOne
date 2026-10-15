@@ -16,4 +16,4 @@ export const fieldErrorBorder = 'border-red-400';
 // (z8uq9m5eb7): where a browser aligns a scrolled-to field to an edge, it
 // stops this far short of it.
 export const fieldScrollMargin =
-  'scroll-mt-[calc(env(safe-area-inset-top,0px)+88px)] scroll-mb-[calc(env(safe-area-inset-bottom,0px)+120px)]';
+  'scroll-mt-[calc(var(--safe-top)+88px)] scroll-mb-[calc(var(--safe-bottom)+120px)]';

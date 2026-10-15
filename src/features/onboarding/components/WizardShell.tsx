@@ -11,6 +11,7 @@ import type { JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 const STEP_LABELS = ['Company', 'Team'] as const;
 
@@ -99,7 +100,7 @@ export function WizardShell({
   footer: ReactNode;
 }): JSX.Element {
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-bg">
+    <div className="flex h-[100dvh] overflow-hidden bg-bg" style={safeAreaPadding(0)}>
       <aside
         className="relative hidden w-[42%] max-w-[540px] shrink-0 flex-col justify-between p-12 lg:flex"
         style={{ background: AUTH_GRADIENT }}
