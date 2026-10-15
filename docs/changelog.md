@@ -8,6 +8,39 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-15 — Dependabot: one weekly minor/patch PR, every npm major ignored (PLU-118)
+
+Config + docs only, no code, no migration. Decision Max 2026-10-15 ("van essentieel belang").
+
+- **What was wrong.** `.github/dependabot.yml` grouped by *dependency-type* (dev/prod), so
+  majors and safe minor/patch bumps shared one PR. One CI-breaking major poisoned the whole
+  group: #512 (production, 20 updates) failed on `@sentry/nextjs` 10→11
+  (`withSentryConfig is not a function` in `next.config.js`), #513 (development, 20
+  updates) on `eslint` 8→10 (`next lint` passes removed options). Eleven majors held 29
+  safe bumps hostage, `next` 15.5.19→15.5.27 and `@supabase/supabase-js` 2.112→2.117 among
+  them. The issue's original targets #352/#428 were already closed by Dependabot itself on
+  2026-10-14 ("updatable in another way") and superseded by #512/#513 — nothing to close
+  by hand.
+- **New shape.** npm: one group `minor-and-patch` (`update-types: [minor, patch]`) and
+  one wildcard ignore for every major (`dependency-name: "*"`,
+  `version-update:semver-major`), replacing the per-package list (next, react,
+  react-dom, @types/react(-dom), zod, stripe, typescript — all subsumed). github-actions:
+  one group `actions`, majors included (version-pin bumps, 6 merged so far incl. #511).
+- **Expected effect after merge.** Dependabot re-runs on a config change to `main`,
+  closes #512/#513 as superseded (as it did with #352/#428) and opens one PR with the 29
+  safe bumps; CI stays the gate. Majors surface only as Dependabot *alerts* (Security
+  tab — not suppressed by ignore rules) and become deliberate migration issues; PLU-15
+  (Next 16 / React) already exists, the 11 pending majors are the shopping list:
+  @sentry/nextjs 11, tailwind-merge 3, uuid 14, @testing-library/jest-dom 7, @types/node
+  26, @vitest/ui 5, eslint 10, eslint-config-next 16, jsdom 30, tailwindcss 4, vitest 5.
+- **Accepted trade-off.** A security fix that only ships in a major gets no automatic PR
+  any more; the alert still shows. The measured limit of the ignore rule (z8uq9m0h2h:
+  companion bumps bypass it) is kept in the file's comment — blocking CI remains the
+  backstop.
+- CLAUDE.md: the Conventions bullet on `JSX.Element` now states the wildcard rule.
+
+---
+
 ## 2026-10-14 — Repo bookkeeping moves from ClickUp to Linear (PLU-70)
 
 Milestone **Now** (workflow tooling). Max moved the task board to Linear on 2026-10-14 (workspace `plus-one`, team `PLU`, one project per theme; every ClickUp task was mirrored with a back-link). This PR moves the repo's plumbing with it, so a session no longer has to keep two systems in sync. ClickUp ids in older docs, comments, commits and migration headers stay as history.
