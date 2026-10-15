@@ -1,6 +1,6 @@
 # Traction & CRM — what do we actually build? CEO plan review (working plan)
 
-Status: DECIDED (CEO review + eng review 2026-10-14, matching update 2026-10-15). Build: Linear project Tractie & CRM (PLU-110, PLU-111, PLU-112, PLU-114, PLU-115; Max actions PLU-16).
+Status: DECIDED (CEO review + eng review 2026-10-14, matching update and D6b 2026-10-15). Build: Linear project Tractie & CRM (PLU-110, PLU-112, PLU-114, PLU-115; Max actions PLU-16). PLU-111 (Traction screen) cancelled by D6b.
 Linear: project Tractie & CRM, PLU-69 (this review), PLU-16 (Max actions).
 Plan under review: `docs/attio-crm-plan.md` (2026-07-09, series 01–05, "Nothing built" per `docs/changelog.md:11443-11447`).
 
@@ -43,6 +43,7 @@ Plan under review: `docs/attio-crm-plan.md` (2026-07-09, series 01–05, "Nothin
 | D5 — legal gate for the People sync (Max) | legal README:64; privacy-policy.md:135; subprocessors.md:32 | **B) Live on Max's own legitimate-interest decision; no lawyer gate.** Privacy §8, subprocessor row and legal README:64 updated in the same PR (recommendation was A) | — | approved | Max, AskUserQuestion D5, 2026-10-14: "B) Live op eigen besluit". Supersedes the 2026-10-05 line in README:64 for this sync. |
 | D4.4 — old 05 support impersonation (Max) | `docs/designs/platform-support-write-access-ceo-plan.md` (CEO + eng reviewed) | **Merged into project Admin Platform**; nothing built here | — | approved | Max, AskUserQuestion D4.4, 2026-10-14: "Opgegaan in Admin Platform". |
 | D6 — shape of the traction view (Max) | CLAUDE.md "one responsive surface", G1 URLs, T1 tablet | **Platform › Traction** sub-screen: lifecycle-ladder funnel, companies per stage, at-risk/churned list, link to the Attio record; fed by the D4.1 function | — | approved | Max, AskUserQuestion D6, 2026-10-14: "Platform › Traction". |
+| D6b — Traction screen dropped (Max) | sync now Now (M1); lifecycle lands in Attio per company (`product_lifecycle`, `at_risk`); Platform tab already shows invites funnel, billing, activity, company card | **No Traction screen.** D4.3/D6 reversed. Sync status goes on Platform › Overview, "Open in Attio" on the existing company card (PLU-115); `platform_company_lifecycle()` wrapper dropped, `company_lifecycle_rows()` stays internal for the sync (PLU-110); no design pass needed | — | approved | Max in chat 2026-10-15: "we hebben de platform al en dat is voor nu meer dan genoeg" and "ja, voer het door". Supersedes D4.3 and D6; T2 / PLU-111 cancelled. |
 | D7 — objection / opt-out for the People sync (Max) | GDPR art. 21 under legitimate interest (D5) | Max chose "manual in Attio" (recommendation was a DB flag + LIA). Reopened as D7b: a manual delete in Attio is undone by the next full-state run | D7b | superseded by D7b | Max, AskUserQuestion D7, 2026-10-14: "Handmatig in Attio". |
 | D7b — how a manual opt-out survives the sync (Max) | full-state hourly assert re-creates a deleted person | **Checkbox `plusone_crm_opt_out` on the Attio person, set by hand; the sync skips that person and clears the synced values** | — | approved | Max, AskUserQuestion D7b, 2026-10-14: "A) Vinkje in Attio". |
 | D8 — who is "everyone" (Max) | `venue_memberships`, `event_organizers` | **Members (all roles) + crew** (event_organizers), crew linked to the company of their events (recommendation was members only) | — | approved | Max, AskUserQuestion D8, 2026-10-14: "Members + crew". |
@@ -63,7 +64,7 @@ Approval readiness: PASS — rows D1, D2, D3, D4, D4.1–D4.4, D5, D6, D7 (super
 ## Decision (the outcome of PLU-69)
 
 1. **Build an automated one-way sync into Attio** (Companies + People: members of every role, crew, and platform-invite prospects). Milestone **Now** (M1, reversed 2026-10-14). Legal basis: legitimate interest, Max's own decision (no lawyer gate), documented in a short LIA; Privacy §8, the Attio subprocessor row, a new retention row (60 months for former team/crew) and legal README:64 change in the same PR.
-2. **Build one platform-only company lifecycle function and a Platform › Traction screen** on top of it. Milestone **Now**.
+2. **Build one internal company lifecycle function** for the sync; **no Traction screen** (D6b, 2026-10-15): sync status on Platform › Overview, "Open in Attio" on the company card. Milestone **Now**.
 3. **Stays manual:** the sales pipeline in Attio (`Sales stage`, never written by the sync), opt-out ticks in Attio, the 24/60-month clean-up in Attio, and the Attio attribute setup (checklist).
 4. **Dropped:** old 01 as written (views + `events.created_by`), old 03 (weekly Slack digest, Slack webhook), the 9/7 Vercel cron route and `CRON_SECRET`. **Moved:** old 05 to project Admin Platform. **Kept:** old 04 as Platform › Traction.
 
