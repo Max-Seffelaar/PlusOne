@@ -1,0 +1,41 @@
+# Moves the Linear issue(s) of a merged PR on, so Max never sets Done by hand
+# (PLU-125). The rule lives in scripts/lib/linear-auto-done.mjs:
+#   Test: auto, no migration  → Done
+#   Test: auto, migration     → stays Merged - Testen until the prod push
+#   Test: Max / no Test line  → Merged - Testen, assigned to Max
+# Bookkeeping only: the job never fails the merge, and without the
+# LINEAR_API_KEY secret it skips with a notice.
+name: linear-auto-done
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  auto-done:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Trusted code only: the script comes from main, never from the PR head.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Update Linear
+        run: node scripts/linear-auto-done.mjs
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          # Passed through env, never interpolated into the run line.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
