@@ -17,6 +17,37 @@
 - **Max merget.** Branch protection staat aan. De worker levert een draft-PR, CI groen, test-handoff. Max test, antwoordt "1 ✅, 2 ❌ — …", merget, en doet de prod-push van migraties vanuit de linked main-checkout (CLAUDE.md "Prod-push flow"). Pas dan de volgende brief.
 - **Stack in de sessie:** remote container → `pnpm stack` (eerste keer circa 5 minuten); laptop → de lopende lokale stack. Vóór een pgTAP-run `pnpm db:fresh`, en alleen als niemand anders op die stack test.
 - **Lokaal testscript voor Max (les 2026-10-11):** elk script dat de orchestrator stuurt (1) controleert een échte head-sha, nooit een placeholder; (2) draait na `pnpm db:fresh` ook `pnpm promo:seed` (Kelder Nord, de realistische company, `owner@kelder-nord.test`), want `db:fresh` wist álles tot `seed.sql` (2 companies; `manager@` zit alleen in Club Vesper, `admin@` in beide), ook companies die Max zelf lokaal aanmaakte; (3) zet de data klaar die de test nodig heeft (bijv. `venues.contact_email`, anders gaat er geen gastmail; een aanvraag met de juiste +N) via `docker exec -i supabase_db_PlusOne_Guestlist psql -U postgres`; (4) noemt de seed-gebruiker met het juiste recht (aanvragen beslissen = admin of event-organisator, niet `manager@`). Controleer de gebruiker tegen de flow van de PR (`tests/flows/*.flow.ts`). (5) zegt erbij: na een branch-wissel eerst een harde reload (Ctrl+Shift+R) of een nieuw tabblad; anders geeft elke knop "Server Action … was not found" (oude action-ids uit het vorige build, eventueel uit de service-worker-cache: DevTools → Application → Unregister + Clear site data).
+- **Vaste vorm voor Max' testscript en prod-push (besluit Max 2026-10-12):** elk lokaal testscript gaat als één plakbaar PowerShell-blok (Max' Windows-checkout, poort 7000), altijd in deze vorm; alleen `$branch`, `$expect` en de SQL-regel wisselen. Het script stopt zelf bij lokale wijzigingen, een mislukte switch, een andere head of een mislukte seed:
+
+  ```powershell
+  & {
+    $repo='C:\Users\Maxse\Documents\GitHub\PlusOne'; $branch='<branch>'; $expect='<7-teken head-sha>'
+    Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 2
+    Set-Location $repo; git fetch origin
+    if (git status --porcelain --untracked-files=no) { 'STOP: local changes'; git status --short; return }
+    git switch $branch; if ($LASTEXITCODE) { 'STOP: switch failed'; return }
+    git pull --ff-only
+    $head = git rev-parse --short HEAD; "Branch: $branch  Head: $head"
+    if (-not $head.StartsWith($expect)) { "STOP: head is $head, expected $expect"; return }
+    pnpm install
+    pnpm db:fresh;   if ($LASTEXITCODE) { 'STOP: db:fresh failed'; return }
+    pnpm promo:seed; if ($LASTEXITCODE) { 'STOP: promo:seed failed'; return }
+    "<data-setup-SQL voor deze test>" | docker exec -i supabase_db_PlusOne_Guestlist psql -U postgres -d postgres -v ON_ERROR_STOP=1
+    if ($LASTEXITCODE) { 'STOP: test setup failed'; return }
+    Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
+    $env:DEV_WEBPACK='1'; $env:PORT='7000'; pnpm dev
+  }
+  ```
+
+  Daaronder de dev-login-links op poort 7000 en de Ctrl+Shift+R-regel. Prod-push na een merge, ook altijd als één blok, met **alle** timestamps die de dry-run moet tonen (als PowerShell-lijst met komma's, `'a','b'`, niet met spaties; de functie stopt als de lijst niet exact klopt, les 2026-10-13 bij train #502) en de merge-commit die `git log -1` hoort te tonen:
+
+  ```powershell
+  cd C:\Users\Maxse\Documents\GitHub\PlusOne
+  git switch main; git pull --ff-only; git log -1 --oneline
+  Push-PlusOneProd '<ts1>','<ts2>'   # alle pending timestamps, PowerShell-lijst met komma's
+  ```
+
+  `Push-PlusOneProd` is Max' eigen functie (niet in de repo); de orchestrator verifieert daarna op prod (`list_migrations` + functies/grants) en schrijft het resultaat in §2b. Workers leveren het testscript in hun eindrapport al in deze vorm.
 - **Migratie-timestamps zijn hier toegewezen** (§3), niet door workers gekozen. De worker checkt zijn timestamps tegen `origin/main` vóór de eerste push: `git ls-files supabase/migrations | grep 202610`. Op 2026-10-06 bestaan `20261006120000` t/m `20261006170000`; alles hieronder ligt daarna.
 - **Gedeelde bestanden:** omdat er niets parallel loopt, is er geen wachtlijst. Wel een scope-hek per taak (§4), zodat een worker geen werk van een latere taak alvast meeneemt. Buiten het hek = stoppen en melden in de PR, niet bouwen.
 - **Review gates:** P1 (layout en middleware = auth), D (RLS op `check_ins`), G (billing, service-role-RPC's, platform-RPC's), F (webhook, mail-infra, publieke afmeld-route), E en Q (SECURITY DEFINER-RPC's met quota-math), P2 (middleware, RLS, service worker) en de invite-metadata in A zijn high-risk. De worker schrijft ongevraagd de security-research-prompt in de PR-body; Max start daarna de reviewer-sessie uit §5 vóór hij merget.
@@ -29,22 +60,22 @@
 | # | Taak | ClickUp | Model | Wacht op | Exit-criterium | Bewijs |
 |---|---|---|---|---|---|---|
 | 0 | Spikes | geen (dit doc §9) | Opus | niets | §9 ingevuld; comments op D, E, A, F; Max' open besluiten uit §9 beantwoord | — |
-| 0a | QA-0 flow-screenshots + handoff-automatisering | zie ClickUp "QA-0" | Opus | 0b (P1 gaat voor: snelheid is de acute pijn) | gemerged; `pnpm qa:flows onboarding` geeft vier varianten met contact sheet; CI-job + PR-comment; native-shell-guard als vaste flow | draft-PR van `claude/qa-0-flow-shots` → CI-job `flow-shots` → artifact `flow-contact-sheets` + sticky PR-comment |
+| 0a | QA-0 flow-screenshots + handoff-automatisering | z8uq9m5m8a | Opus | 0b (P1 gaat voor: snelheid is de acute pijn) | gemerged; `pnpm qa:flows onboarding` geeft vier varianten met contact sheet; CI-job + PR-comment; native-shell-guard als vaste flow | draft-PR van `claude/qa-0-flow-shots` → CI-job `flow-shots` → artifact `flow-contact-sheets` + sticky PR-comment |
 | 0b | Snelheid P1 (quick wins) | z8uq9m2xyn | Opus | 0 | gemerged; prod-push (index + invites-policy); layout ≤ 2 roundtrips; geen `revalidatePath` meer in po-mutaties; terugkeer naar een tab zonder server-fetch | — |
 | 0c | Notificaties N1 (push bundelen) | z8uq9m2yvk | Opus | 0b | gemerged; prod-push; 30 aanvragen in 2 minuten geven 10 directe pushes en daarna één per uur met het aantal | — |
 | 0d | Crew-bug (bestaand account als crew) | z8uq9m2yvp | Opus | 0b | gemerged; `staff@` (bestaand account) is als crew toe te voegen aan een event van de andere seed-company en ziet alleen dat event | — |
 | 0e | Mail-infra F0 (Resend + team-invite mails) | z8uq9m2yvt | Opus | 0d; Max: Resend-key | gemerged; prod-push; team-invite naar een bestaand account en crew-toevoeging geven een echte mail (geen magic link meer); webhook idempotent | — |
-| 0f | Sentry-hygiene S1 | zie ClickUp "Sentry-hygiene S1" | Sonnet | 0b | gemerged; verwachte gebruikersfouten (42501, exists, validatie, already_handled, billing_*) komen niet meer in Sentry; Supabase-fouten hebben een leesbare titel en `code`-tag; EvalError-bron bekend | — |
-| 0g | Last-admin-guard (bug: eigenaar kan zichzelf verwijderen) | n.n.b. | Opus | 0b | gemerged; prod-push; de laatste admin van een company kan zichzelf niet verwijderen of degraderen, ook niet via de API; knop verborgen in Team |
+| 0f | Sentry-hygiene S1 | z8uq9m5m8c | Sonnet | 0b | gemerged; verwachte gebruikersfouten (42501, exists, validatie, already_handled, billing_*) komen niet meer in Sentry; Supabase-fouten hebben een leesbare titel en `code`-tag; EvalError-bron bekend | — |
+| 0g | Last-admin-guard (bug: eigenaar kan zichzelf verwijderen) | z8uq9m5m8d | Opus | 0b | gemerged; prod-push; de laatste admin van een company kan zichzelf niet verwijderen of degraderen, ook niet via de API; knop verborgen in Team |
 | 1 | Venue → Company | z8uq9m2vqc | Opus | 0 | gemerged; `pnpm e2e:layout` groen; geen "venue" meer zichtbaar in de UI; event met eigen locatie zichtbaar op de eventkaart | — |
 | 2 | Billing G | z8uq9m2vrz | Opus | 1 | gemerged; prod-push; onboarding zonder plan/betaalstap; Platform-tab kan trial verlengen en "always free" zetten; native toont alleen status en de neutrale zin (e2e-guard native-shell groen); Max' Stripe-stappen (§6) klaar vóór de env-vars live gaan | — |
 | 2b | Platform R | z8uq9m2ybj | Opus | 2 | gemerged; prod-push; invite-rij toont company-chip met Switch, events, status, activiteit; Overview toont status-tellingen, MRR/ARR, trial-funnel, gebruik; manager@ ziet niets | — |
 | 2c | Billing-mails B1 | z8uq9m2z19 | Opus | 0e, 2, 2b; copy gekozen | gemerged; prod-push; seed-trials op dag 7/12/14/21 krijgen elk precies één mail per run; Platform-tab toont de tijdlijn per company | — |
 | 3 | Onboarding A | z8uq9m2vg5 | Opus | 2 | gemerged; comped-invite werkt end-to-end; Places op het adresveld; één DPA-checkbox; nieuwe invite-mail in Mailpit en in prod gezien | — |
-| 3b | Event-locaties L (opgeslagen locaties per company; publiek altijd de event-locatie) | n.n.b. | Opus | 3 | gemerged; prod-push; deellink en statuspagina tonen altijd de event-locatie, nooit het companyadres; per event een opgeslagen locatie kiezen | — |
+| 3b | Event-locaties L (opgeslagen locaties per company; publiek altijd de event-locatie) | z8uq9m444c | Opus | 3 | gemerged; prod-push; deellink en statuspagina tonen altijd de event-locatie, nooit het companyadres; per event een opgeslagen locatie kiezen | — |
 | 4 | Check-in D | z8uq9m2vg6 | Opus | 0 (ontwerp), 1 | gemerged; groep-knop en per-persoon-knop; doorhost kan niet uitchecken tenzij de setting aan staat, ook niet via de API | — |
 | 5 | Event C + Dashboard B | z8uq9m2vg7 + z8uq9m2vg8 | Opus | 1 | één PR, twee taken; gemerged; test-handoff beantwoord | — |
-| 5b | Share-import S2 (deel vanuit WhatsApp/Mail/Notes/Excel naar PlusOne) | n.n.b. | Opus | 1 | gemerged; een gedeelde tekst uit WhatsApp landt op Paste a list met event- en tier-keuze, +N en e-mail herkend, telling "6 entries = 9 guests (2 with email)"; werkt als Android-PWA en in de Android-shell; iOS Share Extension naar het Capacitor-programma |
+| 5b | Share-import S2 (deel vanuit WhatsApp/Mail/Notes/Excel naar PlusOne) | z8uq9m43m8 | Opus | 1 | gemerged; een gedeelde tekst uit WhatsApp landt op Paste a list met event- en tier-keuze, +N en e-mail herkend, telling "6 entries = 9 guests (2 with email)"; werkt als Android-PWA en in de Android-shell; iOS Share Extension naar het Capacitor-programma |
 | 6 | Gastcommunicatie F | z8uq9m2vpy | Opus | 1, 2 (company-contact zit in settings), copy gekozen | gemerged; prod-push; een handmatig toegevoegde gast met e-mail krijgt binnen een minuut "You're on the list"; afmeldlink werkt; bounce-webhook idempotent | — |
 | 7 | Requests E | z8uq9m2vga | Opus | 6 | gemerged; prod-push; splitsen, inkorten, deels afwijzen met verplichte opmerking; statusmail via F | — |
 | 8 | Quota-aanvraag Q | z8uq9m2xyp | Opus | 7 | gemerged; prod-push; aanvrager ziet de beslissing op Home; akkoord met gast-gegevens zet de gast op de lijst | — |
@@ -227,6 +258,72 @@ Besluiten Max (avond): Tasks-tab in een aparte mini-PR (door-bestanden); deep li
 
 Aandachtspunten: 3 en 5 raken allebei `events/edit.tsx` (3 alleen het locatieveld, 5 tijdkiezer/tier-stap); 2b en 3 raken allebei de platform-schermen (3 alleen comped-vinkje/resend). De digest van 2b wordt alleen gebouwd als hij zonder nieuw service-role- of cron-pad op de mail-infra past; anders een ontwerpvoorstel in de PR. Na de merge van 3 werkt de orchestrator de CLAUDE.md-regel "Platform invites … keep the Supabase path" bij (docs-PR).
 
+### Status golf F (orchestrator, gestart 2026-10-12)
+
+Startcheck 2026-10-12 (`origin/main` = `4b9c8d8`): golf E staat in de code (`src/features/billing/mail-schedule.ts`, `src/app/u/[token]/route.ts`, migraties `20261013170000`–`20261015160000`; notificatievoorkeuren als `user_notification_prefs`, niet als kolom op `user_profiles`). Taak 7 (#457) was al gemerged en op prod. ClickUp bereikbaar.
+
+Besluiten Max 2026-10-12 (startprompt golf F):
+- **Eerst de wachtrij, dan golf-F-merges:** #459 → #460 → #461 → #464 → #466 → #469 → #470, plus #474 (geen migratie). Golf-F-PR's mergen pas als die allemaal in main staan; bouwen mag al.
+- **Taak 8 nieuw slot `20261016160000`:** `20261016120000` is bezet door #459; de wachtrij bezet `20261016120000`–`…150000`. `20261017120000`/`…120100` (taak 9) zijn vrij.
+- **Script- en prod-push-vorm vast** (§1).
+- **Antwoorden startcheck (Max 2026-10-12):** (1) #470 en #474 mergeable maken via een worker; (2) asymmetrische JWT-signing-keys staan **aan**, dus de getClaims-PR van taak 9 gaat door; (3) PostHog (taak 10) later; (4) 7c Kit Select **parallel** aan 8 (geen bestandsoverlap).
+- **Eerst alles bouwen, daarna testen, mergen en pushen (Max 2026-10-12, middag):** vervangt "één worker tegelijk" voor golf F. Alle taken bouwen nu parallel; taak 9 in drie werkstromen (9-DB, 9-AUTH, 9-FE) en taak 10 keyless (Noop zonder `NEXT_PUBLIC_POSTHOG_KEY`). Wat níet parallel kan en dus in volgorde blijft: merge + prod-push per migratie-PR in timestamp-volgorde (wachtrij → 8 → 9-DB → 9-FE → 10), een migratie-PR merget pas als Max zegt "klaar om te pushen", elke latere PR merget main vóór zijn laatste push (CI opnieuw), en de reviewer-sessie per high-risk PR. Extra slots: 9-FE `20261017120200_contact_event_counts`, `20261017120300_event_headcounts_single` (alleen als nodig); 10 `20261018120000_analytics_opt_out`.
+
+**Stand 2026-10-13 ochtend.** De wachtrij is gemerged via merge-train [#477](https://github.com/Max-Seffelaar/PlusOne/pull/477) (+ #459) en staat **op prod** t/m `20261016150000` (geverifieerd met `list_migrations`). Taak 8 en 7c stonden sinds 2026-10-12 10:31 vast op een ClickUp-permissieprompt; ze zijn onderbroken en zonder ClickUp herstart. **Taak 8 opnieuw geslot naar `20261016180000`**: `…160000` nam #479 (`template_guest_texts`, andere orchestrator) en `…170000` nam #480 (`admin_sessions_drop_ip_aal`, contractstap). Reviewer-sessies voor alle opgeleverde golf-F-PR's gestart op 2026-10-13.
+
+**Update 2026-10-13 middag:** #480 (`20261016170000`) en #479 (gemerged als **`20261016180000`**, niet `…160000`) staan op prod (geverifieerd). Taak 8 botste daarmee en is **opnieuw geslot naar `20261016190000`**. Main was rood op `platform_invite_ade_trial.test.sql` B7 (datumklif: vanaf 2026-10-13 is `now()+14d` ≥ 27 okt); #495 heeft dat in main gerepareerd. Max gaf toestemming om #496 (7c) te mergen als alles klaar en goed is. Merge- en prod-push-volgorde (timestamps): 8 `20261016190000` → #482 `20261017120000`+`…120100` → #481 `20261017120200` → #484 `20261017120300` → #485 `20261018120000` → #488 → #489. PR's zonder migratie (#483, #486, #487, #490–#493, 7c) mergen na hun review in elke volgorde; de PR die daarna komt merget main opnieuw.
+
+**Besluiten Max 2026-10-13 (middag):**
+- **PostHog (taak 10) geparkeerd.** #485, #488 en #489 zijn gesloten; de branches blijven bestaan. Slot `20261018120000` vervalt. Komt het terug, dan eerst de blokkerende review-bevinding fixen: de `/ingest`-rewrite stuurt de sessie-cookie en de Authorization-header door naar PostHog. Kanttekening van de orchestrator: Sentry meet fouten en performance, PostHog meet productgebruik (features, funnels). De funnel-cijfers die we nu nodig hebben komen uit Platform R, uit de eigen database.
+- **Merge-train in plaats van per-PR mergen.** Eerst alle PR's klaar:
+  - de blokkerende en should-fix-bevindingen verwerkt, plus een delta-review waar iets blokkerends was;
+  - main gemerged en CI groen per PR.
+  
+  Daarna bouwt de orchestrator één train-branch met alle heads in timestamp-volgorde. De train krijgt volledige CI, een `supabase db reset` met `pnpm db:test` en de flows. Max test één keer, op de train. Daarna één merge en één `Push-PlusOneProd` met de nieuwste timestamp; de push direct na Vercel Ready. De losse PR's sluiten als gemerged zodra hun commits in main staan. Precedent: privacy-train #477.
+
+- **Train-regels (Max 2026-10-13, "Okay, lets go"):**
+  - **Cutoff 2026-10-13 22:00 Amsterdam (20:00 UTC).** Een PR die dan goedgekeurd en groen is, gaat mee; de rest gaat naar de volgende ronde.
+  - **Fout tijdens Max' test:** een kleine fix (≤ ~1 uur) gaat in de PR zelf, daarna wordt de train opnieuw gebouwd. Bij een grotere fix gaat de PR eruit, de rest merget, en die PR volgt later apart. Een security- of privacyfout gaat nooit live.
+  - **#484, #490 en #493 zijn één groep:** samen erin of samen eruit.
+  - **Een migratie-PR die eruit gaat krijgt later een nieuw slot,** omdat de CLI een oudere migratie dan de nieuwste op prod weigert.
+
+**Train gebouwd (2026-10-13 ~16:00 UTC, vóór de cutoff, want alles was goedgekeurd):** [#502](https://github.com/Max-Seffelaar/PlusOne/pull/502), branch `claude/golf-f-train`, head `2033e4cc`. 14 PR's in timestamp-volgorde: #494, #482, #481, #484, #490, #493, #486, #491, #492, #483, #487, #498, #500, #501.
+- **Wat de train zelf doet:**
+  - de changelog-entries samengevoegd;
+  - `usePoHomeEvents` krijgt de kant van #490 (geverifieerd door de 9-FE-reviewer);
+  - de entries in `flows.mjs` en spec #65/#66 allebei behouden;
+  - de `chunkIds`-import hersteld: #481 haalde hem weg, #494 gebruikt hem.
+- **Lokaal:** tsc schoon; lint alleen de 2 bekende warnings; `CI=1 pnpm test` 346 files / 4179 tests groen. pgTAP, layout en flows draaien in CI.
+- **Prod-push na de merge:** `Push-PlusOneProd '20261016190000','20261017120000','20261017120100','20261017120200','20261017120300'` (zie §1: alle pending timestamps als lijst).
+
+**Golf F afgerond (2026-10-13 avond).** Train #502 gemerged als `9b924ca`; prod-push gedaan en geverifieerd via Supabase MCP: `20261016190000`–`20261017120300` aanwezig, functies/grants/policies/triggers zoals bedoeld, 0 public-tabellen zonder RLS. Max testte de train: alles werkt. ClickUp: z8uq9m2xyp, z8uq9m2xz2, z8uq9m5eb7 en z8uq9m5enh op complete; 7c (z8uq9m4a2w) blijft in progress tot 🖐13/🖐14. Wave-record + retro: `docs/changelog.md` (2026-10-13, orchestrator).
+
+Follow-ups uit Max' train-test (na de exit van golf F, zelfde orchestrator):
+
+| Taak | Worker-sessie | Branch | Status | Prod |
+|---|---|---|---|---|
+| Quota-akkoord met aanpassingen: tier, +N omlaag, inkorten ([z8uq9m5kux](https://app.clickup.com/t/z8uq9m5kux)) | `session_01B4oT2HiYqKJFCq8bCdBbKa` | `claude/z8uq9m5kux-quota-adjust` | **gemerged** via train #507 (`42be45c`); review ronde 1 geen security-defect, delta ronde 2 APPROVE; Max ronde 2 ✅; **op prod** (Max, 2026-10-14; geverifieerd). Linear PLU-65 Done | `20261018130000_quota_request_adjust` (worker koos …130000: …120000 staat nog op de PostHog-branches) |
+| Android-push kan niet aan ([z8uq9m5kuy](https://app.clickup.com/t/z8uq9m5kuy)) | `session_019qoyGPtXLiuL82x4ximYZb` | `claude/z8uq9m5kuy-android-push` | **gemerged** via train #507 (`42be45c`); wacht op Android-build + device-test door Max (Linear PLU-49, Merged - Testen) | — |
+| Form errors vervolg: 11 formulieren + nits #498 ([z8uq9m5m8g](https://app.clickup.com/t/z8uq9m5m8g)) | `session_014XYq7mQV4Px7exEncC3ewH` | `claude/z8uq9m5m8g-form-errors-followup` | **gemerged** via train #507 (`42be45c`) als [#506](https://github.com/Max-Seffelaar/PlusOne/pull/506); Max ronde 2 ✅. Linear PLU-54 Done | — |
+| Kit Select nits (7c) + resend-aftelling ([z8uq9m5m8h](https://app.clickup.com/t/z8uq9m5m8h)) | `session_01SHmxxY28xpiTzrGdukS914` | `claude/z8uq9m5m8h-select-nits-resend` | **gemerged** via train #507 (`42be45c`) als [#505](https://github.com/Max-Seffelaar/PlusOne/pull/505); Max ronde 2 ✅. Linear PLU-55 Done; 7c 🖐13/🖐14 = PLU-119 | — |
+
+**Follow-up-train (2026-10-14):** [#507](https://github.com/Max-Seffelaar/PlusOne/pull/507) **gemerged** (`42be45c`, Max: "We can merge when the screenshot issue is fixed"). Volgorde: #504 → #503 → #505 → #506 → #509. #509 is de layout-harness-fix (PLU-116): één opgeslagen sessie per seed-user, want een parallelle TOTP-verify trok in GoTrue de AAL1-sessies van dezelfde user in. Alle negen checks groen op `65a7057`. `20261018130000` **op prod** (Max, 2026-10-14). Geverifieerd: functies definer + lege search_path, ACL, trigger, kolommen zonder UPDATE-grant (INSERT door de guard geweigerd), vijf CHECKs. Sinds 2026-10-14 loopt de bookkeeping via Linear (PLU-70); ClickUp-ids hierboven zijn historie. Open bij Max: PLU-49 (device-test), PLU-119 (7c 🖐13/🖐14), PLU-117 (Sentry-sampling terug naar 0.05), PLU-118 (Dependabot-besluit).
+
+ClickUp-ids nagelopen (2026-10-13): 0a, 0f en 0g bestonden niet en zijn achteraf aangemaakt als complete (z8uq9m5m8a, z8uq9m5m8c, z8uq9m5m8d); 3b = z8uq9m444c, 5b = z8uq9m43m8 (staat nog op in progress).
+
+| Taak | Worker-sessie | PR | Status | Reviewer | Prod |
+|---|---|---|---|---|---|
+| 8 Quota-aanvraag Q ([z8uq9m2xyp](https://app.clickup.com/t/z8uq9m2xyp)) | `session_018U9q4vLAhm1Gk9mg1JTFJW` | [#494](https://github.com/Max-Seffelaar/PlusOne/pull/494) | **gemerged** (train #502) en op prod; was: opgeleverd 2026-10-13 (head `96f5c36`; main incl. #479/#495 gemerged; `supabase db reset` + `pnpm db:test` groen, 117 files / 3368 asserts; flows quota-request-guest + team-mail 4/4) | `session_011fDzCADzZQsv7TqTGCRUza` | `20261016190000` |
+| 7c Kit Select ([z8uq9m4a2w](https://app.clickup.com/t/z8uq9m4a2w)) | `session_014QHVZGmNf9anTyWc3TZ8T4` | [#496](https://github.com/Max-Seffelaar/PlusOne/pull/496) | **gemerged** (`956b56d`, 2026-10-13, door de orchestrator op Max' "mag gemerged worden als alles klaar en goed is"); main eerst erin gemerged (ADE-B7-fix #495); CI groen op `fffa72f`, contact sheet Q1–Q12 ✅ ×4; 3 nits als follow-up; 🖐13 (Android-hardware-back) en 🖐14 (VoiceOver/TalkBack) open bij Max | orchestrator | — |
+| 11 Sentry-ruis S2 + platform-invite = resend ([z8uq9m5enh](https://app.clickup.com/t/z8uq9m5enh)) | A `session_01FcGwXZUgz7TdVPishNFLkX`, B `session_012Mjtk6ZhCb1BRbxrAooTbs` | [#500](https://github.com/Max-Seffelaar/PlusOne/pull/500), [#501](https://github.com/Max-Seffelaar/PlusOne/pull/501) | **gemerged** (train #502); getest door Max | A: orchestrator; B: reviewer-sessie | — |
+| Form errors point at the field ([z8uq9m5eb7](https://app.clickup.com/t/z8uq9m5eb7)) — toegevoegd door Max 2026-10-13 (uit zijn test van #479) | `session_018bSTsV383wC4WesbUnSJFD` | [#498](https://github.com/Max-Seffelaar/PlusOne/pull/498) | **gemerged** (train #502); was: opgeleverd 2026-10-13 (head `73ce0b3`, main incl. #479/#496 gemerged); CI groen (lint-and-test, layout, flow-shots ×4); orchestrator-diff OK, 2 nits (NL-fallback in `actionError`, `invalidIssues` markeert alleen het eerste veld); Date/Time: invalid wint van open (reden in de PR); follow-up-lijst van 11 formulieren in de PR-body; wacht op Max' test (🖐8 telefoon, 🖐9 templates) | orchestrator | — |
+| Wachtrij-fix #470 + #474 | `session_01RfXsXyEkhkrGYWnriBSd9v` | #470, #474 | **gemerged** (in train #477) | — | — |
+| 9-DB set-based RLS + check_ins-merge | `session_01KjaQGWqaVqbDWYdsqMqEn9` | [#482](https://github.com/Max-Seffelaar/PlusOne/pull/482) | **gemerged** (train #502) | `session_01HnHACPtcNn6jXNHP1YawAW` | `20261017120000`, `…120100` |
+| 9-AUTH getClaims / SW-timeout | `session_01QJLy7bUqwGj2drEKHDnW4t` | [#483](https://github.com/Max-Seffelaar/PlusOne/pull/483), [#487](https://github.com/Max-Seffelaar/PlusOne/pull/487) | **gemerged** (train #502) | `session_01GFRtRxNMtVVN7hYNNj3JNK` | — |
+| 9-FE RPC's | `session_01Bz1NMNNq7KxjGim64Nbi18` | [#481](https://github.com/Max-Seffelaar/PlusOne/pull/481), [#484](https://github.com/Max-Seffelaar/PlusOne/pull/484) | **gemerged** (train #502) | `session_01Q2Z3JN3NcXApe1JEiFHDHb` | `20261017120200`, `…120300` |
+| 9-FE front-end | idem | [#486](https://github.com/Max-Seffelaar/PlusOne/pull/486), [#490](https://github.com/Max-Seffelaar/PlusOne/pull/490), [#491](https://github.com/Max-Seffelaar/PlusOne/pull/491), [#492](https://github.com/Max-Seffelaar/PlusOne/pull/492), [#493](https://github.com/Max-Seffelaar/PlusOne/pull/493) | **gemerged** (train #502) | `session_01MnDiaZwCmairJbPSXwQ5cq` | — |
+| 10 PostHog | `session_0179XDwivmrsRhhzNjatKtdS` (gestopt) | #485, #488, #489 | **geparkeerd** (Max, 2026-10-13); PR's gesloten, branches blijven bestaan | `session_01ENZ4ZYviDvH9cQ8QuZowxb` (CHANGES op #485) | slot vervalt |
+
 ## 2c. Orchestrator-prompt (één sessie voor het hele programma)
 
 Besluit Max 2026-10-06: **één orchestrator-sessie werkt alle golven A–F af**, geen nieuwe sessie per golf. De prijs daarvan is bekend (een sessie die dagen leeft, verliest context en betaalt elke hervatting opnieuw); de prompt vangt dat zo op: de stand leeft in §2b van dit document, niet in het geheugen van de sessie; de orchestrator wacht op Max' bericht in plaats van zichzelf wakker te maken; en als de sessie verloren gaat, start Max een nieuwe met exact dezelfde prompt en leest die in §2b waar het programma staat. **Aanbevolen gebruik: per golf een verse sessie met deze zelfde prompt** (context en kosten blijven klein; de prompt vindt zelf de lopende golf), met bovenaan één regel welke golf het is. Rename: `/rename Onboarding okt 2026 — orchestrator golf <X>`.
@@ -298,7 +395,7 @@ GOLF A — parallel, geen deps. Start alles tegelijk; de spike-sessie reset de g
 SP  (geen taak)  Spikes wave 0                      Opus    branch claude/spikes-wave0
     Deliverable: §9 van dit document ingevuld (zes antwoorden + consequentie, SQL-schetsen voor 2, 3, 6) + seed-fix Sanne/Pim met groene pnpm db:test; comments op D, E, A, F.
     Verboden: productiecode, elke andere PR dan de docs-PR op §9.
-0a  n.n.b.       QA-0 flow-screenshots + handoff    Opus    branch claude/qa0-flow-shots
+0a  z8uq9m5m8a   QA-0 flow-screenshots + handoff    Opus    branch claude/qa0-flow-shots
     Raakt: scripts/flow-shots/** (seed onboarding.mjs bestaat), tests/flows/**, de workflow-file (job flow-shots naast layout-suite, via scripts/session-setup.mjs), package.json (alleen script qa:flows), CLAUDE.md (alleen "Per-screen test handoff"), docs/changelog.md.
     Verboden: app-code; een tweede install-pad; guards verzwakken. tests/unit/claude-md-references.test.ts blijft groen.
 0b  z8uq9m2xyn   Snelheid P1 quick wins             Opus    branch claude/z8uq9m2xyn-perf-p1
@@ -311,7 +408,7 @@ SP  (geen taak)  Spikes wave 0                      Opus    branch claude/spikes
     Raakt: de migratie, supabase/functions/push-dispatch/**, src/features/notifications/payload.ts, pgTAP + vitest.
     Verboden: UI, mail (taak 6), src/features/door/**.
     High-risk (trigger + service-role-dispatch) → reviewer-sessie verplicht.
-0f  n.n.b.       Sentry-hygiene S1                  Sonnet  branch claude/sentry-hygiene-s1
+0f  z8uq9m5m8c   Sentry-hygiene S1                  Sonnet  branch claude/sentry-hygiene-s1
     Raakt: src/lib/observability/**, de twee error-handlers in PoLiveProvider.tsx, src/lib/db-errors.ts, minimale wijziging in src/features/po/mutations.ts (code doorgeven), sentry.*.config.ts (alleen netwerk-ruis), docs/runbook.md.
     Verboden: gedrag voor de gebruiker; fouten verbergen die een bug kunnen zijn; database.
 L   z8uq9m2vh6   Legal (eenmanszaak, subprocessors) Opus + Max/Joeri — andere repo (Plus-One.io); jij volgt alleen.
@@ -333,7 +430,7 @@ GOLF B — parallel; wacht op golf A gemerged (P1 raakt events/actions.ts; QA-0 
     Raakt: src/features/mail/** (nieuw), src/app/api/webhooks/resend/route.ts (nieuw), src/features/auth/invite-mail.ts (bestaand-account-tak), src/features/events/actions.ts (alleen de crew-mail-aanroep; rebase na 0d), .env.example, docs/mail-deliverability.md, docs/legal/README.md, tests.
     Verboden: gastmail, notificatie-voorkeuren, digest (taak 6); Supabase-templates (taak 3); src/features/door/**.
     High-risk (webhook + service-role-verzending) → reviewer-sessie verplicht. Max vooraf: RESEND_API_KEY, RESEND_WEBHOOK_SECRET, copy voor drie team-mails.
-0g  n.n.b.       Last-admin-guard                   Opus    branch claude/last-admin-guard
+0g  z8uq9m5m8d   Last-admin-guard                   Opus    branch claude/last-admin-guard
     Timestamp: 20261007140000_last_admin_guard. Raakt: de migratie (trigger + pgTAP), src/features/venues/actions.ts (removeMemberAction en updateMemberRolesAction: nette fout vóór de DB-weigering), src/features/venues/components/RemoveMemberButton.tsx en settings/team.tsx (knop/rol-wissel verborgen voor de laatste admin), i18n, tests.
     Verboden: invites, crew, alles buiten memberships. HIGH-RISK (trigger op een auth-tabel).
 1   z8uq9m2vqc   Venue → Company                    Opus    branch claude/z8uq9m2vqc-company-rename
@@ -379,7 +476,7 @@ GOLF D — parallel; wacht op golf C gemerged (set_venue_comped, listPrices, bil
     Verboden: src/features/billing/** behalve het aanroepen van set_venue_comped; door; requests. Spike 4 negatief → geen hook-route, template statisch, melden.
     High-risk (invite-metadata, publieke proxy) → reviewer-sessie verplicht. Max vooraf: Google Cloud-project + Places-key, Supabase invite-expiry 7 dagen, template geplakt na de merge, copy.
     LET OP (besluit Max 2026-10-07, golf B): team- en crew-uitnodigingen naar een nieuw adres gaan na 0d vervolg B niet meer via de Supabase-template maar via `generateLink` + onze eigen Resend-mail (zelfde mail voor nieuw en bestaand). De orchestrator van golf D legt Max bij de start voor om de company-tak (platform-invite) op dezelfde manier te bouwen i.p.v. via de Supabase-template uit spike 9.4; dan vervalt het plakken van het invite-template (§6) en raakt taak 3 `invite-mail.ts` alleen nog voor de platform-invite.
-3b  n.n.b.       Event-locaties L                   Opus    branch claude/event-locations
+3b  z8uq9m444c   Event-locaties L                   Opus    branch claude/event-locations
     Timestamp: 20261009130000_event_locations. Start na de merge van 3 (gebruikt de Places-component).
     Raakt: migratie, settings/venue.tsx (sectie Locations), events/edit.tsx (locatie kiezen), src/features/po/adapters.ts (resolveEventLocation zonder company-fallback in publieke weergave), src/app/e/[slug]/**, src/features/requests/status-view.ts + statuspagina, i18n, tests, tests/flows, gastenlijst-app-spec.md (#48(c) herzien).
     Verboden: billing, door (door-header zit in taak 4), invite-mail, andere migraties.
@@ -388,7 +485,7 @@ GOLF D — parallel; wacht op golf C gemerged (set_venue_comped, listPrices, bil
     Raakt: home.tsx, events/*.tsx, settings/quota.tsx, settings/team.tsx (invite-sheet exporteren), templates.tsx (terugknop-bug), i18n, bijbehorende tests, tests/flows.
     Verboden: src/features/**, migraties, door. Eén PR, beide taken bijgehouden.
 
-5b  n.n.b.       Share-import S2                    Opus    branch claude/share-import-s2
+5b  z8uq9m43m8   Share-import S2                    Opus    branch claude/share-import-s2
     Raakt (web-kant): public/manifest.json (share_target), nieuw scherm 'share' in routes.ts/nav-map.ts + src/components/po/screens/share.tsx (landt op Paste a list met event- en tier-keuze; accepteert tekst uit de query én uit geheugen via een `shareInbox`-store), src/features/guests/bulk-paste-parser (uitbreiding: e-mail per regel, tab/komma uit Excel, kopregel overslaan; hergebruik quick-add-parser voor +N en contacts/import/parse voor e-mail), de telling in de preview, tests/flows (share-flow), i18n.
     Verboden: alles native (Android-intent en iOS Share Extension = S6 in capacitor-plan-claude-code.md §4, zelfde plugin `PlusOneShareInbox`; gaat mee in de eerstvolgende store-build nadat dit live is), server-side opslag van de gedeelde tekst (alles client-side tot de import), src/features/door/**.
     Geen migratie. Sequentieel na taak 5 (zelfde guests-screens) of in dezelfde worker als 5.
@@ -425,7 +522,7 @@ GOLF F — sequentieel: 7 → 8 → 9 → 10. Wacht op golf E gemerged.
     Raakt: de migratie, src/features/requests/**, src/features/po/ (requests hooks/mutations/adapters), de approve-sheet, de statusmail-aanroep uit taak 6, pgTAP guest_requests_decide, gastenlijst-app-spec.md.
     Verboden: door, billing, onboarding. High-risk (SECURITY DEFINER met quota-math) → reviewer-sessie.
 8   z8uq9m2xyp   Quota-aanvraag Q                   Opus    branch claude/z8uq9m2xyp-quota-flow
-    Timestamp: 20261016120000_quota_request_guest_payload. Wacht op 7.
+    Timestamp: 20261016160000_quota_request_guest_payload (was 20261016120000; bezet door #459, zie Status golf F). Wacht op 7.
     Raakt: de migratie, src/features/quotas/**, src/features/po/ (quota hooks/mutations/adapters + Updates-kaart), home.tsx, quota-formulier en beslis-sheet, i18n, pgTAP quota_requests_*, gastenlijst-app-spec.md.
     Verboden: guest_requests (taak 7), door, billing, mail (bestaande push volstaat). High-risk → reviewer-sessie.
 9   z8uq9m2xz2   Snelheid P2                        Opus    per punt een PR; timestamps 20261017120000_rls_set_based_helpers, 20261017120100_check_ins_update_policy_merge. Wacht op 8, of eerder op aanwijzing van Max.
@@ -433,9 +530,13 @@ GOLF F — sequentieel: 7 → 8 → 9 → 10. Wacht op golf E gemerged.
 7c  z8uq9m4a2w   Kit Select (PlusOne-dropdown)      Opus    branch claude/z8uq9m4a2w-kit-select; geen migratie. Mag parallel aan 8 (raakt alleen kit.tsx + 4 call-sites).
     Besluit Max 2026-10-11: na golf E. Native <select> → kit-dropdown: popover (fijne pointer ≥1024) / bottom-sheet (touch), zelfde API, a11y listbox.
     Raakt: src/components/po/kit.tsx, platform-mail-log/access-log/audit, guests/bulk-paste, design-system.md, flow + unit. Verboden: alles buiten de kit en die call-sites.
-10  n.n.b.       Analytics PH (PostHog)             Opus    drie PR's volgens docs/posthog-implementation-plan.md (foundation, instrumentation, docs). Wacht op 9 en Max' go.
+10  geparkeerd   Analytics PH (PostHog)             Opus    drie PR's volgens docs/posthog-implementation-plan.md (foundation, instrumentation, docs). Wacht op 9 en Max' go.
     Max vooraf: PostHog-project + key; cookie-banner-copy; subprocessor C → A in de legal-ronde.
 
+11  z8uq9m5enh   Sentry-ruis S2 + platform-invite opnieuw = resend   Opus   twee PR's, A eerst, B mag parallel; geen migratie. Toegevoegd door Max 2026-10-13 (Sentry C + D van 2026-10-12).
+    A (claude/z8uq9m5enh-sentry-network-noise): src/lib/observability/capture.ts + capture.test.ts, docs/runbook.md (Sentry triage). Geen reviewer.
+    B (claude/z8uq9m5enh-platform-reinvite): src/features/platform/invite-actions.ts + .test.ts, src/components/po/screens/platform.tsx (InviteForm), src/lib/db-errors.ts (alleen EXPECTED_MESSAGES), i18n, tests/flows (platform), gastenlijst-app-spec.md, docs/changelog.md. HIGH-RISK → reviewer-sessie.
+    Verboden: ignoreErrors/inbound filter op "Load failed", migraties, invite-mail.ts, team-invite-gedrag (alleen de message-classificatie), src/features/door/**.
 Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 ```
 
@@ -472,7 +573,7 @@ Exit: alles gemerged; programma afgerond; retro-entry in docs/changelog.md.
 | 6 | `20261013180200_guest_mail_optout.sql` | `contact_mail_optout` (per contact per venue, publieke token-route), RLS |
 | 6 | `20261013180300_notification_prefs.sql` | `user_profiles.notification_prefs jsonb` (+ kolom-grant), `notification_outbox.channel` ('push' \| 'email'), triggers zetten een rij per kanaal per voorkeur |
 | 7 | `20261015120000_request_decision_split.sql` | RPC `decide_guest_request(p_request_id, p_decision jsonb)`: inkorten, splitsen over tiers, deels afwijzen, verplichte opmerking; atomair; audit |
-| 8 | `20261016120000_quota_request_guest_payload.sql` | `quota_requests.guest_payload jsonb`, `seen_at`, verplichte reden bij `declined`; `approve_quota_request` maakt de gast aan in dezelfde transactie; RLS voor `seen_at` |
+| 8 | `20261016160000_quota_request_guest_payload.sql` (was `20261016120000`; dat slot nam #459 `my_profile_rpc`, en #459–#469 bezetten `20261016120000`–`…150000`) | `quota_requests.guest_payload jsonb`, `seen_at`, verplichte reden bij `declined`; `approve_quota_request` maakt de gast aan in dezelfde transactie; RLS voor `seen_at` |
 | 9 | `20261017120000_rls_set_based_helpers.sql` | set-based policies i.p.v. per-rij helper-ketens (audit #13); pgTAP per rol |
 | 9 | `20261017120100_check_ins_update_policy_merge.sql` | de twee permissive UPDATE-policies op `check_ins` samenvoegen (advisor) |
 
@@ -560,7 +661,7 @@ Wat je bouwt: de taakbeschrijving. Kern: in de alreadyRegistered-tak het account
 Klaar als: vitest nieuw/bestaand/niet-admin; crew-user ziet alleen de gekozen events; test-handoff met staff@ als bestaand account.
 ```
 
-### Taak 0g — Last-admin-guard (ClickUp n.n.b., Opus; trigger op venue_memberships → reviewer)
+### Taak 0g — Last-admin-guard (ClickUp z8uq9m5m8d, Opus; trigger op venue_memberships → reviewer)
 
 ```
 Scope-hek:
@@ -718,7 +819,7 @@ Klaar als:
 Test-handoff: admin@ (platform) → Platform → Invite met comped; de uitgenodigde via Mailpit; manager@ → Company settings → adres via Places.
 ```
 
-### Taak 3b — Event-locaties L (ClickUp n.n.b., Opus; SECURITY DEFINER → reviewer)
+### Taak 3b — Event-locaties L (ClickUp z8uq9m444c, Opus; SECURITY DEFINER → reviewer)
 
 ```
 Scope-hek:
@@ -782,7 +883,7 @@ Klaar als:
 Test-handoff: manager@ → Home, Events → nieuw event → tier-stap, event openen → Add guest, gastdetail, Quota per event.
 ```
 
-### Taak 5b — Share-import S2 (ClickUp n.n.b., Opus)
+### Taak 5b — Share-import S2 (ClickUp z8uq9m43m8, Opus)
 
 ```
 Scope-hek:
@@ -874,6 +975,13 @@ Scope-hek: per punt uit docs/perf-audit-2026-10.md één PR (pushState; windowin
 Deps: taak 8, of eerder op aanwijzing van Max. Voor getClaims: Max bevestigt asymmetrische JWT-signing-keys in het Supabase-dashboard.
 Klaar als: zie de taakbeschrijving (Network-screenshot tab-wissel; 300-events-seed laadt alleen het venster; pgTAP allowed/denied; SW-guards groen).
 ```
+
+### Taak 11 — Sentry-ruis S2 + platform-invite opnieuw = resend (z8uq9m5enh, Opus; PR B → reviewer)
+
+Volledige brief: de ClickUp-taak [z8uq9m5enh](https://app.clickup.com/t/z8uq9m5enh) en de worker-prompts van 2026-10-13 (sessies `session_01FcGwXZUgz7TdVPishNFLkX` voor A, `session_012Mjtk6ZhCb1BRbxrAooTbs` voor B). Kern:
+- **A:** postgrest-js geeft een mislukte fetch terug als plain object `{message: "TypeError: Load failed"}` en Safari plakt ` (<host>)` erachter. Eén matcher (optionele prefix `TypeError: `/`FetchError: `, optionele host-suffix) voor Error én Postgrest-object. Offline niet rapporteren, online wel met `network:true`, en een echte TypeError blijft een issue. Runbook-rij + de alertregel.
+- **B:** "Send invite" op een open adres (23505 op `platform_invites_open_unique`) wordt opnieuw versturen via één helper die gedeeld is met `resendBetaInviteAction` (budget → mail → bump, de regels uit review #437). Note/ADE van de tweede poging overschrijven niets, het budget gaat één keer, de user-scoped client wordt gebruikt en NOT_ALLOWED blijft vóór alles staan (geen existence-oracle). Plus een useRef-dubbelklik-guard in InviteForm en de team-invite-message in `EXPECTED_MESSAGES` (gekrulde apostrof).
+- **Max achteraf in Sentry:** de alertregel krijgt "tag network is not equal to true"; issue C op archive until escalating; issue D op resolve in next release na B.
 
 ## 5. Reviewer-gate (taken 0b, 0c, 0d, 0e, 2, 2b, 2c, 3, 4, 6, 7, 8, 9)
 

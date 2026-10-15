@@ -79,6 +79,23 @@ Milestone **Now** (workflow tooling). Max moved the task board to Linear on 2026
 Open for Max: confirm in Linear → Settings → Integrations → GitHub that the "on merge" automation targets `Merged - Testen` (the skill sets it by hand when a merged PR leaves an issue in `In Review`); create a personal API key only when a session without the connector needs it; optionally wrap `drift` in a scheduled routine.
 
 ---
+
+## 2026-10-14 — Golf F follow-up train #507 merged, `20261018130000` on prod (orchestrator)
+
+- Train [#507](https://github.com/Max-Seffelaar/PlusOne/pull/507) (merge commit `42be45c`). It merged, in order, #504 (quota approval, PLU-65), #503 (Android push, PLU-49), #505 (Select nits + Resend countdown, PLU-55), #506 (form errors, PLU-54) and #509 (layout harness, PLU-116). All nine checks were green on `65a7057`.
+- `20261018130000_quota_request_adjust` is on prod (Max, 2026-10-14). Verified via MCP:
+  - `approve_quota_request(uuid,integer,uuid,integer)`: definer, empty `search_path`, authenticated + service_role only.
+  - `fit_quota_request_to_guest`: owner-only; the BEFORE INSERT trigger is enabled.
+  - `approved_*` columns: no UPDATE grant; an INSERT is refused by the guard with 42501.
+  - All five CHECKs are present.
+- Lessons:
+  - A stale quota count in the persisted React Query cache made the client ask for too few spots. The server now derives the shortfall itself (trigger), so the client value is only a floor.
+  - Parallel TOTP verifies in GoTrue revoke the user's sibling AAL1 sessions. Harnesses log in once per user and reuse the stored state (#509).
+  - A field-focus effect must run in `useLayoutEffect`, or CI catches the race between the mark and the focus.
+- Bookkeeping moved from ClickUp to Linear the same day (PLU-70). Open items for Max: PLU-49 (Android device test), PLU-119 (7c manual checks), PLU-117 (Sentry sampling), PLU-118 (Dependabot decision).
+
+---
+
 ## 2026-10-14 — Layout suite: one stored session per seed user, no dev-login per screen
 
 Branch `claude/layout-devlogin-flake`. `layout-suite` on merge train #507 failed twice
@@ -243,6 +260,42 @@ Spec #67 (refines #66 and #5).
 - **Deploy order:** the app sends extra arguments only when something was
   adjusted, so a plain approval works on either schema. An adjusted approval
   needs the migration, so push the schema before anyone uses the sheet.
+## 2026-10-13 — Onboarding programme, golf F closed; programme retro (orchestrator)
+
+Milestone **Now** (ADE). Wave-level record for golf F, the last wave of the onboarding programme (golven A–F). Per-task detail is in each PR's own entry below. State table: §2b of `onboarding-orchestration-claude-code.md`.
+
+- **Merged via merge train #502** (`9b924ca`, 14 PRs in timestamp order: #494, #482, #481, #484, #490, #493, #486, #491, #492, #483, #487, #498, #500, #501), tested once by Max on the train:
+  - task 8 Quota-aanvraag Q (`z8uq9m2xyp`, #494, `20261016190000`);
+  - task 9 Snelheid P2 (`z8uq9m2xz2`): 9-DB #482 (`20261017120000`/`…120100`), 9-FE RPCs #481/#484 (`…120200`/`…120300`), 9-AUTH #483/#487, 9-FE front-end #486/#490/#491/#492/#493;
+  - Form errors point at the field (`z8uq9m5eb7`, #498);
+  - task 11 Sentry noise S2 + platform re-invite = resend (`z8uq9m5enh`, #500/#501).
+- **Separately:** 7c Kit Select (`z8uq9m4a2w`, #496, `956b56d`, no migration); 🖐13 Android hardware back and 🖐14 VoiceOver/TalkBack still open with Max.
+- **Prod push verified afterwards** through Supabase MCP (schema, grants and policies only): all five migrations `20261016190000`–`20261017120300` present; `approve_quota_request` SECURITY DEFINER with `search_path=''`, executable by `authenticated` only; `contact_event_counts` and `venue_event_headcounts` (one signature) SECURITY INVOKER; `quota_requests` UPDATE for `authenticated` limited to the decision columns + `seen_at`; one permissive `check_ins` UPDATE policy plus the restrictive void guard; 0 public tables without RLS.
+- **Parked:** task 10 PostHog (#485/#488/#489 closed, branches kept; slot `20261018120000` freed). Sentry already covers errors and performance; the funnel numbers come from Platform R. If PostHog comes back, the blocking review finding comes first: the `/ingest` rewrite forwarded the session cookie and the Authorization header.
+- **Follow-ups started from Max's train test:** quota approval with adjustments (tier, +N lower, trim) `z8uq9m5kux`, migration `20261018120000_quota_request_adjust`, high-risk, reviewer after delivery; Android push cannot be enabled `z8uq9m5kuy`.
+
+**Retro (golven A–F)**
+
+- **What worked:**
+  - **The merge train.** One branch with every head in timestamp order, one full CI + `supabase db reset` + `pnpm db:test` + flows, one test by Max, one merge, one prod push. Golf F's 14 PRs landed in one afternoon; the per-PR merge-and-push rhythm of earlier waves cost a re-merge of main and a CI cycle per PR.
+  - **A fresh reviewer session per high-risk PR, plus a delta review after a blocking fix.** It caught four blocking findings before prod: PostHog forwarding the session cookie (#485), the All-guests tab (#490), PII left in `guest_payload` after `forget_contact` (#494), a JWKS 4xx redirect loop (#483).
+  - **§2b as the state of record** survived context loss and session resumptions.
+  - **Verifying every prod push through MCP** (schema, grants, policies) instead of trusting "done": it caught that the first golf-F push had not run.
+- **What did not:**
+  - **Workers stuck on a ClickUp permission prompt** (tasks 8 and 7c, about 20 hours, unnoticed). Workers now make no ClickUp calls; the orchestrator owns ClickUp.
+  - **Slot collisions with parallel orchestrators.** Task 8 moved three times (#459, #480, #479 each took its slot); #479 then merged under a different slot than its PR said.
+  - **Reviews were not started proactively.** When Max asked whether everything was review-ready, no reviewer had run yet. A delivered high-risk PR should get its reviewer session at delivery, not when merging comes up.
+  - **A date bomb in a test** (ADE B7, `now()+14d` passes 27 October from 13 October) turned main red for every branch at once.
+  - **A semantic conflict in the train:** #481 dropped the `chunkIds` import that #494 used. Each PR was green alone; only the train's type-check found it.
+  - **`Push-PlusOneProd` syntax:** it needs every pending timestamp as a PowerShell list (`'a','b'`), not the newest one alone and not space-separated. Two failed attempts; §1 is corrected.
+- **Next time:**
+  - Reserve migration slots on `origin/main` **and** against open PRs of every orchestrator, and re-check `list_migrations` on prod before the train.
+  - Spawn the reviewer session in the same step as the delivery check.
+  - Tests that compare against a fixed calendar date get a frozen clock or a date-relative fixture.
+  - Run the train's type-check before Max's test, not only CI on each PR.
+  - Per-PR changelog fragments are still open from golf D; the changelog conflicted on every parallel merge again.
+
+---
 
 ## 2026-10-13 — Quota-aanvraag Q: name the guest, auto-add on approval, Home Updates card (z8uq9m2xyp)
 
