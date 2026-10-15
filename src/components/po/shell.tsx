@@ -131,7 +131,11 @@ export function Sheet({ onClose, children, center = true }: { onClose: () => voi
           // max-w: on a tablet or a wide desktop column a full-width bottom
           // sheet would stretch 800–1000px; cap it to a dialog width (T1). A
           // phone never reaches the cap.
-          'po-anim-sheet flex max-h-full w-full max-w-[560px] flex-col overflow-y-auto rounded-sheet border border-line bg-elev p-[22px] shadow-[0_-20px_60px_rgba(0,0,0,0.5)]',
+          // [&>*]:shrink-0: when the sheet hits max-h, the SHEET scrolls. A
+          // flex-column child that scrolls itself (e.g. the crew pool list)
+          // would otherwise shrink to a sliver instead — on a phone with its
+          // system bars that hid the pool's Add buttons (2026-10-15).
+          'po-anim-sheet flex max-h-full w-full max-w-[560px] flex-col overflow-y-auto rounded-sheet border border-line bg-elev p-[22px] shadow-[0_-20px_60px_rgba(0,0,0,0.5)] [&>*]:shrink-0',
           center ? 'items-center text-center' : 'items-stretch text-left',
         )}
         onClick={(e) => e.stopPropagation()}
