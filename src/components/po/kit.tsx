@@ -911,7 +911,7 @@ export function Select({
               aria-modal="true"
               {...nameProps}
               onKeyDown={onSheetKeyDown}
-              className="po-anim-sheet relative flex max-h-[70vh] w-full max-w-[560px] flex-col rounded-t-[22px] border border-line bg-elev p-[10px] pb-[calc(10px+env(safe-area-inset-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.55)]"
+              className="po-anim-sheet relative flex max-h-[70vh] w-full max-w-[560px] flex-col rounded-t-[22px] border border-line bg-elev p-[10px] pb-[calc(10px+var(--safe-bottom))] shadow-[0_-16px_40px_rgba(0,0,0,0.55)]"
             >
               {title && (
                 <div className="px-[12px] pb-[8px] pt-[6px] font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</div>
@@ -1668,7 +1668,7 @@ export function InfoTip({
               // mobile tab bar (which sits in normal flow under this overlay);
               // the sidebar chrome (lg) has no tab bar. Capped at the kit
               // Sheet's 560px so a tablet doesn't get an edge-to-edge sheet.
-              'fixed inset-x-0 bottom-0 z-50 mx-auto block max-w-[560px] rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)] lg:pb-[calc(18px+env(safe-area-inset-bottom))]',
+              'fixed inset-x-0 bottom-0 z-50 mx-auto block max-w-[560px] rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+var(--safe-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)] lg:pb-[calc(18px+var(--safe-bottom))]',
               'lg:[@media(pointer:fine)]:absolute lg:[@media(pointer:fine)]:inset-x-auto lg:[@media(pointer:fine)]:bottom-auto lg:[@media(pointer:fine)]:left-0 lg:[@media(pointer:fine)]:top-[calc(100%+6px)] lg:[@media(pointer:fine)]:mx-0 lg:[@media(pointer:fine)]:w-[300px] lg:[@media(pointer:fine)]:rounded-[16px] lg:[@media(pointer:fine)]:p-4 lg:[@media(pointer:fine)]:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
             )}
           >

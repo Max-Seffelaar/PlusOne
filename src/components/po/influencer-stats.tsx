@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import { Icon } from './icon';
 import { copyStateLabel, useCopyText } from './kit';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.98]';
 // 44px hit rings (CLAUDE.md tap-target floor; technique: kit `hitArea44`). The
@@ -207,7 +208,8 @@ function QrModal({ ev, onClose }: { ev: InfluencerStatsEvent; onClose: () => voi
 
   return (
     <div
-      className="po-anim-fade fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(6,6,8,0.68)] p-5 backdrop-blur-[3px]"
+      className="po-anim-fade fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(6,6,8,0.68)] backdrop-blur-[3px]"
+      style={safeAreaPadding(20)}
       onClick={onClose}
     >
       <div

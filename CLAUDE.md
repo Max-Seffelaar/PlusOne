@@ -86,7 +86,7 @@ The `po` surface gets wrapped via the **remote-URL model** (native webview loads
 - [ ] Offline-critical (door-adjacent) writes go through the door outbox (`src/features/door`), **never** a server action (#25).
 - [ ] No push/notification transport called directly — go through `src/features/notifications`.
 - [ ] Auth/redirects use the cookie-session + URL-navigation flow (no OAuth popups, no browser-redirect-only logic).
-- [ ] Safe-area/notch tolerant; Android hardware back button handled; `/app` standalone.
+- [ ] Safe-area tolerant (status bar, notch, Android navigation bar, iOS home indicator): insets only through the `--safe-*` tokens in `src/app/globals.css` (never a raw `env(safe-area-inset-*)`), routes outside the shell pad with `safeAreaPadding()` (`src/lib/po/safe-area.ts`), and nothing readable or tappable sits under a system bar — rules in `design-system.md` "Safe area", enforced by the layout suite's simulated system bars (`tests/e2e/layout/safe-area.ts`). Android hardware back button handled; `/app` standalone.
 - [ ] No billing/plan-upgrade/checkout surfaced inside the mobile app (Apple IAP) — SaaS billing only; a company's door payment to a guest (Fase 14, `payments-plan-claude-code.md`) is a physical service and is allowed.
 - [ ] No `target="_blank"` / bare `window.open` in the `po` surface — external links go through the kit's `openExternal()` (native shell: `@capacitor/browser`; Capacitor otherwise loads `_blank` inside the webview with no way back). Clipboard via the kit's `copyText()`, never a bare `navigator.clipboard`. (Both helpers land in Fase 17 N1.)
 - [ ] iPad is in v1 (decided 2026-09-17) — a screen must work at 641–1023px, not just phone and desktop.

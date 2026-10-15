@@ -17,7 +17,7 @@
 import '@testing-library/jest-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { ResponsiveShell, ROOT_SAFE_AREA } from './shell-responsive';
+import { ResponsiveShell, ROOT_SAFE_AREA, ROOT_SAFE_AREA_FULL } from './shell-responsive';
 import { TabBar } from './shell';
 import { DateField, DESKTOP_INPUT_QUERY } from './datetime-field';
 
@@ -48,11 +48,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderShell(mainMaxClass: string): void {
+function renderShell(mainMaxClass: string, isTabRoot = true): void {
   render(
     <ResponsiveShell
       serverHint={false}
-      isTabRoot
+      isTabRoot={isTabRoot}
       mobileTab="start"
       setMobileTab={vi.fn()}
       navItems={[]}
@@ -86,24 +86,32 @@ describe('T1 · one chrome breakpoint, one content column', () => {
     expect(screen.getByTestId('screen').parentElement).toHaveClass('max-w-[1080px]');
   });
 
-  it('the shell root pads the top + side safe area, never the bottom', () => {
-    // Asserted on the object both chrome roots spread into `style` — jsdom's
-    // CSS parser silently drops a bare `env()` value, so the rendered style
-    // attribute can't carry it here (a real browser keeps it).
+  it('the shell root pads the top + side safe area; the bottom only when no TabBar owns it', () => {
+    // Asserted on the objects the chrome root spreads into `style` — jsdom's
+    // CSS parser may drop a var() value, so the rendered style attribute
+    // can't be trusted to carry it here (a real browser keeps it).
     expect(ROOT_SAFE_AREA).toEqual({
-      paddingTop: 'env(safe-area-inset-top)',
-      paddingLeft: 'env(safe-area-inset-left)',
-      paddingRight: 'env(safe-area-inset-right)',
+      paddingTop: 'var(--safe-top)',
+      paddingLeft: 'var(--safe-left)',
+      paddingRight: 'var(--safe-right)',
     });
-    // The bottom edge belongs to TabBar / BottomBar / Sheet / the sidebar footer.
     expect(ROOT_SAFE_AREA).not.toHaveProperty('paddingBottom');
+    expect(ROOT_SAFE_AREA_FULL).toEqual({ ...ROOT_SAFE_AREA, paddingBottom: 'var(--safe-bottom)' });
   });
 
-  it('the sidebar footer clears the home indicator itself', async () => {
+  it('sidebar chrome: the sidebar adds no inset of its own (the root owns the bottom)', async () => {
     stubDevice({ width: 1180, finePointer: false });
     renderShell('max-w-[1080px]');
     const aside = await screen.findByRole('complementary');
-    expect(aside.getAttribute('style') ?? '').toContain('safe-area-inset-bottom');
+    expect(aside.getAttribute('style') ?? '').not.toContain('--safe-bottom');
+    expect(aside).toHaveClass('pb-4');
+  });
+
+  it('phone sub-screen (no TabBar): nothing in the screen tree adds the bottom inset', async () => {
+    stubDevice({ width: 390, finePointer: false });
+    renderShell('max-w-[640px]', false);
+    await waitFor(() => expect(screen.queryByRole('complementary')).toBeNull());
+    expect(screen.queryByRole('button', { name: /home/i })).toBeNull();
   });
 
   it('the tab bar centers its items in a 640px row instead of spreading them', () => {

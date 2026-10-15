@@ -210,7 +210,7 @@ describe('Select', () => {
     expect(container.contains(panel)).toBe(false);
     expect(panel.closest('.fixed')).not.toBeNull();
     expect(panel.className).toContain('max-w-[560px]');
-    expect(panel.className).toContain('env(safe-area-inset-bottom)');
+    expect(panel.className).toContain('var(--safe-bottom)');
     for (const opt of screen.getAllByRole('option')) expect(opt.className).toContain('min-h-[44px]');
     expect(screen.getByRole('button', { name: t.shared.kit.selectCancel })).toBeInTheDocument();
   });
