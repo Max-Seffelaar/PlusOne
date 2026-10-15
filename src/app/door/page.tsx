@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 // Event picker for the door: live/open events at venues where the user is a
 // doorhost or admin, plus events they organize. RLS scopes what is visible; this
@@ -40,7 +41,7 @@ export default async function DoorIndexPage(): Promise<JSX.Element> {
   const venueName = new Map((venues ?? []).map((v) => [v.id, v.name]));
 
   return (
-    <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-5 p-5">
+    <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-5" style={safeAreaPadding(20)}>
       <header className="flex flex-col gap-1 pt-4">
         <h1 className="font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">Door</h1>
         <p className="text-sm text-faint">Pick the event you&apos;re working the door for.</p>

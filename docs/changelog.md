@@ -8,6 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-15 — Standalone screens pad the safe area (Android edge-to-edge)
+
+Milestone **Now** (store submission: Max's Android test, onboarding Team step). The footer buttons ("Send invites", "Skip for now") sat under the 3-button navigation bar and the step header under the status bar. Cause: the root layout sets `viewportFit: 'cover'` and Capacitor 8 keeps the webview edge-to-edge (`SystemBars` insetsHandling 'css'), so only routes that pad `env(safe-area-inset-*)` stay clear. `/app` (`ROOT_SAFE_AREA` + the bottom bars) and the door route did; every screen outside the shell did not.
+
+- **New `safeAreaPadding(top, right?, bottom?, left?)`** (`src/lib/po/safe-area.ts`): each side is the screen's own padding plus its inset, as an inline style that replaces the Tailwind padding class. `env()` is real on iOS and Android WebView ≥ 140 and 0 where Capacitor pads natively or in a desktop browser, so it is never double.
+- **Applied to:** the onboarding wizard (`WizardShell`, Welcome and invite steps), the consent/account screen, `/login`, the MFA layout, the `/door` picker and not-found. The boot splash (a centred mark) and the public guest pages (`/e`, `/r`, `/s`, browser only) are unchanged.
+- **Guard:** `tests/unit/standalone-screens-safe-area.test.ts` (helper output + every listed route pads through it). Web-only change: live in installed shells after the Vercel deploy, no new native build.
+
+---
+
 ## 2026-10-14 — Repo bookkeeping moves from ClickUp to Linear (PLU-70)
 
 Milestone **Now** (workflow tooling). Max moved the task board to Linear on 2026-10-14 (workspace `plus-one`, team `PLU`, one project per theme; every ClickUp task was mirrored with a back-link). This PR moves the repo's plumbing with it, so a session no longer has to keep two systems in sync. ClickUp ids in older docs, comments, commits and migration headers stay as history.
