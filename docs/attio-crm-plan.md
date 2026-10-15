@@ -1,5 +1,7 @@
 # Tractie & Attio CRM — implementation plan (2026-07-09)
 
+> **Superseded 2026-10-14** by `docs/designs/tractie-crm-ceo-plan.md` (CEO + eng review, Linear PLU-69, project Tractie & CRM). Kept for history: 01 rescoped to one lifecycle function, 02 rebuilt as pg_cron → Edge Function with e-mail matching, 03 dropped, 04 kept as Platform › Traction, 05 moved to project Admin Platform.
+
 Decided in discussion Max ↔ Claude, 2026-07-09. Goal: full visibility on new-customer traction
 (who was invited, who signed up, who created a venue, who ran a first event/door night, who
 converted to paying) and a one-way sync of that lifecycle into **Attio** (CRM), plus the
