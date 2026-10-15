@@ -2,7 +2,7 @@
  * Standalone screens keep clear of the system bars (Android edge-to-edge,
  * iPhone notch). The root layout sets `viewportFit: 'cover'`, so a full-screen
  * route outside the `/app` shell draws under the status bar and the navigation
- * bar unless it pads `env(safe-area-inset-*)` itself — Max's Android test of the
+ * bar unless it pads the safe-area insets itself — Max's Android test of the
  * onboarding Team step showed the footer buttons under the 3-button bar and the
  * step header under the status bar. Every such route goes through
  * `safeAreaPadding` (src/lib/po/safe-area.ts).
@@ -29,19 +29,19 @@ const STANDALONE_SCREENS = [
 describe('safeAreaPadding', () => {
   it('adds each inset to the screen\'s own padding', () => {
     expect(safeAreaPadding(40, 24)).toEqual({
-      paddingTop: 'calc(40px + env(safe-area-inset-top))',
-      paddingRight: 'calc(24px + env(safe-area-inset-right))',
-      paddingBottom: 'calc(40px + env(safe-area-inset-bottom))',
-      paddingLeft: 'calc(24px + env(safe-area-inset-left))',
+      paddingTop: 'calc(40px + var(--safe-top))',
+      paddingRight: 'calc(24px + var(--safe-right))',
+      paddingBottom: 'calc(40px + var(--safe-bottom))',
+      paddingLeft: 'calc(24px + var(--safe-left))',
     });
   });
 
   it('one value pads all four sides', () => {
     expect(Object.values(safeAreaPadding(0))).toEqual([
-      'calc(0px + env(safe-area-inset-top))',
-      'calc(0px + env(safe-area-inset-right))',
-      'calc(0px + env(safe-area-inset-bottom))',
-      'calc(0px + env(safe-area-inset-left))',
+      'calc(0px + var(--safe-top))',
+      'calc(0px + var(--safe-right))',
+      'calc(0px + var(--safe-bottom))',
+      'calc(0px + var(--safe-left))',
     ]);
   });
 });

@@ -5,12 +5,10 @@ import type { CSSProperties } from 'react';
  * the door picker, not-found) that keeps its content out of the system bars.
  *
  * The root layout sets `viewportFit: 'cover'`, so on a phone the page draws
- * under the status bar and, on Android 15+ edge-to-edge, under the gesture /
- * 3-button navigation bar. `env(safe-area-inset-*)` is what reserves that room:
- * real values on iOS and on Android WebView ≥ 140 (Capacitor `SystemBars`
- * insetsHandling 'css' keeps the webview edge-to-edge there), 0 on older
- * WebViews, where Capacitor pads the webview natively instead, and 0 in a
- * desktop browser. So adding it is always correct, never double.
+ * under the status bar, the notch and the Android navigation bar. The insets
+ * come from the `--safe-*` tokens in globals.css (Capacitor's injected
+ * `--safe-area-inset-*` on Android, `env()` on iOS, 0 on a desktop), never
+ * from a raw `env()` — so adding them is always correct, never double.
  *
  * The `/app` shell has its own (`ROOT_SAFE_AREA` + the bottom bars in
  * shell.tsx); this is for every route that renders outside it. Each value is
@@ -24,9 +22,9 @@ export function safeAreaPadding(
   left: number = right,
 ): CSSProperties {
   return {
-    paddingTop: `calc(${top}px + env(safe-area-inset-top))`,
-    paddingRight: `calc(${right}px + env(safe-area-inset-right))`,
-    paddingBottom: `calc(${bottom}px + env(safe-area-inset-bottom))`,
-    paddingLeft: `calc(${left}px + env(safe-area-inset-left))`,
+    paddingTop: `calc(${top}px + var(--safe-top))`,
+    paddingRight: `calc(${right}px + var(--safe-right))`,
+    paddingBottom: `calc(${bottom}px + var(--safe-bottom))`,
+    paddingLeft: `calc(${left}px + var(--safe-left))`,
   };
 }

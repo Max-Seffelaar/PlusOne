@@ -38,7 +38,7 @@ export function TabBar({
   return (
     <div
       className="flex flex-none border-t border-line2 bg-[rgba(11,11,13,0.9)] px-[14px] pt-2 backdrop-blur-[12px]"
-      style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: 'calc(14px + var(--safe-bottom))' }}
     >
       <div className="mx-auto flex w-full max-w-[640px]">
         {tabs.map(([k, l, ic]) => {
@@ -206,10 +206,12 @@ export function ConfirmSheet({
   );
 }
 
-/** Sticky action bar pinned to the bottom of a screen (above the tab bar / safe area). */
+/** Sticky action bar pinned to the bottom of a screen. It never adds the
+ *  bottom safe-area inset itself: the shell root (or the TabBar below it)
+ *  already ends the screen above the system bar (`ROOT_SAFE_AREA`). */
 export function BottomBar({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <div className="flex-none border-t border-line2 bg-bg px-4 pt-3" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}>
+    <div className="flex-none border-t border-line2 bg-bg px-4 pb-3 pt-3">
       {children}
     </div>
   );

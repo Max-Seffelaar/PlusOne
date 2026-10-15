@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Btn } from '@/components/po/kit';
 import type { Guest } from '@/lib/po/types';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 export function CockpitRefuseModal({
   guest,
@@ -26,7 +27,7 @@ export function CockpitRefuseModal({
   const trimmed = reason.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" style={safeAreaPadding(16)} onClick={onCancel}>
       <div className="w-[360px] rounded-[18px] border border-line bg-elev p-5" onClick={(e) => e.stopPropagation()}>
         <div className="font-display text-[17px] font-bold text-text">{t.door.refuseTitle}</div>
         <div className="mt-0.5 text-[12.5px] text-faint">{t.door.refuseSub}</div>

@@ -8,13 +8,16 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-10-15 — Standalone screens pad the safe area (Android edge-to-edge)
+## 2026-10-15 — Safe area on every screen, iOS and Android, guarded (Android edge-to-edge)
 
-Milestone **Now** (store submission: Max's Android test, onboarding Team step). The footer buttons ("Send invites", "Skip for now") sat under the 3-button navigation bar and the step header under the status bar. Cause: the root layout sets `viewportFit: 'cover'` and Capacitor 8 keeps the webview edge-to-edge (`SystemBars` insetsHandling 'css'), so only routes that pad `env(safe-area-inset-*)` stay clear. `/app` (`ROOT_SAFE_AREA` + the bottom bars) and the door route did; every screen outside the shell did not.
+Milestone **Now** (store submission; Max's Android test of the onboarding Team step, then "it's on every page"). The app draws edge-to-edge (`viewportFit: 'cover'`, Capacitor 8 `SystemBars` insetsHandling 'css'), so the status bar, notch and Android navigation bar / iOS home indicator sit over the page. Only screens that pad the insets stay clear.
 
-- **New `safeAreaPadding(top, right?, bottom?, left?)`** (`src/lib/po/safe-area.ts`): each side is the screen's own padding plus its inset, as an inline style that replaces the Tailwind padding class. `env()` is real on iOS and Android WebView ≥ 140 and 0 where Capacitor pads natively or in a desktop browser, so it is never double.
-- **Applied to:** the onboarding wizard (`WizardShell`, Welcome and invite steps), the consent/account screen, `/login`, the MFA layout, the `/door` picker and not-found. The boot splash (a centred mark) and the public guest pages (`/e`, `/r`, `/s`, browser only) are unchanged.
-- **Guard:** `tests/unit/standalone-screens-safe-area.test.ts` (helper output + every listed route pads through it). Web-only change: live in installed shells after the Vercel deploy, no new native build.
+- **One source:** `--safe-top|right|bottom|left` in `src/app/globals.css` read Capacitor's injected `--safe-area-inset-*` first (the value the Android shell reports) and `env()` as the fallback (iOS, browsers; 0 on desktop). Every former `env(safe-area-inset-*)` in components now uses the tokens; `tests/unit/safe-area-tokens.test.ts` fails on a new raw `env()`. The store-review login page (self-contained HTML) reads the Android property first too.
+- **`/app` shell — one owner for the bottom inset:** the mobile `TabBar` when it shows, otherwise the shell root (`ROOT_SAFE_AREA_FULL`: phone sub-screens, the iPad sidebar chrome). `BottomBar` and the sidebar footer no longer add it themselves (no double padding). Found by the new check: on an iPad Pro in portrait (sidebar chrome) the event screen's last button sat under the home indicator.
+- **Outside the shell:** `safeAreaPadding()` (`src/lib/po/safe-area.ts`) on the onboarding wizard (shell, Welcome, invites), consent, `/login`, the MFA layout, the `/door` picker and not-found; `/door/[id]` (`DoorRoute`) now owns its bottom inset too. Full-screen overlays pad themselves: the door's stale-resume overlay, the influencer stats modal, the cockpit modals.
+- **Guard (layout suite):** every touch project runs under simulated system bars (48px status bar, 48px Android 3-button navigation bar), set through the same `--safe-area-inset-*` the Android shell injects (`tests/e2e/layout/safe-area.ts`). New check per `/app` screen: no visible text or control under a bar, unless a scroller can still move it out. `standalone-safe-area.spec.ts` covers `/login`, `/door`, `/door/[id]` and not-found; the `onboarding` flow's native variants run under the same bars (Q15: consent, Welcome, Company, Team). Ran locally on all four touch devices: 1140 passed; Q15 and the login check both proven to fail with the padding removed (Q15 then reports exactly the screenshot: step header under the status bar, the hint line under the navigation bar).
+- **Design rule:** `design-system.md` "Safe area" (seven rules, including: mobile designs draw the system bars and keep text and tap targets out of them) and the CLAUDE.md Capacitor checklist line.
+- **Not covered by simulation:** real WebKit (iPad/iPhone) and a real Android WebView. Web-only change, live in installed shells after the Vercel deploy; no new native build.
 
 ---
 

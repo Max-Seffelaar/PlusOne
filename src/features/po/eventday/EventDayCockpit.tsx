@@ -74,6 +74,7 @@ import {
   type FeedEntry,
   type StatusFilter,
 } from './cockpit';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 const press = pressDesktop;
 const DENY_REASON = t.cockpit.denyReason;
@@ -833,7 +834,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
               tail: afterInside > 0 ? fmt(t.cockpit.modalCheckoutLineTail, { after: afterInside }) : '',
             });
             return (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" style={safeAreaPadding(16)} onClick={() => setModal(null)}>
                 <div className="w-[340px] rounded-[18px] border border-line bg-elev p-5" onClick={(e) => e.stopPropagation()}>
                   <div className="font-display text-[17px] font-bold text-text">
                     {g.name}
