@@ -27,10 +27,10 @@
  * Latched: once the outbox is up, a later pointer/width change never redirects
  * it away mid-shift.
  *
- * Root pads the top/side safe area like the `/app` shell root (T1
- * `ROOT_SAFE_AREA`): under `viewport-fit=cover` this route otherwise draws
- * under the status bar/notch. The bottom inset stays with the door's own
- * bottom-edge components.
+ * Root pads the whole safe area like a tab-bar-less `/app` shell root
+ * (`ROOT_SAFE_AREA_FULL`): under `viewport-fit=cover` this route otherwise
+ * draws under the status bar/notch and the navigation bar / home indicator.
+ * There is no tab bar here, so the root owns the bottom inset too.
  */
 import { type JSX, useEffect, useState } from 'react';
 import { PoDoorTab, type DoorOverlay } from '@/components/po/screens/door';
@@ -39,7 +39,7 @@ import { useNativeBackIntercept } from '@/components/po/native-back-intercept';
 import { t } from '@/lib/i18n';
 import { doorPath } from '@/components/po/routes';
 import { useLatchedDoorVariant } from '@/components/po/use-door-variant';
-import { ROOT_SAFE_AREA } from '@/components/po/shell-responsive';
+import { ROOT_SAFE_AREA_FULL } from '@/components/po/shell-responsive';
 import { DoorProvider } from '../DoorProvider';
 import { DoorLeaveGuard } from './DoorLeaveGuard';
 
@@ -61,7 +61,7 @@ export function DoorRoute({ eventId }: { eventId: string }): JSX.Element {
 
   if (variant !== 'outbox') {
     return (
-      <div className="flex h-[100dvh] items-center justify-center gap-3 bg-bg text-faint" style={ROOT_SAFE_AREA}>
+      <div className="flex h-[100dvh] items-center justify-center gap-3 bg-bg text-faint" style={ROOT_SAFE_AREA_FULL}>
         <Spinner size={20} />
         <span className="text-[13.5px]">{t.common.loading}</span>
       </div>
@@ -70,7 +70,7 @@ export function DoorRoute({ eventId }: { eventId: string }): JSX.Element {
 
   return (
     <DoorProvider eventId={eventId}>
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg" style={ROOT_SAFE_AREA}>
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg" style={ROOT_SAFE_AREA_FULL}>
         <PoDoorTab
           tab={tab}
           onTab={setTab}

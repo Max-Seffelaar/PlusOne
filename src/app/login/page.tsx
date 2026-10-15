@@ -8,6 +8,7 @@ import {
 import { safeNextPath } from '@/features/auth/next-path';
 import { reviewLoginEnabled } from '@/features/auth/review-window';
 import { t } from '@/lib/i18n';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 export const metadata: Metadata = {
   title: 'Log in · PlusOne',
@@ -50,7 +51,7 @@ export default async function LoginPage({
   const showReviewLink = reviewLoginEnabled();
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center" style={safeAreaPadding(16)}>
       <OtpLoginForm nextPath={nextPath} errorKind={errorKind} />
       {showReviewLink ? (
         // A plain same-origin <a>, not next/link (the target is a route

@@ -12,6 +12,7 @@ import { Icon } from '@/components/po/icon';
 import { Btn, ConsentCheck, Field, Label } from '@/components/po/kit';
 import { CountrySelect, PhoneInput, type CountryCode } from '@/components/po/phone-lazy';
 import { acceptTermsAction } from '@/features/auth/consent-actions';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 export function ConsentScreen({
   next,
@@ -60,8 +61,8 @@ export function ConsentScreen({
     // mobile viewport the account-setup variant (extra name/phone fields +
     // keyboard) lost its heading and checkbox off the top edge.
     <div
-      className="flex min-h-[100dvh] flex-col items-center overflow-y-auto px-6"
-      style={{ background: AUTH_GRADIENT }}
+      className="flex min-h-[100dvh] flex-col items-center overflow-y-auto"
+      style={{ background: AUTH_GRADIENT, ...safeAreaPadding(0, 24) }}
     >
       <div className="m-auto w-full max-w-[460px] py-10">
         <span className="mb-6 inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-[6px] font-body text-[12.5px] font-bold text-acc">

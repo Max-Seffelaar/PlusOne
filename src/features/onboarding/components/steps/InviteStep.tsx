@@ -17,6 +17,7 @@ import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 import { Btn } from '@/components/po/kit';
 import { InviteActions, useInviteDecisions } from '@/features/auth/components/InviteDecisions';
+import { safeAreaPadding } from '@/lib/po/safe-area';
 
 export interface OnboardingInvite {
   id: string;
@@ -34,8 +35,8 @@ export function InviteStep({ invites, onSkip }: { invites: OnboardingInvite[]; o
 
   return (
     <div
-      className="flex h-[100dvh] flex-col items-center justify-center overflow-y-auto px-6 py-10"
-      style={{ background: AUTH_GRADIENT }}
+      className="flex h-[100dvh] flex-col items-center justify-center overflow-y-auto"
+      style={{ background: AUTH_GRADIENT, ...safeAreaPadding(40, 24) }}
     >
       <div className="w-full max-w-[460px]">
         {!allDone && (

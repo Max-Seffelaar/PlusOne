@@ -1,5 +1,6 @@
 import { test, expect, clickUntilVisible, expectNoHorizontalOverflow, reportsNative, PURCHASE_COPY, type Flow } from './harness';
 import type { Page } from '@playwright/test';
+import { underSystemBars } from '../e2e/layout/safe-area';
 
 /**
  * Flow: a brand-new owner from first login to the Billing screen — Welcome →
@@ -9,7 +10,9 @@ import type { Page } from '@playwright/test';
  * stack only — the route 404s in prod), so it never depends on seed state and
  * can run again on the same stack.
  *
- * Q14 (Onboarding A, z8uq9m2vg5): the company step asks the DPA only. The
+ * Q14 (Onboarding A, z8uq9m2vg5): the company step asks the DPA only.
+ * Q15 (safe area, 2026-10-15): the native variants run under simulated
+ * system bars; no wizard step may put text or a button under them. The
  * comped platform invite walk is its own flow, onboarding-comped.flow.ts.
  *
  * The numbered checks are the machine-answerable half of this flow's test
@@ -19,12 +22,22 @@ import type { Page } from '@playwright/test';
 
 const VENUE = 'Club Nova';
 
+/** Native variants carry simulated status/navigation bars (harness.ts): text
+ *  and buttons on every wizard step must stay out from under them (design-
+ *  system.md "Safe area"; Max's Android test 2026-10-15, the Team step). */
+const coveredOnSteps: string[] = [];
+async function noteSystemBars(page: Page, flow: Flow, step: string): Promise<void> {
+  if (!flow.native) return;
+  for (const hit of await underSystemBars(page)) coveredOnSteps.push(`${step}: ${hit}`);
+}
+
 async function wizardHasNoPurchaseCopy(page: Page, flow: Flow): Promise<void> {
   if (!flow.native) return;
   await expect(page.locator('body')).not.toHaveText(PURCHASE_COPY);
 }
 
 test('onboarding: new owner, consent → wizard → app → billing', async ({ page, flow, baseURL }) => {
+  coveredOnSteps.length = 0;
   const email = `flow-onb-${flow.variant}-${Date.now().toString(36)}@plusone.test`;
 
   await page.goto(`/auth/dev-login?email=${encodeURIComponent(email)}&create=1&next=/onboarding`);
@@ -41,6 +54,7 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
   } else {
     flow.skip(13, 'The native-shell simulation is live (the app seam reports native)');
   }
+  await noteSystemBars(page, flow, 'consent');
   await flow.shot('account-consent');
 
   const submit = page.getByRole('button', { name: /Create account|Agree/i }).first();
@@ -62,9 +76,11 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
     await expect(page.getByRole('button', { name: /Set up account/i })).toBeVisible();
     await wizardHasNoPurchaseCopy(page, flow);
   });
+  await noteSystemBars(page, flow, 'welcome');
   await flow.shot('welcome');
   const name = page.getByPlaceholder('e.g. LOFI');
   await clickUntilVisible(page.getByRole('button', { name: /Set up account/i }), name);
+  await noteSystemBars(page, flow, 'company');
   await flow.shot('company-empty');
   await name.fill(VENUE);
   await page.getByPlaceholder('Wibautstraat 150, Amsterdam').fill('Wibautstraat 150, Amsterdam');
@@ -92,7 +108,15 @@ test('onboarding: new owner, consent → wizard → app → billing', async ({ p
   });
 
   await expect(skipTeam).toBeVisible();
+  await noteSystemBars(page, flow, 'team');
   await flow.shot('team');
+  if (flow.native) {
+    await flow.check(15, 'Native shell: no text or button under the status bar or the navigation bar on consent, Welcome, Company or Team', async () => {
+      expect(coveredOnSteps, coveredOnSteps.join('\n')).toEqual([]);
+    });
+  } else {
+    flow.skip(15, 'Native shell: no text or button under the status bar or the navigation bar on consent, Welcome, Company or Team');
+  }
   await flow.check(6, 'The Team step can be skipped and lands in the app', async () => {
     await skipTeam.click();
     await page.waitForURL(/\/app/);
