@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-10-15 — CI: `lint-and-test` split into three parallel jobs (PLU-127)
+
+CI + docs only, no app code, no migration. Prompted by Max finding PR CI too slow (8–15 min)
+and weighing Blacksmith; see "Why not Blacksmith" below.
+
+- **What was slow.** The required gate was one serial job. Step timings of run 38707240074
+  (8.5 min): lint + type-check + vitest 150 s, `supabase start` 81 s, e2e smoke 93 s,
+  `pnpm build` 103 s, pgTAP 21 s, Playwright browser 22 s, setup ~20 s. The 18–20 min
+  runs are the non-required `flow-shots` shards, untouched here.
+- **New shape.** `unit` (migration-collision check, install, `check`), `db-and-smoke`
+  (install, Supabase stack, pgTAP, concurrency test, e2e smoke) and `build` run side by
+  side; wall time is the slowest branch. `scripts/session-setup.mjs check` now runs
+  lint, type-check and vitest concurrently with buffered per-suite output and a verdict
+  for every suite; `--sequential` restores the old fail-fast stream. Install still goes
+  through the one setup script in every job.
+- **Build cache.** `actions/cache` on `.next/cache`, keyed on the lockfile and the
+  sources, restore-keys on the lockfile; PRs read main's cache.
+- **Smaller stack.** `supabase start -x studio,mailpit,imgproxy,postgres-meta,
+  edge-runtime,storage-api,vector` in `db-and-smoke` and `layout-suite`: no spec, pgTAP
+  file or `src/` path uses them (dev-login mints its link server-side). `flow-shots`
+  keeps the full stack because the flows read Mailpit. gotrue, kong, postgrest and
+  realtime stay.
+- **Branch protection (Max, GitHub settings).** Require `unit`, `db-and-smoke` and
+  `build`; remove `lint-and-test`. The PR cannot merge before that is done, because the
+  old required check no longer reports.
+- **Why not Blacksmith (yet).** It is GitHub-organisation-only and the repo sits on a
+  personal account; the repo is public, so GitHub-hosted minutes are free and runners
+  are already 4 vCPU. At ~36 job-minutes per run and ~980 runs a month it would cost
+  roughly $100–250 where GitHub costs nothing. Revisit after measuring this change, or
+  if the repo goes private (Free plan: 2,000 min/month).
+- **Not verified locally.** Workflow YAML parses and the setup script passes a syntax
+  check and its failure path; the real timings come from this PR's own run.
+
+---
+
 ## 2026-10-15 — Dependabot: one weekly minor/patch PR, every npm major ignored (PLU-118)
 
 Config + docs only, no code, no migration. Decision Max 2026-10-15 ("van essentieel belang").

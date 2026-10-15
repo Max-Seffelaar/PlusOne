@@ -7,7 +7,7 @@
 //
 // Caveat: bypassable with `git push --no-verify`, and can only see what the
 // last `git fetch` knows about origin/main. Blocking CI (Prod-ready 9/7 task
-// 02, the `lint-and-test` required check) is the real backstop.
+// 02, the required `unit` check) is the real backstop.
 import { execSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';

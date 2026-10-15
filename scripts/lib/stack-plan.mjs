@@ -182,7 +182,7 @@ export function planStack(facts, cli = SUPABASE_CLI) {
   // 5. dev-mfa — opt-in. It flags admin@ as a platform admin, and pgTAP relies
   //    on admin@ NOT being one (CLAUDE.md "Platform admins"): measured
   //    2026-10-05, a dev-mfa'd stack fails 6 pgTAP files. The default stack is
-  //    CI's lint-and-test stack (db:test, e2e:smoke); --dev-mfa is the
+  //    CI's db-and-smoke stack (db:test, e2e:smoke); --dev-mfa is the
   //    layout-suite / UI-test-pass stack.
   if (!facts.devMfa) {
     actions.push({ step: 'mfa', run: false, why: 'dev-mfa not requested (pass --dev-mfa for e2e:layout / admin@ dev-login)' });

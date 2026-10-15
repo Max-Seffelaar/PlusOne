@@ -7,8 +7,8 @@ on:
     branches: [main, develop]
 
 # One live run per PR: a new push cancels the PR's superseded run, so its 7 jobs
-# stop holding runners that the new head is queued behind (#437: lint-and-test
-# sat queued 5 min). Branch protection only reads the checks on the PR's head
+# stop holding runners that the new head is queued behind (#437: the then-single
+# lint-and-test job sat queued 5 min). Branch protection only reads the checks on the PR's head
 # commit, so a cancelled run on an older commit never blocks the merge.
 # Pushes to main/develop are never cancelled or queued: each push run gets its
 # own group (run_id). A shared per-ref group would not be enough, because GitHub
@@ -19,8 +19,19 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint-and-test:
+  # The required gate used to be ONE serial job, `lint-and-test` (~8.5 min on
+  # 2026-10-15: checks 150 s, supabase start 81 s, smoke 93 s, build 103 s, the
+  # rest ~60 s). It is now three independent jobs that run side by side, so
+  # wall time is the slowest branch (db-and-smoke), not the sum. Branch
+  # protection requires all three; `lint-and-test` no longer exists as a check.
+  # Every job still provisions through the ONE setup script (CLAUDE.md
+  # Conventions) — a second inline copy of install/suites drifts from the
+  # local one, and then you debug environment differences instead of code.
+
+  # lint + type-check + vitest, run concurrently inside the setup script.
+  unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v7
@@ -45,17 +56,36 @@ jobs:
         run: node scripts/hooks/check-migration-duplicates.mjs
 
       # Install + the pure-node suites go through the ONE setup script the
-      # laptop and the Claude web SessionStart hook also run — a second inline
-      # copy of these steps drifts from the local one, and then you debug
-      # environment differences instead of code (26/8). The suite list lives in
-      # the script and is validated against package.json before anything runs,
-      # so a renamed/removed script fails as "list drifted", not as a
-      # confusing mid-run pnpm error.
+      # laptop and the Claude web SessionStart hook also run. The suite list
+      # lives in the script and is validated against package.json before
+      # anything runs, so a renamed/removed script fails as "list drifted", not
+      # as a confusing mid-run pnpm error (26/8).
       - name: Install dependencies (shared session-setup script)
         run: node scripts/session-setup.mjs install
 
       - name: Lint, type-check, unit tests (shared session-setup script)
         run: node scripts/session-setup.mjs check
+
+  # pgTAP + the quota concurrency test + the Playwright core-flow smoke, all on
+  # one local Supabase stack. No `pnpm build` here: the smoke boots `pnpm dev`.
+  db-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies (shared session-setup script)
+        run: node scripts/session-setup.mjs install
 
       # pgTAP RLS/trigger tests run against a real local Postgres started by the
       # Supabase CLI (migrations applied from supabase/migrations + seed).
@@ -64,11 +94,17 @@ jobs:
         with:
           version: latest
 
-      # Full stack (db + auth + rest), not just `db start`: the e2e smoke needs
-      # GoTrue for dev-login and PostgREST for the app + DB assertions. Services
-      # disabled in supabase/config.toml (analytics, edge runtime…) stay off.
+      # Full stack (db + auth + rest + realtime), not just `db start`: the e2e
+      # smoke needs GoTrue for dev-login and PostgREST for the app + DB
+      # assertions, and the app subscribes to realtime. The containers below are
+      # excluded because nothing in pgTAP, the concurrency tests or the six
+      # smoke specs uses them: no mail is read (dev-login mints its magic link
+      # server-side), no storage or edge-function call exists in src/, and
+      # studio/postgres-meta are UI only. Fewer image pulls = a faster start.
+      # Add a container back here the day a smoke spec needs it. (Do NOT copy
+      # this list to flow-shots: those flows read Mailpit.)
       - name: Start local Supabase stack
-        run: supabase start
+        run: supabase start -x studio,mailpit,imgproxy,postgres-meta,edge-runtime,storage-api,vector
 
       # Wrapper, not bare `supabase test db`: pg_prove exits 0 on a file whose
       # plan() and assertion count have drifted apart, because pgTAP reports that
@@ -103,6 +139,40 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
 
+  # `next build` on its own runner, with Next's incremental cache restored.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies (shared session-setup script)
+        run: node scripts/session-setup.mjs install
+
+      # Next's own recommended CI cache (webpack/SWC output + fetch cache). The
+      # primary key changes with the sources, so a cache is always re-saved;
+      # restore-keys fall back to the newest cache for the same lockfile. A PR
+      # reads main's cache (caches are branch-scoped, with main as the shared
+      # fallback), so the first run of a PR is warm too. A stale cache costs
+      # time, never correctness: Next re-validates entries against the sources.
+      - name: Restore Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('src/**/*.[jt]s', 'src/**/*.[jt]sx', 'next.config.*') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-
+
       - name: Build
         run: pnpm build
         env:
@@ -124,7 +194,7 @@ jobs:
   # on touch, 1024px chrome, console/network, Deur variant) + one full-page
   # screenshot per screen × device for human review. Deliberately NOT a
   # required check yet — Max decides that once it has been stable. Same stack
-  # setup as lint-and-test: install through the ONE setup script, then the
+  # setup as db-and-smoke: install through the ONE setup script, then the
   # same Supabase start + env provisioning steps.
   layout-suite:
     runs-on: ubuntu-latest
@@ -151,7 +221,7 @@ jobs:
           version: latest
 
       - name: Start local Supabase stack
-        run: supabase start
+        run: supabase start -x studio,mailpit,imgproxy,postgres-meta,edge-runtime,storage-api,vector
 
       - name: Provision .env.local from the running stack
         run: node scripts/dev-env.mjs
