@@ -3,7 +3,7 @@
 //
 //   laptop              node scripts/session-setup.mjs install   (then: check)
 //   Claude web session  .claude/hooks/session-start.sh → install (SessionStart hook)
-//   CI                  .github/workflows/ci.yml → install, then check
+//   CI                  .github/workflows/ci.yml → install (every job), check (unit)
 //
 // One script on purpose: two setups that must do the same thing WILL drift
 // apart, and then you debug environment differences instead of code.
@@ -12,8 +12,9 @@
 //   inventory  (default) read-only: versions, tools, which suites can run here.
 //              Writes nothing — every mode starts by looking, never by writing.
 //   install    inventory + `pnpm install --frozen-lockfile`.
-//   check      run the pure-node CI suites (CORE_SUITES), then report honestly
-//              which CI suites did NOT run here.
+//   check      run the pure-node CI suites (CORE_SUITES) in parallel, output
+//              buffered per suite (`--sequential` = the old fail-fast stream),
+//              then report honestly which CI suites did NOT run here.
 //   stack      opt-in, idempotent: bring the local Supabase stack up so the
 //              STACK_SUITES can run here (docker daemon → pinned supabase CLI →
 //              `supabase start` → .env.local; dev-mfa only with --dev-mfa,
@@ -56,7 +57,7 @@ import {
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
-// The pure-node half of CI's `lint-and-test` job. Every name is validated
+// The pure-node half of CI (the `unit` job). Every name is validated
 // against package.json before anything runs: a from-memory suite list once
 // named a script that does not exist on main, and the mistake surfaced mid-run
 // as a confusing pnpm error instead of "this list drifted" (26/8). The
@@ -236,7 +237,28 @@ function install(manifest, inv) {
   console.log('[session-setup] install done.');
 }
 
-function check(manifest) {
+/**
+ * One suite as a child process with its output captured, so concurrent suites
+ * never interleave lines. Resolves (never rejects) with the exit status.
+ */
+function runCaptured(cmd, args) {
+  return new Promise((resolveRun) => {
+    const started = Date.now();
+    const chunks = [];
+    const child = spawn(cmd, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => chunks.push(d));
+    child.stderr.on('data', (d) => chunks.push(d));
+    const finish = (status) =>
+      resolveRun({ status, output: Buffer.concat(chunks).toString('utf8'), ms: Date.now() - started });
+    child.on('error', (e) => {
+      chunks.push(Buffer.from(String(e)));
+      finish(1);
+    });
+    child.on('close', (code) => finish(code ?? 1));
+  });
+}
+
+async function check(manifest, argv = []) {
   // Validate the whole list against the manifest BEFORE running anything, so
   // a drifted name fails as "the list drifted", never as a mid-run mystery.
   const missing = missingFromManifest(manifest, CORE_SUITES.map((s) => s.script));
@@ -250,24 +272,58 @@ function check(manifest) {
   }
 
   const gh = process.env.GITHUB_ACTIONS === 'true';
-  for (const suite of CORE_SUITES) {
-    const argv = ['run', suite.script, ...(suite.args ?? [])];
-    const label = `pnpm ${argv.join(' ')}`;
-    if (gh) console.log(`::group::${label}`);
-    else console.log(`\n[session-setup] ${label}`);
-    const status = run('pnpm', argv);
-    if (gh) console.log('::endgroup::');
-    if (status !== 0) {
-      console.error(`[session-setup] FAILED: ${label}`);
-      process.exit(status);
+  const sequential = argv.includes('--sequential');
+  const plan = CORE_SUITES.map((suite) => {
+    const args = ['run', suite.script, ...(suite.args ?? [])];
+    return { args, label: `pnpm ${args.join(' ')}` };
+  });
+
+  if (sequential) {
+    // Fail-fast and streaming: the old behaviour, one suite after the other.
+    for (const { args, label } of plan) {
+      if (gh) console.log(`::group::${label}`);
+      else console.log(`\n[session-setup] ${label}`);
+      const status = run('pnpm', args);
+      if (gh) console.log('::endgroup::');
+      if (status !== 0) {
+        console.error(`[session-setup] FAILED: ${label}`);
+        process.exit(status);
+      }
+    }
+  } else {
+    // The suites are independent (lint, tsc and vitest read the tree and write
+    // nothing the others read), and run back to back they were ~150 s of CI
+    // wall time. Run them together, buffer each one's output, print it whole
+    // once it is done, and only then decide: every failing suite is reported,
+    // not just the first one to lose the race.
+    console.log(`[session-setup] running ${plan.length} suites in parallel (--sequential to opt out)`);
+    const results = await Promise.all(plan.map(({ args }) => runCaptured('pnpm', args)));
+    let firstFailure = null;
+    plan.forEach(({ label }, i) => {
+      const r = results[i];
+      const secs = (r.ms / 1000).toFixed(0);
+      const verdict = r.status === 0 ? 'ok' : `FAILED (exit ${r.status})`;
+      // Only a green suite goes into a collapsed group; a failure stays open.
+      const grouped = gh && r.status === 0;
+      if (grouped) console.log(`::group::${label} — ${verdict} in ${secs}s`);
+      else console.log(`\n[session-setup] ${label} — ${verdict} in ${secs}s`);
+      process.stdout.write(r.output.endsWith('\n') ? r.output : `${r.output}\n`);
+      if (grouped) console.log('::endgroup::');
+      if (r.status !== 0 && firstFailure === null) firstFailure = r.status;
+    });
+    const bad = plan.filter((_, i) => results[i].status !== 0).map((p) => p.label);
+    if (bad.length > 0) {
+      console.error(`[session-setup] FAILED: ${bad.join(', ')}`);
+      process.exit(firstFailure ?? 1);
     }
   }
 
   console.log(
     `\n[session-setup] core suites green: ${CORE_SUITES.map((s) => s.script).join(', ')}.\n` +
       `NOT run by this command: ${STACK_SUITES.join(', ')} (need the local Supabase\n` +
-      'stack) and `pnpm build` — CI runs those in the same lint-and-test job, and the\n' +
-      'migration-duplicate check runs via the pre-push hook + CI. check ≠ CI green.'
+      'stack) and `pnpm build` — CI runs those in its db-and-smoke and build jobs, next to\n' +
+      'this unit job, and the migration-duplicate check runs via the pre-push hook + CI.\n' +
+      'check ≠ CI green.'
   );
 }
 
@@ -459,12 +515,12 @@ switch (mode) {
     install(manifest, inventory(manifest));
     break;
   case 'check':
-    check(manifest);
+    await check(manifest, process.argv.slice(3));
     break;
   case 'stack':
     stack(manifest, process.argv.slice(3));
     break;
   default:
-    console.error('usage: node scripts/session-setup.mjs [inventory|install|check|stack [--start-docker] [--dev-mfa]]');
+    console.error('usage: node scripts/session-setup.mjs [inventory|install|check [--sequential]|stack [--start-docker] [--dev-mfa]]');
     process.exit(2);
 }

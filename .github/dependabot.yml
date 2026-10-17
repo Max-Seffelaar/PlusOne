@@ -1,7 +1,7 @@
 version: 2
 updates:
   # pnpm dependencies. Update PRs are gated by the existing blocking CI
-  # (lint-and-test, branch protection on main) — a red update PR just doesn't
+  # (unit, db-and-smoke and build, branch protection on main) — a red update PR just doesn't
   # merge, no separate gate needed.
   - package-ecosystem: "npm"
     directory: "/"
